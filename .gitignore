@@ -1,0 +1,12 @@
+# JUCE ignorar basura
+Builds/*/x64/
+Builds/*/Debug/
+Builds/*/Release/
+*.ncb
+*.suo
+*.user
+*.sdf
+*.opensdf
+.vs/
+*.ipch
+/JuceLibraryCode/
