@@ -63,7 +63,7 @@ private:
     // 4. Funciones internas para manejar el Grafo de Audio
     void syncAudioGraph(); // Reconstruye las conexiones
     void connectNodes(juce::AudioProcessorGraph::Node::Ptr source, juce::AudioProcessorGraph::Node::Ptr dest);
-
+    void rebuildChain();
     // Grafo Principal
     std::unique_ptr<juce::AudioProcessorGraph> mainGraph;
 

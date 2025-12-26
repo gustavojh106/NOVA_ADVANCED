@@ -3,7 +3,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 // ==============================================================================
-// 1. EDITOR GRÁFICO (Sin cambios, mantenemos tu UI bonita)
+// 1. EDITOR GRÁFICO (Sin cambios)
 // ==============================================================================
 class PedalOverdriveEditor : public juce::AudioProcessorEditor
 {
@@ -59,14 +59,12 @@ private:
 };
 
 // ==============================================================================
-// 2. PROCESADOR DSP (Con Oversampling)
+// 2. PROCESADOR DSP (Con Protección Anti-Crash)
 // ==============================================================================
 class PedalOverdrive : public ProcessorBase
 {
 public:
     PedalOverdrive() :
-        // Inicializamos el oversampler: 
-        // 2 canales, Factor 2 (2^2 = 4x Oversampling), Filtro IIR (Eficiente y baja latencia)
         oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
         addParameter(driveParam = new juce::AudioParameterFloat("drive", "Drive", 0.0f, 100.0f, 25.0f));
@@ -81,42 +79,52 @@ public:
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
     {
-        // 1. Preparar el Oversampler primero
+        // 1. Escudo Básico
+        if (sampleRate <= 0) return;
+
+        // 2. Inicializar DSP
         oversampler.initProcessing(static_cast<size_t>(samplesPerBlock));
 
-        // 2. Preparar la cadena DSP con la frecuencia MULTIPLICADA
-        // Como vamos a correr a 4x velocidad, el DSP debe saberlo (importante para filtros)
         juce::dsp::ProcessSpec spec;
-        spec.sampleRate = sampleRate * 4.0; // <--- OJO AQUÍ
+        spec.sampleRate = sampleRate * 4.0;
         spec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock) * 4;
         spec.numChannels = 2;
 
         processorChain.prepare(spec);
-
-        // Reportar latencia al host (El oversampling añade unos pocos samples de retraso)
         setLatencySamples(oversampler.getLatencyInSamples());
+
+        // 3. Reset
+        oversampler.reset();
+        processorChain.reset();
+
+        // 4. ¡SEMÁFORO EN VERDE!
+        isPrepared = true;
+    }
+
+    void releaseResources() override
+    {
+        isPrepared = false; // Apagar al destruir
     }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
+        // --- ESCUDO TOTAL ---
+        // Si prepareToPlay no ha corrido, NO TOCAMOS EL OVERSAMPLER.
+        // Esto evita el crash de memoria 0xFF...
+        if (!isPrepared) return;
+
         juce::dsp::AudioBlock<float> block(buffer);
 
         // Actualizar parámetros
         processorChain.get<0>().setGainLinear(*driveParam);
         processorChain.get<2>().setGainLinear(*levelParam);
 
-        // --- MAGIA DEL OVERSAMPLING ---
-
-        // 1. Subir resolución (Upsample)
-        // Esto crea un bloque temporal mucho más grande con más datos
+        // --- MAGIA DEL OVERSAMPLING SEGURA ---
         juce::dsp::AudioBlock<float> upsampledBlock = oversampler.processSamplesUp(block);
 
-        // 2. Procesar la distorsión en Alta Resolución
         juce::dsp::ProcessContextReplacing<float> context(upsampledBlock);
         processorChain.process(context);
 
-        // 3. Bajar resolución (Downsample)
-        // Esto filtra el aliasing y devuelve el audio al tamaño normal del buffer
         oversampler.processSamplesDown(block);
     }
 
@@ -126,9 +134,11 @@ private:
     using Chain = juce::dsp::ProcessorChain<juce::dsp::Gain<float>, juce::dsp::WaveShaper<float>, juce::dsp::Gain<float>>;
     Chain processorChain;
 
-    // Objeto de Oversampling
     juce::dsp::Oversampling<float> oversampler;
 
     juce::AudioParameterFloat* driveParam;
     juce::AudioParameterFloat* levelParam;
+
+    // EL SALVAVIDAS
+    bool isPrepared = false;
 };

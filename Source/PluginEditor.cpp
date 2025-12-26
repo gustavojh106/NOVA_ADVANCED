@@ -89,13 +89,14 @@ void NOVAAudioProcessorEditor::valueTreeChildRemoved(juce::ValueTree& parent, ju
 
 void NOVAAudioProcessorEditor::updatePedalGui()
 {
-    // 1. Limpiamos visualmente
+    // 1. Limpiamos
     activeEditors.clear();
 
-    // 2. Obtenemos la VERDAD desde el Processor (los nodos reales que están sonando)
+    // 2. Obtenemos los nodos reales del audio
     const auto& nodes = audioProcessor.getNodes();
 
-    // 3. Recreamos los editores
+    // 3. Iteramos con un índice (necesario para saber cuál borrar)
+    int index = 0;
     for (auto node : nodes)
     {
         if (node != nullptr)
@@ -103,15 +104,20 @@ void NOVAAudioProcessorEditor::updatePedalGui()
             auto* processor = node->getProcessor();
             if (processor && processor->hasEditor())
             {
-                if (auto* editor = processor->createEditor())
+                // Creamos el editor del pedal
+                if (auto* pedalEditor = processor->createEditor())
                 {
-                    addAndMakeVisible(editor);
-                    activeEditors.add(editor);
+                    // LO ENVOLVEMOS EN EL WRAPPER (Aquí pasamos el índice)
+                    auto* wrapper = new PedalWrapper(pedalEditor, index, audioProcessor);
+
+                    addAndMakeVisible(wrapper);
+                    activeEditors.add(wrapper);
                 }
             }
         }
+        index++;
     }
 
-    // 4. Reacomodamos
+    // 4. Reacomodamos la pantalla
     resized();
 }

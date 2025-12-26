@@ -2,7 +2,53 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
+// Clase auxiliar que envuelve un pedal para añadirle el menú contextual
+class PedalWrapper : public juce::Component
+{
+public:
+    PedalWrapper(juce::AudioProcessorEditor* editorToWrap, int index, NOVAAudioProcessor& p)
+        : pedalIndex(index), processor(p)
+    {
+        // Guardamos el editor real dentro
+        editor.reset(editorToWrap);
+        addAndMakeVisible(editor.get());
 
+        // Configuramos tamaño
+        setSize(editor->getWidth(), editor->getHeight());
+        addMouseListener(this, true);
+    }
+
+    void resized() override
+    {
+        if (editor) editor->setBounds(getLocalBounds());
+    }
+
+    // AQUÍ ESTÁ LA MAGIA DEL CLIC DERECHO
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        // Si es clic derecho (o Ctrl+Clic en Mac)
+        if (e.mods.isPopupMenu())
+        {
+            juce::PopupMenu m;
+            m.addItem(1, "Eliminar Pedal / Remove"); // ID 1
+
+            // Mostramos el menú de forma asíncrona
+            m.showMenuAsync(juce::PopupMenu::Options(), [this](int result)
+                {
+                    if (result == 1)
+                    {
+                        // Llamamos a la función de borrado del procesador
+                        processor.requestRemovePedal(pedalIndex);
+                    }
+                });
+        }
+    }
+
+private:
+    std::unique_ptr<juce::AudioProcessorEditor> editor;
+    int pedalIndex;
+    NOVAAudioProcessor& processor;
+};
 // Clase auxiliar para botones arrastrables (se mantiene igual, es perfecta)
 class DraggableButton : public juce::TextButton
 {
@@ -53,7 +99,6 @@ private:
     DraggableButton btnAddNeural{ "Neural" };
 
     // Lista de editores de los pedales (Solo para visualización)
-    juce::OwnedArray<juce::AudioProcessorEditor> activeEditors;
-
+    juce::OwnedArray<PedalWrapper> activeEditors;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NOVAAudioProcessorEditor)
 };
