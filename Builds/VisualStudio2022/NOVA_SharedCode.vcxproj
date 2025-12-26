@@ -149,6 +149,7 @@
     <ClCompile Include="..\..\Source\Lib\RTNeural\RTNeural.cpp"/>
     <ClCompile Include="..\..\Source\Effects\Pedals\Neural\NeuralEditor.cpp"/>
     <ClCompile Include="..\..\Source\Effects\Pedals\Neural\NeuralPedal.cpp"/>
+    <ClCompile Include="..\..\Source\Core\AudioEngine.cpp"/>
     <ClCompile Include="..\..\Source\Core\PluginEditor.cpp"/>
     <ClCompile Include="..\..\Source\Core\PluginProcessor.cpp"/>
     <ClCompile Include="..\..\..\..\..\..\Downloads\juce-8.0.12-windows\JUCE\modules\juce_audio_basics\audio_play_head\juce_AudioPlayHead.cpp">
@@ -3404,6 +3405,7 @@
     <ClInclude Include="..\..\Source\Effects\Pedals\Overdrive\OverdriveEditor.h"/>
     <ClInclude Include="..\..\Source\Effects\Pedals\Overdrive\OverdrivePedal.h"/>
     <ClInclude Include="..\..\Source\Effects\Pedals\Base\ProcessorBase.h"/>
+    <ClInclude Include="..\..\Source\Core\AudioEngine.h"/>
     <ClInclude Include="..\..\Source\Core\PedalRegistry.h"/>
     <ClInclude Include="..\..\Source\Core\PluginEditor.h"/>
     <ClInclude Include="..\..\Source\Core\PluginProcessor.h"/>

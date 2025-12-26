@@ -93,8 +93,7 @@ void NOVAAudioProcessorEditor::updatePedalGui()
     activeEditors.clear();
 
     // 2. Obtenemos los nodos reales del audio
-    const auto& nodes = audioProcessor.getNodes();
-
+    const auto& nodes = audioProcessor.getAudioEngine().getActiveNodes();
     // 3. Iteramos con un ndice (necesario para saber cul borrar)
     int index = 0;
     for (auto node : nodes)

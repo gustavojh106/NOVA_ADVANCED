@@ -943,6 +943,9 @@
     <ClCompile Include="..\..\Source\Effects\Pedals\Neural\NeuralPedal.cpp">
       <Filter>NOVA\Source\Effects\Pedals\Neural</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Source\Core\AudioEngine.cpp">
+      <Filter>NOVA\Source\Core</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Source\Core\PluginEditor.cpp">
       <Filter>NOVA\Source\Core</Filter>
     </ClCompile>
@@ -5186,6 +5189,9 @@
     </ClInclude>
     <ClInclude Include="..\..\Source\Effects\Pedals\Base\ProcessorBase.h">
       <Filter>NOVA\Source\Effects\Pedals\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Core\AudioEngine.h">
+      <Filter>NOVA\Source\Core</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\Core\PedalRegistry.h">
       <Filter>NOVA\Source\Core</Filter>
