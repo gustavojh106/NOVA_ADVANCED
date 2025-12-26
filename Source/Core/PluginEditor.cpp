@@ -13,7 +13,7 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     // 1. Nos suscribimos a los cambios del modelo
     audioProcessor.pluginState.addListener(this);
 
-    // 2. Carga inicial (por si abrimos el plugin y ya había pedales cargados)
+    // 2. Carga inicial (por si abrimos el plugin y ya habia pedales cargados)
     updatePedalGui();
 }
 
@@ -55,7 +55,7 @@ void NOVAAudioProcessorEditor::resized()
 }
 
 // ==============================================================================
-// Lógica Reactiva (SOTA)
+// La Reactiva (SOTA)
 // ==============================================================================
 
 bool NOVAAudioProcessorEditor::isInterestedInDragSource(const SourceDetails& dragSourceDetails)
@@ -71,14 +71,14 @@ void NOVAAudioProcessorEditor::itemDropped(const SourceDetails& dragSourceDetail
     juce::String pedalType = dragSourceDetails.description.toString();
     audioProcessor.requestAddPedal(pedalType);
 
-    // Y NO hacemos updatePedalGui() aquí. Esperamos la confirmación del Listener.
+    // Y NO hacemos updatePedalGui() aqu. Esperamos la confirmacin del Listener.
 }
 
 void NOVAAudioProcessorEditor::valueTreeChildAdded(juce::ValueTree& parent, juce::ValueTree& child)
 {
-    // El Processor ya actualizó el grafo de audio. Ahora nosotros actualizamos la vista.
-    // Usamos MessageManagerLock implícito (juce::Timer::callAsync) si fuera necesario,
-    // pero los callbacks de ValueTree suelen ser síncronos en el hilo principal si se disparan desde ahí.
+    // El Processor ya actualiz el grafo de audio. Ahora nosotros actualizamos la vista.
+    // Usamos MessageManagerLock implcito (juce::Timer::callAsync) si fuera necesario,
+    // pero los callbacks de ValueTree suelen ser sincronos en el hilo principal si se disparan desde ah.
     updatePedalGui();
 }
 
@@ -95,7 +95,7 @@ void NOVAAudioProcessorEditor::updatePedalGui()
     // 2. Obtenemos los nodos reales del audio
     const auto& nodes = audioProcessor.getNodes();
 
-    // 3. Iteramos con un índice (necesario para saber cuál borrar)
+    // 3. Iteramos con un ndice (necesario para saber cul borrar)
     int index = 0;
     for (auto node : nodes)
     {
@@ -107,7 +107,7 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                 // Creamos el editor del pedal
                 if (auto* pedalEditor = processor->createEditor())
                 {
-                    // LO ENVOLVEMOS EN EL WRAPPER (Aquí pasamos el índice)
+                    // LO ENVOLVEMOS EN EL WRAPPER (Aqui pasamos el indice)
                     auto* wrapper = new PedalWrapper(pedalEditor, index, audioProcessor);
 
                     addAndMakeVisible(wrapper);

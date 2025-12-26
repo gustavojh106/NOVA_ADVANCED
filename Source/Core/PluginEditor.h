@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
-// Clase auxiliar que envuelve un pedal para aÒadirle el men˙ contextual
+// Clase auxiliar que envuelve un pedal para a√±adirle el men√∫ contextual
 class PedalWrapper : public juce::Component
 {
 public:
@@ -13,7 +13,7 @@ public:
         editor.reset(editorToWrap);
         addAndMakeVisible(editor.get());
 
-        // Configuramos tamaÒo
+        // Configuramos tama√±o
         setSize(editor->getWidth(), editor->getHeight());
         addMouseListener(this, true);
     }
@@ -23,7 +23,7 @@ public:
         if (editor) editor->setBounds(getLocalBounds());
     }
 
-    // AQUÕ EST¡ LA MAGIA DEL CLIC DERECHO
+    // AQU√ç EST√Å LA MAGIA DEL CLIC DERECHO
     void mouseDown(const juce::MouseEvent& e) override
     {
         // Si es clic derecho (o Ctrl+Clic en Mac)
@@ -32,12 +32,12 @@ public:
             juce::PopupMenu m;
             m.addItem(1, "Eliminar Pedal / Remove"); // ID 1
 
-            // Mostramos el men˙ de forma asÌncrona
+            // Mostramos el men√∫ de forma as√≠ncrona
             m.showMenuAsync(juce::PopupMenu::Options(), [this](int result)
                 {
                     if (result == 1)
                     {
-                        // Llamamos a la funciÛn de borrado del procesador
+                        // Llamamos a la funci√≥n de borrado del procesador
                         processor.requestRemovePedal(pedalIndex);
                     }
                 });
@@ -69,13 +69,13 @@ public:
 class NOVAAudioProcessorEditor : public juce::AudioProcessorEditor,
     public juce::DragAndDropContainer,
     public juce::DragAndDropTarget,
-    public juce::ValueTree::Listener // <--- NUEVO: OÌdos del sistema
+    public juce::ValueTree::Listener // <--- NUEVO: O√≠dos del sistema
 {
 public:
     NOVAAudioProcessorEditor(NOVAAudioProcessor&);
     ~NOVAAudioProcessorEditor() override;
 
-    // Gr·ficos
+    // Gr√°ficos
     void paint(juce::Graphics&) override;
     void resized() override;
 
@@ -84,11 +84,11 @@ public:
     void itemDropped(const SourceDetails& dragSourceDetails) override;
 
 private:
-    // Callbacks del ValueTree (AquÌ reaccionamos a los cambios)
+    // Callbacks del ValueTree (Aqu√≠ reaccionamos a los cambios)
     void valueTreeChildAdded(juce::ValueTree& parentTree, juce::ValueTree& childWhichHasBeenAdded) override;
     void valueTreeChildRemoved(juce::ValueTree& parentTree, juce::ValueTree& childWhichHasBeenRemoved, int moveFromIndex) override;
 
-    // FunciÛn para reconstruir la UI
+    // Funci√≥n para reconstruir la UI
     void updatePedalGui();
 
     NOVAAudioProcessor& audioProcessor;
@@ -98,7 +98,7 @@ private:
     DraggableButton btnAddCabinet{ "Cabinet" };
     DraggableButton btnAddNeural{ "Neural" };
 
-    // Lista de editores de los pedales (Solo para visualizaciÛn)
+    // Lista de editores de los pedales (Solo para visualizaci√≥n)
     juce::OwnedArray<PedalWrapper> activeEditors;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NOVAAudioProcessorEditor)
 };

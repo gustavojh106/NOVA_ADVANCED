@@ -15,7 +15,7 @@ public:
     // Le decimos a JUCE: "Acepto Mono, Acepto Stereo, Acepto lo que me des"
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override
     {
-        // Inputs y Outputs deben tener el mismo número de canales (para simplificar)
+        // Inputs y Outputs deben tener el mismo nÃºmero de canales (para simplificar)
         if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
             return false;
 
@@ -27,7 +27,7 @@ public:
         return true;
     }
 
-    // Boilerplate estándar
+    // Boilerplate estÃ¡ndar
     void prepareToPlay(double, int) override {}
     void releaseResources() override {}
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}

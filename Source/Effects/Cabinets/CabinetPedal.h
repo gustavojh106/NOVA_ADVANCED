@@ -1,5 +1,5 @@
 #pragma once
-#include "ProcessorBase.h"
+#include "../Pedals/Base/ProcessorBase.h"
 #include <juce_dsp/juce_dsp.h>
 
 // ==============================================================
@@ -30,14 +30,14 @@ public:
 };
 
 // ==============================================================
-// 2. EL PROCESADOR (DSP) - CON PROTECCI”N ANTI-CRASH
+// 2. EL PROCESADOR (DSP) - CON PROTECCI√ìN ANTI-CRASH
 // ==============================================================
 class PedalCabinet : public ProcessorBase
 {
 public:
     PedalCabinet()
     {
-        // Cargamos el IR en el constructor, pero NO permitimos procesar todavÌa
+        // Cargamos el IR en el constructor, pero NO permitimos procesar todav√≠a
         auto irFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
             .getParentDirectory().getChildFile("demo.wav");
 
@@ -66,26 +66,26 @@ public:
         // 3. Reset por seguridad
         convolution.reset();
 
-        // 4. °SEM¡FORO EN VERDE! Solo ahora es seguro procesar audio
+        // 4. ¬°SEM√ÅFORO EN VERDE! Solo ahora es seguro procesar audio
         isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false; // Sem·foro en rojo al cerrar
+        isPrepared = false; // Sem√°foro en rojo al cerrar
     }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
         // --- ESCUDO TOTAL ---
-        // Solo entramos si hay archivo Y si prepareToPlay ya ocurriÛ.
+        // Solo entramos si hay archivo Y si prepareToPlay ya ocurri√≥.
         if (isPrepared && convolution.getCurrentIRSize() > 0)
         {
             juce::dsp::AudioBlock<float> block(buffer);
             juce::dsp::ProcessContextReplacing<float> context(block);
             convolution.process(context);
         }
-        // Si no est· listo, el audio pasa limpio (Bypass) sin crashear.
+        // Si no est√° listo, el audio pasa limpio (Bypass) sin crashear.
     }
 
     const juce::String getName() const override { return "Cabinet"; }
@@ -99,7 +99,7 @@ public:
 private:
     juce::dsp::Convolution convolution;
 
-    // Esta variable salva el dÌa:
+    // Esta variable salva el d√≠a:
     // Evita que el processBlock corra antes que el prepareToPlay
     bool isPrepared = false;
 };

@@ -8,7 +8,10 @@
 #pragma once
 
 #include <JuceHeader.h>
-#include "ProcessorBase.h"
+#include "../Effects/Pedals/Overdrive/OverdrivePedal.h"
+#include "../Effects/Cabinets/CabinetPedal.h"
+//#include "../Effects/Pedals/Neural/NeuralPedal.h"
+#include "../Effects/Pedals/Base/ProcessorBase.h"
 
 class NOVAAudioProcessor : public juce::AudioProcessor,
     public juce::ValueTree::Listener // <--- AHORA ESCUCHAMOS DATOS
@@ -41,13 +44,13 @@ public:
     void setStateInformation(const void* data, int sizeInBytes) override;
 
     //==============================================================================
-    // ARQUITECTURA SOTA: GESTIÓN DE ESTADO
+    // ARQUITECTURA SOTA: GESTIÃ“N DE ESTADO
     //==============================================================================
 
     // 1. La Fuente de la Verdad (El Modelo)
     juce::ValueTree pluginState;
 
-    // 2. Función pública para pedir cambios (La UI llama a esto, no toca el grafo)
+    // 2. FunciÃ³n pÃºblica para pedir cambios (La UI llama a esto, no toca el grafo)
     void requestAddPedal(const juce::String& pedalType);
     void requestRemovePedal(int index);
     const std::vector<juce::AudioProcessorGraph::Node::Ptr>& getNodes() const

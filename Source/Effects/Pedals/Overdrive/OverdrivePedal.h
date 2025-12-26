@@ -1,9 +1,9 @@
 #pragma once
-#include "ProcessorBase.h"
+#include "../Base/ProcessorBase.h"
 #include <juce_dsp/juce_dsp.h>
 
 // ==============================================================================
-// 1. EDITOR GR¡FICO (Sin cambios)
+// 1. EDITOR GR√ÅFICO (Sin cambios)
 // ==============================================================================
 class PedalOverdriveEditor : public juce::AudioProcessorEditor
 {
@@ -59,7 +59,7 @@ private:
 };
 
 // ==============================================================================
-// 2. PROCESADOR DSP (Con ProtecciÛn Anti-Crash)
+// 2. PROCESADOR DSP (Con Protecci√≥n Anti-Crash)
 // ==============================================================================
 class PedalOverdrive : public ProcessorBase
 {
@@ -79,7 +79,7 @@ public:
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
     {
-        // 1. Escudo B·sico
+        // 1. Escudo B√°sico
         if (sampleRate <= 0) return;
 
         // 2. Inicializar DSP
@@ -97,7 +97,7 @@ public:
         oversampler.reset();
         processorChain.reset();
 
-        // 4. °SEM¡FORO EN VERDE!
+        // 4. ¬°SEM√ÅFORO EN VERDE!
         isPrepared = true;
     }
 
@@ -115,7 +115,7 @@ public:
 
         juce::dsp::AudioBlock<float> block(buffer);
 
-        // Actualizar par·metros
+        // Actualizar par√°metros
         processorChain.get<0>().setGainLinear(*driveParam);
         processorChain.get<2>().setGainLinear(*levelParam);
 

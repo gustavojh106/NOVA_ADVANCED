@@ -1,10 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "Pedal_Overdrive.h"
-#include "Pedal_Cabinet.h"
-#include "PedalNeural.h"
 
-// Identificadores estáticos para evitar erratas
+
+// Identificadores estÃ¡ticos para evitar erratas
 namespace IDs
 {
     static const juce::Identifier PEDAL_TAG("PEDAL");
@@ -17,7 +15,7 @@ NOVAAudioProcessor::NOVAAudioProcessor()
     : AudioProcessor(BusesProperties()
 #if ! JucePlugin_IsMidiEffect
 #if ! JucePlugin_IsSynth
-        // VITAL: Pedimos Stereo explícitamente
+        // VITAL: Pedimos Stereo explÃ­citamente
         .withInput("Input", juce::AudioChannelSet::stereo(), true)
 #endif
         .withOutput("Output", juce::AudioChannelSet::stereo(), true)
@@ -37,7 +35,7 @@ NOVAAudioProcessor::~NOVAAudioProcessor()
 }
 
 // ==============================================================================
-//  SOTA: MÉTODOS DE GESTIÓN DE ESTADO (La UI llama a esto)
+//  SOTA: MÃ‰TODOS DE GESTIÃ“N DE ESTADO (La UI llama a esto)
 // ==============================================================================
 void NOVAAudioProcessor::requestAddPedal(const juce::String& pedalType)
 {
@@ -45,7 +43,7 @@ void NOVAAudioProcessor::requestAddPedal(const juce::String& pedalType)
     juce::ValueTree newPedal(IDs::PEDAL_TAG);
     newPedal.setProperty(IDs::PEDAL_TYPE, pedalType, nullptr);
 
-    // Lo añadimos al árbol (Esto disparará valueTreeChildAdded)
+    // Lo aÃ±adimos al Ã¡rbol (Esto dispararÃ¡ valueTreeChildAdded)
     pluginState.appendChild(newPedal, nullptr);
 }
 
@@ -60,7 +58,7 @@ void NOVAAudioProcessor::requestRemovePedal(int index)
 // ==============================================================================
 void NOVAAudioProcessor::valueTreeChildAdded(juce::ValueTree& parent, juce::ValueTree& child)
 {
-    // Si se añadió un pedal a nuestro estado principal...
+    // Si se aÃ±adiÃ³ un pedal a nuestro estado principal...
     if (parent == pluginState && child.hasType(IDs::PEDAL_TAG))
     {
         // 1. Crear el Procesador real
@@ -69,12 +67,12 @@ void NOVAAudioProcessor::valueTreeChildAdded(juce::ValueTree& parent, juce::Valu
 
         if (type == "Overdrive") newPedalParams = std::make_unique<PedalOverdrive>();
         else if (type == "Cabinet") newPedalParams = std::make_unique<PedalCabinet>();
-        else if (type == "Neural") newPedalParams = std::make_unique<PedalNeural>();
+        //else if (type == "Neural") newPedalParams = std::make_unique<PedalNeural>();
 
         if (newPedalParams)
         {
-            // 2. Añadirlo al grafo de audio
-            // Nota: Usamos std::move porque el grafo pasa a ser el dueño
+            // 2. AÃ±adirlo al grafo de audio
+            // Nota: Usamos std::move porque el grafo pasa a ser el dueÃ±o
             auto node = mainGraph->addNode(std::move(newPedalParams));
 
             // 3. Guardarlo en nuestra lista interna
@@ -105,7 +103,7 @@ void NOVAAudioProcessor::syncAudioGraph()
     for (auto& c : mainGraph->getConnections())
         mainGraph->removeConnection(c);
 
-    // 2. GESTIÓN DE NODOS DE SISTEMA (Input/Output)
+    // 2. GESTIÃ“N DE NODOS DE SISTEMA (Input/Output)
     // Buscamos si ya existen para no duplicarlos
     juce::AudioProcessorGraph::Node::Ptr inputNode;
     juce::AudioProcessorGraph::Node::Ptr outputNode;
@@ -143,18 +141,18 @@ void NOVAAudioProcessor::syncAudioGraph()
         for (size_t i = 0; i < nodesChain.size() - 1; ++i)
             connectNodes(nodesChain[i], nodesChain[i + 1]);
 
-        // Último Pedal -> Salida
+        // Ãšltimo Pedal -> Salida
         connectNodes(nodesChain.back(), outputNode);
     }
 
-    // 4. INICIALIZACIÓN SEGURA (LA SOLUCIÓN AL CRASH)
+    // 4. INICIALIZACIÃ“N SEGURA (LA SOLUCIÃ“N AL CRASH)
     double rate = getSampleRate();
     int blockSize = getBlockSize();
 
-    // --- ESCUDO CRÍTICO ---
-    // Solo llamamos a setPlayConfigDetails si el motor de audio YA arrancó.
-    // Si rate es 0 (al abrir la app), saltamos esto. JUCE llamará a prepareToPlay
-    // automáticamente unos milisegundos después.
+    // --- ESCUDO CRÃTICO ---
+    // Solo llamamos a setPlayConfigDetails si el motor de audio YA arrancÃ³.
+    // Si rate es 0 (al abrir la app), saltamos esto. JUCE llamarÃ¡ a prepareToPlay
+    // automÃ¡ticamente unos milisegundos despuÃ©s.
     if (rate > 0.0 && blockSize > 0)
     {
         // A. Configurar Grafo Principal
@@ -186,9 +184,9 @@ void NOVAAudioProcessor::connectNodes(juce::AudioProcessorGraph::Node::Ptr sourc
 
     if (isSystemInput)
     {
-        // === LA CORRECCIÓN ===
+        // === LA CORRECCIÃ“N ===
         // En lugar de conectar 1->1 y 2->2, conectamos "TODOS contra TODOS".
-        // Esto suma la señal de la Entrada 2 en la entrada Izquierda del pedal.
+        // Esto suma la seÃ±al de la Entrada 2 en la entrada Izquierda del pedal.
 
         int numInputChannels = source->getProcessor()->getTotalNumOutputChannels();
         int numPedalInputs = dest->getProcessor()->getTotalNumInputChannels();
@@ -196,10 +194,10 @@ void NOVAAudioProcessor::connectNodes(juce::AudioProcessorGraph::Node::Ptr sourc
         for (int inCh = 0; inCh < numInputChannels; ++inCh)
         {
             // Conectar este canal de entrada al Canal L del pedal (0)
-            // (JUCE suma las señales automáticamente si hay varios cables al mismo pin)
+            // (JUCE suma las seÃ±ales automÃ¡ticamente si hay varios cables al mismo pin)
             mainGraph->addConnection({ { source->nodeID, inCh }, { dest->nodeID, 0 } });
 
-            // Si el pedal es estéreo, conectamos también al Canal R (1)
+            // Si el pedal es estÃ©reo, conectamos tambiÃ©n al Canal R (1)
             if (numPedalInputs > 1)
             {
                 mainGraph->addConnection({ { source->nodeID, inCh }, { dest->nodeID, 1 } });
@@ -208,10 +206,10 @@ void NOVAAudioProcessor::connectNodes(juce::AudioProcessorGraph::Node::Ptr sourc
     }
     else
     {
-        // Conexión normal entre pedales (L->L, R->R)
+        // ConexiÃ³n normal entre pedales (L->L, R->R)
         mainGraph->addConnection({ { source->nodeID, 0 }, { dest->nodeID, 0 } });
 
-        // Si ambos son estéreo, conectamos el derecho
+        // Si ambos son estÃ©reo, conectamos el derecho
         if (source->getProcessor()->getTotalNumOutputChannels() > 1 &&
             dest->getProcessor()->getTotalNumInputChannels() > 1)
         {
@@ -222,7 +220,7 @@ void NOVAAudioProcessor::connectNodes(juce::AudioProcessorGraph::Node::Ptr sourc
 
 void NOVAAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    DBG("--- PREPARE TO PLAY (El Driver arrancó) ---");
+    DBG("--- PREPARE TO PLAY (El Driver arrancÃ³) ---");
     DBG("Nuevo Rate: " << sampleRate);
 
     // 1. Configurar Grafo Principal
@@ -259,7 +257,7 @@ void NOVAAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    // === NUEVO: LÓGICA DE CALENTAMIENTO ===
+    // === NUEVO: LÃ“GICA DE CALENTAMIENTO ===
     if (startupGuard > 0)
     {
         // Disminuimos el contador
@@ -268,16 +266,16 @@ void NOVAAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
         // Silencio absoluto (Mute)
         buffer.clear();
 
-        // Importante: No llamamos al grafo todavía.
+        // Importante: No llamamos al grafo todavÃ­a.
         // Esto evita que los pedales procesen la "basura" del arranque.
         return;
     }
 
-    // 2. EL MOTOR (Solo corre si el startupGuard llegó a 0)
+    // 2. EL MOTOR (Solo corre si el startupGuard llegÃ³ a 0)
     mainGraph->processBlock(buffer, midiMessages);
 }
 // ==============================================================================
-//  BOILERPLATE DE JUCE (CÓDIGO ESTÁNDAR OBLIGATORIO)
+//  BOILERPLATE DE JUCE (CÃ“DIGO ESTÃNDAR OBLIGATORIO)
 //  Pega esto en PluginProcessor.cpp para solucionar los LNK2001
 // ==============================================================================
 
@@ -320,7 +318,7 @@ double NOVAAudioProcessor::getTailLengthSeconds() const
 
 int NOVAAudioProcessor::getNumPrograms()
 {
-    return 1;   // NB: Algunos hosts fallan si dices 0, así que devuelve 1.
+    return 1;   // NB: Algunos hosts fallan si dices 0, asÃ­ que devuelve 1.
 }
 
 int NOVAAudioProcessor::getCurrentProgram()
@@ -343,7 +341,7 @@ void NOVAAudioProcessor::changeProgramName(int index, const juce::String& newNam
 
 void NOVAAudioProcessor::releaseResources()
 {
-    // Aquí puedes liberar memoria cuando el audio se detiene, si fuera necesario.
+    // AquÃ­ puedes liberar memoria cuando el audio se detiene, si fuera necesario.
 }
 
 bool NOVAAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -379,8 +377,8 @@ juce::AudioProcessorEditor* NOVAAudioProcessor::createEditor()
 
 void NOVAAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-    // GUARDADO AUTOMÁTICO
-    // Convertimos el árbol a binario y listo.
+    // GUARDADO AUTOMÃTICO
+    // Convertimos el Ã¡rbol a binario y listo.
     juce::MemoryOutputStream stream(destData, true);
     pluginState.writeToStream(stream);
 }
@@ -402,7 +400,7 @@ void NOVAAudioProcessor::rebuildChain()
     mainGraph->clear();
     nodesChain.clear();
 
-    // 2. Solo reconstruimos la lista de nodos (Sin configurar audio todavía)
+    // 2. Solo reconstruimos la lista de nodos (Sin configurar audio todavÃ­a)
     for (const auto& child : pluginState)
     {
         if (child.hasType(IDs::PEDAL_TAG))
@@ -412,19 +410,19 @@ void NOVAAudioProcessor::rebuildChain()
 
             if (type == "Overdrive") newPedal = std::make_unique<PedalOverdrive>();
             else if (type == "Cabinet") newPedal = std::make_unique<PedalCabinet>();
-            else if (type == "Neural") newPedal = std::make_unique<PedalNeural>();
+            //else if (type == "Neural") newPedal = std::make_unique<PedalNeural>();
 
             if (newPedal)
             {
-                // Solo añadimos el nodo al grafo. 
-                // NO llamamos a prepareToPlay aquí. Eso es trabajo de syncAudioGraph.
+                // Solo aÃ±adimos el nodo al grafo. 
+                // NO llamamos a prepareToPlay aquÃ­. Eso es trabajo de syncAudioGraph.
                 auto node = mainGraph->addNode(std::move(newPedal));
                 nodesChain.push_back(node);
             }
         }
     }
 
-    // 3. Delegamos la conexión y el encendido al experto
+    // 3. Delegamos la conexiÃ³n y el encendido al experto
     syncAudioGraph();
 }
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
