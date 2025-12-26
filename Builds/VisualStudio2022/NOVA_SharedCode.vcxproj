@@ -3397,9 +3397,11 @@
     <ClInclude Include="..\..\Source\Lib\RTNeural\ModelT.h"/>
     <ClInclude Include="..\..\Source\Lib\RTNeural\RTNeural.h"/>
     <ClInclude Include="..\..\Source\Lib\RTNeural\torch_helpers.h"/>
+    <ClInclude Include="..\..\Source\Effects\Cabinets\CabinetEditor.h"/>
     <ClInclude Include="..\..\Source\Effects\Cabinets\CabinetPedal.h"/>
     <ClInclude Include="..\..\Source\Effects\Pedals\Neural\NeuralEditor.h"/>
     <ClInclude Include="..\..\Source\Effects\Pedals\Neural\NeuralPedal.h"/>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Overdrive\OverdriveEditor.h"/>
     <ClInclude Include="..\..\Source\Effects\Pedals\Overdrive\OverdrivePedal.h"/>
     <ClInclude Include="..\..\Source\Effects\Pedals\Base\ProcessorBase.h"/>
     <ClInclude Include="..\..\Source\Core\PluginEditor.h"/>

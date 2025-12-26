@@ -5166,6 +5166,9 @@
     <ClInclude Include="..\..\Source\Lib\RTNeural\torch_helpers.h">
       <Filter>NOVA\Source\Lib\RTNeural</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Cabinets\CabinetEditor.h">
+      <Filter>NOVA\Source\Effects\Cabinets</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Source\Effects\Cabinets\CabinetPedal.h">
       <Filter>NOVA\Source\Effects\Cabinets</Filter>
     </ClInclude>
@@ -5174,6 +5177,9 @@
     </ClInclude>
     <ClInclude Include="..\..\Source\Effects\Pedals\Neural\NeuralPedal.h">
       <Filter>NOVA\Source\Effects\Pedals\Neural</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Overdrive\OverdriveEditor.h">
+      <Filter>NOVA\Source\Effects\Pedals\Overdrive</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\Effects\Pedals\Overdrive\OverdrivePedal.h">
       <Filter>NOVA\Source\Effects\Pedals\Overdrive</Filter>

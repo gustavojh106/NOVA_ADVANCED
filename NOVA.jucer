@@ -818,6 +818,7 @@
       </GROUP>
       <GROUP id="{8CDF61A3-C1E7-E8D4-DE29-D0CE71BCBA32}" name="Effects">
         <GROUP id="{BD879881-2EBA-7DB7-0691-1F30F2D80A5F}" name="Cabinets">
+          <FILE id="zgcSAe" name="CabinetEditor.h" compile="0" resource="0" file="Source/Effects/Cabinets/CabinetEditor.h"/>
           <FILE id="Rwzsje" name="CabinetPedal.h" compile="0" resource="0" file="Source/Effects/Cabinets/CabinetPedal.h"/>
         </GROUP>
         <GROUP id="{82BF1815-873B-35C3-5837-8195A6E76E04}" name="Pedals">
@@ -829,6 +830,8 @@
             <FILE id="c3WNfC" name="NeuralPedal.h" compile="0" resource="0" file="Source/Effects/Pedals/Neural/NeuralPedal.h"/>
           </GROUP>
           <GROUP id="{BF1E60BE-5B1C-8D19-50C1-506D8D51FC5E}" name="Overdrive">
+            <FILE id="FvhWpg" name="OverdriveEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Overdrive/OverdriveEditor.h"/>
             <FILE id="AiOdag" name="OverdrivePedal.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/Overdrive/OverdrivePedal.h"/>
           </GROUP>
