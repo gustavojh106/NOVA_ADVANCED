@@ -232,8 +232,7 @@ void NOVAAudioProcessor::connectNodes(juce::AudioProcessorGraph::Node::Ptr sourc
 
 void NOVAAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    // 1. Configuración de Buses del Grafo (VITAL PARA QUE SUENE)
-    // Le decimos: "Usa la misma configuración que el procesador principal"
+    // 1. Configuración de Buses del Grafo
     mainGraph->setPlayConfigDetails(getTotalNumInputChannels(),
         getTotalNumOutputChannels(),
         sampleRate, samplesPerBlock);
@@ -243,19 +242,37 @@ void NOVAAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
     // 3. Reconstruimos los cables
     syncAudioGraph();
+
+    // === NUEVO: ACTIVAR ESCUDO DE ARRANQUE ===
+    // Silenciamos los primeros 50 bloques para dejar que el driver se estabilice
+    startupGuard = 50;
 }
 void NOVAAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
 
-    // 1. Limpieza de seguridad
+    // 1. Limpieza de seguridad de canales extra
     auto totalNumInputChannels = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    // 2. EL MOTOR (Sin esto no suena la guitarra)
+    // === NUEVO: LÓGICA DE CALENTAMIENTO ===
+    if (startupGuard > 0)
+    {
+        // Disminuimos el contador
+        startupGuard--;
+
+        // Silencio absoluto (Mute)
+        buffer.clear();
+
+        // Importante: No llamamos al grafo todavía.
+        // Esto evita que los pedales procesen la "basura" del arranque.
+        return;
+    }
+
+    // 2. EL MOTOR (Solo corre si el startupGuard llegó a 0)
     mainGraph->processBlock(buffer, midiMessages);
 }
 // ==============================================================================
