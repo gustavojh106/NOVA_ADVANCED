@@ -1,67 +1,117 @@
-/*
-  ==============================================================================
-
-    This file contains the basic framework code for a JUCE plugin editor.
-
-  ==============================================================================
-*/
-
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-//==============================================================================
 NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p)
 {
-    setSize(800, 600); // Ventana grande para que quepa todo
+    setSize(1000, 600);
 
-    // --- BÚSQUEDA DEL PEDAL EN EL GRAFO ---
-    // Recorremos todos los nodos que existen en el "Board" (Main Graph)
-    for (auto* node : audioProcessor.mainGraph->getNodes())
-    {
-        // Obtenemos el procesador real dentro del nodo
-        auto* processor = node->getProcessor();
+    addAndMakeVisible(btnAddOverdrive);
+    addAndMakeVisible(btnAddNeural);
+    addAndMakeVisible(btnAddCabinet);
 
-        // Filtramos: No queremos dibujar los nodos de "Entrada/Salida" de la tarjeta, 
-        // solo queremos nuestro efecto (que llamamos "Overdrive" en getName())
-        if (processor->getName() == "Overdrive")
-        {
-            // ¡Lo encontramos! Creamos su editor (la cajita verde)
-            if (auto* pedalEditor = processor->createEditor())
-            {
-                // Lo agregamos a la ventana principal
-                addAndMakeVisible(pedalEditor);
+    // 1. Nos suscribimos a los cambios del modelo
+    audioProcessor.pluginState.addListener(this);
 
-                // Lo posicionamos en el centro
-                pedalEditor->setBounds(300, 150, 200, 300);
-
-                // IMPORTANTE: JUCE maneja la memoria de los componentes hijos automáticamente
-                // si usamos addAndMakeVisible, pero como createEditor devuelve un puntero 'raw' nuevo,
-                // idealmente deberíamos guardarlo en un std::unique_ptr para gestionarlo.
-                // PARA ESTE TEST RÁPIDO: Lo dejamos así (leak menor al cerrar), 
-                // pero en producción usaremos un vector de editores activos.
-            }
-        }
-    }
+    // 2. Carga inicial (por si abrimos el plugin y ya había pedales cargados)
+    updatePedalGui();
 }
 
 NOVAAudioProcessorEditor::~NOVAAudioProcessorEditor()
 {
+    // IMPORTANTE: Desuscribirse siempre al destruir para evitar crash
+    audioProcessor.pluginState.removeListener(this);
 }
 
-//==============================================================================
-void NOVAAudioProcessorEditor::paint (juce::Graphics& g)
+void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    // (Our component is opaque, so we must completely fill the background with a solid colour)
-    g.fillAll (getLookAndFeel().findColour (juce::ResizableWindow::backgroundColourId));
+    g.fillAll(juce::Colours::black);
 
-    //g.setColour (juce::Colours::white);
-    //g.setFont (juce::FontOptions (15.0f));
-    //g.drawFittedText ("Hello World!", getLocalBounds(), juce::Justification::centred, 1);
+    // Panel Lateral
+    g.setColour(juce::Colours::darkgrey);
+    g.fillRect(0, 0, 150, getHeight());
+
+    g.setColour(juce::Colours::white);
+    g.drawVerticalLine(150, 0.0f, (float)getHeight());
 }
 
 void NOVAAudioProcessorEditor::resized()
 {
-    // This is generally where you'll want to lay out the positions of any
-    // subcomponents in your editor..
+    // Layout de botones laterales
+    int x = 10, w = 130, h = 40, padding = 10;
+    btnAddOverdrive.setBounds(x, 20, w, h);
+    btnAddNeural.setBounds(x, 20 + h + padding, w, h);
+    btnAddCabinet.setBounds(x, 20 + (h + padding) * 2, w, h);
+
+    // Layout de los Pedales (Flow Horizontal)
+    int currentX = 160;
+    int pedalY = 20;
+
+    for (auto* editor : activeEditors)
+    {
+        editor->setBounds(currentX, pedalY, editor->getWidth(), editor->getHeight());
+        currentX += editor->getWidth() + 10;
+    }
+}
+
+// ==============================================================================
+// Lógica Reactiva (SOTA)
+// ==============================================================================
+
+bool NOVAAudioProcessorEditor::isInterestedInDragSource(const SourceDetails& dragSourceDetails)
+{
+    return true;
+}
+
+void NOVAAudioProcessorEditor::itemDropped(const SourceDetails& dragSourceDetails)
+{
+    // EL CAMBIO SOTA:
+    // No modificamos la UI ni el Grafo directamente.
+    // Solo le pedimos al Processor que cambie el Estado.
+    juce::String pedalType = dragSourceDetails.description.toString();
+    audioProcessor.requestAddPedal(pedalType);
+
+    // Y NO hacemos updatePedalGui() aquí. Esperamos la confirmación del Listener.
+}
+
+void NOVAAudioProcessorEditor::valueTreeChildAdded(juce::ValueTree& parent, juce::ValueTree& child)
+{
+    // El Processor ya actualizó el grafo de audio. Ahora nosotros actualizamos la vista.
+    // Usamos MessageManagerLock implícito (juce::Timer::callAsync) si fuera necesario,
+    // pero los callbacks de ValueTree suelen ser síncronos en el hilo principal si se disparan desde ahí.
+    updatePedalGui();
+}
+
+void NOVAAudioProcessorEditor::valueTreeChildRemoved(juce::ValueTree& parent, juce::ValueTree& child, int)
+{
+    updatePedalGui();
+}
+
+void NOVAAudioProcessorEditor::updatePedalGui()
+{
+    // 1. Limpiamos visualmente
+    activeEditors.clear();
+
+    // 2. Obtenemos la VERDAD desde el Processor (los nodos reales que están sonando)
+    const auto& nodes = audioProcessor.getNodes();
+
+    // 3. Recreamos los editores
+    for (auto node : nodes)
+    {
+        if (node != nullptr)
+        {
+            auto* processor = node->getProcessor();
+            if (processor && processor->hasEditor())
+            {
+                if (auto* editor = processor->createEditor())
+                {
+                    addAndMakeVisible(editor);
+                    activeEditors.add(editor);
+                }
+            }
+        }
+    }
+
+    // 4. Reacomodamos
+    resized();
 }

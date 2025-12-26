@@ -2,18 +2,48 @@
 #include "ProcessorBase.h"
 #include <juce_dsp/juce_dsp.h>
 
+// ==============================================================
+// 1. EL EDITOR VISUAL (UI) - Se mantiene igual
+// ==============================================================
+class PedalCabinetEditor : public juce::AudioProcessorEditor
+{
+public:
+    PedalCabinetEditor(juce::AudioProcessor& p) : AudioProcessorEditor(&p)
+    {
+        setSize(200, 300);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(juce::Colour::fromFloatRGBA(0.15f, 0.15f, 0.15f, 1.0f));
+        g.setColour(juce::Colours::black);
+        for (int i = 0; i < getHeight(); i += 10) g.drawHorizontalLine(i, 0, (float)getWidth());
+        g.setColour(juce::Colours::silver);
+        g.drawRect(getLocalBounds(), 4);
+        g.setColour(juce::Colours::white);
+        g.setFont(20.0f);
+        g.drawRect(20, 40, 160, 60, 2);
+        g.fillRect(20, 40, 160, 60);
+        g.setColour(juce::Colours::black);
+        g.drawText("CABINET 4x12", 20, 40, 160, 60, juce::Justification::centred, true);
+    }
+};
+
+// ==============================================================
+// 2. EL PROCESADOR (DSP) - CON PROTECCIÓN ANTI-CRASH
+// ==============================================================
 class PedalCabinet : public ProcessorBase
 {
 public:
     PedalCabinet()
     {
-        // TRUCO PRO:
-        // juce::File(__FILE__) obtiene la ruta completa de ESTE archivo de código (.h).
-        // .getParentDirectory() nos da la carpeta "Source".
-        // .getChildFile("demo.wav") busca el audio ahí mismo.
-        auto irFile = juce::File(__FILE__).getParentDirectory().getChildFile("demo.wav");
+        // Cargamos el IR en el constructor, pero NO permitimos procesar todavía
+        auto irFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
+            .getParentDirectory().getChildFile("demo.wav");
 
-        // Verificación de seguridad (Evita el crash __debugbreak)
+        if (!irFile.existsAsFile())
+            irFile = juce::File(__FILE__).getParentDirectory().getChildFile("demo.wav");
+
         if (irFile.existsAsFile())
         {
             convolution.loadImpulseResponse(irFile,
@@ -22,35 +52,54 @@ public:
                 0,
                 juce::dsp::Convolution::Normalise::yes);
         }
-        else
-        {
-            // Si sale esto en el Output de Visual Studio, el archivo no está en la carpeta Source
-            DBG("ERROR FATAL: No encuentro el IR en: " << irFile.getFullPathName());
-        }
     }
+
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
     {
-        // Protección extra: Si el sampleRate es 0 (error de driver), no inicializamos para evitar división por cero
+        // 1. Validamos los datos
         if (sampleRate <= 0) return;
 
+        // 2. Preparamos el motor DSP
         juce::dsp::ProcessSpec spec{ sampleRate, static_cast<juce::uint32>(samplesPerBlock), 2 };
         convolution.prepare(spec);
+
+        // 3. Reset por seguridad
+        convolution.reset();
+
+        // 4. ¡SEMÁFORO EN VERDE! Solo ahora es seguro procesar audio
+        isPrepared = true;
+    }
+
+    void releaseResources() override
+    {
+        isPrepared = false; // Semáforo en rojo al cerrar
     }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        juce::dsp::AudioBlock<float> block(buffer);
-        juce::dsp::ProcessContextReplacing<float> context(block);
-
-        // Si el IR no cargó, esto simplemente pasa el audio sin procesar (Bypass)
-        convolution.process(context);
+        // --- ESCUDO TOTAL ---
+        // Solo entramos si hay archivo Y si prepareToPlay ya ocurrió.
+        if (isPrepared && convolution.getCurrentIRSize() > 0)
+        {
+            juce::dsp::AudioBlock<float> block(buffer);
+            juce::dsp::ProcessContextReplacing<float> context(block);
+            convolution.process(context);
+        }
+        // Si no está listo, el audio pasa limpio (Bypass) sin crashear.
     }
 
     const juce::String getName() const override { return "Cabinet"; }
 
-    bool hasEditor() const override { return false; }
-    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
+    bool hasEditor() const override { return true; }
+    juce::AudioProcessorEditor* createEditor() override
+    {
+        return new PedalCabinetEditor(*this);
+    }
 
 private:
     juce::dsp::Convolution convolution;
+
+    // Esta variable salva el día:
+    // Evita que el processBlock corra antes que el prepareToPlay
+    bool isPrepared = false;
 };

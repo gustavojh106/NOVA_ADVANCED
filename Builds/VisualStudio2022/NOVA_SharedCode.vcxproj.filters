@@ -2,6 +2,204 @@
 
 <Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\AccelerateSupport">
+      <UniqueIdentifier>{8516A691-E8EE-1639-AFBA-E3BC26A3E5DE}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Cholesky">
+      <UniqueIdentifier>{D6EF05E4-6DFB-7A53-91D1-31FD3F78E4D0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\CholmodSupport">
+      <UniqueIdentifier>{F9B40A51-26C9-B3E5-16D4-96D8731957F6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec">
+      <UniqueIdentifier>{660176D3-977A-A4B5-F943-FAACC9713E55}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX">
+      <UniqueIdentifier>{650090C5-3FA9-CC8E-6DC9-D524E3B89835}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX512">
+      <UniqueIdentifier>{A5BADF6D-0CDA-509C-130B-E61E426CDF09}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\Default">
+      <UniqueIdentifier>{2E40D517-1522-D627-5A0B-CA90A8FD621A}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\GPU">
+      <UniqueIdentifier>{DDD1A8F8-B3BF-3CA4-2881-344A8BB42B7A}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\HIP\hcc">
+      <UniqueIdentifier>{FD08298D-2935-606A-8FDF-97BD99CAE030}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\HIP">
+      <UniqueIdentifier>{5EF425E4-62B3-6AEB-4BFA-4DD37ACF7639}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\MSA">
+      <UniqueIdentifier>{BDF9459B-3570-6C1B-DE7D-048F58C37754}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\NEON">
+      <UniqueIdentifier>{D36F72F6-C6F9-85E6-0FC0-7C521942CDF0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SSE">
+      <UniqueIdentifier>{FCC66769-6DCE-10C7-069B-C7B60D9D6D3F}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SVE">
+      <UniqueIdentifier>{7A0AB3AB-8F91-756D-2B34-370C49297334}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SYCL">
+      <UniqueIdentifier>{341844FD-3A0D-F212-B44F-0DFECEAEE517}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch\ZVector">
+      <UniqueIdentifier>{15D5E556-1F24-AF55-0A26-9C24A78D298C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\arch">
+      <UniqueIdentifier>{A6865CED-3D01-C0BC-6F01-A0D9969B88B4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\functors">
+      <UniqueIdentifier>{1F99830B-609F-A9C5-2DA3-F09335EC405C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\products">
+      <UniqueIdentifier>{529CD061-46C7-E9AB-4CCE-D0251E6D51F4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core\util">
+      <UniqueIdentifier>{D404FF39-D443-62E8-D6AB-2AED6F858957}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Core">
+      <UniqueIdentifier>{48EBE200-C973-54AF-93C5-AB4FD4FF9935}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues">
+      <UniqueIdentifier>{6CEB62BA-7157-CF66-8970-E2FBCF66C5FB}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Geometry\arch">
+      <UniqueIdentifier>{C213BE11-401F-F0B7-99CF-844A7F8BEDF6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Geometry">
+      <UniqueIdentifier>{99857F44-3BA9-A1E0-BC8A-4CCB2D5DD322}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Householder">
+      <UniqueIdentifier>{3E78C698-3F01-4101-56BD-D6E7820BFE14}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers">
+      <UniqueIdentifier>{2933F5E2-6100-A100-49A6-509ECD61D59A}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\Jacobi">
+      <UniqueIdentifier>{57042931-4006-46F6-C805-873D19EF8A02}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\KLUSupport">
+      <UniqueIdentifier>{9D044ECB-2528-D07E-A807-4D8CBE3BF710}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\LU\arch">
+      <UniqueIdentifier>{11E22064-FEFC-30EB-8A84-1147ADF58BFA}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\LU">
+      <UniqueIdentifier>{A77487A9-4CDE-0926-395F-755D92AB000F}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\MetisSupport">
+      <UniqueIdentifier>{F84EEE8A-15FF-7122-22EA-6CCBA39AB114}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\misc">
+      <UniqueIdentifier>{BAEA0238-C0D7-085C-1DF6-843202848AFA}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\OrderingMethods">
+      <UniqueIdentifier>{2FB7B9C2-9737-3C91-CCF3-A06AD27239F1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\PardisoSupport">
+      <UniqueIdentifier>{D5839CE7-2F62-9DFD-2306-A3786FD1E089}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\PaStiXSupport">
+      <UniqueIdentifier>{30A39348-18C1-584B-4662-99E3D6673B6A}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\plugins">
+      <UniqueIdentifier>{3E263D21-6AEE-5476-140B-C80DF94933B4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\QR">
+      <UniqueIdentifier>{3AA26987-375A-61E6-C158-CB23AE19D289}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\SparseCholesky">
+      <UniqueIdentifier>{954417C5-23C5-42D2-8151-802DCD2D0378}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\SparseCore">
+      <UniqueIdentifier>{53D68BD0-283D-5B90-2E51-820DF320FED0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\SparseLU">
+      <UniqueIdentifier>{BD047598-616F-7A23-2742-0B96A14B04E5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\SparseQR">
+      <UniqueIdentifier>{C3BEAAF6-46EB-4225-53F7-A520EE346E3B}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\SPQRSupport">
+      <UniqueIdentifier>{69DC56D3-9EC1-F64D-C414-EF341E7717F5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\StlSupport">
+      <UniqueIdentifier>{17A20A86-3EBB-8D05-B068-363B1F2B4947}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\SuperLUSupport">
+      <UniqueIdentifier>{22FAB60B-C934-D972-E36F-61DC2794840F}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\SVD">
+      <UniqueIdentifier>{E32A9813-6F8E-540E-C6EB-B022209E7C5F}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\ThreadPool">
+      <UniqueIdentifier>{ADE406D0-C1E3-BE5E-2D7F-44F8CC27F6B9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src\UmfPackSupport">
+      <UniqueIdentifier>{B01AB379-FB39-44E2-8CB3-84B59919A15C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen\src">
+      <UniqueIdentifier>{51C6529E-3B2A-75FE-7AA1-B9D57489A12A}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen\Eigen">
+      <UniqueIdentifier>{97A1A4DE-8CD8-811F-E787-77A0EA711FE5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\Eigen">
+      <UniqueIdentifier>{F4A5815B-B9B9-49CE-0E4D-B89E86FF5116}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules\json">
+      <UniqueIdentifier>{675937FA-8027-8D54-D8F1-A268590F3C5E}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\modules">
+      <UniqueIdentifier>{68D46F18-8FD3-28E1-23CD-5E9DE5900A37}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\models\microtcn">
+      <UniqueIdentifier>{562730ED-31B6-DCF9-6A95-2BCF318A8040}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\models">
+      <UniqueIdentifier>{E3BA49CC-B3C0-4C4B-B613-9E1756CC1659}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural\activation">
+      <UniqueIdentifier>{4495DF50-12F9-53B1-8A59-6540ACD961FC}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural\batchnorm">
+      <UniqueIdentifier>{5CDE30FE-CB83-5CCC-44FA-2AD994518662}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural\conv1d">
+      <UniqueIdentifier>{290E83FB-6404-8D32-4DCD-CD472F3AD92D}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural\conv1d_stateless">
+      <UniqueIdentifier>{47374335-6ED6-EE02-58E4-6F5E2B905B3D}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural\conv2d">
+      <UniqueIdentifier>{058C849E-942A-6BFF-2FC6-1D3F48FF98E7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural\dense">
+      <UniqueIdentifier>{1172DAD0-902E-4F09-331A-10DCAD09C204}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural\gru">
+      <UniqueIdentifier>{50940176-D975-8443-1760-2DD6BDB621F0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural\lstm">
+      <UniqueIdentifier>{56E2B6B2-99AE-2CC8-2527-10D512F8C3D8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural\maths">
+      <UniqueIdentifier>{B27DCF9A-000E-4AA1-2F42-3BE1760EFCB9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural\xsimd-legacy\algorithms">
+      <UniqueIdentifier>{1B07057A-0DB7-03A1-66CA-25506E510FAA}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural\xsimd-legacy">
+      <UniqueIdentifier>{E3E56C38-46B5-3B13-DDCE-5675931F57B6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\RTNeural">
+      <UniqueIdentifier>{C8C78488-8BFF-7E4E-1C4E-01C5BDCE9623}</UniqueIdentifier>
+    </Filter>
     <Filter Include="NOVA\Source">
       <UniqueIdentifier>{60DCC5F3-87D4-92D7-1E6C-6D0B88BDF621}</UniqueIdentifier>
     </Filter>
@@ -703,6 +901,15 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Source\PedalNeuralEditor.cpp">
+      <Filter>NOVA\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\PedalNeural.cpp">
+      <Filter>NOVA\Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\RTNeural\RTNeural.cpp">
+      <Filter>NOVA\Source\RTNeural</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Source\PluginProcessor.cpp">
       <Filter>NOVA\Source</Filter>
     </ClCompile>
@@ -3682,6 +3889,9 @@
     <ClCompile Include="..\..\..\..\..\..\Downloads\juce-8.0.12-windows\JUCE\modules\juce_gui_extra\juce_gui_extra.mm">
       <Filter>JUCE Modules\juce_gui_extra</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\JuceLibraryCode\BinaryData.cpp">
+      <Filter>JUCE Library Code</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\JuceLibraryCode\include_juce_audio_basics.cpp">
       <Filter>JUCE Library Code</Filter>
     </ClCompile>
@@ -3741,6 +3951,1203 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Source\PedalNeuralEditor.h">
+      <Filter>NOVA\Source</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\AccelerateSupport\AccelerateSupport.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\AccelerateSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\AccelerateSupport\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\AccelerateSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Cholesky\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Cholesky</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Cholesky\LDLT.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Cholesky</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Cholesky\LLT.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Cholesky</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Cholesky\LLT_LAPACKE.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Cholesky</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\CholmodSupport\CholmodSupport.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\CholmodSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\CholmodSupport\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\CholmodSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec\Complex.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec\MathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec\MatrixProduct.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec\MatrixProductCommon.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec\MatrixProductMMA.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec\MatrixProductMMAbfloat16.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec\MatrixVectorProduct.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec\PacketMath.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec\TypeCasting.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AltiVec</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX\Complex.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX\MathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX\PacketMath.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX\TypeCasting.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX512\Complex.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX512</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX512\GemmKernel.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX512</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX512\MathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX512</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX512\PacketMath.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX512</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX512\PacketMathFP16.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX512</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX512\TrsmKernel.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX512</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX512\TypeCasting.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX512</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\Default\BFloat16.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\Default</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\Default\ConjHelper.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\Default</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\Default\GenericPacketMathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\Default</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\Default\GenericPacketMathFunctionsFwd.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\Default</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\Default\Half.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\Default</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\Default\Settings.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\Default</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\GPU\Complex.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\GPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\GPU\MathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\GPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\GPU\PacketMath.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\GPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\GPU\Tuple.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\GPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\GPU\TypeCasting.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\GPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\HIP\hcc\math_constants.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\HIP\hcc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\MSA\Complex.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\MSA</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\MSA\MathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\MSA</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\MSA\PacketMath.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\MSA</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\NEON\Complex.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\NEON</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\NEON\GeneralBlockPanelKernel.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\NEON</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\NEON\MathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\NEON</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\NEON\PacketMath.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\NEON</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\NEON\TypeCasting.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\NEON</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\NEON\UnaryFunctors.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\NEON</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\SSE\Complex.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SSE</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\SSE\MathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SSE</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\SSE\PacketMath.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SSE</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\SSE\TypeCasting.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SSE</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\SVE\MathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SVE</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\SVE\PacketMath.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SVE</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\SVE\TypeCasting.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SVE</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\SYCL\InteropHeaders.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SYCL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\SYCL\MathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SYCL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\SYCL\PacketMath.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SYCL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\SYCL\TypeCasting.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\SYCL</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\ZVector\Complex.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\ZVector</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\ZVector\MathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\ZVector</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\ZVector\PacketMath.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\ZVector</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\functors\AssignmentFunctors.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\functors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\functors\BinaryFunctors.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\functors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\functors\NullaryFunctors.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\functors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\functors\StlFunctors.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\functors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\functors\TernaryFunctors.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\functors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\functors\UnaryFunctors.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\functors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\GeneralBlockPanelKernel.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\GeneralMatrixMatrix.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\GeneralMatrixMatrix_BLAS.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\GeneralMatrixMatrixTriangular.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\GeneralMatrixMatrixTriangular_BLAS.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\GeneralMatrixVector.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\GeneralMatrixVector_BLAS.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\Parallelizer.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\SelfadjointMatrixMatrix.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\SelfadjointMatrixMatrix_BLAS.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\SelfadjointMatrixVector.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\SelfadjointMatrixVector_BLAS.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\SelfadjointProduct.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\SelfadjointRank2Update.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\TriangularMatrixMatrix.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\TriangularMatrixMatrix_BLAS.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\TriangularMatrixVector.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\TriangularMatrixVector_BLAS.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\TriangularSolverMatrix.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\TriangularSolverMatrix_BLAS.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\products\TriangularSolverVector.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\products</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\Assert.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\BlasUtil.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\ConfigureVectorization.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\Constants.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\DisableStupidWarnings.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\EmulateArray.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\ForwardDeclarations.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\IndexedViewHelper.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\IntegralConstant.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\Macros.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\MaxSizeVector.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\Memory.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\Meta.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\MKL_support.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\MoreMeta.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\ReenableStupidWarnings.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\ReshapedHelper.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\Serializer.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\StaticAssert.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\SymbolicIndex.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\util\XprHelper.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\util</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\ArithmeticSequence.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Array.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\ArrayBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\ArrayWrapper.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Assign.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Assign_MKL.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\AssignEvaluator.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\BandMatrix.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Block.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\CommaInitializer.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\ConditionEstimator.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\CoreEvaluators.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\CoreIterators.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\CwiseBinaryOp.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\CwiseNullaryOp.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\CwiseTernaryOp.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\CwiseUnaryOp.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\CwiseUnaryView.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\DenseBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\DenseCoeffsBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\DenseStorage.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Diagonal.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\DiagonalMatrix.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\DiagonalProduct.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Dot.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\EigenBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\ForceAlignedAccess.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Fuzzy.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\GeneralProduct.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\GenericPacketMath.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\GlobalFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\IndexedView.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Inverse.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\IO.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Map.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\MapBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\MathFunctions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\MathFunctionsImpl.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Matrix.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\MatrixBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\NestByValue.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\NoAlias.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\NumTraits.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\PartialReduxEvaluator.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\PermutationMatrix.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\PlainObjectBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Product.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\ProductEvaluators.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Random.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Redux.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Ref.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Replicate.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Reshaped.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\ReturnByValue.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Reverse.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Select.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\SelfAdjointView.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\SelfCwiseBinaryOp.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\SkewSymmetricMatrix3.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Solve.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\SolverBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\SolveTriangular.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\StableNorm.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\StlIterators.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Stride.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Swap.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Transpose.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Transpositions.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\TriangularMatrix.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\VectorBlock.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\VectorwiseOp.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Core\Visitor.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\ComplexEigenSolver.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\ComplexSchur.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\ComplexSchur_LAPACKE.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\EigenSolver.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\GeneralizedEigenSolver.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\GeneralizedSelfAdjointEigenSolver.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\HessenbergDecomposition.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\MatrixBaseEigenvalues.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\RealQZ.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\RealSchur.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\RealSchur_LAPACKE.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\SelfAdjointEigenSolver.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\SelfAdjointEigenSolver_LAPACKE.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Eigenvalues\Tridiagonalization.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Eigenvalues</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\arch\Geometry_SIMD.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry\arch</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\AlignedBox.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\AngleAxis.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\EulerAngles.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\Homogeneous.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\Hyperplane.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\OrthoMethods.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\ParametrizedLine.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\Quaternion.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\Rotation2D.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\RotationBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\Scaling.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\Transform.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\Translation.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Geometry\Umeyama.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Geometry</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Householder\BlockHouseholder.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Householder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Householder\Householder.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Householder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Householder\HouseholderSequence.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Householder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Householder\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Householder</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers\BasicPreconditioners.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers\BiCGSTAB.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers\ConjugateGradient.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers\IncompleteCholesky.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers\IncompleteLUT.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers\IterativeSolverBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers\LeastSquareConjugateGradient.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers\SolveWithGuess.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\IterativeLinearSolvers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Jacobi\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Jacobi</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\Jacobi\Jacobi.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Jacobi</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\KLUSupport\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\KLUSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\KLUSupport\KLUSupport.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\KLUSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\LU\arch\InverseSize4.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\LU\arch</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\LU\Determinant.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\LU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\LU\FullPivLU.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\LU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\LU\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\LU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\LU\InverseImpl.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\LU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\LU\PartialPivLU.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\LU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\LU\PartialPivLU_LAPACKE.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\LU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\MetisSupport\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\MetisSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\MetisSupport\MetisSupport.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\MetisSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\misc\blas.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\misc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\misc\Image.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\misc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\misc\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\misc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\misc\Kernel.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\misc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\misc\lapacke.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\misc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\misc\lapacke_helpers.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\misc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\misc\lapacke_mangling.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\misc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\misc\RealSvd2x2.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\misc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\OrderingMethods\Amd.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\OrderingMethods</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\OrderingMethods\Eigen_Colamd.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\OrderingMethods</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\OrderingMethods\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\OrderingMethods</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\OrderingMethods\Ordering.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\OrderingMethods</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\PardisoSupport\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\PardisoSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\PardisoSupport\PardisoSupport.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\PardisoSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\PaStiXSupport\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\PaStiXSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\PaStiXSupport\PaStiXSupport.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\PaStiXSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\plugins\ArrayCwiseBinaryOps.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\plugins</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\plugins\ArrayCwiseUnaryOps.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\plugins</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\plugins\BlockMethods.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\plugins</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\plugins\CommonCwiseBinaryOps.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\plugins</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\plugins\CommonCwiseUnaryOps.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\plugins</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\plugins\IndexedViewMethods.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\plugins</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\plugins\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\plugins</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\plugins\MatrixCwiseBinaryOps.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\plugins</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\plugins\MatrixCwiseUnaryOps.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\plugins</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\plugins\ReshapedMethods.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\plugins</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\QR\ColPivHouseholderQR.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\QR</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\QR\ColPivHouseholderQR_LAPACKE.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\QR</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\QR\CompleteOrthogonalDecomposition.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\QR</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\QR\FullPivHouseholderQR.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\QR</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\QR\HouseholderQR.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\QR</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\QR\HouseholderQR_LAPACKE.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\QR</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\QR\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\QR</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCholesky\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCholesky</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCholesky\SimplicialCholesky.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCholesky</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCholesky\SimplicialCholesky_impl.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCholesky</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\AmbiVector.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\CompressedStorage.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\ConservativeSparseSparseProduct.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseAssign.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseBlock.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseColEtree.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseCompressedBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseCwiseBinaryOp.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseCwiseUnaryOp.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseDenseProduct.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseDiagonalProduct.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseDot.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseFuzzy.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseMap.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseMatrix.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseMatrixBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparsePermutation.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseProduct.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseRedux.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseRef.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseSelfAdjointView.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseSolverBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseSparseProductWithPruning.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseTranspose.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseTriangularView.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseUtil.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseVector.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\SparseView.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseCore\TriangularSolver.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_column_bmod.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_column_dfs.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_copy_to_ucol.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_heap_relax_snode.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_kernel_bmod.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_Memory.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_panel_bmod.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_panel_dfs.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_pivotL.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_pruneL.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_relax_snode.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_Structs.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_SupernodalMatrix.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLU_Utils.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseLU\SparseLUImpl.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseLU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseQR\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseQR</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SparseQR\SparseQR.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SparseQR</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SPQRSupport\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SPQRSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SPQRSupport\SuiteSparseQRSupport.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SPQRSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\StlSupport\details.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\StlSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\StlSupport\StdDeque.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\StlSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\StlSupport\StdList.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\StlSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\StlSupport\StdVector.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\StlSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SuperLUSupport\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SuperLUSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SuperLUSupport\SuperLUSupport.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SuperLUSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SVD\BDCSVD.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SVD</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SVD\BDCSVD_LAPACKE.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SVD</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SVD\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SVD</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SVD\JacobiSVD.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SVD</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SVD\JacobiSVD_LAPACKE.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SVD</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SVD\SVDBase.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SVD</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\SVD\UpperBidiagonalization.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\SVD</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\ThreadPool\Barrier.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\ThreadPool</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\ThreadPool\EventCount.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\ThreadPool</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\ThreadPool\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\ThreadPool</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\ThreadPool\NonBlockingThreadPool.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\ThreadPool</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\ThreadPool\RunQueue.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\ThreadPool</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\ThreadPool\ThreadCancel.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\ThreadPool</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\ThreadPool\ThreadEnvironment.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\ThreadPool</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\ThreadPool\ThreadLocal.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\ThreadPool</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\ThreadPool\ThreadPoolInterface.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\ThreadPool</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\ThreadPool\ThreadYield.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\ThreadPool</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\UmfPackSupport\InternalHeaderCheck.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\UmfPackSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\Eigen\Eigen\src\UmfPackSupport\UmfPackSupport.h">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\UmfPackSupport</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\modules\json\json.hpp">
+      <Filter>NOVA\Source\modules\json</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\PedalNeural.h">
+      <Filter>NOVA\Source</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\activation\activation.h">
+      <Filter>NOVA\Source\RTNeural\activation</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\activation\activation_eigen.h">
+      <Filter>NOVA\Source\RTNeural\activation</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\activation\activation_xsimd.h">
+      <Filter>NOVA\Source\RTNeural\activation</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\batchnorm\batchnorm.h">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\batchnorm\batchnorm_eigen.h">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\batchnorm\batchnorm_xsimd.h">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\batchnorm\batchnorm2d.h">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\batchnorm\batchnorm2d_eigen.h">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\batchnorm\batchnorm2d_xsimd.h">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\conv1d\conv1d.h">
+      <Filter>NOVA\Source\RTNeural\conv1d</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\conv1d\conv1d_eigen.h">
+      <Filter>NOVA\Source\RTNeural\conv1d</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\conv1d\conv1d_xsimd.h">
+      <Filter>NOVA\Source\RTNeural\conv1d</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\conv1d\strided_conv1d.h">
+      <Filter>NOVA\Source\RTNeural\conv1d</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\conv1d_stateless\conv1d_stateless.h">
+      <Filter>NOVA\Source\RTNeural\conv1d_stateless</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\conv1d_stateless\conv1d_stateless_eigen.h">
+      <Filter>NOVA\Source\RTNeural\conv1d_stateless</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\conv1d_stateless\conv1d_stateless_xsimd.h">
+      <Filter>NOVA\Source\RTNeural\conv1d_stateless</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\conv2d\conv2d.h">
+      <Filter>NOVA\Source\RTNeural\conv2d</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\conv2d\conv2d_eigen.h">
+      <Filter>NOVA\Source\RTNeural\conv2d</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\conv2d\conv2d_xsimd.h">
+      <Filter>NOVA\Source\RTNeural\conv2d</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\dense\dense.h">
+      <Filter>NOVA\Source\RTNeural\dense</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\dense\dense_eigen.h">
+      <Filter>NOVA\Source\RTNeural\dense</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\dense\dense_xsimd.h">
+      <Filter>NOVA\Source\RTNeural\dense</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\gru\gru.h">
+      <Filter>NOVA\Source\RTNeural\gru</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\gru\gru_eigen.h">
+      <Filter>NOVA\Source\RTNeural\gru</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\gru\gru_xsimd.h">
+      <Filter>NOVA\Source\RTNeural\gru</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\lstm\lstm.h">
+      <Filter>NOVA\Source\RTNeural\lstm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\lstm\lstm_eigen.h">
+      <Filter>NOVA\Source\RTNeural\lstm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\lstm\lstm_xsimd.h">
+      <Filter>NOVA\Source\RTNeural\lstm</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\maths\maths_eigen.h">
+      <Filter>NOVA\Source\RTNeural\maths</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\maths\maths_stl.h">
+      <Filter>NOVA\Source\RTNeural\maths</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\maths\maths_xsimd.h">
+      <Filter>NOVA\Source\RTNeural\maths</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\xsimd-legacy\algorithms\algorithms.hpp">
+      <Filter>NOVA\Source\RTNeural\xsimd-legacy\algorithms</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\common.h">
+      <Filter>NOVA\Source\RTNeural</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\config.h">
+      <Filter>NOVA\Source\RTNeural</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\Layer.h">
+      <Filter>NOVA\Source\RTNeural</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\Model.h">
+      <Filter>NOVA\Source\RTNeural</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\model_loader.h">
+      <Filter>NOVA\Source\RTNeural</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\ModelT.h">
+      <Filter>NOVA\Source\RTNeural</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\RTNeural.h">
+      <Filter>NOVA\Source\RTNeural</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\RTNeural\torch_helpers.h">
+      <Filter>NOVA\Source\RTNeural</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Pedal_Cabinet.h">
+      <Filter>NOVA\Source</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Pedal_Overdrive.h">
+      <Filter>NOVA\Source</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\ProcessorBase.h">
+      <Filter>NOVA\Source</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Source\PluginProcessor.h">
       <Filter>NOVA\Source</Filter>
     </ClInclude>
@@ -7914,6 +9321,9 @@
     <ClInclude Include="..\..\..\..\..\..\Downloads\juce-8.0.12-windows\JUCE\modules\juce_gui_extra\juce_gui_extra.h">
       <Filter>JUCE Modules\juce_gui_extra</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\JuceLibraryCode\BinaryData.h">
+      <Filter>JUCE Library Code</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\JuceLibraryCode\JuceHeader.h">
       <Filter>JUCE Library Code</Filter>
     </ClInclude>
@@ -7922,6 +9332,249 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\..\Source\test_amp.json">
+      <Filter>NOVA\Source</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\src\Core\arch\AVX512\TrsmUnrolls.inc">
+      <Filter>NOVA\Source\modules\Eigen\Eigen\src\Core\arch\AVX512</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\AccelerateSupport">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\Cholesky">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\CholmodSupport">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\Core">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\Dense">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\Eigen">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\Eigenvalues">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\Geometry">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\Householder">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\IterativeLinearSolvers">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\Jacobi">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\KLUSupport">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\LU">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\MetisSupport">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\OrderingMethods">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\PardisoSupport">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\PaStiXSupport">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\QR">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\QtAlignedMalloc">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\Sparse">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\SparseCholesky">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\SparseCore">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\SparseLU">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\SparseQR">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\SPQRSupport">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\StdDeque">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\StdList">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\StdVector">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\SuperLUSupport">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\SVD">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\ThreadPool">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\Eigen\UmfPackSupport">
+      <Filter>NOVA\Source\modules\Eigen\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\modules\Eigen\CMakeLists.txt">
+      <Filter>NOVA\Source\modules\Eigen</Filter>
+    </None>
+    <None Include="..\..\Source\models\microtcn\bn.json">
+      <Filter>NOVA\Source\models\microtcn</Filter>
+    </None>
+    <None Include="..\..\Source\models\microtcn\conv1.json">
+      <Filter>NOVA\Source\models\microtcn</Filter>
+    </None>
+    <None Include="..\..\Source\models\microtcn\relu.json">
+      <Filter>NOVA\Source\models\microtcn</Filter>
+    </None>
+    <None Include="..\..\Source\models\microtcn\res.json">
+      <Filter>NOVA\Source\models\microtcn</Filter>
+    </None>
+    <None Include="..\..\Source\models\bad_lstm.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\conv.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\conv_stateless.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\conv1d_torch.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\conv1d_torch_group_6_3_3_1_3.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\conv1d_torch_group_6_3_4_10_3.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\conv1d_torch_group_6_6_1_1_6.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\conv1d_torch_stride_3.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\conv2d.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\convtranspose1d_torch.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\dense.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\full_model.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\gru.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\gru_1d.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\gru_torch.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\lstm.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\lstm_1d.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\models\lstm_torch.json">
+      <Filter>NOVA\Source\models</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\batchnorm\batchnorm.tpp">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\batchnorm\batchnorm_eigen.tpp">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\batchnorm\batchnorm_xsimd.tpp">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\batchnorm\batchnorm2d.tpp">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\batchnorm\batchnorm2d_eigen.tpp">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\batchnorm\batchnorm2d_xsimd.tpp">
+      <Filter>NOVA\Source\RTNeural\batchnorm</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\conv1d\conv1d.tpp">
+      <Filter>NOVA\Source\RTNeural\conv1d</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\conv1d\conv1d_eigen.tpp">
+      <Filter>NOVA\Source\RTNeural\conv1d</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\conv1d\conv1d_xsimd.tpp">
+      <Filter>NOVA\Source\RTNeural\conv1d</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\conv1d_stateless\conv1d_stateless.tpp">
+      <Filter>NOVA\Source\RTNeural\conv1d_stateless</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\conv1d_stateless\conv1d_stateless_eigen.tpp">
+      <Filter>NOVA\Source\RTNeural\conv1d_stateless</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\conv1d_stateless\conv1d_stateless_xsimd.tpp">
+      <Filter>NOVA\Source\RTNeural\conv1d_stateless</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\conv2d\conv2d.tpp">
+      <Filter>NOVA\Source\RTNeural\conv2d</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\conv2d\conv2d_eigen.tpp">
+      <Filter>NOVA\Source\RTNeural\conv2d</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\conv2d\conv2d_xsimd.tpp">
+      <Filter>NOVA\Source\RTNeural\conv2d</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\gru\gru.tpp">
+      <Filter>NOVA\Source\RTNeural\gru</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\gru\gru_eigen.tpp">
+      <Filter>NOVA\Source\RTNeural\gru</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\gru\gru_xsimd.tpp">
+      <Filter>NOVA\Source\RTNeural\gru</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\lstm\lstm.tpp">
+      <Filter>NOVA\Source\RTNeural\lstm</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\lstm\lstm_eigen.tpp">
+      <Filter>NOVA\Source\RTNeural\lstm</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\lstm\lstm_xsimd.tpp">
+      <Filter>NOVA\Source\RTNeural\lstm</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\xsimd-legacy\README.md">
+      <Filter>NOVA\Source\RTNeural\xsimd-legacy</Filter>
+    </None>
+    <None Include="..\..\Source\RTNeural\CMakeLists.txt">
+      <Filter>NOVA\Source\RTNeural</Filter>
+    </None>
+    <None Include="..\..\Source\demo.wav">
+      <Filter>NOVA\Source</Filter>
+    </None>
     <None Include="..\..\..\..\..\..\Downloads\juce-8.0.12-windows\JUCE\modules\juce_audio_devices\native\asio\LICENSE.txt">
       <Filter>JUCE Modules\juce_audio_devices\native\asio</Filter>
     </None>
