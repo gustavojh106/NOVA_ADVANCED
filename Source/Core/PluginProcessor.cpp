@@ -1,6 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-
+#include "PedalRegistry.h"
 
 // Identificadores estáticos para evitar erratas
 namespace IDs
@@ -61,24 +61,24 @@ void NOVAAudioProcessor::valueTreeChildAdded(juce::ValueTree& parent, juce::Valu
     // Si se añadió un pedal a nuestro estado principal...
     if (parent == pluginState && child.hasType(IDs::PEDAL_TAG))
     {
-        // 1. Crear el Procesador real
-        std::unique_ptr<juce::AudioProcessor> newPedalParams;
+        // 1. OBTENER TIPO
         juce::String type = child.getProperty(IDs::PEDAL_TYPE);
 
-        if (type == "Overdrive") newPedalParams = std::make_unique<OverdrivePedal>();
-        else if (type == "Cabinet") newPedalParams = std::make_unique<CabinetPedal>();
-        //else if (type == "Neural") newPedalParams = std::make_unique<PedalNeural>();
+        // 2. FACTORÍA AUTOMÁTICA (Zero Hardcode) 🏭
+        // Le pedimos al Registry que cree el pedal correspondiente.
+        // Si el tipo no existe en el mapa, devolverá nullptr automáticamente.
+        std::unique_ptr<juce::AudioProcessor> newPedalParams = PedalRegistry::createPedal(type);
 
+        // 3. SI EL PEDAL SE CREÓ CON ÉXITO...
         if (newPedalParams)
         {
-            // 2. Añadirlo al grafo de audio
-            // Nota: Usamos std::move porque el grafo pasa a ser el dueño
+            // A. Añadirlo al grafo de audio (Transferimos la propiedad con std::move)
             auto node = mainGraph->addNode(std::move(newPedalParams));
 
-            // 3. Guardarlo en nuestra lista interna
+            // B. Guardarlo en nuestra lista interna
             nodesChain.push_back(node);
 
-            // 4. Recablear todo
+            // C. Recablear todo
             syncAudioGraph();
         }
     }
@@ -406,16 +406,14 @@ void NOVAAudioProcessor::rebuildChain()
         if (child.hasType(IDs::PEDAL_TAG))
         {
             juce::String type = child.getProperty(IDs::PEDAL_TYPE);
-            std::unique_ptr<juce::AudioProcessor> newPedal;
 
-            if (type == "Overdrive") newPedal = std::make_unique<OverdrivePedal>();
-            else if (type == "Cabinet") newPedal = std::make_unique<CabinetPedal>();
-            //else if (type == "Neural") newPedal = std::make_unique<PedalNeural>();
+            // --- ZERO HARDCODE ---
+            // Usamos la factoría. Si mañana inventas 100 pedales, 
+            // solo tocas PedalRegistry.h, no este archivo.
+            std::unique_ptr<juce::AudioProcessor> newPedal = PedalRegistry::createPedal(type);
 
             if (newPedal)
             {
-                // Solo añadimos el nodo al grafo. 
-                // NO llamamos a prepareToPlay aquí. Eso es trabajo de syncAudioGraph.
                 auto node = mainGraph->addNode(std::move(newPedal));
                 nodesChain.push_back(node);
             }

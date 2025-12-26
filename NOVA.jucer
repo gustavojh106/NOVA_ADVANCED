@@ -841,6 +841,7 @@
         </GROUP>
       </GROUP>
       <GROUP id="{F408AF80-EAB5-6526-8D68-81E3A5C510C4}" name="Core">
+        <FILE id="d2rDoU" name="PedalRegistry.h" compile="0" resource="0" file="Source/Core/PedalRegistry.h"/>
         <FILE id="RJDNO3" name="PluginEditor.cpp" compile="1" resource="0"
               file="Source/Core/PluginEditor.cpp"/>
         <FILE id="JFCmPD" name="PluginEditor.h" compile="0" resource="0" file="Source/Core/PluginEditor.h"/>

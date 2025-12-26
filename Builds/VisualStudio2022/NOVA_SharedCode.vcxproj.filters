@@ -5187,6 +5187,9 @@
     <ClInclude Include="..\..\Source\Effects\Pedals\Base\ProcessorBase.h">
       <Filter>NOVA\Source\Effects\Pedals\Base</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Source\Core\PedalRegistry.h">
+      <Filter>NOVA\Source\Core</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Source\Core\PluginEditor.h">
       <Filter>NOVA\Source\Core</Filter>
     </ClInclude>
