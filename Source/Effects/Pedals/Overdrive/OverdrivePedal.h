@@ -5,10 +5,10 @@
 // ==============================================================================
 // 1. EDITOR GRÁFICO (Sin cambios)
 // ==============================================================================
-class PedalOverdriveEditor : public juce::AudioProcessorEditor
+class OverdriveEditor : public juce::AudioProcessorEditor
 {
 public:
-    PedalOverdriveEditor(juce::AudioProcessor& p, juce::AudioParameterFloat* drive, juce::AudioParameterFloat* level)
+    OverdriveEditor(juce::AudioProcessor& p, juce::AudioParameterFloat* drive, juce::AudioParameterFloat* level)
         : AudioProcessorEditor(&p)
     {
         addAndMakeVisible(driveSlider);
@@ -61,10 +61,10 @@ private:
 // ==============================================================================
 // 2. PROCESADOR DSP (Con Protección Anti-Crash)
 // ==============================================================================
-class PedalOverdrive : public ProcessorBase
+class OverdrivePedal : public ProcessorBase
 {
 public:
-    PedalOverdrive() :
+    OverdrivePedal() :
         oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
         addParameter(driveParam = new juce::AudioParameterFloat("drive", "Drive", 0.0f, 100.0f, 25.0f));
@@ -75,7 +75,7 @@ public:
     }
 
     bool hasEditor() const override { return true; }
-    juce::AudioProcessorEditor* createEditor() override { return new PedalOverdriveEditor(*this, driveParam, levelParam); }
+    juce::AudioProcessorEditor* createEditor() override { return new OverdriveEditor(*this, driveParam, levelParam); }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
     {

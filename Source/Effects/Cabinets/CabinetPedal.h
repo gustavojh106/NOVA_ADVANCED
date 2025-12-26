@@ -5,10 +5,10 @@
 // ==============================================================
 // 1. EL EDITOR VISUAL (UI) - Se mantiene igual
 // ==============================================================
-class PedalCabinetEditor : public juce::AudioProcessorEditor
+class CabinetEditor : public juce::AudioProcessorEditor
 {
 public:
-    PedalCabinetEditor(juce::AudioProcessor& p) : AudioProcessorEditor(&p)
+    CabinetEditor(juce::AudioProcessor& p) : AudioProcessorEditor(&p)
     {
         setSize(200, 300);
     }
@@ -32,10 +32,10 @@ public:
 // ==============================================================
 // 2. EL PROCESADOR (DSP) - CON PROTECCIÓN ANTI-CRASH
 // ==============================================================
-class PedalCabinet : public ProcessorBase
+class CabinetPedal : public ProcessorBase
 {
 public:
-    PedalCabinet()
+    CabinetPedal()
     {
         // Cargamos el IR en el constructor, pero NO permitimos procesar todavía
         auto irFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
@@ -93,7 +93,7 @@ public:
     bool hasEditor() const override { return true; }
     juce::AudioProcessorEditor* createEditor() override
     {
-        return new PedalCabinetEditor(*this);
+        return new CabinetEditor(*this);
     }
 
 private:

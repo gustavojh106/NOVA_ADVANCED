@@ -65,8 +65,8 @@ void NOVAAudioProcessor::valueTreeChildAdded(juce::ValueTree& parent, juce::Valu
         std::unique_ptr<juce::AudioProcessor> newPedalParams;
         juce::String type = child.getProperty(IDs::PEDAL_TYPE);
 
-        if (type == "Overdrive") newPedalParams = std::make_unique<PedalOverdrive>();
-        else if (type == "Cabinet") newPedalParams = std::make_unique<PedalCabinet>();
+        if (type == "Overdrive") newPedalParams = std::make_unique<OverdrivePedal>();
+        else if (type == "Cabinet") newPedalParams = std::make_unique<CabinetPedal>();
         //else if (type == "Neural") newPedalParams = std::make_unique<PedalNeural>();
 
         if (newPedalParams)
@@ -408,8 +408,8 @@ void NOVAAudioProcessor::rebuildChain()
             juce::String type = child.getProperty(IDs::PEDAL_TYPE);
             std::unique_ptr<juce::AudioProcessor> newPedal;
 
-            if (type == "Overdrive") newPedal = std::make_unique<PedalOverdrive>();
-            else if (type == "Cabinet") newPedal = std::make_unique<PedalCabinet>();
+            if (type == "Overdrive") newPedal = std::make_unique<OverdrivePedal>();
+            else if (type == "Cabinet") newPedal = std::make_unique<CabinetPedal>();
             //else if (type == "Neural") newPedal = std::make_unique<PedalNeural>();
 
             if (newPedal)
