@@ -7,51 +7,62 @@ AudioEngine::AudioEngine()
 
 AudioEngine::~AudioEngine()
 {
-    mainGraph->releaseResources();
+    reset();
 }
 
+// ==============================================================================
+//  PREPARACIÓN Y CONFIGURACIÓN (Cimientos Sólidos)
+// ==============================================================================
 void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numInputChannels, int numOutputChannels)
 {
     currentRate = sampleRate;
     currentBlockSize = samplesPerBlock;
-
-    // CORRECCIÓN: Respetamos EXACTAMENTE lo que dice el Hardware
     hardwareInputs = numInputChannels;
     hardwareOutputs = numOutputChannels;
 
     if (currentRate <= 0) return;
 
-    // 1. Configuramos el Grafo con la realidad del Hardware
-    mainGraph->setPlayConfigDetails(hardwareInputs, hardwareOutputs, sampleRate, samplesPerBlock);
+    // 1. Limpieza total para empezar de cero
+    mainGraph->releaseResources();
+    mainGraph->clear();
+    nodesChain.clear();
 
-    // 2. Definimos el Layout de Buses explícito (Evita ambigüedades de JUCE)
+    // 2. Configuración del Grafo
+    mainGraph->setPlayConfigDetails(hardwareInputs, hardwareOutputs, sampleRate, samplesPerBlock);
     mainGraph->setBusesLayout({
         juce::AudioChannelSet::canonicalChannelSet(hardwareInputs),
         juce::AudioChannelSet::canonicalChannelSet(hardwareOutputs)
         });
-
     mainGraph->prepareToPlay(sampleRate, samplesPerBlock);
 
-    // 3. Configuramos los Pedales INTERNOS (Siempre Stereo para mejor calidad)
-    for (auto node : nodesChain)
+    // 3. Creación de Nodos de Sistema (INMUTABLES)
+    auto inputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
+    auto outputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
+
+    if (inputNode && outputNode)
     {
-        if (auto* p = node->getProcessor())
-        {
-            // Forzamos Stereo dentro de los pedales aunque la entrada sea Mono
-            p->setPlayConfigDetails(2, 2, sampleRate, samplesPerBlock);
-            p->prepareToPlay(sampleRate, samplesPerBlock);
-        }
+        systemInputID = inputNode->nodeID;
+        systemOutputID = outputNode->nodeID;
+
+        // Conexión inicial: Entrada -> Salida (Bypass total)
+        connectNodes(systemInputID, systemOutputID);
     }
 
-    rebuildGraph();
-
     inPanicState = false;
-    startupCounter = 100;
+    startupCounter = 100; // Silencio breve al inicio para estabilizar
 }
 
+// ==============================================================================
+//  PROCESO DE AUDIO (NO TRY-CATCH)
+// ==============================================================================
 void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
-    if (currentRate <= 0) { buffer.clear(); return; }
+    // 1. Validaciones rápidas
+    if (currentRate <= 0 || inPanicState)
+    {
+        buffer.clear();
+        return;
+    }
 
     if (startupCounter > 0)
     {
@@ -60,28 +71,203 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         return;
     }
 
-    if (inPanicState) inPanicState = false;
-
-    try
-    {
-        // El grafo se encarga de mapear el buffer hardware a los nodos internos
-        mainGraph->processBlock(buffer, midi);
-    }
-    catch (...)
-    {
-        buffer.clear();
-    }
-
+    // 2. Protección PRE-Proceso (Check de sanidad de la entrada)
     if (!isStreamHealthy(buffer))
     {
         buffer.clear();
-        DBG("WARN: Audio corruption. Silencing.");
+        return;
+    }
+
+    // 3. Procesamiento Real (Sin excepciones)
+    // El grafo maneja internamente la seguridad de punteros nulos.
+    mainGraph->processBlock(buffer, midi);
+
+    // 4. Protección POST-Proceso (Check de sanidad de la salida)
+    if (!isStreamHealthy(buffer))
+    {
+        buffer.clear();
+        DBG("AudioEngine: Panic! NaN detected in output. Silencing.");
+        inPanicState = true;
+        // Aquí podrías notificar a la UI en el futuro
     }
 }
 
-// ... (reset, isStreamHealthy, removePedal, clearChain, getActiveNodes IGUAL QUE ANTES) ...
-// Copia esas funciones de tu versión anterior o la que te pasé antes, no cambian.
+// ==============================================================================
+//  GESTIÓN QUIRÚRGICA DE PEDALES (Smart Routing)
+// ==============================================================================
+void AudioEngine::addPedal(const juce::String& pedalType)
+{
+    // Suspendemos el audio para evitar clicks mientras reconectamos
+    mainGraph->suspendProcessing(true);
 
+    auto newPedalProcessor = PedalRegistry::createPedal(pedalType);
+    if (newPedalProcessor)
+    {
+        // Configuración Stereo Interna
+        if (currentRate > 0)
+        {
+            newPedalProcessor->setPlayConfigDetails(2, 2, currentRate, currentBlockSize);
+            newPedalProcessor->prepareToPlay(currentRate, currentBlockSize);
+        }
+
+        auto newNode = mainGraph->addNode(std::move(newPedalProcessor));
+
+        // LÓGICA DE INSERCIÓN:
+        // Siempre insertamos al FINAL de la cadena de usuario, justo antes del Output del sistema.
+
+        juce::AudioProcessorGraph::NodeID sourceID;
+        juce::AudioProcessorGraph::NodeID destID = systemOutputID;
+
+        if (nodesChain.empty())
+        {
+            // Si no hay pedales: InputSistema -> [Nuevo] -> OutputSistema
+            sourceID = systemInputID;
+        }
+        else
+        {
+            // Si ya hay pedales: ÚltimoPedal -> [Nuevo] -> OutputSistema
+            sourceID = nodesChain.back()->nodeID;
+        }
+
+        // 1. Romper la conexión existente (Source -> Dest)
+        disconnectNodes(sourceID, destID);
+
+        // 2. Crear las nuevas conexiones (Source -> Nuevo -> Dest)
+        connectNodes(sourceID, newNode->nodeID);
+        connectNodes(newNode->nodeID, destID);
+
+        // 3. Registrar el nodo
+        nodesChain.push_back(newNode);
+    }
+
+    mainGraph->suspendProcessing(false);
+}
+
+void AudioEngine::removePedal(int index)
+{
+    if (index < 0 || index >= nodesChain.size()) return;
+
+    mainGraph->suspendProcessing(true);
+
+    auto nodeToRemove = nodesChain[index];
+
+    // Identificar vecinos
+    juce::AudioProcessorGraph::NodeID prevID;
+    juce::AudioProcessorGraph::NodeID nextID;
+
+    // ¿Quién está antes?
+    if (index == 0) prevID = systemInputID;
+    else            prevID = nodesChain[index - 1]->nodeID;
+
+    // ¿Quién está después?
+    if (index == nodesChain.size() - 1) nextID = systemOutputID;
+    else                                nextID = nodesChain[index + 1]->nodeID;
+
+    // 1. Desconectar el nodo a eliminar de sus vecinos
+    disconnectNodes(prevID, nodeToRemove->nodeID);
+    disconnectNodes(nodeToRemove->nodeID, nextID);
+
+    // 2. Eliminar el nodo del grafo
+    mainGraph->removeNode(nodeToRemove->nodeID);
+
+    // 3. Coser la herida (Conectar Prev -> Next)
+    connectNodes(prevID, nextID);
+
+    // 4. Actualizar registro
+    nodesChain.erase(nodesChain.begin() + index);
+
+    mainGraph->suspendProcessing(false);
+}
+
+void AudioEngine::clearChain()
+{
+    mainGraph->suspendProcessing(true);
+
+    // Borramos solo los pedales de usuario, NO los nodos de sistema
+    for (auto& node : nodesChain)
+    {
+        mainGraph->removeNode(node->nodeID);
+    }
+    nodesChain.clear();
+
+    // Restauramos el bypass limpio: Input -> Output
+    disconnectNodes(systemInputID, systemOutputID); // Por seguridad
+    connectNodes(systemInputID, systemOutputID);
+
+    mainGraph->suspendProcessing(false);
+    inPanicState = false;
+}
+
+// ==============================================================================
+//  RUTEO INTELIGENTE (Omni-Input Logic)
+// ==============================================================================
+void AudioEngine::connectNodes(juce::AudioProcessorGraph::NodeID sourceID, juce::AudioProcessorGraph::NodeID destID)
+{
+    auto sourceNode = mainGraph->getNodeForId(sourceID);
+    auto destNode = mainGraph->getNodeForId(destID);
+
+    if (!sourceNode || !destNode) return;
+
+    int sourceCh = sourceNode->getProcessor()->getTotalNumOutputChannels();
+    int destCh = destNode->getProcessor()->getTotalNumInputChannels();
+
+    // ¿Es el nodo fuente la Entrada Física del Sistema?
+    bool isSystemInput = (sourceID == systemInputID);
+
+    if (isSystemInput)
+    {
+        // === MODO OMNI-INPUT (Guitar Friendly) ===
+        // Sumamos todas las entradas de hardware al L y R del primer pedal
+        for (int i = 0; i < sourceCh; ++i)
+        {
+            // Conectar input i -> Canal 0 del destino (L)
+            mainGraph->addConnection({ { sourceID, i }, { destID, 0 } });
+
+            // Conectar input i -> Canal 1 del destino (R) si existe
+            if (destCh > 1)
+                mainGraph->addConnection({ { sourceID, i }, { destID, 1 } });
+        }
+    }
+    else
+    {
+        // === CONEXIÓN ESTÁNDAR (Pedal a Pedal / Pedal a Output) ===
+        // L -> L
+        if (sourceCh > 0 && destCh > 0)
+            mainGraph->addConnection({ { sourceID, 0 }, { destID, 0 } });
+
+        // R -> R
+        if (sourceCh > 1 && destCh > 1)
+            mainGraph->addConnection({ { sourceID, 1 }, { destID, 1 } });
+    }
+}
+
+void AudioEngine::disconnectNodes(juce::AudioProcessorGraph::NodeID sourceID, juce::AudioProcessorGraph::NodeID destID)
+{
+    // 1. Obtenemos una REFERENCIA a la lista actual de conexiones
+    const auto& connections = mainGraph->getConnections();
+
+    // 2. Creamos una lista temporal de las que queremos borrar.
+    // (No podemos borrar mientras iteramos directamente sobre 'connections' porque invalidaría el iterador)
+    std::vector<juce::AudioProcessorGraph::Connection> connectionsToRemove;
+
+    for (const auto& c : connections)
+    {
+        if (c.source.nodeID == sourceID && c.destination.nodeID == destID)
+        {
+            connectionsToRemove.push_back(c);
+        }
+    }
+
+    // 3. Ahora sí, las borramos del grafo una por una
+    for (const auto& c : connectionsToRemove)
+    {
+        mainGraph->removeConnection(c);
+    }
+}
+
+// ==============================================================================
+//  UTILIDADES
+// ==============================================================================
 void AudioEngine::reset()
 {
     mainGraph->releaseResources();
@@ -90,33 +276,26 @@ void AudioEngine::reset()
 
 bool AudioEngine::isStreamHealthy(const juce::AudioBuffer<float>& buffer)
 {
-    if (buffer.getNumChannels() > 0)
+    // Optimización: Solo chequear si hay datos
+    if (buffer.getNumChannels() == 0) return true;
+
+    // Chequeo rápido solo del primer sample para evitar CPU hit en release,
+    // o chequeo completo solo en Debug.
+    // Para producción segura (SOTA), chequeamos todo pero optimizado.
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
     {
-        auto* data = buffer.getReadPointer(0);
+        auto* data = buffer.getReadPointer(ch);
+        // Solo revisamos el primer y último sample por eficiencia, 
+        // o iteramos si la seguridad es prioridad máxima.
+        // Aquí priorizamos seguridad:
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
             if (!std::isfinite(data[i])) return false;
-            if (std::abs(data[i]) > 100.0f) return false;
+            if (std::abs(data[i]) > 50.0f) return false; // Umbral de seguridad (volumen explosivo)
         }
     }
     return true;
-}
-
-void AudioEngine::removePedal(int index)
-{
-    if (index >= 0 && index < nodesChain.size())
-    {
-        auto nodePtr = nodesChain[index];
-        if (nodePtr != nullptr) mainGraph->removeNode(nodePtr->nodeID);
-        nodesChain.erase(nodesChain.begin() + index);
-        rebuildGraph();
-    }
-}
-
-void AudioEngine::clearChain()
-{
-    mainGraph->clear();
-    nodesChain.clear();
 }
 
 const std::vector<juce::AudioProcessorGraph::Node::Ptr>& AudioEngine::getActiveNodes() const
@@ -124,107 +303,8 @@ const std::vector<juce::AudioProcessorGraph::Node::Ptr>& AudioEngine::getActiveN
     return nodesChain;
 }
 
-// ==============================================================================
-//  ADD PEDAL: Configuramos siempre en Stereo (2,2)
-// ==============================================================================
-void AudioEngine::addPedal(const juce::String& pedalType)
+int AudioEngine::getLatencyNumSamples() const
 {
-    auto newPedal = PedalRegistry::createPedal(pedalType);
-    if (newPedal)
-    {
-        if (currentRate > 0)
-        {
-            // Los pedales viven en un mundo estéreo ideal
-            newPedal->setPlayConfigDetails(2, 2, currentRate, currentBlockSize);
-            newPedal->prepareToPlay(currentRate, currentBlockSize);
-        }
-
-        auto node = mainGraph->addNode(std::move(newPedal));
-        nodesChain.push_back(node);
-        rebuildGraph();
-    }
-}
-
-// ==============================================================================
-//  ROUTING INTELIGENTE (MONO -> STEREO -> OUTPUT)
-// ==============================================================================
-void AudioEngine::rebuildGraph()
-{
-    for (auto& c : mainGraph->getConnections())
-        mainGraph->removeConnection(c);
-
-    juce::AudioProcessorGraph::Node::Ptr inputNode;
-    juce::AudioProcessorGraph::Node::Ptr outputNode;
-
-    for (auto* node : mainGraph->getNodes())
-    {
-        if (auto* io = dynamic_cast<juce::AudioProcessorGraph::AudioGraphIOProcessor*>(node->getProcessor()))
-        {
-            if (io->getType() == juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode)
-                inputNode = node;
-            else if (io->getType() == juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode)
-                outputNode = node;
-        }
-    }
-
-    if (!inputNode) inputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
-    if (!outputNode) outputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
-
-    if (nodesChain.empty())
-    {
-        connectNodes(inputNode, outputNode);
-    }
-    else
-    {
-        connectNodes(inputNode, nodesChain.front());
-        for (size_t i = 0; i < nodesChain.size() - 1; ++i)
-            connectNodes(nodesChain[i], nodesChain[i + 1]);
-        connectNodes(nodesChain.back(), outputNode);
-    }
-}
-
-void AudioEngine::connectNodes(juce::AudioProcessorGraph::Node::Ptr source, juce::AudioProcessorGraph::Node::Ptr dest)
-{
-    if (!source || !dest) return;
-
-    int sourceCh = source->getProcessor()->getTotalNumOutputChannels();
-    int destCh = dest->getProcessor()->getTotalNumInputChannels();
-
-    // SOTA CHECK: ¿Es este el nodo de entrada físico del sistema?
-    bool isSystemInput = (dynamic_cast<juce::AudioProcessorGraph::AudioGraphIOProcessor*>(source->getProcessor()) != nullptr &&
-        source->getProcessor()->getTotalNumInputChannels() == 0);
-
-    if (isSystemInput)
-    {
-        // === MODO OMNI-INPUT (Guitar Friendly) ===
-        // Conectamos TODOS los canales de entrada física (1, 2, etc.) 
-        // a AMBOS canales de entrada del primer pedal.
-        // JUCE suma las señales automáticamente en el destino.
-        // Resultado: Input 1 (Silencio) + Input 2 (Guitarra) = Guitarra en el centro.
-
-        for (int i = 0; i < sourceCh; ++i)
-        {
-            // Conectar al Canal L del pedal
-            mainGraph->addConnection({ { source->nodeID, i }, { dest->nodeID, 0 } });
-
-            // Conectar al Canal R del pedal (si existe)
-            if (destCh > 1)
-            {
-                mainGraph->addConnection({ { source->nodeID, i }, { dest->nodeID, 1 } });
-            }
-        }
-    }
-    else
-    {
-        // === CONEXIÓN ESTÁNDAR ENTRE PEDALES ===
-        // (Pedal -> Pedal) Aquí mantenemos el estéreo separado L->L, R->R
-
-        // L -> L
-        if (sourceCh > 0 && destCh > 0)
-            mainGraph->addConnection({ { source->nodeID, 0 }, { dest->nodeID, 0 } });
-
-        // R -> R
-        if (sourceCh > 1 && destCh > 1)
-            mainGraph->addConnection({ { source->nodeID, 1 }, { dest->nodeID, 1 } });
-    }
+    // El método correcto en JUCE es getLatencySamples(), no getLatencyNumSamples()
+    return mainGraph ? mainGraph->getLatencySamples() : 0;
 }
