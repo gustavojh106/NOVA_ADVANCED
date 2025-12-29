@@ -45,14 +45,16 @@ void NOVAAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     auto totalNumInputChannels = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
-    // Limpiar canales extra
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    // Delegar al motor
+    // 1. Procesamiento del Audio Engine
     audioEngine.process(buffer, midiMessages);
-}
 
+    // 2. SOTA: Enviar copia al Visualizador (Post-Procesamiento)
+    // Esto es seguro porque SimpleOscilloscope copia los datos a su propio buffer simple
+    audioVisualizer.pushBuffer(buffer);
+}
 // ==============================================================================
 //  GESTIÓN DE ESTADO (ValueTree)
 // ==============================================================================

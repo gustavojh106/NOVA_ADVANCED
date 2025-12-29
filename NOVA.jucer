@@ -852,6 +852,7 @@
         <FILE id="Cbwfrs" name="PluginProcessor.h" compile="0" resource="0"
               file="Source/Core/PluginProcessor.h"/>
         <FILE id="fCL6r6" name="StyleSheet.h" compile="0" resource="0" file="Source/Core/StyleSheet.h"/>
+        <FILE id="utNyn9" name="Visualizer.h" compile="0" resource="0" file="Source/Core/Visualizer.h"/>
       </GROUP>
       <GROUP id="{660ADDC2-E27F-7C10-97F8-D08A7254FBB0}" name="Assets">
         <GROUP id="{852961FB-A5EE-8501-1943-6D09DA86B489}" name="NeuralModels">

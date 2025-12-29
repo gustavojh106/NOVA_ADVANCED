@@ -2,7 +2,7 @@
 
 #include <JuceHeader.h>
 #include "AudioEngine.h"
-
+#include "Visualizer.h"
 // Definiciones de IDs
 namespace IDs
 {
@@ -40,6 +40,7 @@ public:
 
     // Estado y Gestión
     juce::ValueTree pluginState;
+    SimpleOscilloscope audioVisualizer; // <--- NUEVO
     void requestAddPedal(const juce::String& pedalType);
     void requestRemovePedal(int index);
 

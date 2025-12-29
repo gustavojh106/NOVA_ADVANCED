@@ -5205,6 +5205,9 @@
     <ClInclude Include="..\..\Source\Core\StyleSheet.h">
       <Filter>NOVA\Source\Core</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Source\Core\Visualizer.h">
+      <Filter>NOVA\Source\Core</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\..\..\..\..\Downloads\juce-8.0.12-windows\JUCE\modules\juce_audio_basics\audio_play_head\juce_AudioPlayHead.h">
       <Filter>JUCE Modules\juce_audio_basics\audio_play_head</Filter>
     </ClInclude>

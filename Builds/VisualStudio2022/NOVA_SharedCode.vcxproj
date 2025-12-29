@@ -3410,6 +3410,7 @@
     <ClInclude Include="..\..\Source\Core\PluginEditor.h"/>
     <ClInclude Include="..\..\Source\Core\PluginProcessor.h"/>
     <ClInclude Include="..\..\Source\Core\StyleSheet.h"/>
+    <ClInclude Include="..\..\Source\Core\Visualizer.h"/>
     <ClInclude Include="..\..\..\..\..\..\Downloads\juce-8.0.12-windows\JUCE\modules\juce_audio_basics\audio_play_head\juce_AudioPlayHead.h"/>
     <ClInclude Include="..\..\..\..\..\..\Downloads\juce-8.0.12-windows\JUCE\modules\juce_audio_basics\buffers\juce_AudioChannelSet.h"/>
     <ClInclude Include="..\..\..\..\..\..\Downloads\juce-8.0.12-windows\JUCE\modules\juce_audio_basics\buffers\juce_AudioDataConverters.h"/>

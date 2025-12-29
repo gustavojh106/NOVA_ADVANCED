@@ -4,10 +4,10 @@
 NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p)
 {
-    setSize(1000, 600);
-
+    setSize(1000, 650); // Aumentamos un poco la altura para el header
+    addAndMakeVisible(audioProcessor.audioVisualizer);
     addAndMakeVisible(btnAddOverdrive);
-    addAndMakeVisible(btnAddNeural);
+    //addAndMakeVisible(btnAddNeural);
     addAndMakeVisible(btnAddCabinet);
 
     // 1. Nos suscribimos a los cambios del modelo
@@ -30,22 +30,34 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
     // Panel Lateral
     g.setColour(juce::Colours::darkgrey);
     g.fillRect(0, 0, 150, getHeight());
-
+    g.setColour(juce::Colours::white.withAlpha(0.8f));
+    g.setFont(30.0f);
+    g.drawText("NOVA", 20, 0, 100, 80, juce::Justification::centredLeft);
     g.setColour(juce::Colours::white);
     g.drawVerticalLine(150, 0.0f, (float)getHeight());
 }
 
 void NOVAAudioProcessorEditor::resized()
 {
-    // Layout de botones laterales
-    int x = 10, w = 130, h = 40, padding = 10;
-    btnAddOverdrive.setBounds(x, 20, w, h);
-    btnAddNeural.setBounds(x, 20 + h + padding, w, h);
-    btnAddCabinet.setBounds(x, 20 + (h + padding) * 2, w, h);
+    auto area = getLocalBounds();
 
-    // Layout de los Pedales (Flow Horizontal)
-    int currentX = 160;
-    int pedalY = 20;
+    // 1. HEADER (Visualizador) - 80px de alto en la cima
+    auto headerArea = area.removeFromTop(80);
+    audioProcessor.audioVisualizer.setBounds(headerArea);
+
+    // 2. BARRA LATERAL (Resto del área a la izquierda)
+    auto sideBar = area.removeFromLeft(150);
+
+    int w = 130, h = 40, padding = 10;
+    int btnX = sideBar.getX() + 10;
+
+    btnAddOverdrive.setBounds(btnX, sideBar.getY() + 20, w, h);
+    btnAddNeural.setBounds(btnX, sideBar.getY() + 20 + h + padding, w, h);
+    btnAddCabinet.setBounds(btnX, sideBar.getY() + 20 + (h + padding) * 2, w, h);
+
+    // 3. ZONA DE PEDALES (Lo que sobra)
+    int currentX = area.getX() + 10;
+    int pedalY = area.getY() + 20;
 
     for (auto* editor : activeEditors)
     {
@@ -53,7 +65,6 @@ void NOVAAudioProcessorEditor::resized()
         currentX += editor->getWidth() + 10;
     }
 }
-
 // ==============================================================================
 // La Reactiva (SOTA)
 // ==============================================================================
