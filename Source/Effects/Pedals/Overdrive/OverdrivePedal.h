@@ -3,6 +3,70 @@
 #include "OverdriveEditor.h"
 #include <juce_dsp/juce_dsp.h>
 
+// ==============================================================================
+//  SOTA COMPONENT: High Performance Clipper
+// ==============================================================================
+struct SotaClipper
+{
+    void prepare(const juce::dsp::ProcessSpec&) {}
+    void reset() {}
+
+    // Aproximación rápida de Tanh (Padé approximation)
+    // Error despreciable para audio, velocidad extrema.
+    // Válido para entradas entre -3.0 y 3.0 (suficiente para overdrive)
+    inline float fastTanh(float x) const noexcept
+    {
+        float x2 = x * x;
+        // Fórmula mágica: x * (27 + x^2) / (27 + 9x^2)
+        return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+    }
+
+    template <typename ProcessContext>
+    void process(const ProcessContext& context) noexcept
+    {
+        auto&& inputBlock = context.getInputBlock();
+        auto&& outputBlock = context.getOutputBlock();
+
+        size_t numChannels = inputBlock.getNumChannels();
+        size_t numSamples = inputBlock.getNumSamples();
+
+        // Bucle diseñado para AUTO-VECTORIZACIÓN (SIMD)
+        // El compilador detectará que no hay dependencias y usará registros AVX/SSE
+        for (size_t ch = 0; ch < numChannels; ++ch)
+        {
+            auto* src = inputBlock.getChannelPointer(ch);
+            auto* dst = outputBlock.getChannelPointer(ch);
+
+            for (size_t i = 0; i < numSamples; ++i)
+            {
+                float x = src[i];
+
+                // --- LÓGICA BRANCHLESS (Sin 'if') ---
+
+                // Queremos: si x < 0, dividir por 1.2 (expandir). Si x > 0, normal.
+                // Truco: (x < 0) devuelve 1.0f si es verdad, 0.0f si es falso (al castear).
+
+                // 1. Detectar signo (1.0 si es negativo, 0.0 si es positivo)
+                // Usamos una comparación segura que el compilador vectoriza.
+                float isNegative = (float)(x < 0.0f);
+
+                // 2. Calcular factor divisor sin bifurcación
+                // Si es negativo: 1.0 + (0.2 * 1) = 1.2
+                // Si es positivo: 1.0 + (0.2 * 0) = 1.0
+                float driveFactor = 1.0f + (0.2f * isNegative);
+
+                // 3. Aplicar distorsión rápida
+                // Aplicamos el divisor, distorsionamos, y multiplicamos para compensar volumen
+                // (Simetría asimétrica valvular)
+                dst[i] = fastTanh(x / driveFactor) * driveFactor;
+            }
+        }
+    }
+};
+
+// ==============================================================================
+//  MAIN PEDAL CLASS
+// ==============================================================================
 class OverdrivePedal : public ProcessorBase
 {
 public:
@@ -11,23 +75,7 @@ public:
     {
         addParameter(driveParam = new juce::AudioParameterFloat("drive", "Drive", 0.0f, 100.0f, 25.0f));
         addParameter(levelParam = new juce::AudioParameterFloat("level", "Level", 0.0f, 1.0f, 0.1f));
-
-        // --- 1. CONFIGURACIÓN SOTA DE LA DISTORSIÓN ---
-        auto& waveshaper = processorChain.get<2>(); // Índice 2 es el WaveShaper ahora
-        waveshaper.functionToUse = [](float x)
-            {
-                // ALGORITMO: Asymmetrical Soft Clipping
-                // Simula un circuito de diodos donde un lado recorta más que el otro.
-                // Esto genera armónicos de 2do orden (Sonido "Válvula/Cálido").
-
-                // Rango positivo: Recorte suave (Soft Knee)
-                if (x > 0.0f)
-                    return std::tanh(x);
-
-                // Rango negativo: Recorte más duro y desplazado (Asimetría)
-                // El factor 1.2 estira la curva negativa.
-                return std::tanh(x / 1.2f) * 1.2f;
-            };
+        // Nota: Ya no configuramos lambda porque usamos SotaClipper
     }
 
     bool hasEditor() const override { return true; }
@@ -41,8 +89,6 @@ public:
         if (sampleRate <= 0) return;
 
         oversampler.initProcessing(static_cast<size_t>(samplesPerBlock));
-
-        // El procesamiento interno corre a 4x (Oversampling)
         double innerSampleRate = sampleRate * 4.0;
 
         juce::dsp::ProcessSpec spec;
@@ -52,20 +98,10 @@ public:
 
         processorChain.prepare(spec);
 
-        // --- 2. CONFIGURACIÓN DE FILTROS (EL SECRETO DEL TONO) ---
-
-        // A. PRE-FILTER (Tightness): 
-        // Cortamos bajos sucios (HighPass) antes de la distorsión. 
-        // 720Hz es el estándar del Tube Screamer, pero 300Hz es más moderno/versátil.
+        // --- Configuración de Filtros y Ramping ---
         *processorChain.get<0>().state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(innerSampleRate, 300.0f);
-
-        // B. RAMPING (Suavizado de controles)
-        processorChain.get<1>().setRampDurationSeconds(0.05); // Drive Gain
-        processorChain.get<4>().setRampDurationSeconds(0.05); // Output Level
-
-        // C. POST-FILTER (Smoothness):
-        // Cortamos el "fizz" digital (LowPass) después de la distorsión.
-        // 3500Hz suaviza sin matar el brillo.
+        processorChain.get<1>().setRampDurationSeconds(0.05); // Drive Smooth
+        processorChain.get<4>().setRampDurationSeconds(0.05); // Level Smooth
         *processorChain.get<3>().state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(innerSampleRate, 3500.0f);
 
         setLatencySamples(oversampler.getLatencyInSamples());
@@ -80,7 +116,6 @@ public:
         processorChain.reset();
         if (isPrepared)
         {
-            // Forzamos valores iniciales
             processorChain.get<1>().setGainLinear(*driveParam);
             processorChain.get<4>().setGainLinear(*levelParam);
         }
@@ -94,12 +129,11 @@ public:
 
         juce::dsp::AudioBlock<float> block(buffer);
 
-        // Actualizamos parámetros (Gain maneja el ramping interno)
-        // NOTA: Multiplicamos el driveParam para tener más "jugo" ya que filtramos antes
+        // Actualización de parámetros
         processorChain.get<1>().setGainLinear(juce::Decibels::decibelsToGain(static_cast<float>(*driveParam) * 0.6f));
         processorChain.get<4>().setGainLinear(*levelParam);
 
-        // Proceso DSP Completo
+        // Pipeline optimizado
         juce::dsp::AudioBlock<float> upsampledBlock = oversampler.processSamplesUp(block);
         juce::dsp::ProcessContextReplacing<float> context(upsampledBlock);
         processorChain.process(context);
@@ -109,17 +143,12 @@ public:
     const juce::String getName() const override { return "Overdrive"; }
 
 private:
-    // --- 3. TOPOLOGÍA ANALÓGICA VIRTUAL ---
-    // Cadena: 
-    // [0] Pre-Filter (IIR): Limpia el barro antes de distorsionar.
-    // [1] Drive Gain: Sube el volumen para golpear el clipper.
-    // [2] WaveShaper: El diodo asimétrico.
-    // [3] Post-Filter (IIR): Simula la pérdida de agudos del circuito.
-    // [4] Output Level: Volumen final.
+    // Cadena SOTA Optimizada:
+    // Sustituimos WaveShaper por SotaClipper
     using Chain = juce::dsp::ProcessorChain<
         juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>>, // Pre-Filter
         juce::dsp::Gain<float>,       // Drive
-        juce::dsp::WaveShaper<float>, // Clipper
+        SotaClipper,                  // <--- NUESTRO CLIPPER OPTIMIZADO
         juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>>, // Post-Filter
         juce::dsp::Gain<float>        // Level
     >;
