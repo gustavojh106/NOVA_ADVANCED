@@ -11,27 +11,73 @@ public:
     {
     }
 
-    // --- ESTA ES LA CLAVE ---
-    // Le decimos a JUCE: "Acepto Mono, Acepto Stereo, Acepto lo que me des"
+    // ... (Layout support se mantiene igual) ...
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override
     {
-        // Inputs y Outputs deben tener el mismo número de canales (para simplificar)
-        if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
-            return false;
-
-        // Solo aceptamos Mono (1) o Stereo (2)
+        if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet()) return false;
         if (layouts.getMainInputChannelSet() != juce::AudioChannelSet::mono()
-            && layouts.getMainInputChannelSet() != juce::AudioChannelSet::stereo())
-            return false;
-
+            && layouts.getMainInputChannelSet() != juce::AudioChannelSet::stereo()) return false;
         return true;
     }
 
-    // Boilerplate estándar
-    void prepareToPlay(double, int) override {}
-    void releaseResources() override {}
-    void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}
+    // ==============================================================================
+    //  SOTA AUTOMATION: TOTAL RECALL GENÉRICO
+    // ==============================================================================
 
+    // 1. Guardar Estado (Save)
+    // Recorre todos los parámetros registrados y los guarda en un binario.
+    void getStateInformation(juce::MemoryBlock& destData) override
+    {
+        juce::XmlElement xml("PLUGIN_STATE");
+
+        // Magia: Iteramos sobre los parámetros que tú añadiste con addParameter()
+        for (auto* param : getParameters())
+        {
+            if (auto* p = dynamic_cast<juce::AudioProcessorParameterWithID*>(param))
+            {
+                auto* paramElem = xml.createNewChildElement("PARAM");
+                paramElem->setAttribute("id", p->paramID);
+                paramElem->setAttribute("value", p->getValue()); // Guarda valor normalizado (0.0 - 1.0)
+            }
+        }
+
+        copyXmlToBinary(xml, destData);
+    }
+
+    // 2. Cargar Estado (Load)
+    // Lee el binario y restaura las perillas
+    void setStateInformation(const void* data, int sizeInBytes) override
+    {
+        std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
+
+        if (xmlState != nullptr && xmlState->hasTagName("PLUGIN_STATE"))
+        {
+            for (auto* child : xmlState->getChildIterator())
+            {
+                if (child->hasTagName("PARAM"))
+                {
+                    juce::String paramID = child->getStringAttribute("id");
+                    float value = (float)child->getDoubleAttribute("value");
+
+                    // Buscar el parámetro por ID y actualizarlo
+                    for (auto* param : getParameters())
+                    {
+                        if (auto* p = dynamic_cast<juce::AudioProcessorParameterWithID*>(param))
+                        {
+                            if (p->paramID == paramID)
+                            {
+                                // IMPORTANTE: sendNotificationSync avisa al DSP y a la UI del cambio
+                                p->setValueNotifyingHost(value);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ... (Resto de boilerplate igual: createEditor, getName, etc.) ...
     juce::AudioProcessorEditor* createEditor() override { return nullptr; }
     bool hasEditor() const override { return false; }
     const juce::String getName() const override { return "Base"; }
@@ -43,8 +89,6 @@ public:
     void setCurrentProgram(int) override {}
     const juce::String getProgramName(int) override { return {}; }
     void changeProgramName(int, const juce::String&) override {}
-    void getStateInformation(juce::MemoryBlock&) override {}
-    void setStateInformation(const void*, int) override {}
 
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ProcessorBase)

@@ -105,6 +105,29 @@ void NOVAAudioProcessor::rebuildChain()
 // ==============================================================================
 void NOVAAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
+    // 1. Sincronizar: Antes de guardar, extraemos el estado actual de cada pedal activo
+    auto& nodes = audioEngine.getActiveNodes();
+
+    // Asumimos que el orden del ValueTree coincide con el de nodesChain (debería si la lógica es sólida)
+    // Para robustez total, iteramos por índice.
+    for (int i = 0; i < pluginState.getNumChildren(); ++i)
+    {
+        if (i < nodes.size() && nodes[i] != nullptr)
+        {
+            auto* processor = nodes[i]->getProcessor();
+            if (processor)
+            {
+                juce::MemoryBlock pedalData;
+                processor->getStateInformation(pedalData);
+
+                // SOTA: Guardamos el binario como String Base64 dentro del ValueTree
+                // Esto mantiene todo en un solo archivo legible/estructurado.
+                pluginState.getChild(i).setProperty("stateData", pedalData.toBase64Encoding(), nullptr);
+            }
+        }
+    }
+
+    // 2. Guardar el ValueTree completo (que ahora incluye los datos de los pedales)
     juce::MemoryOutputStream stream(destData, true);
     pluginState.writeToStream(stream);
 }
@@ -112,15 +135,43 @@ void NOVAAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 void NOVAAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     auto tree = juce::ValueTree::readFromData(data, sizeInBytes);
+
     if (tree.isValid() && tree.hasType(IDs::MAIN_STATE))
     {
+        // 1. Bloquear UI y Audio
         pluginState.removeListener(this);
+
+        // 2. Restaurar estructura (Crea los pedales con valores por defecto)
         pluginState.copyPropertiesAndChildrenFrom(tree, nullptr);
-        rebuildChain();
+        rebuildChain(); // Esto llama a audioEngine.clear y luego addPedal para cada hijo
+
+        // 3. Restaurar VALORES de las perillas (Total Recall)
+        auto& nodes = audioEngine.getActiveNodes();
+
+        for (int i = 0; i < pluginState.getNumChildren(); ++i)
+        {
+            auto child = pluginState.getChild(i);
+
+            // Si hay datos guardados y el nodo existe
+            if (child.hasProperty("stateData") && i < nodes.size())
+            {
+                juce::String base64 = child.getProperty("stateData");
+                juce::MemoryBlock pedalData;
+
+                if (pedalData.fromBase64Encoding(base64))
+                {
+                    if (auto* processor = nodes[i]->getProcessor())
+                    {
+                        processor->setStateInformation(pedalData.getData(), (int)pedalData.getSize());
+                    }
+                }
+            }
+        }
+
+        // 4. Reactivar UI
         pluginState.addListener(this);
     }
 }
-
 // ==============================================================================
 //  BOILERPLATE
 // ==============================================================================
