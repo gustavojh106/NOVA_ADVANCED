@@ -148,9 +148,10 @@ private:
     using Chain = juce::dsp::ProcessorChain<
         juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>>, // Pre-Filter
         juce::dsp::Gain<float>,       // Drive
-        SotaClipper,                  // <--- NUESTRO CLIPPER OPTIMIZADO
+        SotaClipper,
         juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>>, // Post-Filter
-        juce::dsp::Gain<float>        // Level
+        juce::dsp::Gain<float>,       // Level
+        juce::dsp::Bias<float>        // <--- NUEVO: DC Blocker eficiente (Bias remover)
     >;
 
     Chain processorChain;
