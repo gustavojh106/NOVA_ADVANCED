@@ -1,57 +1,86 @@
 #pragma once
 #include <JuceHeader.h>
-#include "PedalRegistry.h"
+#include "Common.h"
 
+// ==========================================================
+// PROCESADOR DE GANANCIA (Control de Volumen Independiente)
+// ==========================================================
+class SimpleGainProcessor : public juce::AudioProcessor
+{
+public:
+    SimpleGainProcessor();
+
+    void setGain(float gain);
+    void prepareToPlay(double, int) override;
+    void releaseResources() override;
+    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override;
+
+    // Boilerplate de JUCE
+    const juce::String getName() const override { return "Gain"; }
+    bool hasEditor() const override { return false; }
+    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
+    bool acceptsMidi() const override { return false; }
+    bool producesMidi() const override { return false; }
+    double getTailLengthSeconds() const override { return 0.0; }
+    int getNumPrograms() override { return 0; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram(int) override {}
+    const juce::String getProgramName(int) override { return {}; }
+    void changeProgramName(int, const juce::String&) override {}
+    void getStateInformation(juce::MemoryBlock&) override {}
+    void setStateInformation(const void*, int) override {}
+    bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
+
+private:
+    float currentGain = 1.0f;
+    float targetGain = 1.0f;
+};
+
+// ==========================================================
+// MOTOR DE AUDIO PRINCIPAL
+// ==========================================================
 class AudioEngine
 {
 public:
     AudioEngine();
     ~AudioEngine();
 
-    // Configuración Inicial
-    void prepare(double sampleRate, int samplesPerBlock, int numInputChannels, int numOutputChannels);
-
-    // Proceso de Audio (Real-Time Safe)
+    void prepare(double sampleRate, int samplesPerBlock, int numIn, int numOut);
     void process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
 
-    // Gestión de Recursos
-    void reset();
+    // Gestión de Cadenas
+    void addPedal(const juce::String& type, Nova::ChainID chain, int index);
+    void removePedal(Nova::ChainID chain, int index);
+    void clearAll();
 
-    // Gestión de Pedales (SOTA: Surgical Graph Mutation)
-    void addPedal(const juce::String& pedalType);
-    void removePedal(int index);
-    void clearChain();
+    // Control
+    void setEngineEnabled(bool enabled);
+    void updateMixer(float gainA, float gainB, Nova::SwitcherMode mode);
 
-    // Introspección
-    const std::vector<juce::AudioProcessorGraph::Node::Ptr>& getActiveNodes() const;
-
-    // SOTA: Reporte de Latencia para el Host (DAW)
-    int getLatencyNumSamples() const;
+    // Introspección (para la UI)
+    const std::vector<juce::AudioProcessorGraph::Node::Ptr>& getNodes(Nova::ChainID chain) const;
 
 private:
-    // Helpers internos de conexión
-    bool isStreamHealthy(const juce::AudioBuffer<float>& buffer);
+    void rebuildGraph();
 
-    // Conecta dos nodos gestionando la lógica Mono/Stereo y Omni-Input
-    void connectNodes(juce::AudioProcessorGraph::NodeID sourceID, juce::AudioProcessorGraph::NodeID destID);
-
-    // Desconecta todo entre dos nodos (para limpiar antes de insertar)
-    void disconnectNodes(juce::AudioProcessorGraph::NodeID sourceID, juce::AudioProcessorGraph::NodeID destID);
+    // Función Core de Conexionado
+    void connectChainToGain(const std::vector<juce::AudioProcessorGraph::Node::Ptr>& nodes,
+        juce::AudioProcessorGraph::NodeID gainNodeID);
 
     std::unique_ptr<juce::AudioProcessorGraph> mainGraph;
 
-    // Cadena de pedales de usuario (excluye I/O del sistema)
-    std::vector<juce::AudioProcessorGraph::Node::Ptr> nodesChain;
+    std::vector<juce::AudioProcessorGraph::Node::Ptr> nodesChainA;
+    std::vector<juce::AudioProcessorGraph::Node::Ptr> nodesChainB;
 
-    // IDs Persistentes del Sistema (Nunca cambian después del prepare)
-    juce::AudioProcessorGraph::NodeID systemInputID;
-    juce::AudioProcessorGraph::NodeID systemOutputID;
+    juce::AudioProcessorGraph::Node::Ptr inputNode;
+    juce::AudioProcessorGraph::Node::Ptr outputNode;
 
-    double currentRate = 0.0;
-    int currentBlockSize = 0;
-    int hardwareInputs = 2;
-    int hardwareOutputs = 2;
+    // Ganancias Independientes (Faders internos)
+    juce::AudioProcessorGraph::Node::Ptr gainNodeA;
+    juce::AudioProcessorGraph::Node::Ptr gainNodeB;
 
-    int startupCounter = 0;
-    bool inPanicState = false;
+    double currentSampleRate = 44100.0;
+    int currentBlockSize = 512;
+    int numInputChannels = 2;
+    bool isEngineOn = false; // Empieza en falso por seguridad
 };

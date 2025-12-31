@@ -1,35 +1,29 @@
 #pragma once
 #include <JuceHeader.h>
-#include <functional>
 #include <map>
+#include <functional>
 
-// Incluimos todos los pedales disponibles aquí (ÚNICO lugar donde se hace hardcode de includes)
-#include "../Effects/Pedals/Overdrive/OverdrivePedal.h"
+// == TUS INCLUDES DE PEDALES ==
+// Ajusta estas rutas si tus archivos están en otra carpeta
+#include "../Effects/Pedals/Overdrive/OverdrivePedal.h" 
 #include "../Effects/Cabinets/CabinetPedal.h"
-// #include "../Effects/Pedals/Neural/NeuralPedal.h" (Comentado por ahora)
+// #include "../Effects/Amps/MyAmp.h" 
 
 class PedalRegistry
 {
 public:
-    // Definimos el tipo de función "Creadora"
     using PedalCreator = std::function<std::unique_ptr<juce::AudioProcessor>()>;
 
     static std::unique_ptr<juce::AudioProcessor> createPedal(const juce::String& pedalType)
     {
-        // Mapa estático: Nombre -> Función que crea el pedal
         static const std::map<juce::String, PedalCreator> factory = {
             { "Overdrive", []() { return std::make_unique<OverdrivePedal>(); } },
             { "Cabinet",   []() { return std::make_unique<CabinetPedal>(); } }
-            // { "Neural",    []() { return std::make_unique<NeuralPedal>(); } }
+            // Agrega tus futuros amplificadores aqui
         };
 
-        // Buscamos en el mapa
         auto it = factory.find(pedalType);
-        if (it != factory.end())
-        {
-            return it->second(); // Ejecutamos la función creadora
-        }
-
-        return nullptr; // No encontrado
+        if (it != factory.end()) return it->second();
+        return nullptr;
     }
 };

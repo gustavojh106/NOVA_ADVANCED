@@ -3406,6 +3406,8 @@
     <ClInclude Include="..\..\Source\Effects\Pedals\Overdrive\OverdrivePedal.h"/>
     <ClInclude Include="..\..\Source\Effects\Pedals\Base\ProcessorBase.h"/>
     <ClInclude Include="..\..\Source\Core\AudioEngine.h"/>
+    <ClInclude Include="..\..\Source\Core\Common.h"/>
+    <ClInclude Include="..\..\Source\Core\DualMixer.h"/>
     <ClInclude Include="..\..\Source\Core\PedalRegistry.h"/>
     <ClInclude Include="..\..\Source\Core\PluginEditor.h"/>
     <ClInclude Include="..\..\Source\Core\PluginProcessor.h"/>
