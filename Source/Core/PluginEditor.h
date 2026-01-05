@@ -2,7 +2,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 
-// Helper para botones arrastrables
+// Helper para botones arrastrables (Se mantiene igual)
 class DraggableButton : public juce::TextButton
 {
 public:
@@ -28,7 +28,6 @@ public:
     void resized() override;
     bool keyPressed(const juce::KeyPress&) override;
 
-    // --- NUEVO: Función pública para abrir el modal ---
     void showOverlay(Nova::ZoneID zone, Nova::ChainID chain);
 
 private:
@@ -39,28 +38,62 @@ private:
     void updatePedalGui();
     void updateSwitcherState();
 
+    // Función helper para dibujar tiras de canal (Input/Output)
+    void drawChannelStrip(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title);
+
     NOVAAudioProcessor& audioProcessor;
 
-    // --- MIXER FOOTER ---
-    juce::TextButton btnStartStop;
-    juce::TextButton btnSwitcher;
+    // --- HEADER ---
+    juce::TextButton btnStartStop; // Engine Button
+    // Placeholders Header
+    juce::TextButton btnTuner{ "T" };
+    juce::TextButton btnMetronome{ "M" };
+    juce::Label lblCPU{ "CPU: 1%" };
+    juce::Label lblLatency{ "LATENCY" };
+    juce::TextButton btnSettings{ "Set" };
+    juce::TextButton btnCart{ "Cart" };
 
-    // Knobs de Volumen
-    juce::Slider volSliderA, volSliderB;
-    juce::Label  volLabelA, volLabelB;
-
-    // --- PALETA ---
+    // --- LEFT COLUMN 1: BROWSER ---
+    juce::TextEditor searchBarBrowser;
     DraggableButton btnAddOverdrive{ "Overdrive" };
     DraggableButton btnAddCabinet{ "Cabinet" };
+    DraggableButton btnAddNeural{ "Neural Amp" }; // Placeholder futuro
+
+    // --- LEFT COLUMN 2: INPUT STRIP ---
+    juce::ComboBox inputDeviceSelector;
+    juce::Slider inputVolume;
+    juce::Slider inputGain;
+    juce::Slider inputTranspose;
+    juce::ToggleButton btnMonoStereo{ "Mono/Stereo" };
+    juce::Slider inputFader; // Vertical
+
+    // --- CENTER: MIXER (Ahora bajo las cadenas) ---
+    juce::TextButton btnSwitcher;
+    // Line A Controls
+    juce::Slider volSliderA;
+    juce::Slider trebleSliderA, bassSliderA; // Placeholders visuales
+    // Line B Controls
+    juce::Slider volSliderB;
+    juce::Slider trebleSliderB, bassSliderB; // Placeholders visuales
+
+    // --- RIGHT COLUMN 1: OUTPUT STRIP ---
+    juce::ComboBox outputDeviceSelector;
+    juce::Slider outputVolume;
+    juce::Slider outputGain;
+    juce::Slider outputFader; // Vertical
+
+    // --- RIGHT COLUMN 2: PRESETS ---
+    juce::TextEditor searchBarPresets;
+    juce::TextButton btnSave{ "SAVE" };
+    juce::TextButton btnLoad{ "LOAD" };
+    juce::ListBox presetList; // Placeholder visual
 
     // --- CARRILES ---
     std::unique_ptr<ChainLane> laneA;
     std::unique_ptr<ChainLane> laneB;
 
-    // Almacenamiento de editores
+    // --- VISUALIZADORES Y MODALES ---
     juce::OwnedArray<juce::AudioProcessorEditor> activePedalEditors;
-
-    // --- NUEVO: Variable para el Modal (Overlay) ---
     std::unique_ptr<juce::Component> currentOverlay;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NOVAAudioProcessorEditor)
