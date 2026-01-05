@@ -403,7 +403,7 @@ void NOVAAudioProcessorEditor::showOverlay(Nova::ZoneID zone, Nova::ChainID chai
     overlay->setBounds(getLocalBounds());
     currentOverlay = std::move(overlay);
 }
-
+ 
 void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
 {
     g.fillAll(NovaColors::Background);
