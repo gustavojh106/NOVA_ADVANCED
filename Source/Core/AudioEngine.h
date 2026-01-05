@@ -61,9 +61,18 @@ public:
     const std::vector<juce::AudioProcessorGraph::Node::Ptr>& getNodes(Nova::ChainID chain) const;
     double getCpuLoad() const;
     int getLatencyNumSamples() const;
+    //TUNER
+    void setTunerEnabled(bool enabled);
+    bool isTunerEnabled() const;
+
+    // Getters para la UI (Thread-Safe)
+    float getTunerPitch() const; // Frecuencia Hz
+    int getTunerNote() const;    // Nota MIDI (0-127)
+    float getTunerCents() const; // Desviación (-50 a +50)
+    float getTunerRMS() const { return currentRMS; }
 private:
     void rebuildGraph();
-
+    std::atomic<float> currentRMS{ 0.0f };
     // Función Core de Conexionado
     void connectChainToGain(const std::vector<juce::AudioProcessorGraph::Node::Ptr>& nodes,
         juce::AudioProcessorGraph::NodeID gainNodeID);
@@ -94,4 +103,19 @@ private:
 
     // Variable para medición de CPU
     double cpuUsage = 0.0;         // El valor final del consumo
+
+    //TUNER
+    std::atomic<bool> tunerEnabled{ false };
+    std::atomic<float> currentPitch{ 0.0f };
+    std::atomic<int> currentNote{ 0 };
+    std::atomic<float> currentCents{ 0.0f };
+    float lastDetectedFreq = 0.0f;
+    int stabilityCounter = 0;
+    // Buffer circular para análisis (4096 es buen tamaño para detectar graves)
+    juce::AudioBuffer<float> tunerBuffer{ 1, 4096 };
+    int tunerWriteIndex = 0;
+
+    // Método interno de cálculo
+    void processTunerAlgorithm();
+    float calculateFrequency(const float* signal, int numSamples, double sampleRate);
 };

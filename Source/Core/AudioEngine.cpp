@@ -55,11 +55,24 @@ AudioEngine::~AudioEngine() { mainGraph->releaseResources(); }
 
 void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int numOut)
 {
-    currentRate = sampleRate; // <--- AQUÍ SE GUARDA EL VALOR QUE USAREMOS LUEGO
+    currentRate = sampleRate; 
+    tunerBuffer.setSize(1, (int)(sampleRate * 0.1)); // ~100ms de audio
+    tunerBuffer.clear();
+    tunerWriteIndex = 0;
     currentBlockSize = samplesPerBlock;
     currentSampleRate = sampleRate;
     currentBlockSize = samplesPerBlock;
     numInputChannels = numIn;
+
+
+    if (sampleRate > 0) {
+        // CAMBIO: De 8192 a 4096. 
+        // 4096 samples a 44.1kHz son ~92ms. Es el punto dulce entre velocidad y precisión de bajos.
+        tunerBuffer.setSize(1, 4096);
+        tunerBuffer.clear();
+    }
+    tunerWriteIndex = 0;
+    currentRMS = 0.0f;
 
     mainGraph->setPlayConfigDetails(numIn, numOut, sampleRate, samplesPerBlock);
     mainGraph->prepareToPlay(sampleRate, samplesPerBlock);
@@ -93,7 +106,36 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     // 1. INICIO CRONÓMETRO
     // Tomamos el tiempo exacto antes de empezar a procesar
     auto startTime = juce::Time::getMillisecondCounterHiRes();
+    if (tunerEnabled)
+    {
+        // Punteros de lectura
+        auto* inL = buffer.getReadPointer(0);
+        auto* inR = (buffer.getNumChannels() > 1) ? buffer.getReadPointer(1) : nullptr;
+        int numSamples = buffer.getNumSamples();
 
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // Sumamos mono para asegurar que escuchamos la guitarra esté donde esté
+            float inputSample = inL[i];
+            if (inR) inputSample += inR[i];
+
+            // Escribir en buffer circular
+            tunerBuffer.setSample(0, tunerWriteIndex, inputSample);
+            tunerWriteIndex++;
+
+            if (tunerWriteIndex >= tunerBuffer.getNumSamples())
+            {
+                tunerWriteIndex = 0;
+                processTunerAlgorithm();
+            }
+        }
+
+        buffer.clear(); // Silenciar salida
+        // IMPORTANTE: NO hacemos return aquí para permitir que se calcule el CPU Usage abajo si quieres, 
+        // pero para el afinador solemos hacer return. Dejémoslo con return y cpu=0.
+        cpuUsage = 0.0;
+        return;
+    }
     // 2. Tu lógica original (Si está apagado, limpiar y salir)
     if (!isEngineOn)
     {
@@ -281,4 +323,151 @@ double AudioEngine::getCpuLoad() const
 const std::vector<juce::AudioProcessorGraph::Node::Ptr>& AudioEngine::getNodes(Nova::ChainID chain) const
 {
     return (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
+}
+
+//TUNER
+void AudioEngine::setTunerEnabled(bool enabled) { tunerEnabled = enabled; }
+bool AudioEngine::isTunerEnabled() const { return tunerEnabled; }
+float AudioEngine::getTunerPitch() const { return currentPitch; }
+int AudioEngine::getTunerNote() const { return currentNote; }
+float AudioEngine::getTunerCents() const { return currentCents; }
+
+// ALGORITMO DE AUTOCORRELACIÓN (YIN SIMPLIFICADO)
+float AudioEngine::calculateFrequency(const float* signal, int numSamples, double sampleRate)
+{
+    // 1. Calcular Energía Total (Correlación en lag 0)
+    // Esto nos sirve de referencia: ¿Qué tan fuerte es la señal consigo misma?
+    float signalEnergy = 0.0f;
+    for (int i = 0; i < numSamples / 2; ++i)
+        signalEnergy += signal[i] * signal[i];
+
+    // Si la energía es casi nula, salimos (Evita división por cero)
+    if (signalEnergy < 0.00001f) return 0.0f;
+
+    // Rango de búsqueda (Guitarra: 40Hz - 1000Hz)
+    int minPeriod = (int)(sampleRate / 1000.0);
+    int maxPeriod = (int)(sampleRate / 40.0);
+
+    float maxCorrelation = 0.0f;
+    int bestPeriod = 0;
+
+    // 2. Autocorrelación
+    for (int lag = minPeriod; lag < maxPeriod; ++lag)
+    {
+        float correlation = 0.0f;
+        for (int i = 0; i < numSamples / 2; ++i)
+            correlation += signal[i] * signal[i + lag];
+
+        if (correlation > maxCorrelation)
+        {
+            maxCorrelation = correlation;
+            bestPeriod = lag;
+        }
+    }
+
+    // 3. FACTOR DE CLARIDAD (The "Magic Check")
+    // Comparamos el mejor pico encontrado contra la energía total.
+    // Una onda seno pura tendría claridad cercana a 1.0.
+    // El ruido blanco suele tener claridad menor a 0.5.
+    float clarity = maxCorrelation / signalEnergy;
+
+    // UMBRAL DE CLARIDAD:
+    // Si la claridad es menor a 0.6, es probable que sea ruido, no una nota musical.
+    // Ajusta esto entre 0.5 (permisivo) y 0.8 (muy estricto).
+    if (clarity < 0.6f) return 0.0f;
+
+    // 4. Interpolación Parabólica (Solo si pasó el filtro de claridad)
+    if (bestPeriod > 0 && bestPeriod < maxPeriod - 1)
+    {
+        float c1 = 0.0f, c2 = maxCorrelation, c3 = 0.0f;
+
+        // Calcular vecinos para interpolar
+        for (int i = 0; i < numSamples / 2; ++i) c1 += signal[i] * signal[i + bestPeriod - 1];
+        for (int i = 0; i < numSamples / 2; ++i) c3 += signal[i] * signal[i + bestPeriod + 1];
+
+        float denominator = c1 - 2 * c2 + c3;
+        float delta = 0.0f;
+        if (std::abs(denominator) > 0.0001f)
+            delta = (c1 - c3) / (2.0f * denominator);
+
+        return (float)(sampleRate / (bestPeriod - delta));
+    }
+
+    return 0.0f;
+}
+void AudioEngine::processTunerAlgorithm()
+{
+    // 1. "UNWRAP" del Buffer Circular (Esto se mantiene igual)
+    int numSamples = tunerBuffer.getNumSamples();
+    float rms = tunerBuffer.getRMSLevel(0, 0, numSamples);
+
+    // Guardamos RMS para la UI
+    currentRMS = rms;
+
+    // Umbral de Silencio (Gate absoluto)
+    if (rms < 0.001f) {
+        currentPitch = 0.0f;
+        stabilityCounter = 0; // Resetear estabilidad al silencio
+        return;
+    }
+
+    std::vector<float> linearBuffer(numSamples);
+    int samplesToEnd = numSamples - tunerWriteIndex;
+    if (samplesToEnd > 0)
+        juce::FloatVectorOperations::copy(linearBuffer.data(), tunerBuffer.getReadPointer(0, tunerWriteIndex), samplesToEnd);
+    if (tunerWriteIndex > 0)
+        juce::FloatVectorOperations::copy(linearBuffer.data() + samplesToEnd, tunerBuffer.getReadPointer(0, 0), tunerWriteIndex);
+
+
+    // 2. Calcular Frecuencia (Usando el nuevo filtro de Claridad)
+    float newFreq = calculateFrequency(linearBuffer.data(), numSamples, currentRate);
+
+    // 3. LÓGICA DE ESTABILIDAD (DEBOUNCE)
+    // Si calculateFrequency devolvió 0.0 (ruido), reseteamos.
+    if (newFreq <= 0.0f)
+    {
+        stabilityCounter = 0;
+        // Opcional: Si llevamos mucho tiempo sin señal clara, borramos la nota
+        // currentPitch = 0.0f; 
+        return;
+    }
+
+    // Comparamos con la última frecuencia detectada (con un margen de error del 5%)
+    float ratio = newFreq / (lastDetectedFreq + 0.001f);
+    bool isSameNote = (ratio > 0.95f && ratio < 1.05f);
+
+    if (isSameNote)
+    {
+        // Si es la misma nota, aumentamos confianza
+        stabilityCounter++;
+    }
+    else
+    {
+        // Si cambió drásticamente, reseteamos el contador y guardamos esta como posible candidata
+        stabilityCounter = 0;
+        lastDetectedFreq = newFreq;
+    }
+
+    // 4. ACTUALIZAR UI SOLO SI ES ESTABLE
+    // Solo actualizamos la aguja si hemos detectado la misma nota 2 veces seguidas
+    if (stabilityCounter >= 2)
+    {
+        // Suavizado final (LPF) para la aguja
+        float smoothedPitch = currentPitch.load();
+        if (smoothedPitch <= 1.0f) smoothedPitch = newFreq; // Primera vez
+        else smoothedPitch = smoothedPitch * 0.6f + newFreq * 0.4f;
+
+        currentPitch = smoothedPitch;
+
+        // Math MIDI
+        float midiNoteFloat = 69.0f + 12.0f * std::log2(smoothedPitch / 440.0f);
+        int noteIndex = (int)std::round(midiNoteFloat);
+        float cents = (midiNoteFloat - noteIndex) * 100.0f;
+
+        currentNote = noteIndex;
+        currentCents = cents;
+
+        // Evitamos que el contador crezca infinito
+        stabilityCounter = 3;
+    }
 }

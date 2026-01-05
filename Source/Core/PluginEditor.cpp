@@ -491,6 +491,7 @@ void NOVAAudioProcessorEditor::resized()
 
     btnMetronome.setBounds(centerX - 200, header.getCentreY() - 15, 30, 30);
     btnTuner.setBounds(centerX - 240, header.getCentreY() - 15, 30, 30);
+    btnTuner.onClick = [this] { toggleTuner(); };
     btnSettings.setBounds(centerX + 160, header.getCentreY() - 15, 40, 40);
     btnProfile.setBounds(centerX + 210, header.getCentreY() - 15, 60, 40);
 
@@ -556,7 +557,28 @@ void NOVAAudioProcessorEditor::resized()
 
     updatePedalGui();
 }
+void NOVAAudioProcessorEditor::toggleTuner()
+{
+    bool currentState = audioProcessor.getAudioEngine().isTunerEnabled();
+    bool newState = !currentState;
 
+    audioProcessor.getAudioEngine().setTunerEnabled(newState);
+
+    // UI: Cambiar color del botón T
+    btnTuner.setColour(juce::TextButton::buttonColourId, newState ? juce::Colours::green : juce::Colours::transparentBlack);
+
+    if (newState)
+    {
+        tunerDisplay = std::make_unique<TunerDisplay>(audioProcessor);
+        addAndMakeVisible(tunerDisplay.get());
+        tunerDisplay->setBounds(getLocalBounds()); // Cubrir toda la pantalla
+        tunerDisplay->toFront(true);
+    }
+    else
+    {
+        tunerDisplay.reset();
+    }
+}
 void NOVAAudioProcessorEditor::updateStats()
 {
     // 1. Datos del Sistema
@@ -699,4 +721,136 @@ void NOVAAudioProcessorEditor::showOverlay(Nova::ZoneID zone, Nova::ChainID chai
     addAndMakeVisible(overlay.get());
     overlay->setBounds(getLocalBounds());
     currentOverlay = std::move(overlay);
+}
+void TunerDisplay::mouseDown(const juce::MouseEvent&)
+{
+    // Ahora esto funciona porque el compilador ya leyó todo el archivo .h
+    if (auto* parent = findParentComponentOfClass<NOVAAudioProcessorEditor>())
+    {
+        parent->toggleTuner();
+    }
+}
+// ==============================================================================
+// LÓGICA DE ANIMACIÓN (PHYSICS)
+// ==============================================================================
+void TunerDisplay::timerCallback()
+{
+    auto& engine = processor.getAudioEngine();
+
+    // 1. Obtener valores objetivos (Target)
+    float targetCents = engine.getTunerCents();
+    float targetRMS = engine.getTunerRMS();
+    int currentNote = engine.getTunerNote();
+    float currentPitch = engine.getTunerPitch();
+
+    // 2. Lógica de "Reset" si cambia la nota
+    // Si pasamos de E a A, no queremos que la aguja viaje toda la pantalla.
+    // Queremos que salte instantáneamente a la nueva zona y luego afine.
+    if (currentNote != lastNoteIndex)
+    {
+        // Si hay silencio o cambio drástico, acercamos la aguja al objetivo más rápido
+        smoothedCents = targetCents;
+        lastNoteIndex = currentNote;
+    }
+
+    // Si no hay señal (pitch < 40), forzamos a que la aguja vaya al centro (0) o se quede quieta
+    if (currentPitch < 40.0f) targetCents = 0.0f;
+
+    // 3. INTERPOLACIÓN (La magia de la suavidad)
+    // Fórmula: valor_actual += (valor_objetivo - valor_actual) * velocidad
+    // 0.15f es la velocidad. 0.01 = muy lento, 0.9 = instantáneo.
+    smoothedCents += (targetCents - smoothedCents) * 0.15f;
+
+    // El volumen (RMS) puede ser un poco más rápido (0.25f)
+    smoothedRMS += (targetRMS - smoothedRMS) * 0.25f;
+
+    // Redibujar
+    repaint();
+}
+
+// ==============================================================================
+// PINTADO (VISUALS)
+// ==============================================================================
+void TunerDisplay::paint(juce::Graphics& g)
+{
+    // Fondo Semi-transparente
+    g.fillAll(juce::Colours::black.withAlpha(0.9f));
+
+    auto& engine = processor.getAudioEngine();
+    int note = engine.getTunerNote();
+    float pitch = engine.getTunerPitch();
+
+    // Usamos las variables SUAVIZADAS en lugar de las directas
+    float rms = smoothedRMS;
+    float cents = smoothedCents;
+
+    // 1. DIBUJAR BARRA DE NIVEL (Izquierda)
+    g.setColour(juce::Colours::darkgrey);
+    g.fillRect(20, 20, 20, getHeight() - 40);
+
+    int barHeight = (int)((getHeight() - 40) * juce::jmin(rms * 5.0f, 1.0f));
+    g.setColour(rms > 0.001f ? juce::Colours::green : juce::Colours::red);
+    g.fillRect(20, getHeight() - 20 - barHeight, 20, barHeight);
+
+    // Texto debug
+    g.setColour(juce::Colours::white);
+    g.setFont(14.0f);
+    // Mostramos el valor real del motor, no el suavizado, para depurar mejor
+    g.drawText("IN: " + juce::String(engine.getTunerRMS(), 3), 50, 20, 100, 20, juce::Justification::left);
+
+    // 2. SI NO HAY SEÑAL
+    if (pitch < 40.0f && rms < 0.001f) {
+        g.setColour(juce::Colours::grey);
+        g.setFont(40.0f);
+        g.drawText("--", getLocalBounds(), juce::Justification::centred);
+        g.setFont(14.0f);
+        g.drawText("Toca una cuerda...", getLocalBounds().removeFromBottom(50), juce::Justification::centred);
+        return;
+    }
+
+    // 3. NOTA Y AGUJA
+    juce::String noteName = juce::MidiMessage::getMidiNoteName(note, true, true, 3);
+
+    // Color Semáforo basado en la aguja SUAVIZADA (para que no parpadee el color)
+    bool isInTune = std::abs(cents) < 5.0f;
+    juce::Colour statusColor = isInTune ? juce::Colours::green : juce::Colours::red;
+
+    // Dibujar Nota
+    g.setColour(statusColor);
+    g.setFont(80.0f);
+    g.drawText(noteName, getLocalBounds().removeFromTop(getHeight() / 2), juce::Justification::centredBottom);
+
+    // Dibujar Aguja
+    auto barArea = getLocalBounds().removeFromBottom(100).reduced(50, 40).toFloat();
+    float centerX = barArea.getCentreX();
+
+    // Línea central (Target)
+    g.setColour(juce::Colours::white.withAlpha(0.3f));
+    g.drawVerticalLine(centerX, barArea.getY(), barArea.getBottom());
+
+    // Marcas de referencia (-10 y +10 cents)
+    float width10 = (10.0f / 50.0f) * (barArea.getWidth() / 2.0f);
+    g.drawVerticalLine(centerX - width10, barArea.getY() + 10, barArea.getBottom() - 10);
+    g.drawVerticalLine(centerX + width10, barArea.getY() + 10, barArea.getBottom() - 10);
+
+    // Círculo indicador (La aguja)
+    float offset = (cents / 50.0f) * (barArea.getWidth() / 2.0f);
+    float needleX = centerX + offset;
+
+    // Clamp para que no se salga del dibujo
+    needleX = juce::jlimit(barArea.getX(), barArea.getRight(), needleX);
+
+    g.setColour(statusColor);
+    g.fillEllipse(needleX - 10, barArea.getCentreY() - 10, 20, 20);
+
+    // Halo brillante alrededor de la aguja si está afinado
+    if (isInTune) {
+        g.setColour(juce::Colours::green.withAlpha(0.4f));
+        g.drawEllipse(needleX - 15, barArea.getCentreY() - 15, 30, 30, 2.0f);
+    }
+
+    // Texto Cents
+    g.setColour(juce::Colours::white);
+    g.setFont(20.0f);
+    g.drawText(juce::String(cents, 1) + " ct", barArea.getX(), barArea.getBottom() + 5, barArea.getWidth(), 20, juce::Justification::centred);
 }
