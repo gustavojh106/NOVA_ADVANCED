@@ -721,13 +721,6 @@ bool NOVAAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
     if (key == juce::KeyPress::spaceKey) { audioProcessor.cycleSwitcher(); return true; }
     return false;
 }
-// ==============================================================================
-//  FUNCIONES FALTANTES (Copiar al final de PluginEditor.cpp)
-// ==============================================================================
-
-// ==============================================================================
-//  FUNCIONES FALTANTES (Pegar al final de PluginEditor.cpp)
-// ==============================================================================
 
 void NOVAAudioProcessorEditor::showOverlay(Nova::ZoneID zone, Nova::ChainID chain)
 {
