@@ -47,7 +47,11 @@ void NOVAAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
 }
 
 // === LÓGICA DE NEGOCIO ===
-
+double NOVAAudioProcessor::getCpuUsage() const
+{
+    // Llama al método del AudioEngine que creamos anteriormente
+    return audioEngine.getCpuLoad();
+}
 void NOVAAudioProcessor::requestAddPedal(const juce::String& type, Nova::ChainID chain, Nova::ZoneID zone)
 {
     juce::ValueTree newPedal(Nova::IDs::PEDAL_TAG);

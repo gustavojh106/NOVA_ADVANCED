@@ -39,7 +39,7 @@ public:
     juce::ValueTree pluginState;
     SimpleOscilloscope audioVisualizer;
     AudioEngine& getAudioEngine() { return audioEngine; }
-
+    double getCpuUsage() const; 
 private:
     void valueTreeChildAdded(juce::ValueTree& parent, juce::ValueTree& child) override;
     void valueTreeChildRemoved(juce::ValueTree& parent, juce::ValueTree& child, int) override;

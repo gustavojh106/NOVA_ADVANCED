@@ -59,7 +59,8 @@ public:
 
     // Introspección (para la UI)
     const std::vector<juce::AudioProcessorGraph::Node::Ptr>& getNodes(Nova::ChainID chain) const;
-
+    double getCpuLoad() const;
+    int getLatencyNumSamples() const;
 private:
     void rebuildGraph();
 
@@ -83,4 +84,14 @@ private:
     int currentBlockSize = 512;
     int numInputChannels = 2;
     bool isEngineOn = false; // Empieza en falso por seguridad
+    // --- VARIABLES ESENCIALES PARA EL MOTOR ---
+    double currentRate = 0.0;      // <--- ESTA FALTABA. Guarda la frecuencia de muestreo (44100, 48000, etc.)
+    //int currentBlockSize = 0;      // Tamaño del buffer
+
+    // Variables de estado
+    bool inPanicState = false;     // Para protección contra ruidos fuertes
+    int startupCounter = 0;        // Para silenciar el inicio
+
+    // Variable para medición de CPU
+    double cpuUsage = 0.0;         // El valor final del consumo
 };

@@ -2,7 +2,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 
-// Helper para botones arrastrables (Se mantiene igual)
+// Helper para botones arrastrables
 class DraggableButton : public juce::TextButton
 {
 public:
@@ -37,6 +37,7 @@ private:
 
     void updatePedalGui();
     void updateSwitcherState();
+    void updateStats(); // Actualizar etiqueta CPU
 
     // Función helper para dibujar tiras de canal (Input/Output)
     void drawChannelStrip(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title);
@@ -44,49 +45,54 @@ private:
     NOVAAudioProcessor& audioProcessor;
 
     // --- HEADER ---
-    juce::TextButton btnStartStop; // Engine Button
+    juce::TextButton btnStartStop;
+    juce::Label lblStats; // Fusión CPU/Latency
+
     // Placeholders Header
     juce::TextButton btnTuner{ "T" };
     juce::TextButton btnMetronome{ "M" };
-    juce::Label lblCPU{ "CPU: 1%" };
-    juce::Label lblLatency{ "LATENCY" };
     juce::TextButton btnSettings{ "Set" };
-    juce::TextButton btnCart{ "Cart" };
+    juce::TextButton btnProfile{ "Profile" }; // Reemplaza Cart
 
     // --- LEFT COLUMN 1: BROWSER ---
     juce::TextEditor searchBarBrowser;
     DraggableButton btnAddOverdrive{ "Overdrive" };
     DraggableButton btnAddCabinet{ "Cabinet" };
-    DraggableButton btnAddNeural{ "Neural Amp" }; // Placeholder futuro
+    DraggableButton btnAddNeural{ "Neural Amp" };
 
     // --- LEFT COLUMN 2: INPUT STRIP ---
-    juce::ComboBox inputDeviceSelector;
+    // (Eliminado DeviceSelector)
     juce::Slider inputVolume;
-    juce::Slider inputGain;
-    juce::Slider inputTranspose;
+    juce::Slider inputGate;      // NUEVO: Noise Gate
+    juce::Slider inputTranspose; // Mantenido
     juce::ToggleButton btnMonoStereo{ "Mono/Stereo" };
-    juce::Slider inputFader; // Vertical
+    juce::Slider inputFader;
 
-    // --- CENTER: MIXER (Ahora bajo las cadenas) ---
+    // --- CENTER: MIXER ---
     juce::TextButton btnSwitcher;
-    // Line A Controls
+
+    // Line A Controls (EQ cambiado por Pan/Width)
     juce::Slider volSliderA;
-    juce::Slider trebleSliderA, bassSliderA; // Placeholders visuales
+    juce::Slider panSliderA;
+    juce::Slider widthSliderA;
+
     // Line B Controls
     juce::Slider volSliderB;
-    juce::Slider trebleSliderB, bassSliderB; // Placeholders visuales
+    juce::Slider panSliderB;
+    juce::Slider widthSliderB;
 
     // --- RIGHT COLUMN 1: OUTPUT STRIP ---
-    juce::ComboBox outputDeviceSelector;
+    // (Eliminado DeviceSelector y Transpose)
     juce::Slider outputVolume;
     juce::Slider outputGain;
-    juce::Slider outputFader; // Vertical
+    juce::Slider outputMix;    // NUEVO: Mix Global
+    juce::Slider outputFader;
 
     // --- RIGHT COLUMN 2: PRESETS ---
     juce::TextEditor searchBarPresets;
     juce::TextButton btnSave{ "SAVE" };
     juce::TextButton btnLoad{ "LOAD" };
-    juce::ListBox presetList; // Placeholder visual
+    // juce::ListBox presetList; (Opcional, placeholder visual dibujado en paint)
 
     // --- CARRILES ---
     std::unique_ptr<ChainLane> laneA;
@@ -95,6 +101,15 @@ private:
     // --- VISUALIZADORES Y MODALES ---
     juce::OwnedArray<juce::AudioProcessorEditor> activePedalEditors;
     std::unique_ptr<juce::Component> currentOverlay;
+
+    // Timer para stats
+    class StatsTimer : public juce::Timer {
+        NOVAAudioProcessorEditor& parent;
+    public:
+        StatsTimer(NOVAAudioProcessorEditor& p) : parent(p) { startTimer(500); }
+        void timerCallback() override { parent.updateStats(); }
+    };
+    std::unique_ptr<StatsTimer> statsTimer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NOVAAudioProcessorEditor)
 };

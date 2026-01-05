@@ -55,6 +55,8 @@ AudioEngine::~AudioEngine() { mainGraph->releaseResources(); }
 
 void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int numOut)
 {
+    currentRate = sampleRate; // <--- AQUÍ SE GUARDA EL VALOR QUE USAREMOS LUEGO
+    currentBlockSize = samplesPerBlock;
     currentSampleRate = sampleRate;
     currentBlockSize = samplesPerBlock;
     numInputChannels = numIn;
@@ -88,12 +90,51 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
 
 void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
+    // 1. INICIO CRONÓMETRO
+    // Tomamos el tiempo exacto antes de empezar a procesar
+    auto startTime = juce::Time::getMillisecondCounterHiRes();
+
+    // 2. Tu lógica original (Si está apagado, limpiar y salir)
     if (!isEngineOn)
     {
         buffer.clear();
+        // Nota: Si el motor está apagado, no calculamos CPU (sería 0%)
+        cpuUsage = 0.0;
         return;
     }
+    if (startupCounter > 0)
+    {
+        startupCounter--;
+        buffer.clear();
+        return;
+    }
+    // 3. Procesamiento del Grafo (Lo pesado)
     mainGraph->processBlock(buffer, midi);
+
+    // 4. FIN CRONÓMETRO Y CÁLCULO
+    auto endTime = juce::Time::getMillisecondCounterHiRes();
+
+    // Tiempo que tardó el procesador en hacer el trabajo (en milisegundos)
+    double timeTakenMs = endTime - startTime;
+
+    // Tiempo total disponible para este bloque de audio 
+    // (Ej: si el buffer es de 512 samples a 44100Hz, tenemos ~11.6ms para procesar sin glitches)
+    // Aseguramos que currentRate sea mayor a 0 para evitar división por cero
+    if (currentRate > 0)
+    {
+        double blockDurationMs = (buffer.getNumSamples() / currentRate) * 1000.0;
+
+        if (blockDurationMs > 0.0)
+        {
+            // Fórmula de carga: (Tiempo Tardado / Tiempo Disponible) * 100
+            double currentLoad = (timeTakenMs / blockDurationMs) * 100.0;
+
+            // 5. Suavizado (Smoothing)
+            // Usamos un filtro simple (90% valor anterior + 10% valor nuevo) 
+            // para que el número en pantalla no baile tan rápido y sea legible.
+            cpuUsage = (cpuUsage * 0.9) + (currentLoad * 0.1);
+        }
+    }
 }
 
 void AudioEngine::updateMixer(float gA, float gB, Nova::SwitcherMode mode)
@@ -227,9 +268,16 @@ void AudioEngine::connectChainToGain(const std::vector<juce::AudioProcessorGraph
         mainGraph->addConnection({ { currentSource, 1 }, { gainNodeID, 1 } });
     }
 }
-
+int AudioEngine::getLatencyNumSamples() const
+{
+    // Si el grafo existe, preguntamos su latencia. Si no, devolvemos 0.
+    return mainGraph ? mainGraph->getLatencySamples() : 0;
+}
 void AudioEngine::setEngineEnabled(bool enabled) { isEngineOn = enabled; }
-
+double AudioEngine::getCpuLoad() const
+{
+    return cpuUsage;
+}
 const std::vector<juce::AudioProcessorGraph::Node::Ptr>& AudioEngine::getNodes(Nova::ChainID chain) const
 {
     return (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
