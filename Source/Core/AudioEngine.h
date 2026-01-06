@@ -70,6 +70,9 @@ public:
     int getTunerNote() const;    // Nota MIDI (0-127)
     float getTunerCents() const; // Desviación (-50 a +50)
     float getTunerRMS() const { return currentRMS; }
+    void setPedalBypassed(Nova::ChainID chain, int index, bool bypassed);
+
+
 private:
     void rebuildGraph();
     std::atomic<float> currentRMS{ 0.0f };

@@ -10,7 +10,17 @@ public:
             .withOutput("Output", juce::AudioChannelSet::stereo()))
     {
     }
+    void setBypassed(bool shouldBypass)
+    {
+        if (isBypassed != shouldBypass)
+        {
+            isBypassed = shouldBypass;
+            // Opcional: Resetear buffers internos al reactivar para evitar "colas" de delay viejas
+            if (!shouldBypass) reset();
+        }
+    }
 
+    bool getBypassed() const { return isBypassed; }
     // ... (Layout support se mantiene igual) ...
     bool isBusesLayoutSupported(const BusesLayout& layouts) const override
     {
@@ -89,7 +99,21 @@ public:
     void setCurrentProgram(int) override {}
     const juce::String getProgramName(int) override { return {}; }
     void changeProgramName(int, const juce::String&) override {}
-
+protected:
+    // --- NUEVO: Helper para procesar o saltar ---
+    // Retorna 'true' si debemos procesar el efecto.
+    // Retorna 'false' si estamos en bypass (y el buffer pasa intacto).
+    bool shouldProcess(juce::AudioBuffer<float>& buffer)
+    {
+        if (isBypassed)
+        {
+            // En VST/JUCE, "buffer" es Input y Output a la vez.
+            // Si no hacemos nada y retornamos, el audio entra y sale igual (True Bypass).
+            return false;
+        }
+        return true;
+    }
 private:
+    std::atomic<bool> isBypassed{ false }; // Atómico para seguridad entre hilos
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ProcessorBase)
 };

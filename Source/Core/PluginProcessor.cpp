@@ -182,6 +182,13 @@ void NOVAAudioProcessor::setStateInformation(const void* d, int s)
 
     updateMixerFromState();
 }
+void NOVAAudioProcessor::requestBypassPedal(Nova::ChainID chain, int index, bool bypassed)
+{
+    // 1. Actualizamos el motor de audio (Instantáneo, sin cortes)
+    audioEngine.setPedalBypassed(chain, index, bypassed);
 
+    // 2. (Opcional) Aquí podrías guardar el estado en el ValueTree para persistencia
+    // Por ahora lo dejamos solo funcional en el audio.
+}
 void NOVAAudioProcessor::releaseResources() {}
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new NOVAAudioProcessor(); }

@@ -125,6 +125,8 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
+        if (!shouldProcess(buffer)) return;
+
         if (!isPrepared) return;
 
         juce::dsp::AudioBlock<float> block(buffer);

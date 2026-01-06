@@ -40,6 +40,7 @@ public:
     SimpleOscilloscope audioVisualizer;
     AudioEngine& getAudioEngine() { return audioEngine; }
     double getCpuUsage() const; 
+    void requestBypassPedal(Nova::ChainID chain, int index, bool bypassed);
 private:
     void valueTreeChildAdded(juce::ValueTree& parent, juce::ValueTree& child) override;
     void valueTreeChildRemoved(juce::ValueTree& parent, juce::ValueTree& child, int) override;

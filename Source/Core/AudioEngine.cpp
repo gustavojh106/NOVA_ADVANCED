@@ -100,7 +100,26 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
 
     rebuildGraph();
 }
+void AudioEngine::setPedalBypassed(Nova::ChainID chain, int index, bool bypassed)
+{
+    // NO usamos suspendProcessing aquí. Es seguro cambiar un atomic bool en vivo.
 
+    const auto& nodes = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
+
+    if (index >= 0 && index < nodes.size())
+    {
+        auto node = nodes[index];
+        if (node != nullptr && node->getProcessor() != nullptr)
+        {
+            // Intentamos convertir el procesador genérico a nuestra clase base ProcessorBase
+            // dynamic_cast devuelve nullptr si el procesador no hereda de ProcessorBase
+            if (auto* processor = dynamic_cast<ProcessorBase*>(node->getProcessor()))
+            {
+                processor->setBypassed(bypassed);
+            }
+        }
+    }
+}
 void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     // 1. INICIO CRONÓMETRO
