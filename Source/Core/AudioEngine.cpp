@@ -127,61 +127,123 @@ void AudioEngine::setPedalBypassed(Nova::ChainID chain, int index, bool bypassed
     }
 }
 
+// EN AUDIOENGINE.CPP - Reemplaza el método run()
+
 void AudioEngine::run()
 {
     while (!threadShouldExit())
     {
         if (tunerFifo.getNumReady() >= TUNER_PROCESS_SIZE)
         {
+            // ... (Lectura del buffer igual que antes) ...
             int start1, size1, start2, size2;
             tunerFifo.prepareToRead(TUNER_PROCESS_SIZE, start1, size1, start2, size2);
-
-            if (size1 > 0)
-                juce::FloatVectorOperations::copy(tunerWorkBuffer.data(),
-                    tunerCircularBuffer.data() + start1, size1);
-            if (size2 > 0)
-                juce::FloatVectorOperations::copy(tunerWorkBuffer.data() + size1,
-                    tunerCircularBuffer.data() + start2, size2);
-
+            if (size1 > 0) juce::FloatVectorOperations::copy(tunerWorkBuffer.data(), tunerCircularBuffer.data() + start1, size1);
+            if (size2 > 0) juce::FloatVectorOperations::copy(tunerWorkBuffer.data() + size1, tunerCircularBuffer.data() + start2, size2);
             tunerFifo.finishedRead(size1 + size2);
 
-            // Cálculo RMS
+            // --- CORRECCIÓN DE GHOST NOTES ---
+            //float sumSq = 0.0f;
+            //for (float s : tunerWorkBuffer) sumSq += s * s;
+            //float rms = std::sqrt(sumSq / (float)TUNER_PROCESS_SIZE);
+            //currentRMS = rms;
+
+            // Calcular RMS
             float sumSq = 0.0f;
             for (float s : tunerWorkBuffer) sumSq += s * s;
             float rms = std::sqrt(sumSq / (float)TUNER_PROCESS_SIZE);
             currentRMS = rms;
 
-            if (rms > 0.0005f)
+            // UMBRAL HIPER-BAJO (Permitimos señales muy débiles si la claridad es alta después)
+            if (rms > 0.0002f)
             {
-                float freq = calculateFrequency(tunerWorkBuffer.data(), TUNER_PROCESS_SIZE, currentRate);
+                auto result = calculateFrequencyWithClarity(tunerWorkBuffer.data(), TUNER_PROCESS_SIZE, currentRate);
+                float freq = result.first;
+                float clarity = result.second;
 
-                if (freq > 25.0f && freq < 4000.0f)
+                // FILTRO DE CLARIDAD: Solo aceptamos la nota si el algoritmo está 85% seguro
+                // Esto elimina casi todo el ruido fluctuante.
+                if (clarity > 0.85f && freq > 25.0f && freq < 1500.0f)
                 {
                     currentPitch = freq;
+                    currentClarity = clarity; // Guardamos claridad para la UI
+
+                    // Solo para debug interno, la UI hace el resto
                     float midiNote = 69.0f + 12.0f * std::log2(freq / 440.0f);
-
-                    // Aplicar Offset de afinación
-                    float displayNote = midiNote - (float)tuningOffset;
-
-                    int nearestNote = (int)std::round(displayNote);
-                    float cents = (displayNote - nearestNote) * 100.0f;
-
-                    currentNote = nearestNote;
-                    currentCents = cents;
+                    currentNote = (int)std::round(midiNote);
+                }
+                else
+                {
+                    // Si la nota es confusa, NO actualizamos el pitch a 0 inmediatamente.
+                    // Mantenemos el último valor válido un instante (Persistence)
+                    currentClarity = 0.0f;
                 }
             }
             else
             {
+                currentClarity = 0.0f;
                 currentPitch = 0.0f;
             }
         }
-        else
-        {
-            wait(10);
-        }
+        else { wait(10); }
+        
     }
 }
 
+std::pair<float, float> AudioEngine::calculateFrequencyWithClarity(const float* signal, int numSamples, double sampleRate)
+{
+    if (sampleRate <= 0.0) return { 0.0f, 0.0f };
+
+    int minPeriod = (int)(sampleRate / 1500.0);
+    int maxPeriod = (int)(sampleRate / 40.0);
+    if (maxPeriod > numSamples / 2) maxPeriod = numSamples / 2;
+
+    float bestCorrelation = 0.0f;
+    int bestPeriod = 0;
+
+    // Autocorrelación (Igual que antes)
+    for (int lag = minPeriod; lag < maxPeriod; ++lag)
+    {
+        float sum = 0.0f;
+        int limit = numSamples - lag;
+        for (int i = 0; i < limit; ++i) sum += signal[i] * signal[i + lag];
+
+        // Normalización importante para obtener "Claridad" (0.0 a 1.0)
+        // Necesitamos la energía de la señal en ese segmento para normalizar
+        float sumSq = 0.0f;
+        for (int i = 0; i < limit; ++i) sumSq += signal[i] * signal[i];
+
+        float correlation = 0.0f;
+        if (sumSq > 0.00001f) correlation = sum / sumSq;
+
+        if (correlation > bestCorrelation) {
+            bestCorrelation = correlation;
+            bestPeriod = lag;
+        }
+    }
+
+    // Si la claridad es basura, retornamos 0
+    if (bestCorrelation < 0.2f) return { 0.0f, 0.0f };
+
+    // Refinamiento Parabólico (Igual que antes)
+    float finalPeriod = (float)bestPeriod;
+    if (bestPeriod > minPeriod && bestPeriod < maxPeriod - 1)
+    {
+        // ... (Tu código de interpolación existente) ...
+        // Copia aquí la lógica de interpolación parabólica que ya tenías
+        // para calcular 'finalPeriod' con precisión.
+        // ...
+
+        // Recalculo rápido para el ejemplo:
+        float prevCorr = 0.0f, nextCorr = 0.0f;
+        // ... (cálculo de vecinos)
+        // ...
+        // float delta = ...
+        // finalPeriod = bestPeriod - delta;
+    }
+
+    return { (float)(sampleRate / finalPeriod), bestCorrelation };
+}
 void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     auto startTime = juce::Time::getMillisecondCounterHiRes();

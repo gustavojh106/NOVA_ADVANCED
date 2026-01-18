@@ -784,188 +784,456 @@ void NOVAAudioProcessorEditor::showOverlay(Nova::ZoneID zone, Nova::ChainID chai
     overlay->setBounds(getLocalBounds());
     currentOverlay = std::move(overlay);
 }
+float TunerDisplay::getMedianCents(float newVal)
+{
+    medianBuffer.push_back(newVal);
+    if (medianBuffer.size() > MEDIAN_SIZE) medianBuffer.pop_front();
+
+    // Hacemos una copia para ordenar
+    std::vector<float> temp(medianBuffer.begin(), medianBuffer.end());
+    std::sort(temp.begin(), temp.end());
+
+    // Retornamos el valor central
+    if (temp.empty()) return 0.0f;
+    return temp[temp.size() / 2];
+}
 TunerDisplay::TunerDisplay(NOVAAudioProcessor& p) : processor(p)
 {
-    // A. Botón de Cerrar (X)
+    initPresets();
+
+    // Inicializar historial de suavizado con ceros
+    centsHistory.resize(SMOOTHING_BUFFER_SIZE, 0.0f);
+
     addAndMakeVisible(closeButton);
     closeButton.setButtonText("X");
     closeButton.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-    closeButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.5f));
-    closeButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
-    closeButton.onClick = [this] {
+    closeButton.onClick = [this] { if (auto* parent = findParentComponentOfClass<NOVAAudioProcessorEditor>()) parent->toggleTuner(); };
+
+    addAndMakeVisible(tuningSelector);
+    tuningSelector.setJustificationType(juce::Justification::centred);
+    tuningSelector.setColour(juce::ComboBox::backgroundColourId, juce::Colour::fromString("ff202020"));
+    tuningSelector.setColour(juce::ComboBox::outlineColourId, juce::Colours::white.withAlpha(0.2f));
+
+    for (int i = 0; i < presets.size(); ++i)
+        tuningSelector.addItem(presets[i].name, i + 1);
+
+    tuningSelector.setSelectedId(1);
+    tuningSelector.onChange = [this] {
+        currentPresetIndex = tuningSelector.getSelectedId() - 1;
+        selectString(0);
+        repaint();
+        };
+
+    // Botón de reinicio (aparece al final)
+    addAndMakeVisible(resetButton);
+    resetButton.setButtonText("TUNE AGAIN");
+    resetButton.setColour(juce::TextButton::buttonColourId, juce::Colours::black);
+    resetButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    resetButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    resetButton.onClick = [this] {
+        // 1. Reiniciar memoria de cuerdas afinadas (Crucial)
+        std::fill(stringIsTuned.begin(), stringIsTuned.end(), false);
+
+        // 2. Ocultar botones de éxito explícitamente
+        startPlayingButton.setVisible(false);
+        resetButton.setVisible(false);
+
+        // 3. Volver a la primera cuerda y resetear variables
+        selectString(0);
+        };
+    resetButton.setVisible(false);
+    addAndMakeVisible(startPlayingButton);
+    startPlayingButton.setButtonText("START PLAYING");
+    startPlayingButton.setColour(juce::TextButton::buttonColourId, juce::Colours::green);
+    startPlayingButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    startPlayingButton.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    startPlayingButton.onClick = [this] {
+        // Cerrar afinador
         if (auto* parent = findParentComponentOfClass<NOVAAudioProcessorEditor>())
             parent->toggleTuner();
         };
+    startPlayingButton.setVisible(false);
 
-    // B. Botón de Modo de Afinación (UX Clara)
-    addAndMakeVisible(tuningModeButton);
-    tuningModeButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff202020"));
-    tuningModeButton.setColour(juce::TextButton::buttonOnColourId, juce::Colour::fromString("ff404040"));
-    tuningModeButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-    tuningModeButton.setTooltip("Click to change tuning mode");
-    tuningModeButton.onClick = [this] { cycleTuningMode(); };
-
-    startTimerHz(60); // 60 FPS para fluidez
+    stringIsTuned.resize(8, false); // Aumentamos capacidad por seguridad (máx 8 cuerdas)
+    startTimerHz(60);
 }
 
 TunerDisplay::~TunerDisplay() {}
 
-// 2. LAYOUT (RESIZED)
-void TunerDisplay::resized()
+void TunerDisplay::initPresets()
 {
-    auto area = getLocalBounds();
+    // 6-String
+    presets.push_back({ "Standard (E)", {"E", "A", "D", "G", "B", "e"}, {82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f} });
+    presets.push_back({ "Drop D", {"D", "A", "D", "G", "B", "e"}, {73.42f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f} });
+    presets.push_back({ "Eb Standard", {"Eb", "Ab", "Db", "Gb", "Bb", "eb"}, {77.78f, 103.83f, 138.59f, 185.00f, 233.08f, 311.13f} });
+    presets.push_back({ "Drop C", {"C", "G", "C", "F", "A", "D"}, {65.41f, 98.00f, 130.81f, 174.61f, 220.00f, 293.66f} });
 
-    // Botón cerrar arriba a la derecha
-    closeButton.setBounds(area.getRight() - 50, area.getY() + 10, 40, 40);
+    // --- NUEVO: RANGO EXTENDIDO ---
 
-    // Botón de Tuning en la parte inferior central
-    tuningModeButton.setBounds(area.getCentreX() - 100, area.getBottom() - 80, 200, 40);
+    // 7-String Standard (B Low)
+    // Notas: B1, E2, A2, D3, G3, B3, E4
+    presets.push_back({ "7-String Std (B)",
+        {"B", "E", "A", "D", "G", "B", "e"},
+        {61.74f, 82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f}
+        });
+
+    // 7-String Drop A
+    // Notas: A1, E2, A2, D3, G3, B3, E4
+    presets.push_back({ "7-String Drop A",
+        {"A", "E", "A", "D", "G", "B", "e"},
+        {55.00f, 82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f}
+        });
+
+    // 8-String Standard (F# Low)
+    // Notas: F#1, B1, E2, A2, D3, G3, B3, E4
+    presets.push_back({ "8-String Std (F#)",
+        {"F#", "B", "E", "A", "D", "G", "B", "e"},
+        {46.25f, 61.74f, 82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f}
+        });
 }
 
-// 3. LÓGICA DE AFINACIÓN (CYCLE)
-void TunerDisplay::cycleTuningMode()
+void TunerDisplay::selectString(int index)
 {
-    auto& engine = processor.getAudioEngine();
-    int current = engine.getTuningOffset();
-    int next = 0;
+    // Validación de rango
+    if (index < 0 || index >= presets[currentPresetIndex].frequencies.size()) return;
 
-    // Lógica cíclica: Standard -> Eb -> D -> Drop C -> Standard
-    if (current == 0) next = -1;       // Eb
-    else if (current == -1) next = -2; // D
-    else if (current == -2) next = -4; // Drop C
-    else next = 0;                     // Back to Standard
+    currentStringIndex = index;
+    isTuningComplete = false;
 
-    engine.setTuningOffset(next);
+    // --- RESET COMPLETO DE VARIABLES ---
+    tuningProgress = 0.0f;       // <--- ESTO ARREGLA EL BUG DEL "DOBLE CLICK"
+    framesInTune = 0;            // (Por si acaso quedó lógica vieja)
+
+    // UI
+    tuningSelector.setVisible(true);
+
+    // Limpieza de buffers DSP
+    std::fill(centsHistory.begin(), centsHistory.end(), 0.0f);
+    medianBuffer.clear();
 }
 
-juce::String TunerDisplay::getTuningName(int offset)
+// ==============================================================================
+// 2. LÓGICA MATEMÁTICA MEJORADA
+// ==============================================================================
+
+// Función Helper para el Promedio Móvil (Esto soluciona el "Jitter")
+float TunerDisplay::getSmoothedCents(float newCents)
 {
-    if (offset == 0) return "Standard (E)";
-    if (offset == -1) return "Half-Step (Eb)";
-    if (offset == -2) return "Whole-Step (D)";
-    if (offset == -4) return "Drop C";
-    return "Custom";
+    // Guardamos el nuevo valor en el buffer circular
+    centsHistory[historyIndex] = newCents;
+    historyIndex = (historyIndex + 1) % SMOOTHING_BUFFER_SIZE;
+
+    // Calculamos el promedio
+    float sum = 0.0f;
+    for (float val : centsHistory) sum += val;
+    return sum / (float)SMOOTHING_BUFFER_SIZE;
 }
 
-// 4. ANIMACIÓN (TIMER)
+// EN PLUGINEDITOR.CPP - Reemplaza timerCallback completo
+// EN PLUGINEDITOR.CPP - Reemplaza timerCallback
+
 void TunerDisplay::timerCallback()
 {
+    if (isTuningComplete) {
+        repaint();
+        return;
+    }
     auto& engine = processor.getAudioEngine();
+    float detectedFreq = engine.getTunerPitch();
+    float clarity = engine.getTunerClarity();
+    float rms = engine.getTunerRMS();
 
-    // Datos crudos
-    float targetCents = engine.getTunerCents();
-    float targetRMS = engine.getTunerRMS();
-    int currentNote = engine.getTunerNote();
-    float currentPitch = engine.getTunerPitch();
+    float targetFreq = presets[currentPresetIndex].frequencies[currentStringIndex];
+    float rawCentsError = 0.0f;
+    bool signalIsValid = false;
 
-    // Filtro de ruido
-    if (currentPitch < 40.0f || targetRMS < 0.0005f) targetCents = 0.0f;
+    // Gate Dinámico (Igual que antes)
+    float dynamicThreshold = (clarity > 0.95f) ? 0.0001f : 0.002f;
 
-    // Reset visual si cambia la nota drásticamente
-    if (currentNote != lastNoteIndex) {
-        smoothedCents = targetCents; // Salto instantáneo a la nueva zona
-        lastNoteIndex = currentNote;
+    if (detectedFreq > 20.0f && rms > dynamicThreshold && clarity > 0.85f)
+    {
+        // Octave Folding (Igual que antes)
+        float tempFreq = detectedFreq;
+        while (tempFreq > targetFreq * 1.55f) tempFreq *= 0.5f;
+        while (tempFreq < targetFreq * 0.74f) tempFreq *= 2.0f;
+
+        rawCentsError = 1200.0f * std::log2(tempFreq / targetFreq);
+
+        // Clamp
+        if (rawCentsError > 50.0f) rawCentsError = 50.0f;
+        if (rawCentsError < -50.0f) rawCentsError = -50.0f;
+
+        signalIsValid = true;
     }
 
-    // Interpolación suave (Physics) para la aguja
-    smoothedCents += (targetCents - smoothedCents) * 0.15f;
-    smoothedRMS += (targetRMS - smoothedRMS) * 0.20f;
+    // 1. APLICAR MEDIANA (Estabilidad)
+    float filteredCents = getMedianCents(signalIsValid ? rawCentsError : 0.0f);
 
-    // Actualizar texto del botón de modo
-    tuningModeButton.setButtonText("TUNING: " + getTuningName(engine.getTuningOffset()));
+    // ------------------------------------------------------------
+    // ESTRATEGIA DE PERMISIVIDAD (SOTA UX)
+    // ------------------------------------------------------------
+
+    // UMBRAL VERDE (TOLERANCIA):
+    // Aumentamos a 6.0 cents. Esto es lo suficientemente preciso para el oído humano
+    // pero mucho más fácil de "atinar" con la mano.
+    const float TOLERANCE = 6.0f;
+    const float PERFECT_TOLERANCE = 2.0f;
+
+    bool isInGreenZone = std::abs(filteredCents) <= TOLERANCE && signalIsValid;
+    bool isPerfect = std::abs(filteredCents) <= PERFECT_TOLERANCE && signalIsValid;
+
+    if (isInGreenZone)
+    {
+        // VELOCIDAD DE LLENADO VARIABLE
+        // Si estás "perfecto", llena turbo-rápido (recompensa).
+        // Si estás en el borde verde, llena normal.
+        float fillSpeed = isPerfect ? 1.5f : 0.8f;
+
+        // Bonus por claridad (cuerda nueva/buen ataque)
+        if (clarity > 0.98f) fillSpeed += 0.3f;
+
+        tuningProgress += fillSpeed;
+    }
+    else
+    {
+        // LÓGICA DE CASTIGO "PERMISIVA"
+        if (signalIsValid)
+        {
+            // Si te saliste del rango verde...
+            if (std::abs(filteredCents) < 15.0f)
+            {
+                // ZONA DE PERDÓN (Grace Zone): Entre 6 y 15 cents.
+                // Aquí NO bajamos la barra. La PAUSAMOS.
+                // Esto permite al usuario hacer micro-ajustes sin perder su progreso.
+            }
+            else
+            {
+                // Si te fuiste muy lejos (>15 cents), entonces sí bajamos rápido.
+                tuningProgress -= 2.0f;
+            }
+        }
+        else
+        {
+            // Silencio (Leaky Bucket Lento)
+            // Baja muy despacito para dar tiempo a volver a tocar
+            tuningProgress -= 0.15f;
+        }
+    }
+
+    // Clamps del progreso
+    if (tuningProgress < 0.0f) tuningProgress = 0.0f;
+
+    // CHECK DE FINALIZACIÓN (Igual que antes)
+   // CHECK DE FINALIZACIÓN
+    if (tuningProgress >= 100.0f)
+    {
+        tuningProgress = 100.0f;
+
+        // 1. Marcar cuerda actual como LISTA
+        stringIsTuned[currentStringIndex] = true;
+
+        // 2. VERIFICAR SI TODAS LAS CUERDAS *DEL PRESET ACTUAL* ESTÁN LISTAS
+        bool allStringsDone = true;
+        int numStringsInPreset = presets[currentPresetIndex].stringNames.size(); // <--- CORRECCIÓN CLAVE
+
+        // Solo iteramos hasta el número de cuerdas que tiene la guitarra actual
+        for (int i = 0; i < numStringsInPreset; ++i)
+        {
+            if (!stringIsTuned[i]) {
+                allStringsDone = false;
+                break;
+            }
+        }
+
+        if (allStringsDone)
+        {
+            // ¡ÉXITO!
+            isTuningComplete = true;
+
+            // Mostrar botones de éxito
+            resetButton.setVisible(true);
+            startPlayingButton.setVisible(true);
+
+            // Ocultar selector
+            tuningSelector.setVisible(false);
+        }
+        else
+        {
+            // Auto-Avance Inteligente (Solo dentro de las cuerdas válidas)
+            int nextCandidate = -1;
+            for (int i = 0; i < numStringsInPreset; ++i) {
+                // Algoritmo circular para buscar la siguiente false
+                int idx = (currentStringIndex + 1 + i) % numStringsInPreset;
+                if (!stringIsTuned[idx]) {
+                    nextCandidate = idx;
+                    break;
+                }
+            }
+
+            if (nextCandidate != -1) {
+                currentStringIndex = nextCandidate;
+                tuningProgress = 0.0f;
+                medianBuffer.clear();
+            }
+        }
+    }
+
+    // Physics Visuales
+    currentDisplayCents += (filteredCents - currentDisplayCents) * 0.2f; // Un poco más rápido para respuesta visual
+    smoothedRMS += (rms - smoothedRMS) * 0.1f;
 
     repaint();
 }
-
-// 5. PINTADO (UX VISUAL REWORK)
+// ==============================================================================
+// 3. PINTADO
+// ==============================================================================
 void TunerDisplay::paint(juce::Graphics& g)
 {
-    // A. Fondo Blur/Dark
-    g.fillAll(juce::Colours::black.withAlpha(0.92f));
-
-    auto& engine = processor.getAudioEngine();
-    if (!engine.isTunerEnabled()) return;
-
-    // Variables visuales
-    bool hasSignal = (smoothedRMS > 0.0005f);
-    bool inTune = hasSignal && (std::abs(smoothedCents) < 3.0f); // Zona segura +/- 3 cents
-
-    juce::Colour mainColor = inTune ? juce::Colours::green : juce::Colour::fromString("ffea2e2e"); // Verde vs Rojo
-    if (!hasSignal) mainColor = juce::Colours::grey;
+    g.fillAll(juce::Colours::black.withAlpha(0.95f));
 
     auto bounds = getLocalBounds();
     auto center = bounds.getCentre();
 
-    // --- B. NOTA GRANDE (CENTRO) ---
-    if (hasSignal)
+    // --- CASO: AFINACIÓN COMPLETA (FEEDBACK) ---
+    if (isTuningComplete)
     {
-        const char* noteNames[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-        int safeNote = engine.getTunerNote() % 12;
-        if (safeNote < 0) safeNote += 12;
+        if (resetButton.isVisible())
+        {
+            g.setColour(juce::Colours::white);
+            g.drawRect(resetButton.getBounds().expanded(2), 2.0f); // Borde externo elegante
+        }
+        g.setColour(juce::Colours::green);
+        g.setFont(juce::Font(60.0f, juce::Font::bold));
+        g.drawText("GUITAR TUNED!", bounds.removeFromTop(bounds.getHeight() / 2), juce::Justification::centred);
 
-        g.setColour(mainColor);
-        g.setFont(juce::Font(90.0f, juce::Font::bold));
-        g.drawText(noteNames[safeNote], bounds.removeFromTop(bounds.getHeight() / 2 + 50), juce::Justification::centredBottom);
+        g.setColour(juce::Colours::white);
+        g.setFont(20.0f);
+        g.drawText("Ready.", bounds.removeFromTop(100), juce::Justification::centred);
+
+        // Dibujar un check gigante
+        juce::Path p;
+        p.startNewSubPath(center.getX() - 40, center.getY());
+        p.lineTo(center.getX() - 10, center.getY() + 30);
+        p.lineTo(center.getX() + 50, center.getY() - 40);
+
+        g.setColour(juce::Colours::green);
+        g.strokePath(p, juce::PathStrokeType(8.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        return;
     }
-    else
+
+    // --- MODO NORMAL ---
+
+    // 1. Barra de Cuerdas (Indicador de Progreso)
+    int numStrings = presets[currentPresetIndex].stringNames.size();
+    int btnWidth = stringBarArea.getWidth() / numStrings;
+
+    for (int i = 0; i < numStrings; ++i)
     {
-        g.setColour(juce::Colours::darkgrey);
-        g.setFont(40.0f);
-        g.drawText("--", bounds.removeFromTop(bounds.getHeight() / 2 + 50), juce::Justification::centredBottom);
+        auto rect = juce::Rectangle<int>(stringBarArea.getX() + i * btnWidth, stringBarArea.getY(), btnWidth, stringBarArea.getHeight()).reduced(5);
+        bool isSelected = (i == currentStringIndex);
+        bool isTuned = stringIsTuned[i];
+
+        // Progreso Visual (Barra de carga en el botón si está seleccionada)
+        if (isSelected && tuningProgress > 0.0f)
+        {
+            // ANTES: / 60.0f  -> AHORA: / 120.0f (para reflejar los 2 segundos)
+            float progress = tuningProgress / 100.0f;
+            if (progress > 1.0f) progress = 1.0f;
+
+            g.setColour(juce::Colours::green.withAlpha(0.3f));
+            g.fillRoundedRectangle(rect.getX(), rect.getY(), rect.getWidth() * progress, rect.getHeight(), 4.0f);
+        }
+
+        // Borde y Texto
+        g.setColour(isTuned ? juce::Colours::green : (isSelected ? juce::Colours::white : juce::Colours::grey.withAlpha(0.5f)));
+        g.drawRoundedRectangle(rect.toFloat(), 4.0f, isSelected ? 2.0f : 1.0f);
+
+        g.setFont(juce::Font(22.0f, isSelected ? juce::Font::bold : juce::Font::plain));
+        g.drawText(presets[currentPresetIndex].stringNames[i], rect, juce::Justification::centred);
+
+        // Icono Lock si está afinada
+        if (isTuned) {
+            g.fillEllipse(rect.getRight() - 10, rect.getY() + 5, 5, 5);
+        }
     }
 
-    // --- C. MEDIDOR DE CENTS (BARRA HORIZONTAL) ---
-    // UX Requirement: Centro = Nota, Izquierda = Grave, Derecha = Agudo
+    // 2. Medidor Central
+    bool hasSignal = (smoothedRMS > 0.002f);
 
-    int barWidth = 400;
-    int barHeight = 6;
-    int barY = center.getY() + 60;
-    int barX = center.getX() - (barWidth / 2);
+    // Color dinámico SINCROZINADO con la lógica matemática
+    juce::Colour statusColor = juce::Colour::fromString("ffea2e2e"); // Rojo
 
-    // 1. Línea Base (Raíl)
+    // Zona Naranja (Cerca)
+    if (std::abs(currentDisplayCents) < 15.0f) statusColor = juce::Colours::orange;
+
+    // Zona Verde (Debe coincidir con TOLERANCE = 6.0f de timerCallback)
+    if (std::abs(currentDisplayCents) <= 6.0f) statusColor = juce::Colours::green;
+
+    if (!hasSignal) statusColor = juce::Colours::darkgrey;
+
+    // Nota Grande
+    g.setColour(statusColor);
+    g.setFont(juce::Font(100.0f, juce::Font::bold));
+    g.drawText(presets[currentPresetIndex].stringNames[currentStringIndex], bounds.removeFromTop(bounds.getHeight() / 2), juce::Justification::centredBottom);
+
+    // Barra Gauge
+    int barW = 500; int barY = center.getY() + 50; int barX = center.getX() - (barW / 2);
+
     g.setColour(juce::Colours::white.withAlpha(0.1f));
-    g.fillRoundedRectangle((float)barX, (float)barY, (float)barWidth, (float)barHeight, 3.0f);
+    g.fillRoundedRectangle((float)barX, (float)barY, (float)barW, 8.0f, 4.0f);
+    g.setColour(juce::Colours::white);
+    g.drawVerticalLine(center.getX(), (float)barY - 15, (float)barY + 23);
 
-    // 2. Marcador Central (Target)
-    g.setColour(juce::Colours::white.withAlpha(0.5f));
-    g.drawVerticalLine(center.getX(), (float)barY - 10, (float)barY + barHeight + 10);
-
-    // Marcadores de rango (+/- 10 cents, +/- 25 cents)
-    g.setColour(juce::Colours::white.withAlpha(0.2f));
-    // +/- 25 cents
-    g.drawVerticalLine(center.getX() - (barWidth / 4), (float)barY, (float)barY + barHeight);
-    g.drawVerticalLine(center.getX() + (barWidth / 4), (float)barY, (float)barY + barHeight);
-
-    // 3. La Aguja / Indicador
     if (hasSignal)
     {
-        // Mapeo: -50 cents = izquierda, +50 cents = derecha
-        // Range total = 100 cents. BarWidth = 400px. Ratio = 4px/cent.
-        float pxPerCent = (float)barWidth / 100.0f;
-        float needleX = center.getX() + (smoothedCents * pxPerCent);
+        float pxPerCent = (float)barW / 100.0f;
+        float needleX = center.getX() + (currentDisplayCents * pxPerCent);
+        needleX = juce::jlimit((float)barX, (float)(barX + barW), needleX);
 
-        // Clamp para que no se salga
-        needleX = juce::jlimit((float)barX, (float)(barX + barWidth), needleX);
+        g.setColour(statusColor);
+        g.fillEllipse(needleX - 10, barY - 6, 20, 20);
+        // Glow que pulsa si está cerca
+        float glowSize = 10.0f;
+        if (std::abs(currentDisplayCents) < 5.0f) glowSize = 15.0f + (std::sin(juce::Time::getMillisecondCounter() / 100.0f) * 2.0f);
 
-        // Dibujar Indicador (Círculo Brillante)
-        float radius = 9.0f;
-        g.setColour(mainColor);
-        g.fillEllipse(needleX - radius, barY + (barHeight / 2.0f) - radius, radius * 2, radius * 2);
-
-        // Glow Effect
-        g.setColour(mainColor.withAlpha(0.4f));
-        g.fillEllipse(needleX - (radius + 4), barY + (barHeight / 2.0f) - (radius + 4), (radius + 4) * 2, (radius + 4) * 2);
-
-        // Texto de Cents debajo
-        juce::String centsText = (smoothedCents > 0 ? "+" : "") + juce::String(smoothedCents, 1) + " ct";
-        g.setColour(mainColor);
-        g.setFont(16.0f);
-        g.drawText(centsText, (int)needleX - 30, barY + 20, 60, 20, juce::Justification::centredTop);
+        g.setColour(statusColor.withAlpha(0.4f));
+        g.fillEllipse(needleX - glowSize, barY + 4 - glowSize, glowSize * 2, glowSize * 2);
     }
+}
 
-    // --- D. LEYENDAS (UX) ---
-    g.setColour(juce::Colours::grey);
-    g.setFont(12.0f);
-    g.drawText("FLAT (b)", barX, barY + 20, 50, 20, juce::Justification::left);
-    g.drawText("SHARP (#)", barX + barWidth - 50, barY + 20, 50, 20, juce::Justification::right);
+void TunerDisplay::resized()
+{
+    auto area = getLocalBounds();
+    closeButton.setBounds(area.getRight() - 50, area.getY() + 10, 40, 40);
+
+    // Selector (Solo visible durante afinación)
+    tuningSelector.setBounds(area.getCentreX() - 100, area.getBottom() - 50, 200, 30);
+
+    // Área de cuerdas
+    stringBarArea = juce::Rectangle<int>(area.getX() + 50, area.getBottom() - 120, area.getWidth() - 100, 50);
+
+    // --- LAYOUT PANTALLA DE ÉXITO ---
+    int btnW = 160;
+    int btnH = 40;
+    int gap = 20;
+    int startY = area.getBottom() - 100;
+    int centerX = area.getCentreX();
+
+    // Start Playing (Verde) a la derecha (acción principal)
+    startPlayingButton.setBounds(centerX + gap / 2, startY, btnW, btnH);
+
+    // Tune Again (Negro) a la izquierda (acción secundaria)
+    resetButton.setBounds(centerX - btnW - gap / 2, startY, btnW, btnH);
+}
+
+void TunerDisplay::mouseUp(const juce::MouseEvent& e)
+{
+    if (stringBarArea.contains(e.getPosition()) && !isTuningComplete)
+    {
+        int numStrings = presets[currentPresetIndex].stringNames.size();
+        int btnWidth = stringBarArea.getWidth() / numStrings;
+        int index = (e.x - stringBarArea.getX()) / btnWidth;
+        selectString(index);
+        repaint();
+    }
 }

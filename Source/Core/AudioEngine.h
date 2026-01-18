@@ -84,8 +84,10 @@ public:
 
     void setTuningOffset(int semitones) { tuningOffset = semitones; }
     int getTuningOffset() const { return tuningOffset; }
-
+    float getTunerClarity() const { return currentClarity; }
 private:
+
+    std::atomic<float> currentClarity{ 0.0f };
     std::atomic<int> tuningOffset{ 0 };
 
     void rebuildGraph();
@@ -131,4 +133,5 @@ private:
     std::vector<float> tunerWorkBuffer;
 
     float calculateFrequency(const float* signal, int numSamples, double sampleRate);
+    std::pair<float, float> calculateFrequencyWithClarity(const float* signal, int numSamples, double sampleRate);
 };
