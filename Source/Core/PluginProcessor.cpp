@@ -36,13 +36,11 @@ void NOVAAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
 {
     juce::ScopedNoDenormals noDenormals;
 
-    // IMPORTANTE: NO borrar el buffer aquí manualmente antes de procesar,
-    // el AudioEngine ya decide si silencia (stop) o procesa.
-    // Si haces buffer.clear() aquí antes, borras la entrada de guitarra.
-
+    // Delegamos TODO al motor. Él decide si silencia (Tuner/Bypass) o procesa.
+    // No hacer buffer.clear() aquí.
     audioEngine.process(buffer, midi);
 
-    // Manda copia al visualizador
+    // Visualizador (Thread Safe push)
     audioVisualizer.pushBuffer(buffer);
 }
 
@@ -141,7 +139,12 @@ void NOVAAudioProcessor::updateMixerFromState()
 }
 
 // Boilerplate
-juce::AudioProcessorEditor* NOVAAudioProcessor::createEditor() { return new NOVAAudioProcessorEditor(*this); }
+juce::AudioProcessorEditor* NOVAAudioProcessor::createEditor()
+{
+    // Cambio a puntero crudo solo porque JUCE lo requiere en la firma, 
+    // pero internamente el wrapper toma posesión.
+    return new NOVAAudioProcessorEditor(*this);
+}
 bool NOVAAudioProcessor::hasEditor() const { return true; }
 const juce::String NOVAAudioProcessor::getName() const { return "NOVA"; }
 bool NOVAAudioProcessor::acceptsMidi() const { return false; }
@@ -192,3 +195,9 @@ void NOVAAudioProcessor::requestBypassPedal(Nova::ChainID chain, int index, bool
 }
 void NOVAAudioProcessor::releaseResources() {}
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new NOVAAudioProcessor(); }
+void NOVAAudioProcessor::toggleTuner()
+{
+    // Invertimos el estado del afinador
+    bool newState = !audioEngine.getTunerEnabled();
+    audioEngine.setTunerEnabled(newState);
+}

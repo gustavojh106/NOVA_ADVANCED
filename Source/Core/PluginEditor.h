@@ -113,7 +113,8 @@ private:
     std::unique_ptr<ChainLane> laneB;
 
     // --- VISUALIZADORES Y MODALES ---
-    juce::OwnedArray<juce::AudioProcessorEditor> activePedalEditors;
+    //juce::OwnedArray<juce::AudioProcessorEditor> activePedalEditors;
+    std::map<juce::AudioProcessorGraph::NodeID, std::unique_ptr<juce::AudioProcessorEditor>> activePedalEditors;
     std::unique_ptr<juce::Component> currentOverlay;
 
     // Timer para stats

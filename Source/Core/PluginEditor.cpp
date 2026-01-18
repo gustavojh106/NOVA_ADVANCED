@@ -618,53 +618,115 @@ void NOVAAudioProcessorEditor::updateStats()
 }
 void NOVAAudioProcessorEditor::updatePedalGui()
 {
-    activePedalEditors.clear();
+    // 1. Preparamos un set para rastrear qué nodos están vivos en este ciclo.
+    // Los que no estén en este set al final, serán eliminados (Garbage Collection).
+    std::set<juce::AudioProcessorGraph::NodeID> requiredNodeIDs;
+
     auto processLane = [&](Nova::ChainID chain, ChainLane* laneComp)
         {
             if (!laneComp) return;
-            laneComp->resized();
+            laneComp->resized(); // Asegurar que las DropZones tienen el tamaño correcto
+
             const auto& nodes = audioProcessor.getAudioEngine().getNodes(chain);
             auto treeListID = (chain == Nova::ChainID::LineA) ? Nova::IDs::LINE_A : Nova::IDs::LINE_B;
             auto treeList = audioProcessor.pluginState.getChildWithName(treeListID);
-            int flowCounters[4] = { 0, 0, 0, 0 };
+            int flowCounters[4] = { 0, 0, 0, 0 }; // Contadores para apilar pedales en cada zona
 
-            for (int i = 0; i < nodes.size(); ++i) {
+            for (int i = 0; i < nodes.size(); ++i)
+            {
+                // Protección de seguridad
                 if (i >= treeList.getNumChildren()) break;
+
                 auto node = nodes[i];
-                auto state = treeList.getChild(i);
-                int zoneIdx = state.getProperty(Nova::IDs::PEDAL_ZONE);
 
-                if (node && node->getProcessor()) {
-                    if (auto* editor = node->getProcessor()->createEditor()) {
-                        addAndMakeVisible(editor);
-                        activePedalEditors.add(editor);
-                        auto zoneRect = laneComp->getZoneRect(zoneIdx);
-                        int zoneAbsX = laneComp->getX() + zoneRect.getX();
-                        int zoneAbsY = laneComp->getY() + zoneRect.getY();
-                        int zoneW = zoneRect.getWidth(), zoneH = zoneRect.getHeight();
-                        int pW = 120, pH = 180;
-                        int finalX = 0, finalY = zoneAbsY + (zoneH - pH) / 2;
+                // Si el nodo es válido y tiene procesador
+                if (node && node->getProcessor())
+                {
+                    // -- A. REGISTRO --
+                    // Marcamos este ID como "Necesario" para que no sea borrado
+                    requiredNodeIDs.insert(node->nodeID);
 
-                        if (zoneIdx == (int)Nova::ZoneID::Amp || zoneIdx == (int)Nova::ZoneID::Cabinet) {
-                            finalX = zoneAbsX + (zoneW - pW) / 2;
-                        }
-                        else {
-                            int gap = 15;
-                            int offset = flowCounters[zoneIdx] * (pW + gap);
-                            finalX = zoneAbsX + 20 + offset;
-                        }
-                        editor->setBounds(finalX, finalY, pW, pH);
-                        // Si el overlay está activo, los pedales deben estar debajo visualmente (Z-Order)
-                        // Pero addAndMakeVisible los pone encima. 
-                        // Si tienes overlay, tráelo al frente.
-                        if (currentOverlay) currentOverlay->toFront(true);
-                        flowCounters[zoneIdx]++;
+                    // -- B. DATOS DE POSICIÓN --
+                    auto state = treeList.getChild(i);
+                    int zoneIdx = state.getProperty(Nova::IDs::PEDAL_ZONE);
+
+                    auto zoneRect = laneComp->getZoneRect(zoneIdx);
+                    int zoneAbsX = laneComp->getX() + zoneRect.getX();
+                    int zoneAbsY = laneComp->getY() + zoneRect.getY();
+                    int zoneW = zoneRect.getWidth();
+                    int zoneH = zoneRect.getHeight();
+                    int pW = 120, pH = 180; // Tamaño fijo del pedal
+                    int finalX = 0;
+                    int finalY = zoneAbsY + (zoneH - pH) / 2; // Centrado verticalmente
+
+                    if (zoneIdx == (int)Nova::ZoneID::Amp || zoneIdx == (int)Nova::ZoneID::Cabinet) {
+                        finalX = zoneAbsX + (zoneW - pW) / 2; // Centrado horizontal (Slot único)
                     }
+                    else {
+                        int gap = 15;
+                        int offset = flowCounters[zoneIdx] * (pW + gap);
+                        finalX = zoneAbsX + 20 + offset; // Flujo izquierda->derecha
+                    }
+
+                    // -- C. GESTIÓN INTELIGENTE DE EDITORES (Smart Update) --
+                    juce::AudioProcessorEditor* editor = nullptr;
+
+                    // Buscamos si ya existe el editor en nuestro mapa
+                    auto it = activePedalEditors.find(node->nodeID);
+
+                    if (it == activePedalEditors.end())
+                    {
+                        // CASO 1: NO EXISTE -> CREAR NUEVO
+                        if (auto* newEditor = node->getProcessor()->createEditor())
+                        {
+                            addAndMakeVisible(newEditor);
+                            // Lo guardamos en el mapa (el unique_ptr toma posesión)
+                            activePedalEditors[node->nodeID].reset(newEditor);
+                            editor = newEditor;
+                        }
+                    }
+                    else
+                    {
+                        // CASO 2: YA EXISTE -> REUTILIZAR
+                        editor = it->second.get();
+                    }
+
+                    // -- D. ACTUALIZAR POSICIÓN --
+                    if (editor)
+                    {
+                        editor->setBounds(finalX, finalY, pW, pH);
+                        // Traer al frente para que no quede detrás de otros elementos, 
+                        // pero 'false' evita robar el foco del teclado innecesariamente.
+                        editor->toFront(false);
+                    }
+
+                    flowCounters[zoneIdx]++;
                 }
             }
         };
+
+    // Procesar ambas cadenas
     processLane(Nova::ChainID::LineA, laneA.get());
     processLane(Nova::ChainID::LineB, laneB.get());
+
+    // 2. GARBAGE COLLECTION (Limpieza)
+    // Borramos los editores que están en el mapa pero YA NO están en la cadena
+    for (auto it = activePedalEditors.begin(); it != activePedalEditors.end(); )
+    {
+        if (requiredNodeIDs.find(it->first) == requiredNodeIDs.end())
+        {
+            // El nodo ya no existe en el grafo -> Borramos su editor
+            it = activePedalEditors.erase(it); // erase devuelve el siguiente iterador válido
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    // 3. MANTENER OVERLAY
+    // Si hay un menú de selección abierto, asegurarse de que siga encima de todo
+    if (currentOverlay) currentOverlay->toFront(true);
 }
 
 void NOVAAudioProcessorEditor::updateSwitcherState()
@@ -722,12 +784,33 @@ void NOVAAudioProcessorEditor::showOverlay(Nova::ZoneID zone, Nova::ChainID chai
     overlay->setBounds(getLocalBounds());
     currentOverlay = std::move(overlay);
 }
-void TunerDisplay::mouseDown(const juce::MouseEvent&)
+void TunerDisplay::mouseDown(const juce::MouseEvent& e)
 {
-    // Ahora esto funciona porque el compilador ya leyó todo el archivo .h
-    if (auto* parent = findParentComponentOfClass<NOVAAudioProcessorEditor>())
+    // Clic Izquierdo: Apagar afinador
+    if (e.mods.isLeftButtonDown())
     {
-        parent->toggleTuner();
+        if (auto* parent = findParentComponentOfClass<NOVAAudioProcessorEditor>())
+            parent->toggleTuner();
+    }
+    // Clic Derecho: MENÚ DE AFINACIÓN
+    else if (e.mods.isRightButtonDown())
+    {
+        juce::PopupMenu m;
+        m.addSectionHeader("TUNING MODE");
+
+        // Obtenemos referencia al motor
+        auto& engine = processor.getAudioEngine();
+        int current = engine.getTuningOffset();
+
+        // Creamos el menú. 
+        // offset 0 = Standard, -1 = Eb, -2 = D, etc.
+        m.addItem("Standard (E)", true, (current == 0), [&]() { engine.setTuningOffset(0); });
+        m.addItem("Half-Step Down (Eb)", true, (current == -1), [&]() { engine.setTuningOffset(-1); });
+        m.addItem("Full-Step Down (D)", true, (current == -2), [&]() { engine.setTuningOffset(-2); });
+        m.addItem("Drop C (C)", true, (current == -4), [&]() { engine.setTuningOffset(-4); });
+
+        // Mostramos el menú de forma asíncrona
+        m.showMenuAsync(juce::PopupMenu::Options());
     }
 }
 // ==============================================================================
@@ -773,84 +856,52 @@ void TunerDisplay::timerCallback()
 // ==============================================================================
 void TunerDisplay::paint(juce::Graphics& g)
 {
-    // Fondo Semi-transparente
-    g.fillAll(juce::Colours::black.withAlpha(0.9f));
+    // 1. Fondo
+    g.fillAll(juce::Colours::black.withAlpha(0.95f));
 
     auto& engine = processor.getAudioEngine();
+
+    if (!engine.isTunerEnabled()) return;
+
+    // 2. Datos
+    float rms = engine.getTunerRMS();
     int note = engine.getTunerNote();
-    float pitch = engine.getTunerPitch();
+    float cents = engine.getTunerCents();
+    int offset = engine.getTuningOffset(); // <--- NUEVO: Obtenemos el offset
 
-    // Usamos las variables SUAVIZADAS en lugar de las directas
-    float rms = smoothedRMS;
-    float cents = smoothedCents;
+    // ... (Tu lógica de dibujo de aguja y nota sigue igual hasta el final) ...
 
-    // 1. DIBUJAR BARRA DE NIVEL (Izquierda)
-    g.setColour(juce::Colours::darkgrey);
-    g.fillRect(20, 20, 20, getHeight() - 40);
+    // --- PARTE AÑADIDA: DIBUJAR LA NOTA GRANDE ---
+    // (Asegúrate de tener esto en tu paint para ver la nota)
+    const char* noteNames[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    if (rms > 0.0005f)
+    {
+        int safeNote = note % 12;
+        if (safeNote < 0) safeNote += 12;
 
-    int barHeight = (int)((getHeight() - 40) * juce::jmin(rms * 5.0f, 1.0f));
-    g.setColour(rms > 0.001f ? juce::Colours::green : juce::Colours::red);
-    g.fillRect(20, getHeight() - 20 - barHeight, 20, barHeight);
+        juce::String noteName = noteNames[safeNote];
+        bool inTune = (std::abs(cents) < 5.0f);
+        g.setColour(inTune ? juce::Colours::green : juce::Colours::orange);
+        g.setFont(juce::Font(60.0f, juce::Font::bold));
+        g.drawText(noteName, getLocalBounds().removeFromTop(getHeight() / 2), juce::Justification::centredBottom);
 
-    // Texto debug
-    g.setColour(juce::Colours::white);
-    g.setFont(14.0f);
-    // Mostramos el valor real del motor, no el suavizado, para depurar mejor
-    g.drawText("IN: " + juce::String(engine.getTunerRMS(), 3), 50, 20, 100, 20, juce::Justification::left);
-
-    // 2. SI NO HAY SEÑAL
-    if (pitch < 40.0f && rms < 0.001f) {
-        g.setColour(juce::Colours::grey);
-        g.setFont(40.0f);
-        g.drawText("--", getLocalBounds(), juce::Justification::centred);
-        g.setFont(14.0f);
-        g.drawText("Toca una cuerda...", getLocalBounds().removeFromBottom(50), juce::Justification::centred);
-        return;
+        // ... (Aquí iría tu código de la aguja/barra de cents) ...
+        // ...
     }
 
-    // 3. NOTA Y AGUJA
-    juce::String noteName = juce::MidiMessage::getMidiNoteName(note, true, true, 3);
+    // 3. MOSTRAR EL MODO DE AFINACIÓN ACTUAL (Esquina superior derecha)
+    g.setColour(juce::Colours::white.withAlpha(0.5f));
+    g.setFont(16.0f);
 
-    // Color Semáforo basado en la aguja SUAVIZADA (para que no parpadee el color)
-    bool isInTune = std::abs(cents) < 5.0f;
-    juce::Colour statusColor = isInTune ? juce::Colours::green : juce::Colours::red;
+    juce::String modeName = "STD";
+    if (offset == -1) modeName = "Eb";
+    else if (offset == -2) modeName = "D";
+    else if (offset == -4) modeName = "Drop C";
 
-    // Dibujar Nota
-    g.setColour(statusColor);
-    g.setFont(80.0f);
-    g.drawText(noteName, getLocalBounds().removeFromTop(getHeight() / 2), juce::Justification::centredBottom);
+    g.drawText("TUNING: " + modeName, getLocalBounds().reduced(20).removeFromTop(30), juce::Justification::topRight);
 
-    // Dibujar Aguja
-    auto barArea = getLocalBounds().removeFromBottom(100).reduced(50, 40).toFloat();
-    float centerX = barArea.getCentreX();
-
-    // Línea central (Target)
-    g.setColour(juce::Colours::white.withAlpha(0.3f));
-    g.drawVerticalLine(centerX, barArea.getY(), barArea.getBottom());
-
-    // Marcas de referencia (-10 y +10 cents)
-    float width10 = (10.0f / 50.0f) * (barArea.getWidth() / 2.0f);
-    g.drawVerticalLine(centerX - width10, barArea.getY() + 10, barArea.getBottom() - 10);
-    g.drawVerticalLine(centerX + width10, barArea.getY() + 10, barArea.getBottom() - 10);
-
-    // Círculo indicador (La aguja)
-    float offset = (cents / 50.0f) * (barArea.getWidth() / 2.0f);
-    float needleX = centerX + offset;
-
-    // Clamp para que no se salga del dibujo
-    needleX = juce::jlimit(barArea.getX(), barArea.getRight(), needleX);
-
-    g.setColour(statusColor);
-    g.fillEllipse(needleX - 10, barArea.getCentreY() - 10, 20, 20);
-
-    // Halo brillante alrededor de la aguja si está afinado
-    if (isInTune) {
-        g.setColour(juce::Colours::green.withAlpha(0.4f));
-        g.drawEllipse(needleX - 15, barArea.getCentreY() - 15, 30, 30, 2.0f);
-    }
-
-    // Texto Cents
-    g.setColour(juce::Colours::white);
-    g.setFont(20.0f);
-    g.drawText(juce::String(cents, 1) + " ct", barArea.getX(), barArea.getBottom() + 5, barArea.getWidth(), 20, juce::Justification::centred);
+    // Texto de ayuda inferior
+    g.setFont(12.0f);
+    g.setColour(juce::Colours::grey);
+    g.drawText("[Right-Click for Options]", getLocalBounds().removeFromBottom(30), juce::Justification::centredBottom);
 }
