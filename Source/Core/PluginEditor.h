@@ -18,17 +18,30 @@ class ChainLane; // Forward declaration
 class TunerDisplay : public juce::Component, public juce::Timer
 {
 public:
-    TunerDisplay(NOVAAudioProcessor& p) : processor(p) { startTimerHz(60); } // 30 FPS
+    TunerDisplay(NOVAAudioProcessor& p); // Constructor modificado (implementación en .cpp)
+    ~TunerDisplay() override;
 
-    void timerCallback() override; // Lo implementaremos en el .cpp
-    void paint(juce::Graphics& g) override; // Tu paint modificado
-    void mouseDown(const juce::MouseEvent&) override;
+    void timerCallback() override;
+    void paint(juce::Graphics& g) override;
+    void resized() override;
+
+    // Eliminamos mouseDown complejo, ahora usaremos botones
 
 private:
     NOVAAudioProcessor& processor;
+
+    // Variables de suavizado (Physics)
     float smoothedCents = 0.0f;
     float smoothedRMS = 0.0f;
     int lastNoteIndex = -1;
+
+    // Elementos de UI Modernos
+    juce::TextButton closeButton;
+    juce::TextButton tuningModeButton;
+
+    // Helper para ciclar afinaciones
+    void cycleTuningMode();
+    juce::String getTuningName(int offset);
 };
 class NOVAAudioProcessorEditor : public juce::AudioProcessorEditor,
     public juce::ValueTree::Listener,
