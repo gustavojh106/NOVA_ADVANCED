@@ -291,6 +291,8 @@ private:
 // 3. IMPLEMENTACIÓN EDITOR PRINCIPAL
 // ==============================================================================
 
+// EN PLUGINEDITOR.CPP
+
 NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p)
 {
@@ -317,54 +319,118 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     addAndMakeVisible(btnAddCabinet);
     addAndMakeVisible(btnAddNeural);
 
-    // --- 3. INPUT STRIP ---
-    // Vol
-    addAndMakeVisible(inputVolume); inputVolume.setSliderStyle(juce::Slider::Rotary); inputVolume.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    // Gate
-    addAndMakeVisible(inputGate); inputGate.setSliderStyle(juce::Slider::Rotary); inputGate.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    // Transpose
-    addAndMakeVisible(inputTranspose); inputTranspose.setSliderStyle(juce::Slider::Rotary); inputTranspose.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    // Mono/Stereo
-    addAndMakeVisible(btnMonoStereo);
-    // Fader
-    addAndMakeVisible(inputFader); inputFader.setSliderStyle(juce::Slider::LinearVertical); inputFader.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    // ==============================================================================
+    // 3. INPUT STRIP (CONEXIÓN REAL AL AUDIO ENGINE)
+    // ==============================================================================
 
-    // --- 4. CENTER MIXER & LANES ---
+    // Vol (Input Gain) -> ID: INPUT_GAIN
+    setupKnob(inputVolume, "IN GAIN", -60.0f, 24.0f, 0.0f);
+    inputVolume.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
+            .setProperty(Nova::IDs::INPUT_GAIN, (float)inputVolume.getValue(), nullptr);
+        };
+
+    // Gate (Noise Gate) -> ID: INPUT_GATE
+    setupKnob(inputGate, "GATE", -100.0f, 0.0f, -100.0f);
+    inputGate.setTextValueSuffix(" dB");
+    inputGate.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
+            .setProperty(Nova::IDs::INPUT_GATE, (float)inputGate.getValue(), nullptr);
+        };
+
+    // Transpose -> ID: INPUT_TRANS
+    setupKnob(inputTranspose, "TRANS", -12.0f, 12.0f, 0.0f);
+    inputTranspose.setRange(-12.0, 12.0, 1.0); // Pasos enteros
+    inputTranspose.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
+            .setProperty(Nova::IDs::INPUT_TRANS, (int)inputTranspose.getValue(), nullptr);
+        };
+
+    // Mono/Stereo -> ID: FORCE_MONO
+    addAndMakeVisible(btnMonoStereo);
+    btnMonoStereo.setButtonText("MONO");
+    btnMonoStereo.setClickingTogglesState(true);
+    btnMonoStereo.setColour(juce::ToggleButton::tickColourId, NovaColors::Accent);
+    btnMonoStereo.onClick = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
+            .setProperty(Nova::IDs::FORCE_MONO, btnMonoStereo.getToggleState(), nullptr);
+        };
+
+    // Fader Visual (Por ahora decorativo o linkeado al gain)
+    addAndMakeVisible(inputFader);
+    inputFader.setSliderStyle(juce::Slider::LinearVertical);
+    inputFader.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    inputFader.setRange(-60.0, 6.0, 0.1);
+    inputFader.setValue(0.0, juce::dontSendNotification);
+
+    // ==============================================================================
+    // 4. MIXER & LANES (CONEXIÓN REAL)
+    // ==============================================================================
+
     laneA = std::make_unique<ChainLane>(p, Nova::ChainID::LineA); addAndMakeVisible(laneA.get());
     laneB = std::make_unique<ChainLane>(p, Nova::ChainID::LineB); addAndMakeVisible(laneB.get());
     addAndMakeVisible(btnSwitcher);
     btnSwitcher.onClick = [this] { audioProcessor.cycleSwitcher(); };
 
-    auto setupKnob = [&](juce::Slider& s) {
-        addAndMakeVisible(s); s.setSliderStyle(juce::Slider::Rotary); s.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    // --- LINE A ---
+    // Level
+    setupKnob(volSliderA, "LEVEL A", 0.0f, 2.0f, 1.0f);
+    volSliderA.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A)
+            .setProperty(Nova::IDs::MIXER_GAIN_A, (float)volSliderA.getValue(), nullptr);
         };
 
-    // Line A
-    setupKnob(volSliderA);
-    setupKnob(panSliderA);   panSliderA.setRange(-1.0, 1.0, 0.01); panSliderA.setValue(0.0);
-    setupKnob(widthSliderA); widthSliderA.setRange(0.0, 2.0, 0.01); widthSliderA.setValue(1.0);
+    // Pan (-1 L a +1 R)
+    setupKnob(panSliderA, "PAN A", -1.0f, 1.0f, 0.0f);
+    panSliderA.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A)
+            .setProperty(Nova::IDs::MIXER_PAN_A, (float)panSliderA.getValue(), nullptr);
+        };
 
-    // Line B
-    setupKnob(volSliderB);
-    setupKnob(panSliderB);   panSliderB.setRange(-1.0, 1.0, 0.01); panSliderB.setValue(0.0);
-    setupKnob(widthSliderB); widthSliderB.setRange(0.0, 2.0, 0.01); widthSliderB.setValue(1.0);
+    // Width (0 Mono a 2 Wide)
+    setupKnob(widthSliderA, "WIDTH A", 0.0f, 2.0f, 1.0f);
+    widthSliderA.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A)
+            .setProperty(Nova::IDs::MIXER_WIDTH_A, (float)widthSliderA.getValue(), nullptr);
+        };
 
-    // Conexión Volumen (El resto espera implementación en AudioEngine)
-    volSliderA.onValueChange = [this] { audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS).setProperty(Nova::IDs::MIXER_GAIN_A, (float)volSliderA.getValue(), nullptr); };
-    volSliderB.onValueChange = [this] { audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS).setProperty(Nova::IDs::MIXER_GAIN_B, (float)volSliderB.getValue(), nullptr); };
+    // --- LINE B ---
+    // Level
+    setupKnob(volSliderB, "LEVEL B", 0.0f, 2.0f, 1.0f);
+    volSliderB.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B)
+            .setProperty(Nova::IDs::MIXER_GAIN_B, (float)volSliderB.getValue(), nullptr);
+        };
+
+    // Pan
+    setupKnob(panSliderB, "PAN B", -1.0f, 1.0f, 0.0f);
+    panSliderB.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B)
+            .setProperty(Nova::IDs::MIXER_PAN_B, (float)panSliderB.getValue(), nullptr);
+        };
+
+    // Width
+    setupKnob(widthSliderB, "WIDTH B", 0.0f, 2.0f, 1.0f);
+    widthSliderB.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B)
+            .setProperty(Nova::IDs::MIXER_WIDTH_B, (float)widthSliderB.getValue(), nullptr);
+        };
 
     // --- 5. OUTPUT STRIP ---
-    setupKnob(outputVolume);
-    setupKnob(outputGain);
-    setupKnob(outputMix); // Mix Global
-    addAndMakeVisible(outputFader); outputFader.setSliderStyle(juce::Slider::LinearVertical); outputFader.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    setupKnob(outputVolume, "OUT VOL", -60.0f, 12.0f, 0.0f);
+    // outputVolume.onValueChange = ... (Conectar a ID OUTPUT_VOL si se implementa en engine)
 
-    // --- 6. PRESETS ---
+    setupKnob(outputGain, "LIMIT", -20.0f, 20.0f, 0.0f);
+    setupKnob(outputMix, "MIX", 0.0f, 100.0f, 100.0f);
+
+    addAndMakeVisible(outputFader);
+    outputFader.setSliderStyle(juce::Slider::LinearVertical);
+    outputFader.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+
+    // --- 6. PRESETS & FOOTER ---
     addAndMakeVisible(searchBarPresets); searchBarPresets.setTextToShowWhenEmpty("Search...", juce::Colours::grey);
     addAndMakeVisible(btnSave); btnSave.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
     addAndMakeVisible(btnLoad); btnLoad.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
-
-    // --- 7. FOOTER ---
     addAndMakeVisible(audioProcessor.audioVisualizer);
 
     // Init
@@ -372,19 +438,38 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     setResizable(true, true);
     setSize(1920, 1080);
 
-    // Load Values
-    auto s = audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS);
-    if (s.isValid()) {
-        volSliderA.setValue(s.getProperty(Nova::IDs::MIXER_GAIN_A, 1.0f), juce::dontSendNotification);
-        volSliderB.setValue(s.getProperty(Nova::IDs::MIXER_GAIN_B, 1.0f), juce::dontSendNotification);
+    // ==============================================================================
+    // CARGAR VALORES INICIALES (Sync UI <-> Data)
+    // ==============================================================================
+    auto settings = audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS);
+    auto lA = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A);
+    auto lB = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B);
+
+    if (settings.isValid()) {
+        inputVolume.setValue(settings.getProperty(Nova::IDs::INPUT_GAIN, 0.0f), juce::dontSendNotification);
+        inputGate.setValue(settings.getProperty(Nova::IDs::INPUT_GATE, -100.0f), juce::dontSendNotification);
+        inputTranspose.setValue(settings.getProperty(Nova::IDs::INPUT_TRANS, 0), juce::dontSendNotification);
+        btnMonoStereo.setToggleState(settings.getProperty(Nova::IDs::FORCE_MONO, false), juce::dontSendNotification);
     }
+
+    if (lA.isValid()) {
+        volSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_GAIN_A, 1.0f), juce::dontSendNotification);
+        panSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_PAN_A, 0.0f), juce::dontSendNotification);
+        widthSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_WIDTH_A, 1.0f), juce::dontSendNotification);
+    }
+
+    if (lB.isValid()) {
+        volSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_GAIN_B, 1.0f), juce::dontSendNotification);
+        panSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_PAN_B, 0.0f), juce::dontSendNotification);
+        widthSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_WIDTH_B, 1.0f), juce::dontSendNotification);
+    }
+
     updateSwitcherState();
     updatePedalGui();
 
     // Iniciar timer stats
     statsTimer = std::make_unique<StatsTimer>(*this);
 }
-
 NOVAAudioProcessorEditor::~NOVAAudioProcessorEditor()
 {
     audioProcessor.pluginState.removeListener(this);
@@ -1236,4 +1321,21 @@ void TunerDisplay::mouseUp(const juce::MouseEvent& e)
         selectString(index);
         repaint();
     }
+}
+
+// EN PLUGINEDITOR.CPP (Al final del archivo o antes de resized)
+
+void NOVAAudioProcessorEditor::setupKnob(juce::Slider& slider, const juce::String& name, float min, float max, float def)
+{
+    addAndMakeVisible(slider);
+    slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+    slider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    slider.setRange(min, max, 0.01);
+    slider.setValue(def, juce::dontSendNotification);
+
+    // Tooltip simple
+    slider.setTooltip(name);
+
+    // (Opcional) Si quieres que tengan LookAndFeel personalizado en el futuro:
+    // slider.setLookAndFeel(&myCustomLookAndFeel);
 }

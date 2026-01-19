@@ -91,6 +91,7 @@ public:
     void showOverlay(Nova::ZoneID zone, Nova::ChainID chain);
     void toggleTuner(); 
 private:
+    void setupKnob(juce::Slider& slider, const juce::String& name, float min, float max, float def);
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override;
     void valueTreeChildAdded(juce::ValueTree&, juce::ValueTree&) override { updatePedalGui(); }
     void valueTreeChildRemoved(juce::ValueTree&, juce::ValueTree&, int) override { updatePedalGui(); }
