@@ -5199,6 +5199,9 @@
     <ClInclude Include="..\..\Source\Core\DualMixer.h">
       <Filter>NOVA\Source\Core</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Source\Core\GlobalProcessors.h">
+      <Filter>NOVA\Source\Core</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Source\Core\PedalRegistry.h">
       <Filter>NOVA\Source\Core</Filter>
     </ClInclude>

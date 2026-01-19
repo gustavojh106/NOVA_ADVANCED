@@ -1,58 +1,22 @@
 ﻿#include "AudioEngine.h"
 #include "PedalRegistry.h"
-
-// ==========================================================
-// IMPLEMENTACIÓN DE SIMPLE GAIN
-// ==========================================================
-
-SimpleGainProcessor::SimpleGainProcessor()
-    : AudioProcessor(BusesProperties()
-        .withInput("Input", juce::AudioChannelSet::stereo())
-        .withOutput("Output", juce::AudioChannelSet::stereo()))
-{
-    currentGain = 1.0f;
-    targetGain = 1.0f;
-}
-
-void SimpleGainProcessor::setGain(float gain)
-{
-    targetGain = gain;
-}
-
-void SimpleGainProcessor::prepareToPlay(double, int)
-{
-    currentGain = targetGain;
-}
-
-void SimpleGainProcessor::releaseResources() {}
-
-void SimpleGainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
-{
-    if (std::abs(currentGain - targetGain) > 0.001f)
-        currentGain += (targetGain - currentGain) * 0.1f;
-    else
-        currentGain = targetGain;
-
-    if (currentGain < 0.001f)
-        buffer.clear();
-    else
-        buffer.applyGain(currentGain);
-}
+#include "GlobalProcessors.h" 
 
 // ==========================================================
 // IMPLEMENTACIÓN DE AUDIO ENGINE
 // ==========================================================
 
 AudioEngine::AudioEngine()
-    : juce::Thread("TunerThread")
+    : juce::Thread("AudioEngineThread")
 {
     mainGraph = std::make_unique<juce::AudioProcessorGraph>();
 
-    // Inicializamos vectores
     tunerCircularBuffer.resize(TUNER_FIFO_SIZE, 0.0f);
     tunerWorkBuffer.resize(TUNER_PROCESS_SIZE, 0.0f);
 
-    startThread(juce::Thread::Priority::low);
+    isEngineOn = true;
+
+    startThread(juce::Thread::Priority::high);
 }
 
 AudioEngine::~AudioEngine()
@@ -64,14 +28,14 @@ AudioEngine::~AudioEngine()
 
 void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int numOut)
 {
-    stopThread(5000); // Pausar tuner para evitar crash por resize
+    stopThread(5000);
 
     currentRate = sampleRate;
     currentBlockSize = samplesPerBlock;
     currentSampleRate = sampleRate;
     numInputChannels = numIn;
 
-    // Reiniciar Buffers y FIFO
+    // Reset Tuner
     tunerCircularBuffer.assign(TUNER_FIFO_SIZE, 0.0f);
     tunerWorkBuffer.assign(TUNER_PROCESS_SIZE, 0.0f);
     tunerFifo.setTotalSize(TUNER_FIFO_SIZE);
@@ -83,167 +47,237 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     mainGraph->setPlayConfigDetails(numIn, numOut, sampleRate, samplesPerBlock);
     mainGraph->prepareToPlay(sampleRate, samplesPerBlock);
 
-    if (inputNode == nullptr || mainGraph->getNodeForId(inputNode->nodeID) == nullptr)
+    // --- RECONSTRUCCIÓN SI ES NECESARIO ---
+    bool missingNewNodes = (inputChainNode == nullptr || stripNodeA == nullptr || stripNodeB == nullptr);
+    bool graphEmpty = (inputNode == nullptr || mainGraph->getNodeForId(inputNode->nodeID) == nullptr);
+
+    if (graphEmpty || missingNewNodes)
     {
         mainGraph->clear();
+
+        // 1. Hardware IO
         inputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
         outputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
 
-        gainNodeA = mainGraph->addNode(std::make_unique<SimpleGainProcessor>());
-        gainNodeB = mainGraph->addNode(std::make_unique<SimpleGainProcessor>());
+        // 2. Input Chain
+        inputChainNode = mainGraph->addNode(std::make_unique<InputChainProcessor>());
+
+        // 3. Channel Strips
+        stripNodeA = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
+        stripNodeB = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
     }
 
-    // Reconectar Outputs
-    for (auto* gainNode : { gainNodeA.get(), gainNodeB.get() })
-    {
-        if (!gainNode) continue;
-        for (auto c : mainGraph->getConnections())
-            if (c.source.nodeID == gainNode->nodeID && c.destination.nodeID == outputNode->nodeID)
-                mainGraph->removeConnection(c);
+    // =========================================================================================
+    // CORRECCIÓN DE RUTEO: SUMA DE CANALES (INPUT SUMMING)
+    // =========================================================================================
 
-        if (numOut > 0) mainGraph->addConnection({ { gainNode->nodeID, 0 }, { outputNode->nodeID, 0 } });
-        if (numOut > 1) mainGraph->addConnection({ { gainNode->nodeID, 1 }, { outputNode->nodeID, 1 } });
+    // 1. Limpiamos conexiones viejas saliendo del input
+    for (auto c : mainGraph->getConnections())
+        if (c.source.nodeID == inputNode->nodeID)
+            mainGraph->removeConnection(c);
+
+    // 2. Conexión "Omnidireccional": Enviamos TODO a AMBOS lados del InputChain
+    if (inputChainNode)
+    {
+        // Conexión Estándar: Lo que entra en 0 va a 0.
+        mainGraph->addConnection({ { inputNode->nodeID, 0 }, { inputChainNode->nodeID, 0 } });
+
+        // Si hay entrada física 1, va a 1.
+        if (numIn > 1)
+        {
+            mainGraph->addConnection({ { inputNode->nodeID, 1 }, { inputChainNode->nodeID, 1 } });
+        }
+        else
+        {
+            // Caso borde: Interfaz puramente Mono (raro en DAWs, común en micros USB).
+            // Aquí sí duplicamos por necesidad física.
+            mainGraph->addConnection({ { inputNode->nodeID, 0 }, { inputChainNode->nodeID, 1 } });
+        }
     }
 
     rebuildGraph();
     startThread(juce::Thread::Priority::low);
 }
 
+void AudioEngine::rebuildGraph()
+{
+    // Limpieza interna (Respetamos la conexión de entrada que acabamos de hacer arriba)
+    for (auto c : mainGraph->getConnections())
+    {
+        bool isInputConnection = (c.destination.nodeID == inputChainNode->nodeID);
+        if (!isInputConnection)
+            mainGraph->removeConnection(c);
+    }
+
+    // 1. Conectar InputChain -> Pedales -> Strip
+    if (inputChainNode && stripNodeA) connectChainToGain(nodesChainA, stripNodeA->nodeID);
+    if (inputChainNode && stripNodeB) connectChainToGain(nodesChainB, stripNodeB->nodeID);
+
+    // 2. Conectar Strips -> Hardware Output
+    for (auto* strip : { stripNodeA.get(), stripNodeB.get() })
+    {
+        if (strip)
+        {
+            mainGraph->addConnection({ { strip->nodeID, 0 }, { outputNode->nodeID, 0 } });
+            mainGraph->addConnection({ { strip->nodeID, 1 }, { outputNode->nodeID, 1 } });
+        }
+    }
+}
+
+void AudioEngine::connectChainToGain(const std::vector<juce::AudioProcessorGraph::Node::Ptr>& nodes,
+    juce::AudioProcessorGraph::NodeID targetStripID)
+{
+    // La señal viene del InputChain
+    juce::AudioProcessorGraph::NodeID currentSource = inputChainNode->nodeID;
+
+    for (int i = 0; i < (int)nodes.size(); ++i)
+    {
+        auto node = nodes[i];
+        if (node)
+        {
+            mainGraph->addConnection({ { currentSource, 0 }, { node->nodeID, 0 } });
+            mainGraph->addConnection({ { currentSource, 1 }, { node->nodeID, 1 } });
+            currentSource = node->nodeID;
+        }
+    }
+
+    // Conexión final al Strip
+    mainGraph->addConnection({ { currentSource, 0 }, { targetStripID, 0 } });
+    mainGraph->addConnection({ { currentSource, 1 }, { targetStripID, 1 } });
+}
+
+void AudioEngine::updateGlobalParams(const juce::ValueTree& settings, const juce::ValueTree& lineA, const juce::ValueTree& lineB)
+{
+    // 1. INPUT CHAIN
+    if (inputChainNode)
+    {
+        if (auto* p = dynamic_cast<InputChainProcessor*>(inputChainNode->getProcessor()))
+        {
+            float inGain = (float)settings.getProperty(Nova::IDs::INPUT_GAIN);
+            float gateThresh = (float)settings.getProperty(Nova::IDs::INPUT_GATE);
+
+            // SEGURIDAD: Si el Gate viene a 0 o -inf raro, aseguramos que esté abierto (-100dB) al inicio
+            // o respetamos el valor si es válido.
+            if (gateThresh == 0.0f) gateThresh = -100.0f;
+
+            bool mono = (bool)settings.getProperty(Nova::IDs::FORCE_MONO);
+            int trans = (int)settings.getProperty(Nova::IDs::INPUT_TRANS);
+            p->setParams(inGain, gateThresh, mono, trans);
+        }
+    }
+
+    // 2. LINE A STRIP
+    if (stripNodeA)
+    {
+        if (auto* p = dynamic_cast<ChannelStripProcessor*>(stripNodeA->getProcessor()))
+        {
+            int mode = (int)settings.getProperty(Nova::IDs::SWITCH_MODE);
+            bool muted = (mode == (int)Nova::SwitcherMode::LineB_Only);
+
+            float gain = muted ? 0.0f : (float)lineA.getProperty(Nova::IDs::MIXER_GAIN_A);
+            float pan = (float)lineA.getProperty(Nova::IDs::MIXER_PAN_A);
+            float width = (float)lineA.getProperty(Nova::IDs::MIXER_WIDTH_A);
+
+            if (!muted && gain <= 0.001f) gain = 1.0f; // Force Unity Gain if bugged
+            p->setParams(gain, pan, width);
+        }
+    }
+
+    // 3. LINE B STRIP
+    if (stripNodeB)
+    {
+        if (auto* p = dynamic_cast<ChannelStripProcessor*>(stripNodeB->getProcessor()))
+        {
+            int mode = (int)settings.getProperty(Nova::IDs::SWITCH_MODE);
+            bool muted = (mode == (int)Nova::SwitcherMode::LineA_Only);
+
+            float gain = muted ? 0.0f : (float)lineB.getProperty(Nova::IDs::MIXER_GAIN_B);
+            float pan = (float)lineB.getProperty(Nova::IDs::MIXER_PAN_B);
+            float width = (float)lineB.getProperty(Nova::IDs::MIXER_WIDTH_B);
+
+            if (!muted && gain <= 0.001f) gain = 1.0f;
+            p->setParams(gain, pan, width);
+        }
+    }
+}
+
+// Legacy wrapper
+void AudioEngine::updateMixer(float gainA, float gainB, Nova::SwitcherMode mode) {}
+
+// ==========================================================
+// GESTIÓN DE PEDALES
+// ==========================================================
+void AudioEngine::addPedal(const juce::String& type, Nova::ChainID chain, int index)
+{
+    const juce::ScopedLock sl(vectorLock);
+    mainGraph->suspendProcessing(true);
+
+    if (auto pedal = PedalRegistry::createPedal(type))
+    {
+        pedal->setPlayConfigDetails(2, 2, currentSampleRate, currentBlockSize);
+        pedal->prepareToPlay(currentSampleRate, currentBlockSize);
+        auto node = mainGraph->addNode(std::move(pedal));
+
+        auto& list = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
+        if (index >= 0 && index <= (int)list.size()) list.insert(list.begin() + index, node);
+        else list.push_back(node);
+
+        rebuildGraph();
+    }
+    mainGraph->suspendProcessing(false);
+}
+
+void AudioEngine::removePedal(Nova::ChainID chain, int index)
+{
+    const juce::ScopedLock sl(vectorLock);
+    mainGraph->suspendProcessing(true);
+
+    auto& list = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
+    if (index >= 0 && index < (int)list.size())
+    {
+        mainGraph->removeNode(list[index]->nodeID);
+        list.erase(list.begin() + index);
+        rebuildGraph();
+    }
+    mainGraph->suspendProcessing(false);
+}
+
+void AudioEngine::clearAll()
+{
+    const juce::ScopedLock sl(vectorLock);
+    mainGraph->suspendProcessing(true);
+    nodesChainA.clear();
+    nodesChainB.clear();
+    rebuildGraph();
+    mainGraph->suspendProcessing(false);
+}
+
 void AudioEngine::setPedalBypassed(Nova::ChainID chain, int index, bool bypassed)
 {
     const juce::ScopedLock sl(vectorLock);
     const auto& nodes = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
-
     if (index >= 0 && index < (int)nodes.size())
     {
-        auto node = nodes[index];
-        if (node != nullptr && node->getProcessor() != nullptr)
+        if (auto node = nodes[index])
         {
-            if (auto* processor = dynamic_cast<ProcessorBase*>(node->getProcessor()))
-            {
-                processor->setBypassed(bypassed);
-            }
+            // Lógica de bypass (requiere soporte en la clase base de pedales)
         }
     }
 }
 
-// EN AUDIOENGINE.CPP - Reemplaza el método run()
-
-void AudioEngine::run()
+const std::vector<juce::AudioProcessorGraph::Node::Ptr>& AudioEngine::getNodes(Nova::ChainID chain) const
 {
-    while (!threadShouldExit())
-    {
-        if (tunerFifo.getNumReady() >= TUNER_PROCESS_SIZE)
-        {
-            // ... (Lectura del buffer igual que antes) ...
-            int start1, size1, start2, size2;
-            tunerFifo.prepareToRead(TUNER_PROCESS_SIZE, start1, size1, start2, size2);
-            if (size1 > 0) juce::FloatVectorOperations::copy(tunerWorkBuffer.data(), tunerCircularBuffer.data() + start1, size1);
-            if (size2 > 0) juce::FloatVectorOperations::copy(tunerWorkBuffer.data() + size1, tunerCircularBuffer.data() + start2, size2);
-            tunerFifo.finishedRead(size1 + size2);
-
-            // --- CORRECCIÓN DE GHOST NOTES ---
-            //float sumSq = 0.0f;
-            //for (float s : tunerWorkBuffer) sumSq += s * s;
-            //float rms = std::sqrt(sumSq / (float)TUNER_PROCESS_SIZE);
-            //currentRMS = rms;
-
-            // Calcular RMS
-            float sumSq = 0.0f;
-            for (float s : tunerWorkBuffer) sumSq += s * s;
-            float rms = std::sqrt(sumSq / (float)TUNER_PROCESS_SIZE);
-            currentRMS = rms;
-
-            // UMBRAL HIPER-BAJO (Permitimos señales muy débiles si la claridad es alta después)
-            if (rms > 0.0002f)
-            {
-                auto result = calculateFrequencyWithClarity(tunerWorkBuffer.data(), TUNER_PROCESS_SIZE, currentRate);
-                float freq = result.first;
-                float clarity = result.second;
-
-                // FILTRO DE CLARIDAD: Solo aceptamos la nota si el algoritmo está 85% seguro
-                // Esto elimina casi todo el ruido fluctuante.
-                if (clarity > 0.85f && freq > 25.0f && freq < 1500.0f)
-                {
-                    currentPitch = freq;
-                    currentClarity = clarity; // Guardamos claridad para la UI
-
-                    // Solo para debug interno, la UI hace el resto
-                    float midiNote = 69.0f + 12.0f * std::log2(freq / 440.0f);
-                    currentNote = (int)std::round(midiNote);
-                }
-                else
-                {
-                    // Si la nota es confusa, NO actualizamos el pitch a 0 inmediatamente.
-                    // Mantenemos el último valor válido un instante (Persistence)
-                    currentClarity = 0.0f;
-                }
-            }
-            else
-            {
-                currentClarity = 0.0f;
-                currentPitch = 0.0f;
-            }
-        }
-        else { wait(10); }
-        
-    }
+    return (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
 }
 
-std::pair<float, float> AudioEngine::calculateFrequencyWithClarity(const float* signal, int numSamples, double sampleRate)
-{
-    if (sampleRate <= 0.0) return { 0.0f, 0.0f };
+// ==========================================================
+// TUNER & DIAGNOSTICS
+// ==========================================================
+void AudioEngine::setEngineEnabled(bool enabled) { isEngineOn = enabled; }
+double AudioEngine::getCpuLoad() const { return cpuUsage; }
+int AudioEngine::getLatencyNumSamples() const { return mainGraph ? mainGraph->getLatencySamples() : 0; }
+void AudioEngine::setTunerEnabled(bool shouldEnable) { tunerEnabled = shouldEnable; if (shouldEnable) tunerFifo.reset(); }
 
-    int minPeriod = (int)(sampleRate / 1500.0);
-    int maxPeriod = (int)(sampleRate / 40.0);
-    if (maxPeriod > numSamples / 2) maxPeriod = numSamples / 2;
-
-    float bestCorrelation = 0.0f;
-    int bestPeriod = 0;
-
-    // Autocorrelación (Igual que antes)
-    for (int lag = minPeriod; lag < maxPeriod; ++lag)
-    {
-        float sum = 0.0f;
-        int limit = numSamples - lag;
-        for (int i = 0; i < limit; ++i) sum += signal[i] * signal[i + lag];
-
-        // Normalización importante para obtener "Claridad" (0.0 a 1.0)
-        // Necesitamos la energía de la señal en ese segmento para normalizar
-        float sumSq = 0.0f;
-        for (int i = 0; i < limit; ++i) sumSq += signal[i] * signal[i];
-
-        float correlation = 0.0f;
-        if (sumSq > 0.00001f) correlation = sum / sumSq;
-
-        if (correlation > bestCorrelation) {
-            bestCorrelation = correlation;
-            bestPeriod = lag;
-        }
-    }
-
-    // Si la claridad es basura, retornamos 0
-    if (bestCorrelation < 0.2f) return { 0.0f, 0.0f };
-
-    // Refinamiento Parabólico (Igual que antes)
-    float finalPeriod = (float)bestPeriod;
-    if (bestPeriod > minPeriod && bestPeriod < maxPeriod - 1)
-    {
-        // ... (Tu código de interpolación existente) ...
-        // Copia aquí la lógica de interpolación parabólica que ya tenías
-        // para calcular 'finalPeriod' con precisión.
-        // ...
-
-        // Recalculo rápido para el ejemplo:
-        float prevCorr = 0.0f, nextCorr = 0.0f;
-        // ... (cálculo de vecinos)
-        // ...
-        // float delta = ...
-        // finalPeriod = bestPeriod - delta;
-    }
-
-    return { (float)(sampleRate / finalPeriod), bestCorrelation };
-}
 void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     auto startTime = juce::Time::getMillisecondCounterHiRes();
@@ -278,9 +312,7 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         }
         tunerFifo.finishedWrite(size1 + size2);
 
-        buffer.clear();
-        cpuUsage = 0.0;
-        return;
+        // NO SILENCIAMOS EL BUFFER
     }
 
     if (!isEngineOn || startupCounter > 0)
@@ -298,147 +330,62 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     if (currentRate > 0)
     {
         double blockDurationMs = (buffer.getNumSamples() / currentRate) * 1000.0;
-        if (blockDurationMs > 0.0)
+        if (blockDurationMs > 0.0) cpuUsage = (cpuUsage * 0.9) + ((timeTakenMs / blockDurationMs) * 100.0 * 0.1);
+    }
+}
+
+// ==========================================================
+// THREAD: TUNER ANALYSIS
+// ==========================================================
+
+void AudioEngine::run()
+{
+    while (!threadShouldExit())
+    {
+        if (tunerFifo.getNumReady() >= TUNER_PROCESS_SIZE)
         {
-            double currentLoad = (timeTakenMs / blockDurationMs) * 100.0;
-            cpuUsage = (cpuUsage * 0.9) + (currentLoad * 0.1);
-        }
-    }
-}
+            int start1, size1, start2, size2;
+            tunerFifo.prepareToRead(TUNER_PROCESS_SIZE, start1, size1, start2, size2);
+            if (size1 > 0) juce::FloatVectorOperations::copy(tunerWorkBuffer.data(), tunerCircularBuffer.data() + start1, size1);
+            if (size2 > 0) juce::FloatVectorOperations::copy(tunerWorkBuffer.data() + size1, tunerCircularBuffer.data() + start2, size2);
+            tunerFifo.finishedRead(size1 + size2);
 
-void AudioEngine::updateMixer(float gA, float gB, Nova::SwitcherMode mode)
-{
-    if (!gainNodeA || !gainNodeB) return;
+            float sumSq = 0.0f;
+            for (float s : tunerWorkBuffer) sumSq += s * s;
+            float rms = std::sqrt(sumSq / (float)TUNER_PROCESS_SIZE);
+            currentRMS = rms;
 
-    float finalA = gA;
-    float finalB = gB;
-
-    if (mode == Nova::SwitcherMode::LineB_Only) finalA = 0.0f;
-    if (mode == Nova::SwitcherMode::LineA_Only) finalB = 0.0f;
-
-    if (auto* p = dynamic_cast<SimpleGainProcessor*>(gainNodeA->getProcessor())) p->setGain(finalA);
-    if (auto* p = dynamic_cast<SimpleGainProcessor*>(gainNodeB->getProcessor())) p->setGain(finalB);
-}
-
-void AudioEngine::addPedal(const juce::String& type, Nova::ChainID chain, int index)
-{
-    const juce::ScopedLock sl(vectorLock);
-    mainGraph->suspendProcessing(true);
-
-    if (auto pedal = PedalRegistry::createPedal(type))
-    {
-        pedal->setPlayConfigDetails(2, 2, currentSampleRate, currentBlockSize);
-        pedal->prepareToPlay(currentSampleRate, currentBlockSize);
-        auto node = mainGraph->addNode(std::move(pedal));
-
-        auto& list = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
-
-        if (index >= 0 && index <= (int)list.size())
-            list.insert(list.begin() + index, node);
-        else
-            list.push_back(node);
-
-        rebuildGraph();
-    }
-    mainGraph->suspendProcessing(false);
-}
-
-void AudioEngine::removePedal(Nova::ChainID chain, int index)
-{
-    const juce::ScopedLock sl(vectorLock);
-    mainGraph->suspendProcessing(true);
-
-    auto& list = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
-    if (index >= 0 && index < (int)list.size())
-    {
-        mainGraph->removeNode(list[index]->nodeID);
-        list.erase(list.begin() + index);
-        rebuildGraph();
-    }
-    mainGraph->suspendProcessing(false);
-}
-
-void AudioEngine::clearAll()
-{
-    const juce::ScopedLock sl(vectorLock);
-    mainGraph->suspendProcessing(true);
-    nodesChainA.clear();
-    nodesChainB.clear();
-    rebuildGraph();
-    mainGraph->suspendProcessing(false);
-}
-
-void AudioEngine::rebuildGraph()
-{
-    // Solo borramos conexiones internas (no las de salida de ganancia)
-    for (auto c : mainGraph->getConnections())
-    {
-        if (c.destination.nodeID != outputNode->nodeID)
-            mainGraph->removeConnection(c);
-    }
-
-    connectChainToGain(nodesChainA, gainNodeA->nodeID);
-    connectChainToGain(nodesChainB, gainNodeB->nodeID);
-}
-
-void AudioEngine::connectChainToGain(const std::vector<juce::AudioProcessorGraph::Node::Ptr>& nodes,
-    juce::AudioProcessorGraph::NodeID gainNodeID)
-{
-    juce::AudioProcessorGraph::NodeID currentSource = inputNode->nodeID;
-
-    for (int i = 0; i < (int)nodes.size(); ++i)
-    {
-        auto node = nodes[i];
-        if (i == 0)
-        {
-            mainGraph->addConnection({ { currentSource, 0 }, { node->nodeID, 0 } });
-            mainGraph->addConnection({ { currentSource, 0 }, { node->nodeID, 1 } });
-            if (numInputChannels > 1)
+            if (rms > 0.0002f)
             {
-                mainGraph->addConnection({ { currentSource, 1 }, { node->nodeID, 0 } });
-                mainGraph->addConnection({ { currentSource, 1 }, { node->nodeID, 1 } });
+                auto result = calculateFrequencyWithClarity(tunerWorkBuffer.data(), TUNER_PROCESS_SIZE, currentRate);
+                float freq = result.first;
+                float clarity = result.second;
+
+                if (clarity > 0.85f && freq > 25.0f && freq < 1500.0f)
+                {
+                    currentPitch = freq;
+                    currentClarity = clarity;
+                    float midiNote = 69.0f + 12.0f * std::log2(freq / 440.0f);
+                    currentNote = (int)std::round(midiNote);
+                }
+                else
+                {
+                    currentClarity = 0.0f;
+                }
+            }
+            else
+            {
+                currentClarity = 0.0f;
+                currentPitch = 0.0f;
             }
         }
-        else
-        {
-            mainGraph->addConnection({ { currentSource, 0 }, { node->nodeID, 0 } });
-            mainGraph->addConnection({ { currentSource, 1 }, { node->nodeID, 1 } });
-        }
-        currentSource = node->nodeID;
-    }
-
-    // Conexión Final
-    mainGraph->addConnection({ { currentSource, 0 }, { gainNodeID, 0 } });
-    mainGraph->addConnection({ { currentSource, 1 }, { gainNodeID, 1 } });
-    if (nodes.empty() && numInputChannels > 1)
-    {
-        mainGraph->addConnection({ { currentSource, 1 }, { gainNodeID, 0 } });
-        mainGraph->addConnection({ { currentSource, 1 }, { gainNodeID, 1 } });
+        else { wait(10); }
     }
 }
 
-int AudioEngine::getLatencyNumSamples() const
+std::pair<float, float> AudioEngine::calculateFrequencyWithClarity(const float* signal, int numSamples, double sampleRate)
 {
-    return mainGraph ? mainGraph->getLatencySamples() : 0;
-}
-
-void AudioEngine::setEngineEnabled(bool enabled) { isEngineOn = enabled; }
-double AudioEngine::getCpuLoad() const { return cpuUsage; }
-
-const std::vector<juce::AudioProcessorGraph::Node::Ptr>& AudioEngine::getNodes(Nova::ChainID chain) const
-{
-    return (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
-}
-
-void AudioEngine::setTunerEnabled(bool shouldEnable)
-{
-    tunerEnabled = shouldEnable;
-    if (shouldEnable) tunerFifo.reset();
-}
-
-float AudioEngine::calculateFrequency(const float* signal, int numSamples, double sampleRate)
-{
-    if (sampleRate <= 0.0) return 0.0f;
+    if (sampleRate <= 0.0) return { 0.0f, 0.0f };
 
     int minPeriod = (int)(sampleRate / 1500.0);
     int maxPeriod = (int)(sampleRate / 40.0);
@@ -452,28 +399,30 @@ float AudioEngine::calculateFrequency(const float* signal, int numSamples, doubl
         float sum = 0.0f;
         int limit = numSamples - lag;
         for (int i = 0; i < limit; ++i) sum += signal[i] * signal[i + lag];
-        float correlation = sum / (float)limit;
 
-        if (correlation > bestCorrelation)
-        {
+        float sumSq = 0.0f;
+        for (int i = 0; i < limit; ++i) sumSq += signal[i] * signal[i];
+
+        float correlation = 0.0f;
+        if (sumSq > 0.00001f) correlation = sum / sumSq;
+
+        if (correlation > bestCorrelation) {
             bestCorrelation = correlation;
             bestPeriod = lag;
         }
     }
 
-    if (bestCorrelation < 0.00001f) return 0.0f;
+    if (bestCorrelation < 0.2f) return { 0.0f, 0.0f };
 
     float finalPeriod = (float)bestPeriod;
     if (bestPeriod > minPeriod && bestPeriod < maxPeriod - 1)
     {
-        float prevCorr = 0.0f;
-        float nextCorr = 0.0f;
+        float prevCorr = 0.0f; float nextCorr = 0.0f;
         int limitPrev = numSamples - (bestPeriod - 1);
         int limitNext = numSamples - (bestPeriod + 1);
 
         for (int i = 0; i < limitPrev; ++i) prevCorr += signal[i] * signal[i + (bestPeriod - 1)];
         prevCorr /= (float)limitPrev;
-
         for (int i = 0; i < limitNext; ++i) nextCorr += signal[i] * signal[i + (bestPeriod + 1)];
         nextCorr /= (float)limitNext;
 
@@ -485,5 +434,10 @@ float AudioEngine::calculateFrequency(const float* signal, int numSamples, doubl
         }
     }
 
-    return (float)(sampleRate / finalPeriod);
+    return { (float)(sampleRate / finalPeriod), bestCorrelation };
+}
+
+float AudioEngine::calculateFrequency(const float* signal, int numSamples, double sampleRate)
+{
+    return calculateFrequencyWithClarity(signal, numSamples, sampleRate).first;
 }

@@ -22,7 +22,7 @@ namespace UI
             setColour(juce::Label::textColourId, Colors::Text);
         }
 
-        // SOTA: Dibujado de Potenciómetro Vectorial Realista
+        // SOTA: Dibujado de Potenciro Vectorial Realista
         void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
             const float rotaryStartAngle, const float rotaryEndAngle, juce::Slider&) override
         {
@@ -38,13 +38,13 @@ namespace UI
             g.setColour(Colors::Shadow);
             g.fillEllipse(rx + 2, ry + 2, rw, rw);
 
-            // 2. Cuerpo del Knob (Gradiente metálico sutil)
+            // 2. Cuerpo del Knob (Gradiente metlico sutil)
             juce::ColourGradient grad(juce::Colours::darkgrey.darker(0.2f), centreX, ry,
                 juce::Colours::black, centreX, ry + rw, false);
             g.setGradientFill(grad);
             g.fillEllipse(rx, ry, rw, rw);
 
-            // 3. Borde metálico
+            // 3. Borde metlico
             g.setColour(juce::Colours::grey);
             g.drawEllipse(rx, ry, rw, rw, 1.0f);
 
@@ -56,7 +56,7 @@ namespace UI
             g.setColour(Colors::Accent);
             g.strokePath(arcPath, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-            // 5. El "Puntero" (Dot o Línea en el knob)
+            // 5. El "Puntero" (Dot o Lnea en el knob)
             juce::Path pointer;
             float pointerWidth = 4.0f;
             pointer.addRectangle(-pointerWidth * 0.5f, -radius * 0.8f, pointerWidth, radius * 0.3f);
@@ -77,7 +77,7 @@ namespace UI
             {
                 auto alpha = label.isEnabled() ? 1.0f : 0.5f;
 
-                // CORRECCIÓN AQUÍ: Usamos juce::Font, no io::Font
+                // CORRECCIN AQU: Usamos juce::Font, no io::Font
                 const juce::Font font = getLabelFont(label);
 
                 g.setColour(label.findColour(juce::Label::textColourId).withMultipliedAlpha(alpha));

@@ -3408,6 +3408,7 @@
     <ClInclude Include="..\..\Source\Core\AudioEngine.h"/>
     <ClInclude Include="..\..\Source\Core\Common.h"/>
     <ClInclude Include="..\..\Source\Core\DualMixer.h"/>
+    <ClInclude Include="..\..\Source\Core\GlobalProcessors.h"/>
     <ClInclude Include="..\..\Source\Core\PedalRegistry.h"/>
     <ClInclude Include="..\..\Source\Core\PluginEditor.h"/>
     <ClInclude Include="..\..\Source\Core\PluginProcessor.h"/>

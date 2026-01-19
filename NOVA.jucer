@@ -845,6 +845,8 @@
         <FILE id="Mxw8oG" name="AudioEngine.h" compile="0" resource="0" file="Source/Core/AudioEngine.h"/>
         <FILE id="IEEVX0" name="Common.h" compile="0" resource="0" file="Source/Core/Common.h"/>
         <FILE id="V8TMHN" name="DualMixer.h" compile="0" resource="0" file="Source/Core/DualMixer.h"/>
+        <FILE id="AgqdXh" name="GlobalProcessors.h" compile="0" resource="0"
+              file="Source/Core/GlobalProcessors.h"/>
         <FILE id="d2rDoU" name="PedalRegistry.h" compile="0" resource="0" file="Source/Core/PedalRegistry.h"/>
         <FILE id="RJDNO3" name="PluginEditor.cpp" compile="1" resource="0"
               file="Source/Core/PluginEditor.cpp"/>

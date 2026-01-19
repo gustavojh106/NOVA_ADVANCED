@@ -28,7 +28,24 @@ namespace Nova
         static const juce::Identifier SWITCH_MODE("switchMode");
         static const juce::Identifier ENGINE_ON("engineOn");
 
+        // --- INPUT SECTION ---
+        static const juce::Identifier INPUT_GAIN("inGain");     // -60 a +24 dB
+        static const juce::Identifier INPUT_GATE("gateThresh"); // -100 a 0 dB
+        static const juce::Identifier INPUT_TRANS("transpose"); // -12 a +12 semitonos
+        static const juce::Identifier FORCE_MONO("forceMono");  // bool
+
+        // --- MIXER SECTION ---
         static const juce::Identifier MIXER_GAIN_A("gainA");
+        static const juce::Identifier MIXER_PAN_A("panA");     // -1.0 (L) a 1.0 (R)
+        static const juce::Identifier MIXER_WIDTH_A("widthA"); // 0.0 (Mono) a 2.0 (Super Wide)
+
         static const juce::Identifier MIXER_GAIN_B("gainB");
+        static const juce::Identifier MIXER_PAN_B("panB");
+        static const juce::Identifier MIXER_WIDTH_B("widthB");
+
+        // --- OUTPUT SECTION ---
+        static const juce::Identifier OUTPUT_VOL("outVol");     // -60 a +12 dB
+        static const juce::Identifier OUTPUT_LIMITER("limiter"); // Threshold
+        static const juce::Identifier OUTPUT_MIX("globalMix");   // 0.0 a 1.0
     }
 }

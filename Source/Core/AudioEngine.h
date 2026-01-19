@@ -7,35 +7,35 @@
 // ==========================================================
 // PROCESADOR DE GANANCIA (Control de Volumen Independiente)
 // ==========================================================
-class SimpleGainProcessor : public juce::AudioProcessor
-{
-public:
-    SimpleGainProcessor();
-
-    void setGain(float gain);
-    void prepareToPlay(double, int) override;
-    void releaseResources() override;
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override;
-
-    const juce::String getName() const override { return "Gain"; }
-    bool hasEditor() const override { return false; }
-    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
-    bool acceptsMidi() const override { return false; }
-    bool producesMidi() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
-    int getNumPrograms() override { return 0; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
-    void changeProgramName(int, const juce::String&) override {}
-    void getStateInformation(juce::MemoryBlock&) override {}
-    void setStateInformation(const void*, int) override {}
-    bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
-
-private:
-    float currentGain = 1.0f;
-    float targetGain = 1.0f;
-};
+//class SimpleGainProcessor : public juce::AudioProcessor
+//{
+//public:
+//    SimpleGainProcessor();
+//
+//    void setGain(float gain);
+//    void prepareToPlay(double, int) override;
+//    void releaseResources() override;
+//    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override;
+//
+//    const juce::String getName() const override { return "Gain"; }
+//    bool hasEditor() const override { return false; }
+//    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
+//    bool acceptsMidi() const override { return false; }
+//    bool producesMidi() const override { return false; }
+//    double getTailLengthSeconds() const override { return 0.0; }
+//    int getNumPrograms() override { return 0; }
+//    int getCurrentProgram() override { return 0; }
+//    void setCurrentProgram(int) override {}
+//    const juce::String getProgramName(int) override { return {}; }
+//    void changeProgramName(int, const juce::String&) override {}
+//    void getStateInformation(juce::MemoryBlock&) override {}
+//    void setStateInformation(const void*, int) override {}
+//    bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
+//
+//private:
+//    float currentGain = 1.0f;
+//    float targetGain = 1.0f;
+//};
 
 // ==========================================================
 // MOTOR DE AUDIO PRINCIPAL
@@ -85,6 +85,8 @@ public:
     void setTuningOffset(int semitones) { tuningOffset = semitones; }
     int getTuningOffset() const { return tuningOffset; }
     float getTunerClarity() const { return currentClarity; }
+
+    void updateGlobalParams(const juce::ValueTree& settings, const juce::ValueTree& lineA, const juce::ValueTree& lineB);
 private:
 
     std::atomic<float> currentClarity{ 0.0f };
@@ -103,10 +105,21 @@ private:
     std::vector<juce::AudioProcessorGraph::Node::Ptr> nodesChainA;
     std::vector<juce::AudioProcessorGraph::Node::Ptr> nodesChainB;
 
+    //juce::AudioProcessorGraph::Node::Ptr inputNode;
+    //juce::AudioProcessorGraph::Node::Ptr outputNode;
+    //juce::AudioProcessorGraph::Node::Ptr gainNodeA;
+    //juce::AudioProcessorGraph::Node::Ptr gainNodeB;
+
+
     juce::AudioProcessorGraph::Node::Ptr inputNode;
+
+    // Estos están bien:
+    juce::AudioProcessorGraph::Node::Ptr inputChainNode;
+    juce::AudioProcessorGraph::Node::Ptr stripNodeA;
+    juce::AudioProcessorGraph::Node::Ptr stripNodeB;
     juce::AudioProcessorGraph::Node::Ptr outputNode;
-    juce::AudioProcessorGraph::Node::Ptr gainNodeA;
-    juce::AudioProcessorGraph::Node::Ptr gainNodeB;
+
+
 
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
