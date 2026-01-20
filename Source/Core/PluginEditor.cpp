@@ -367,6 +367,40 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     // 4. MIXER & LANES (CONEXIÓN REAL)
     // ==============================================================================
 
+
+    // --- 5. OUTPUT STRIP ---
+
+    // OUTPUT VOL (Master Fader)
+    // Rango: -60dB a +12dB. Default: 0dB
+    setupKnob(outputVolume, "MASTER", -60.0f, 12.0f, 0.0f);
+    outputVolume.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
+            .setProperty(Nova::IDs::OUTPUT_VOL, (float)outputVolume.getValue(), nullptr);
+        };
+
+    // LIMITER (Ceiling/Threshold)
+    // Rango: -20dB a 0dB. Default: 0dB (Limitador apagado/transparente)
+    setupKnob(outputGain, "LIMIT", -20.0f, 0.0f, 0.0f);
+    outputGain.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
+            .setProperty(Nova::IDs::OUTPUT_LIMITER, (float)outputGain.getValue(), nullptr);
+        };
+
+    // GLOBAL MIX (Dry/Wet global) - Por ahora placeholder visual o conectado si implementamos mix
+    setupKnob(outputMix, "MIX", 0.0f, 100.0f, 100.0f);
+    // outputMix.onValueChange = ... 
+
+    addAndMakeVisible(outputFader);
+    outputFader.setSliderStyle(juce::Slider::LinearVertical);
+    outputFader.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    // Opcional: Que el fader controle también el volumen maestro
+    outputFader.setRange(-60.0, 12.0, 0.1);
+    outputFader.setValue(0.0, juce::dontSendNotification);
+    outputFader.onValueChange = [this] {
+        outputVolume.setValue(outputFader.getValue(), juce::sendNotification);
+        };
+
+
     laneA = std::make_unique<ChainLane>(p, Nova::ChainID::LineA); addAndMakeVisible(laneA.get());
     laneB = std::make_unique<ChainLane>(p, Nova::ChainID::LineB); addAndMakeVisible(laneB.get());
     addAndMakeVisible(btnSwitcher);
@@ -418,10 +452,25 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
 
     // --- 5. OUTPUT STRIP ---
     setupKnob(outputVolume, "OUT VOL", -60.0f, 12.0f, 0.0f);
-    // outputVolume.onValueChange = ... (Conectar a ID OUTPUT_VOL si se implementa en engine)
+    outputVolume.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
+            .setProperty(Nova::IDs::OUTPUT_VOL, (float)outputVolume.getValue(), nullptr); // <--- Conexión
+        };
 
-    setupKnob(outputGain, "LIMIT", -20.0f, 20.0f, 0.0f);
+    setupKnob(outputGain, "LIMIT", -20.0f, 0.0f, 0.0f); // Rango típico de limitador (Thresh negativo)
+    outputGain.onValueChange = [this] {
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
+            .setProperty(Nova::IDs::OUTPUT_LIMITER, (float)outputGain.getValue(), nullptr);
+        };
     setupKnob(outputMix, "MIX", 0.0f, 100.0f, 100.0f);
+
+    outputMix.onValueChange = [this] {
+        // Guardamos el valor en el ValueTree
+        audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
+            .setProperty(Nova::IDs::OUTPUT_MIX, (float)outputMix.getValue(), nullptr);
+        };
+
+
 
     addAndMakeVisible(outputFader);
     outputFader.setSliderStyle(juce::Slider::LinearVertical);
@@ -557,7 +606,8 @@ void NOVAAudioProcessorEditor::drawChannelStrip(juce::Graphics& g, juce::Rectang
         g.drawText("Trans", area.getX(), area.getY() + 170, area.getWidth(), 20, juce::Justification::centred);
     }
     else {
-        g.drawText("Gain", area.getX(), area.getY() + 110, area.getWidth(), 20, juce::Justification::centred);
+        // --- AQUÍ ESTABA EL ERROR VISUAL ---
+        g.drawText("Limit", area.getX(), area.getY() + 110, area.getWidth(), 20, juce::Justification::centred); // Antes decía "Gain"
         g.drawText("Mix", area.getX(), area.getY() + 170, area.getWidth(), 20, juce::Justification::centred);
     }
 }

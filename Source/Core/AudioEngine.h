@@ -92,6 +92,10 @@ private:
     std::atomic<float> currentClarity{ 0.0f };
     std::atomic<int> tuningOffset{ 0 };
 
+    std::atomic<float> currentGlobalMix{ 1.0f }; // 1.0 = 100% Wet (Por defecto)
+    juce::AudioBuffer<float> dryBuffer;           // Para guardar la copia limpia
+
+
     void rebuildGraph();
 
     // Core Conexiones
@@ -117,14 +121,14 @@ private:
     juce::AudioProcessorGraph::Node::Ptr inputChainNode;
     juce::AudioProcessorGraph::Node::Ptr stripNodeA;
     juce::AudioProcessorGraph::Node::Ptr stripNodeB;
-    juce::AudioProcessorGraph::Node::Ptr outputNode;
-
+    juce::AudioProcessorGraph::Node::Ptr outputChainNode; 
+    juce::AudioProcessorGraph::Node::Ptr outputNode;      // Hardware Output
 
 
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;
     int numInputChannels = 2;
-
+     
     std::atomic<bool> isEngineOn{ false };
     double currentRate = 0.0;
     int startupCounter = 0;

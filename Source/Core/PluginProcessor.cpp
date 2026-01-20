@@ -117,7 +117,9 @@ void NOVAAudioProcessor::valueTreeChildRemoved(juce::ValueTree& parent, juce::Va
     else if (parent.hasType(Nova::IDs::LINE_B)) audioEngine.removePedal(Nova::ChainID::LineB, index);
 }
 
-void NOVAAudioProcessor::valueTreePropertyChanged(juce::ValueTree& tree, const juce::Identifier& property) {
+void NOVAAudioProcessor::valueTreePropertyChanged(juce::ValueTree& tree, const juce::Identifier& property)
+{
+    // 1. CONTROL DE ENCENDIDO
     if (property == Nova::IDs::ENGINE_ON)
     {
         bool shouldBeOn = (bool)tree.getProperty(property);
@@ -126,29 +128,37 @@ void NOVAAudioProcessor::valueTreePropertyChanged(juce::ValueTree& tree, const j
     // 2. CAMBIO DE MODO A/B/DUAL
     else if (property == Nova::IDs::SWITCH_MODE)
     {
-        // Forzamos actualización inmediata del mixer
         audioEngine.updateGlobalParams(
             pluginState.getChildWithName(Nova::IDs::SETTINGS),
             pluginState.getChildWithName(Nova::IDs::LINE_A),
             pluginState.getChildWithName(Nova::IDs::LINE_B)
         );
     }
-    // 3. PARÁMETROS GLOBALES (Gain, Gate, Pan, etc.)
-    else if (property == Nova::IDs::INPUT_GAIN || property == Nova::IDs::INPUT_GATE ||
-        property == Nova::IDs::FORCE_MONO || property == Nova::IDs::INPUT_TRANS ||
-        property == Nova::IDs::MIXER_GAIN_A || property == Nova::IDs::MIXER_PAN_A || property == Nova::IDs::MIXER_WIDTH_A ||
-        property == Nova::IDs::MIXER_GAIN_B || property == Nova::IDs::MIXER_PAN_B || property == Nova::IDs::MIXER_WIDTH_B)
+    // 3. PARÁMETROS GLOBALES (Input, Mixer y OUTPUT)
+    // Agregamos OUTPUT_VOL, OUTPUT_LIMITER y OUTPUT_MIX a la lista de escucha
+    else if (property == Nova::IDs::INPUT_GAIN ||
+        property == Nova::IDs::INPUT_GATE ||
+        property == Nova::IDs::FORCE_MONO ||
+        property == Nova::IDs::INPUT_TRANS ||
+        // MIXER A
+        property == Nova::IDs::MIXER_GAIN_A ||
+        property == Nova::IDs::MIXER_PAN_A ||
+        property == Nova::IDs::MIXER_WIDTH_A ||
+        // MIXER B
+        property == Nova::IDs::MIXER_GAIN_B ||
+        property == Nova::IDs::MIXER_PAN_B ||
+        property == Nova::IDs::MIXER_WIDTH_B ||
+        // OUTPUT (ESTO ES LO QUE FALTABA)
+        property == Nova::IDs::OUTPUT_VOL ||
+        property == Nova::IDs::OUTPUT_LIMITER ||
+        property == Nova::IDs::OUTPUT_MIX)
     {
+        // Si cualquiera de estos cambia, actualizamos los parámetros del motor
         audioEngine.updateGlobalParams(
             pluginState.getChildWithName(Nova::IDs::SETTINGS),
             pluginState.getChildWithName(Nova::IDs::LINE_A),
             pluginState.getChildWithName(Nova::IDs::LINE_B)
         );
-    }
-    if (tree.hasType(Nova::IDs::SETTINGS))
-    {
-        if (property == Nova::IDs::ENGINE_ON) audioEngine.setEngineEnabled(tree.getProperty(property));
-        else updateMixerFromState();
     }
 }
 

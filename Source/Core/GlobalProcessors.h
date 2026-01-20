@@ -228,3 +228,75 @@ private:
     float targetPan = 0.0f;
     float targetWidth = 1.0f;
 };
+
+// ==============================================================================
+// 3. OUTPUT CHAIN (Master Vol -> Limiter)
+// ==============================================================================
+class OutputChainProcessor : public juce::AudioProcessor
+{
+public:
+    OutputChainProcessor()
+        : AudioProcessor(BusesProperties().withInput("In", juce::AudioChannelSet::stereo())
+            .withOutput("Out", juce::AudioChannelSet::stereo()))
+    {
+        // Configuración inicial del Limitador
+        limiter.setThreshold(0.0f); // 0dB (Transparente por defecto)
+        limiter.setRelease(100.0f); // 100ms
+    }
+
+    void prepareToPlay(double sampleRate, int samplesPerBlock) override
+    {
+        juce::dsp::ProcessSpec spec{ sampleRate, (juce::uint32)samplesPerBlock, 2 };
+        gain.prepare(spec);
+        limiter.prepare(spec);
+    }
+
+    void releaseResources() override { limiter.reset(); }
+
+    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    {
+        juce::dsp::AudioBlock<float> block(buffer);
+        juce::dsp::ProcessContextReplacing<float> context(block);
+
+        // 1. Master Volume
+        gain.setGainDecibels(outputVolDb);
+        gain.process(context);
+
+        // 2. Limiter (SOTA: Siempre al final para evitar clipping digital)
+        // Solo procesamos si el umbral baja de 0dB para ahorrar CPU si no se usa
+        if (limiterThreshold < -0.1f)
+        {
+            limiter.setThreshold(limiterThreshold);
+            limiter.process(context);
+        }
+    }
+
+    void setParams(float volDb, float limitDb)
+    {
+        outputVolDb = volDb;
+        limiterThreshold = limitDb;
+    }
+
+    // Boilerplate
+    const juce::String getName() const override { return "OutputChain"; }
+    bool hasEditor() const override { return false; }
+    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
+    double getTailLengthSeconds() const override { return 0.0; }
+    int getNumPrograms() override { return 0; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram(int) override {}
+    const juce::String getProgramName(int) override { return {}; }
+    void changeProgramName(int, const juce::String&) override {}
+    void getStateInformation(juce::MemoryBlock&) override {}
+    void setStateInformation(const void*, int) override {}
+    bool acceptsMidi() const override { return false; }
+    bool producesMidi() const override { return false; }
+    bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
+
+private:
+    juce::dsp::Gain<float> gain;
+    juce::dsp::Limiter<float> limiter;
+
+    float outputVolDb = 0.0f;
+    float limiterThreshold = 0.0f;
+};

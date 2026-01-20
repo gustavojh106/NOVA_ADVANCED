@@ -35,12 +35,10 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     currentSampleRate = sampleRate;
     numInputChannels = numIn;
 
-    // Reset Tuner
     tunerCircularBuffer.assign(TUNER_FIFO_SIZE, 0.0f);
     tunerWorkBuffer.assign(TUNER_PROCESS_SIZE, 0.0f);
     tunerFifo.setTotalSize(TUNER_FIFO_SIZE);
     tunerFifo.reset();
-
     currentRMS = 0.0f;
     startupCounter = 5;
 
@@ -48,7 +46,7 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     mainGraph->prepareToPlay(sampleRate, samplesPerBlock);
 
     // --- RECONSTRUCCIÓN SI ES NECESARIO ---
-    bool missingNewNodes = (inputChainNode == nullptr || stripNodeA == nullptr || stripNodeB == nullptr);
+    bool missingNewNodes = (inputChainNode == nullptr || stripNodeA == nullptr || stripNodeB == nullptr || outputChainNode == nullptr);
     bool graphEmpty = (inputNode == nullptr || mainGraph->getNodeForId(inputNode->nodeID) == nullptr);
 
     if (graphEmpty || missingNewNodes)
@@ -59,12 +57,13 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
         inputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
         outputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
 
-        // 2. Input Chain
+        // 2. Procesadores Internos
         inputChainNode = mainGraph->addNode(std::make_unique<InputChainProcessor>());
-
-        // 3. Channel Strips
         stripNodeA = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
         stripNodeB = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
+
+        // 3. Output Chain (Mastering)
+        outputChainNode = mainGraph->addNode(std::make_unique<OutputChainProcessor>()); // <--- NUEVO
     }
 
     // =========================================================================================
@@ -79,20 +78,9 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     // 2. Conexión "Omnidireccional": Enviamos TODO a AMBOS lados del InputChain
     if (inputChainNode)
     {
-        // Conexión Estándar: Lo que entra en 0 va a 0.
         mainGraph->addConnection({ { inputNode->nodeID, 0 }, { inputChainNode->nodeID, 0 } });
-
-        // Si hay entrada física 1, va a 1.
-        if (numIn > 1)
-        {
-            mainGraph->addConnection({ { inputNode->nodeID, 1 }, { inputChainNode->nodeID, 1 } });
-        }
-        else
-        {
-            // Caso borde: Interfaz puramente Mono (raro en DAWs, común en micros USB).
-            // Aquí sí duplicamos por necesidad física.
-            mainGraph->addConnection({ { inputNode->nodeID, 0 }, { inputChainNode->nodeID, 1 } });
-        }
+        if (numIn > 1) mainGraph->addConnection({ { inputNode->nodeID, 1 }, { inputChainNode->nodeID, 1 } });
+        else           mainGraph->addConnection({ { inputNode->nodeID, 0 }, { inputChainNode->nodeID, 1 } });
     }
 
     rebuildGraph();
@@ -101,26 +89,34 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
 
 void AudioEngine::rebuildGraph()
 {
-    // Limpieza interna (Respetamos la conexión de entrada que acabamos de hacer arriba)
+    // Limpieza interna (Respetamos entrada y salida de hardware por seguridad, 
+    // aunque la salida la re-conectaremos abajo)
     for (auto c : mainGraph->getConnections())
     {
-        bool isInputConnection = (c.destination.nodeID == inputChainNode->nodeID);
-        if (!isInputConnection)
+        bool isHardwareInput = (c.source.nodeID == inputNode->nodeID);
+        if (!isHardwareInput)
             mainGraph->removeConnection(c);
     }
 
-    // 1. Conectar InputChain -> Pedales -> Strip
+    // 1. Conectar InputChain -> Pedales -> Strip (Igual que antes)
     if (inputChainNode && stripNodeA) connectChainToGain(nodesChainA, stripNodeA->nodeID);
     if (inputChainNode && stripNodeB) connectChainToGain(nodesChainB, stripNodeB->nodeID);
 
-    // 2. Conectar Strips -> Hardware Output
-    for (auto* strip : { stripNodeA.get(), stripNodeB.get() })
+    // 2. Conectar Strips -> OutputChain (Mezcla de buses)
+    if (outputChainNode)
     {
-        if (strip)
+        for (auto* strip : { stripNodeA.get(), stripNodeB.get() })
         {
-            mainGraph->addConnection({ { strip->nodeID, 0 }, { outputNode->nodeID, 0 } });
-            mainGraph->addConnection({ { strip->nodeID, 1 }, { outputNode->nodeID, 1 } });
+            if (strip) {
+                // Sumamos ambos carriles a la entrada del Master
+                mainGraph->addConnection({ { strip->nodeID, 0 }, { outputChainNode->nodeID, 0 } });
+                mainGraph->addConnection({ { strip->nodeID, 1 }, { outputChainNode->nodeID, 1 } });
+            }
         }
+
+        // 3. Conectar OutputChain -> Hardware Output (Salida final)
+        mainGraph->addConnection({ { outputChainNode->nodeID, 0 }, { outputNode->nodeID, 0 } });
+        mainGraph->addConnection({ { outputChainNode->nodeID, 1 }, { outputNode->nodeID, 1 } });
     }
 }
 
@@ -148,21 +144,32 @@ void AudioEngine::connectChainToGain(const std::vector<juce::AudioProcessorGraph
 
 void AudioEngine::updateGlobalParams(const juce::ValueTree& settings, const juce::ValueTree& lineA, const juce::ValueTree& lineB)
 {
-    // 1. INPUT CHAIN
-    if (inputChainNode)
-    {
-        if (auto* p = dynamic_cast<InputChainProcessor*>(inputChainNode->getProcessor()))
-        {
+    // 1. INPUT CHAIN (Igual)
+    if (inputChainNode) { 
+        if (auto* p = dynamic_cast<InputChainProcessor*>(inputChainNode->getProcessor())) {
             float inGain = (float)settings.getProperty(Nova::IDs::INPUT_GAIN);
             float gateThresh = (float)settings.getProperty(Nova::IDs::INPUT_GATE);
-
-            // SEGURIDAD: Si el Gate viene a 0 o -inf raro, aseguramos que esté abierto (-100dB) al inicio
-            // o respetamos el valor si es válido.
             if (gateThresh == 0.0f) gateThresh = -100.0f;
-
             bool mono = (bool)settings.getProperty(Nova::IDs::FORCE_MONO);
             int trans = (int)settings.getProperty(Nova::IDs::INPUT_TRANS);
             p->setParams(inGain, gateThresh, mono, trans);
+        }
+    }
+
+    // 2. OUTPUT CHAIN (NUEVO)
+    if (outputChainNode)
+    {
+        if (auto* p = dynamic_cast<OutputChainProcessor*>(outputChainNode->getProcessor()))
+        {
+            float outVol = (float)settings.getProperty(Nova::IDs::OUTPUT_VOL, 0.0f);
+            float limit = (float)settings.getProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f);
+
+            p->setParams(outVol, limit);
+
+            // --- NUEVO: CAPTURAR EL MIX ---
+            // El slider va de 0 a 100, lo convertimos a 0.0 - 1.0
+            float mixPercent = (float)settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f);
+            currentGlobalMix = juce::jlimit(0.0f, 100.0f, mixPercent) / 100.0f;
         }
     }
 
@@ -282,9 +289,10 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
 {
     auto startTime = juce::Time::getMillisecondCounterHiRes();
 
-    // 1. Tuner Logic
+    // 1. LÓGICA DEL AFINADOR
     if (tunerEnabled)
     {
+        // A. Capturamos la señal para el afinador
         const int numSamples = buffer.getNumSamples();
         const auto* inL = buffer.getReadPointer(0);
         const auto* inR = (buffer.getNumChannels() > 1) ? buffer.getReadPointer(1) : nullptr;
@@ -312,7 +320,13 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         }
         tunerFifo.finishedWrite(size1 + size2);
 
-        // NO SILENCIAMOS EL BUFFER
+        // B. MUTE DE SALIDA (LO QUE PEDISTE)
+        // Silenciamos el buffer de audio para que no suene nada en los altavoces
+        // mientras el afinador analiza la señal de entrada.
+        buffer.clear();
+
+        cpuUsage = 0.0;
+        return; // Salimos aquí para no procesar efectos
     }
 
     if (!isEngineOn || startupCounter > 0)
@@ -323,17 +337,63 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         return;
     }
 
+    // ==============================================================================
+    // LÓGICA DE MIX (DRY/WET) CON CENTRADO INTELIGENTE
+    // ==============================================================================
+
+    float mix = currentGlobalMix;
+    bool isMixActive = (mix < 0.99f);
+
+    // A. CAPTURA DRY (CENTRADA)
+    if (isMixActive)
+    {
+        if (dryBuffer.getNumChannels() < buffer.getNumChannels() || dryBuffer.getNumSamples() != buffer.getNumSamples())
+            dryBuffer.setSize(buffer.getNumChannels(), buffer.getNumSamples());
+
+        int numSamples = buffer.getNumSamples();
+        const auto* inL = buffer.getReadPointer(0);
+        const auto* inR = (buffer.getNumChannels() > 1) ? buffer.getReadPointer(1) : nullptr;
+
+        for (int ch = 0; ch < dryBuffer.getNumChannels(); ++ch)
+        {
+            auto* dryCh = dryBuffer.getWritePointer(ch);
+            if (inR != nullptr)
+                for (int i = 0; i < numSamples; ++i) dryCh[i] = (inL[i] + inR[i]) * 0.5f;
+            else
+                for (int i = 0; i < numSamples; ++i) dryCh[i] = inL[i];
+        }
+    }
+
+    // B. PROCESAMIENTO WET
     mainGraph->processBlock(buffer, midi);
 
+    // C. MEZCLA FINAL
+    if (isMixActive)
+    {
+        int numSamples = buffer.getNumSamples();
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* wetData = buffer.getWritePointer(ch);
+            int dryCh = (ch < dryBuffer.getNumChannels()) ? ch : 0;
+            const auto* dryData = dryBuffer.getReadPointer(dryCh);
+
+            for (int i = 0; i < numSamples; ++i)
+                wetData[i] = (wetData[i] * mix) + (dryData[i] * (1.0f - mix));
+        }
+    }
+
+    // ==============================================================================
+    // CPU METER
+    // ==============================================================================
     auto endTime = juce::Time::getMillisecondCounterHiRes();
     double timeTakenMs = endTime - startTime;
     if (currentRate > 0)
     {
         double blockDurationMs = (buffer.getNumSamples() / currentRate) * 1000.0;
-        if (blockDurationMs > 0.0) cpuUsage = (cpuUsage * 0.9) + ((timeTakenMs / blockDurationMs) * 100.0 * 0.1);
+        if (blockDurationMs > 0.0)
+            cpuUsage = (cpuUsage * 0.9) + ((timeTakenMs / blockDurationMs) * 100.0 * 0.1);
     }
 }
-
 // ==========================================================
 // THREAD: TUNER ANALYSIS
 // ==========================================================
