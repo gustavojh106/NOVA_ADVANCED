@@ -1,8 +1,9 @@
 #pragma once
 #include <JuceHeader.h>
-#include "Common.h"
+//#include "Common.h"
 #include "AudioEngine.h"
 #include "Visualizer.h" // Asumo que tienes este archivo del paso anterior
+#include "Constants.h"
 
 class NOVAAudioProcessor : public juce::AudioProcessor, public juce::ValueTree::Listener
 {

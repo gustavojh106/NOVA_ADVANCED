@@ -4,6 +4,25 @@
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1">
   <MAINGROUP id="o1UNQu" name="NOVA">
     <GROUP id="{010BF944-105C-4CF6-034C-4B0EAF802B6F}" name="Source">
+      <GROUP id="{53A40730-C864-217C-5B56-F067C3543F1F}" name="Data"/>
+      <GROUP id="{7E6DC401-6E3E-C8BE-1A29-856B50B663B8}" name="DSP">
+        <GROUP id="{F09AF6C6-F054-68F5-FA37-8AA5A14108CF}" name="Services">
+          <FILE id="EacZeD" name="TunerService.cpp" compile="1" resource="0"
+                file="Source/Core/DSP/Services/TunerService.cpp"/>
+          <FILE id="wHba92" name="TunerService.h" compile="0" resource="0" file="Source/Core/DSP/Services/TunerService.h"/>
+        </GROUP>
+        <GROUP id="{08E5ECDF-0FF7-D376-32C0-F6132E2E4F53}" name="Global">
+          <FILE id="q5QVHt" name="ChannelStrip.cpp" compile="1" resource="0"
+                file="Source/Core/DSP/Global/ChannelStrip.cpp"/>
+          <FILE id="cobhbk" name="ChannelStrip.h" compile="0" resource="0" file="Source/Core/DSP/Global/ChannelStrip.h"/>
+          <FILE id="oGommy" name="InputChain.cpp" compile="1" resource="0" file="Source/Core/DSP/Global/InputChain.cpp"/>
+          <FILE id="mJmJLn" name="InputChain.h" compile="0" resource="0" file="Source/Core/DSP/Global/InputChain.h"/>
+          <FILE id="uroIzZ" name="OutputChain.cpp" compile="1" resource="0" file="Source/Core/DSP/Global/OutputChain.cpp"/>
+          <FILE id="TooqSR" name="OutputChain.h" compile="0" resource="0" file="Source/Core/DSP/Global/OutputChain.h"/>
+        </GROUP>
+      </GROUP>
+      <GROUP id="{0EA0B8C3-2A72-E643-97D6-B6113CCFB905}" name="GUI"/>
+      <GROUP id="{6F991566-7C27-022E-071B-60F735D38BF1}" name="Utils"/>
       <GROUP id="{E7F78E6B-81F0-6AB6-7ADB-5D870C2D6569}" name="Lib">
         <GROUP id="{B90E642F-FA82-2322-E169-A5915F550CBE}" name="models">
           <GROUP id="{90F40C4D-2184-16FA-7042-0A49E3EE4849}" name="microtcn">
@@ -844,7 +863,7 @@
         <FILE id="bZC07n" name="AudioEngine.cpp" compile="1" resource="0" file="Source/Core/AudioEngine.cpp"/>
         <FILE id="Mxw8oG" name="AudioEngine.h" compile="0" resource="0" file="Source/Core/AudioEngine.h"/>
         <FILE id="IEEVX0" name="Common.h" compile="0" resource="0" file="Source/Core/Common.h"/>
-        <FILE id="V8TMHN" name="DualMixer.h" compile="0" resource="0" file="Source/Core/DualMixer.h"/>
+        <FILE id="rYgCIg" name="Constants.h" compile="0" resource="0" file="Source/Core/Constants.h"/>
         <FILE id="AgqdXh" name="GlobalProcessors.h" compile="0" resource="0"
               file="Source/Core/GlobalProcessors.h"/>
         <FILE id="d2rDoU" name="PedalRegistry.h" compile="0" resource="0" file="Source/Core/PedalRegistry.h"/>

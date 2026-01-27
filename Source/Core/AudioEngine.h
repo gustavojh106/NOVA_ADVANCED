@@ -3,6 +3,11 @@
 #include "Common.h"
 #include <vector>
 #include <atomic>
+#include "Constants.h"
+#include "DSP/Global/InputChain.h"
+#include "DSP/Global/OutputChain.h"
+#include "DSP/Global/ChannelStrip.h"
+#include "DSP/Services/TunerService.h"
 
 // ==========================================================
 // PROCESADOR DE GANANCIA (Control de Volumen Independiente)
@@ -73,10 +78,15 @@ public:
     bool getTunerEnabled() const { return tunerEnabled; }
 
     // TUNER DATA (Getters seguros)
-    float getTunerPitch() const { return currentPitch; }
-    int getTunerNote() const { return currentNote; }
-    float getTunerCents() const { return currentCents; }
-    float getTunerRMS() const { return currentRMS; }
+    //float getTunerPitch() const { return currentPitch; }
+    //int getTunerNote() const { return currentNote; }
+    //float getTunerCents() const { return currentCents; }
+    //float getTunerRMS() const { return currentRMS; }
+
+    float getTunerPitch() const { return tunerService.getCurrentPitch(); }
+    float getTunerClarity() const { return tunerService.getCurrentClarity(); }
+    float getTunerRMS() const { return tunerService.getCurrentRMS(); }
+
 
     void setPedalBypassed(Nova::ChainID chain, int index, bool bypassed);
 
@@ -84,11 +94,12 @@ public:
 
     void setTuningOffset(int semitones) { tuningOffset = semitones; }
     int getTuningOffset() const { return tuningOffset; }
-    float getTunerClarity() const { return currentClarity; }
+    //float getTunerClarity() const { return currentClarity; }
 
     void updateGlobalParams(const juce::ValueTree& settings, const juce::ValueTree& lineA, const juce::ValueTree& lineB);
 private:
 
+    TunerService tunerService;
     std::atomic<float> currentClarity{ 0.0f };
     std::atomic<int> tuningOffset{ 0 };
 
@@ -136,18 +147,18 @@ private:
 
     // TUNER DATA
     std::atomic<bool> tunerEnabled{ false };
-    std::atomic<float> currentPitch{ 0.0f };
-    std::atomic<int> currentNote{ 0 };
-    std::atomic<float> currentCents{ 0.0f };
-    std::atomic<float> currentRMS{ 0.0f };
+    //std::atomic<float> currentPitch{ 0.0f };
+    //std::atomic<int> currentNote{ 0 };
+    //std::atomic<float> currentCents{ 0.0f };
+    //std::atomic<float> currentRMS{ 0.0f };
 
     // Buffers para el afinador
-    static constexpr int TUNER_FIFO_SIZE = 16384;
-    static constexpr int TUNER_PROCESS_SIZE = 4096;
+    //static constexpr int TUNER_FIFO_SIZE = 16384;
+    //static constexpr int TUNER_PROCESS_SIZE = 4096;
 
-    juce::AbstractFifo tunerFifo{ TUNER_FIFO_SIZE };
-    std::vector<float> tunerCircularBuffer;
-    std::vector<float> tunerWorkBuffer;
+    //juce::AbstractFifo tunerFifo{ TUNER_FIFO_SIZE };
+    //std::vector<float> tunerCircularBuffer;
+    //std::vector<float> tunerWorkBuffer;
 
     float calculateFrequency(const float* signal, int numSamples, double sampleRate);
     std::pair<float, float> calculateFrequencyWithClarity(const float* signal, int numSamples, double sampleRate);

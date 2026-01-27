@@ -11,8 +11,8 @@ AudioEngine::AudioEngine()
 {
     mainGraph = std::make_unique<juce::AudioProcessorGraph>();
 
-    tunerCircularBuffer.resize(TUNER_FIFO_SIZE, 0.0f);
-    tunerWorkBuffer.resize(TUNER_PROCESS_SIZE, 0.0f);
+    //tunerCircularBuffer.resize(TUNER_FIFO_SIZE, 0.0f);
+    //tunerWorkBuffer.resize(TUNER_PROCESS_SIZE, 0.0f);
 
     isEngineOn = true;
 
@@ -35,11 +35,12 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     currentSampleRate = sampleRate;
     numInputChannels = numIn;
 
-    tunerCircularBuffer.assign(TUNER_FIFO_SIZE, 0.0f);
-    tunerWorkBuffer.assign(TUNER_PROCESS_SIZE, 0.0f);
-    tunerFifo.setTotalSize(TUNER_FIFO_SIZE);
-    tunerFifo.reset();
-    currentRMS = 0.0f;
+    //tunerCircularBuffer.assign(TUNER_FIFO_SIZE, 0.0f);
+    //tunerWorkBuffer.assign(TUNER_PROCESS_SIZE, 0.0f);
+    //tunerFifo.setTotalSize(TUNER_FIFO_SIZE);
+    //tunerFifo.reset();
+    //currentRMS = 0.0f;
+	tunerService.reset();
     startupCounter = 5;
 
     mainGraph->setPlayConfigDetails(numIn, numOut, sampleRate, samplesPerBlock);
@@ -283,7 +284,12 @@ const std::vector<juce::AudioProcessorGraph::Node::Ptr>& AudioEngine::getNodes(N
 void AudioEngine::setEngineEnabled(bool enabled) { isEngineOn = enabled; }
 double AudioEngine::getCpuLoad() const { return cpuUsage; }
 int AudioEngine::getLatencyNumSamples() const { return mainGraph ? mainGraph->getLatencySamples() : 0; }
-void AudioEngine::setTunerEnabled(bool shouldEnable) { tunerEnabled = shouldEnable; if (shouldEnable) tunerFifo.reset(); }
+void AudioEngine::setTunerEnabled(bool shouldEnable) { 
+    tunerEnabled = shouldEnable; 
+    if (shouldEnable) 
+        //tunerFifo.reset(); 
+		tunerService.reset();
+}
 
 void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
@@ -292,41 +298,50 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     // 1. LÓGICA DEL AFINADOR
     if (tunerEnabled)
     {
-        // A. Capturamos la señal para el afinador
-        const int numSamples = buffer.getNumSamples();
-        const auto* inL = buffer.getReadPointer(0);
-        const auto* inR = (buffer.getNumChannels() > 1) ? buffer.getReadPointer(1) : nullptr;
+        //// A. Capturamos la señal para el afinador
+        //const int numSamples = buffer.getNumSamples();
+        //const auto* inL = buffer.getReadPointer(0);
+        //const auto* inR = (buffer.getNumChannels() > 1) ? buffer.getReadPointer(1) : nullptr;
 
-        int start1, size1, start2, size2;
-        tunerFifo.prepareToWrite(numSamples, start1, size1, start2, size2);
+        //int start1, size1, start2, size2;
+        //tunerFifo.prepareToWrite(numSamples, start1, size1, start2, size2);
 
-        if (size1 > 0)
-        {
-            for (int i = 0; i < size1; ++i)
-            {
-                float val = inL[i];
-                if (inR) val += inR[i];
-                tunerCircularBuffer[start1 + i] = val * 0.5f;
-            }
-        }
-        if (size2 > 0)
-        {
-            for (int i = 0; i < size2; ++i)
-            {
-                float val = inL[size1 + i];
-                if (inR) val += inR[size1 + i];
-                tunerCircularBuffer[start2 + i] = val * 0.5f;
-            }
-        }
-        tunerFifo.finishedWrite(size1 + size2);
+        //if (size1 > 0)
+        //{
+        //    for (int i = 0; i < size1; ++i)
+        //    {
+        //        float val = inL[i];
+        //        if (inR) val += inR[i];
+        //        tunerCircularBuffer[start1 + i] = val * 0.5f;
+        //    }
+        //}
+        //if (size2 > 0)
+        //{
+        //    for (int i = 0; i < size2; ++i)
+        //    {
+        //        float val = inL[size1 + i];
+        //        if (inR) val += inR[size1 + i];
+        //        tunerCircularBuffer[start2 + i] = val * 0.5f;
+        //    }
+        //}
+        //tunerFifo.finishedWrite(size1 + size2);
 
-        // B. MUTE DE SALIDA (LO QUE PEDISTE)
-        // Silenciamos el buffer de audio para que no suene nada en los altavoces
-        // mientras el afinador analiza la señal de entrada.
+        //// B. MUTE DE SALIDA (LO QUE PEDISTE)
+        //// Silenciamos el buffer de audio para que no suene nada en los altavoces
+        //// mientras el afinador analiza la señal de entrada.
+        //buffer.clear();
+
+        //cpuUsage = 0.0;
+        //return; // Salimos aquí para no procesar efectos
+
+        // Enviamos datos al servicio
+        tunerService.pushBuffer(buffer);
+
+        // Mute de Salida
         buffer.clear();
-
         cpuUsage = 0.0;
-        return; // Salimos aquí para no procesar efectos
+        return;
+
     }
 
     if (!isEngineOn || startupCounter > 0)
@@ -402,7 +417,7 @@ void AudioEngine::run()
 {
     while (!threadShouldExit())
     {
-        if (tunerFifo.getNumReady() >= TUNER_PROCESS_SIZE)
+        /*if (tunerFifo.getNumReady() >= TUNER_PROCESS_SIZE)
         {
             int start1, size1, start2, size2;
             tunerFifo.prepareToRead(TUNER_PROCESS_SIZE, start1, size1, start2, size2);
@@ -439,7 +454,24 @@ void AudioEngine::run()
                 currentPitch = 0.0f;
             }
         }
-        else { wait(10); }
+        else { wait(10); }*/
+        while (!threadShouldExit())
+        {
+            if (tunerEnabled)
+            {
+                // El servicio se encarga de ver si tiene datos y procesarlos
+                tunerService.process();
+
+                // Dormimos un poco para no quemar CPU esperando datos
+                wait(5);
+            }
+            else
+            {
+                // Si el afinador está apagado, el hilo duerme más tiempo
+                wait(100);
+            }
+        }
+
     }
 }
 

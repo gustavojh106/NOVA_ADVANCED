@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Constants.h"
 
 NOVAAudioProcessor::NOVAAudioProcessor()
     : AudioProcessor(BusesProperties().withInput("In", juce::AudioChannelSet::stereo()).withOutput("Out", juce::AudioChannelSet::stereo())),
@@ -52,7 +53,7 @@ double NOVAAudioProcessor::getCpuUsage() const
 }
 void NOVAAudioProcessor::requestAddPedal(const juce::String& type, Nova::ChainID chain, Nova::ZoneID zone)
 {
-    juce::ValueTree newPedal(Nova::IDs::PEDAL_TAG);
+    juce::ValueTree newPedal(Nova::IDs::PEDAL);
     newPedal.setProperty(Nova::IDs::PEDAL_TYPE, type, nullptr);
     newPedal.setProperty(Nova::IDs::PEDAL_ZONE, (int)zone, nullptr);
 
@@ -100,7 +101,7 @@ void NOVAAudioProcessor::cycleSwitcher()
 
 void NOVAAudioProcessor::valueTreeChildAdded(juce::ValueTree& parent, juce::ValueTree& child)
 {
-    if (child.hasType(Nova::IDs::PEDAL_TAG))
+    if (child.hasType(Nova::IDs::PEDAL))
     {
         Nova::ChainID chain;
         if (parent.hasType(Nova::IDs::LINE_A)) chain = Nova::ChainID::LineA;

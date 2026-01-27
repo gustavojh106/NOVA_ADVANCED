@@ -2,6 +2,15 @@
 
 <Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
+    <Filter Include="NOVA\Source\DSP\Services">
+      <UniqueIdentifier>{21192914-D0C8-A52D-128B-07C1EEF50F44}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\DSP\Global">
+      <UniqueIdentifier>{2CF972F2-9080-2030-4006-CBEEE58B7291}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\DSP">
+      <UniqueIdentifier>{A62DD9A9-2699-0774-DADC-0CC4289ED44B}</UniqueIdentifier>
+    </Filter>
     <Filter Include="NOVA\Source\Lib\models\microtcn">
       <UniqueIdentifier>{A701DA85-5485-63FE-F287-676A37FAEB49}</UniqueIdentifier>
     </Filter>
@@ -934,6 +943,18 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Source\Core\DSP\Services\TunerService.cpp">
+      <Filter>NOVA\Source\DSP\Services</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Core\DSP\Global\ChannelStrip.cpp">
+      <Filter>NOVA\Source\DSP\Global</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Core\DSP\Global\InputChain.cpp">
+      <Filter>NOVA\Source\DSP\Global</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\Core\DSP\Global\OutputChain.cpp">
+      <Filter>NOVA\Source\DSP\Global</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Source\Lib\RTNeural\RTNeural.cpp">
       <Filter>NOVA\Source\Lib\RTNeural</Filter>
     </ClCompile>
@@ -3987,6 +4008,18 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Source\Core\DSP\Services\TunerService.h">
+      <Filter>NOVA\Source\DSP\Services</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Core\DSP\Global\ChannelStrip.h">
+      <Filter>NOVA\Source\DSP\Global</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Core\DSP\Global\InputChain.h">
+      <Filter>NOVA\Source\DSP\Global</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Core\DSP\Global\OutputChain.h">
+      <Filter>NOVA\Source\DSP\Global</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Source\Lib\modules\Eigen\Eigen\src\AccelerateSupport\AccelerateSupport.h">
       <Filter>NOVA\Source\Lib\modules\Eigen\Eigen\src\AccelerateSupport</Filter>
     </ClInclude>
@@ -5196,7 +5229,7 @@
     <ClInclude Include="..\..\Source\Core\Common.h">
       <Filter>NOVA\Source\Core</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Source\Core\DualMixer.h">
+    <ClInclude Include="..\..\Source\Core\Constants.h">
       <Filter>NOVA\Source\Core</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\Core\GlobalProcessors.h">
