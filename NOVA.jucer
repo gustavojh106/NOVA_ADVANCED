@@ -21,7 +21,13 @@
           <FILE id="TooqSR" name="OutputChain.h" compile="0" resource="0" file="Source/Core/DSP/Global/OutputChain.h"/>
         </GROUP>
       </GROUP>
-      <GROUP id="{0EA0B8C3-2A72-E643-97D6-B6113CCFB905}" name="GUI"/>
+      <GROUP id="{0EA0B8C3-2A72-E643-97D6-B6113CCFB905}" name="GUI">
+        <GROUP id="{000F98A3-3DE0-F09F-EF44-8FDBB1D9EC11}" name="Overlays">
+          <FILE id="R7UNIp" name="TunerOverlay.cpp" compile="1" resource="0"
+                file="Source/GUI/Overlays/TunerOverlay.cpp"/>
+          <FILE id="fS0kkB" name="TunerOverlay.h" compile="0" resource="0" file="Source/GUI/Overlays/TunerOverlay.h"/>
+        </GROUP>
+      </GROUP>
       <GROUP id="{6F991566-7C27-022E-071B-60F735D38BF1}" name="Utils"/>
       <GROUP id="{E7F78E6B-81F0-6AB6-7ADB-5D870C2D6569}" name="Lib">
         <GROUP id="{B90E642F-FA82-2322-E169-A5915F550CBE}" name="models">

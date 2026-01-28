@@ -150,6 +150,7 @@
     <ClCompile Include="..\..\Source\Core\DSP\Global\ChannelStrip.cpp"/>
     <ClCompile Include="..\..\Source\Core\DSP\Global\InputChain.cpp"/>
     <ClCompile Include="..\..\Source\Core\DSP\Global\OutputChain.cpp"/>
+    <ClCompile Include="..\..\Source\GUI\Overlays\TunerOverlay.cpp"/>
     <ClCompile Include="..\..\Source\Lib\RTNeural\RTNeural.cpp"/>
     <ClCompile Include="..\..\Source\Effects\Pedals\Neural\NeuralEditor.cpp"/>
     <ClCompile Include="..\..\Source\Effects\Pedals\Neural\NeuralPedal.cpp"/>
@@ -3012,6 +3013,7 @@
     <ClInclude Include="..\..\Source\Core\DSP\Global\ChannelStrip.h"/>
     <ClInclude Include="..\..\Source\Core\DSP\Global\InputChain.h"/>
     <ClInclude Include="..\..\Source\Core\DSP\Global\OutputChain.h"/>
+    <ClInclude Include="..\..\Source\GUI\Overlays\TunerOverlay.h"/>
     <ClInclude Include="..\..\Source\Lib\modules\Eigen\Eigen\src\AccelerateSupport\AccelerateSupport.h"/>
     <ClInclude Include="..\..\Source\Lib\modules\Eigen\Eigen\src\AccelerateSupport\InternalHeaderCheck.h"/>
     <ClInclude Include="..\..\Source\Lib\modules\Eigen\Eigen\src\Cholesky\InternalHeaderCheck.h"/>
