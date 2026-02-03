@@ -22,6 +22,20 @@
         </GROUP>
       </GROUP>
       <GROUP id="{0EA0B8C3-2A72-E643-97D6-B6113CCFB905}" name="GUI">
+        <GROUP id="{346E0319-A6B8-4AAF-B2F7-6C6E0F6E5B69}" name="Widgets">
+          <FILE id="BREuA6" name="AssetBrowserOverlay.cpp" compile="1" resource="0"
+                file="Source/GUI/Widgets/AssetBrowserOverlay.cpp"/>
+          <FILE id="GwRSeL" name="AssetBrowserOverlay.h" compile="0" resource="0"
+                file="Source/GUI/Widgets/AssetBrowserOverlay.h"/>
+          <FILE id="KWOzHK" name="AssetItem.cpp" compile="1" resource="0" file="Source/GUI/Widgets/AssetItem.cpp"/>
+          <FILE id="s6x3Mo" name="AssetItem.h" compile="0" resource="0" file="Source/GUI/Widgets/AssetItem.h"/>
+          <FILE id="uiqIy3" name="ChainLane.cpp" compile="1" resource="0" file="Source/GUI/Widgets/ChainLane.cpp"/>
+          <FILE id="MIEbZU" name="ChainLane.h" compile="0" resource="0" file="Source/GUI/Widgets/ChainLane.h"/>
+          <FILE id="XFsLZr" name="DraggableButton.h" compile="0" resource="0"
+                file="Source/GUI/Widgets/DraggableButton.h"/>
+          <FILE id="Yj6WIq" name="DropZone.cpp" compile="1" resource="0" file="Source/GUI/Widgets/DropZone.cpp"/>
+          <FILE id="DBzpjr" name="DropZone.h" compile="0" resource="0" file="Source/GUI/Widgets/DropZone.h"/>
+        </GROUP>
         <GROUP id="{000F98A3-3DE0-F09F-EF44-8FDBB1D9EC11}" name="Overlays">
           <FILE id="R7UNIp" name="TunerOverlay.cpp" compile="1" resource="0"
                 file="Source/GUI/Overlays/TunerOverlay.cpp"/>

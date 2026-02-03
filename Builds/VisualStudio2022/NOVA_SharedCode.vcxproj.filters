@@ -11,6 +11,9 @@
     <Filter Include="NOVA\Source\DSP">
       <UniqueIdentifier>{A62DD9A9-2699-0774-DADC-0CC4289ED44B}</UniqueIdentifier>
     </Filter>
+    <Filter Include="NOVA\Source\GUI\Widgets">
+      <UniqueIdentifier>{9194561C-262D-DB3E-D945-4FC80858E193}</UniqueIdentifier>
+    </Filter>
     <Filter Include="NOVA\Source\GUI\Overlays">
       <UniqueIdentifier>{0388142A-A86C-A9A5-687E-E54DC62C0406}</UniqueIdentifier>
     </Filter>
@@ -960,6 +963,18 @@
     </ClCompile>
     <ClCompile Include="..\..\Source\Core\DSP\Global\OutputChain.cpp">
       <Filter>NOVA\Source\DSP\Global</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\GUI\Widgets\AssetBrowserOverlay.cpp">
+      <Filter>NOVA\Source\GUI\Widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\GUI\Widgets\AssetItem.cpp">
+      <Filter>NOVA\Source\GUI\Widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\GUI\Widgets\ChainLane.cpp">
+      <Filter>NOVA\Source\GUI\Widgets</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Source\GUI\Widgets\DropZone.cpp">
+      <Filter>NOVA\Source\GUI\Widgets</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Source\GUI\Overlays\TunerOverlay.cpp">
       <Filter>NOVA\Source\GUI\Overlays</Filter>
@@ -4028,6 +4043,21 @@
     </ClInclude>
     <ClInclude Include="..\..\Source\Core\DSP\Global\OutputChain.h">
       <Filter>NOVA\Source\DSP\Global</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\GUI\Widgets\AssetBrowserOverlay.h">
+      <Filter>NOVA\Source\GUI\Widgets</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\GUI\Widgets\AssetItem.h">
+      <Filter>NOVA\Source\GUI\Widgets</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\GUI\Widgets\ChainLane.h">
+      <Filter>NOVA\Source\GUI\Widgets</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\GUI\Widgets\DraggableButton.h">
+      <Filter>NOVA\Source\GUI\Widgets</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\GUI\Widgets\DropZone.h">
+      <Filter>NOVA\Source\GUI\Widgets</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\GUI\Overlays\TunerOverlay.h">
       <Filter>NOVA\Source\GUI\Overlays</Filter>

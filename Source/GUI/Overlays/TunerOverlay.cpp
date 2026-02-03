@@ -1,7 +1,7 @@
 #include "TunerOverlay.h"
 
 // ==============================================================================
-// HELPERS MATEM¡TICOS
+// HELPERS MATEM√ÅTICOS
 // ==============================================================================
 float TunerOverlay::getMedianCents(float newVal)
 {
@@ -23,7 +23,7 @@ float TunerOverlay::getSmoothedCents(float newCents)
 }
 
 // ==============================================================================
-// IMPLEMENTACI”N
+// IMPLEMENTACI√ìN
 // ==============================================================================
 
 TunerOverlay::TunerOverlay(NOVAAudioProcessor& p) : processor(p)
@@ -31,24 +31,24 @@ TunerOverlay::TunerOverlay(NOVAAudioProcessor& p) : processor(p)
     initPresets();
     centsHistory.resize(SMOOTHING_BUFFER_SIZE, 0.0f);
 
-    // BotÛn Cerrar
+    // Bot√≥n Cerrar
     addAndMakeVisible(closeButton);
     closeButton.setButtonText("X");
     closeButton.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     // Usamos una lambda segura que llama al processor helper
     closeButton.onClick = [this] {
-        // OpciÛn A: Llamar a un mÈtodo p˙blico del padre si tenemos puntero
-        // OpciÛn B (M·s desacoplada): Simplemente hacerse invisible o pedir al processor que cierre el estado
-        // Como tu lÛgica actual depende de toggleTuner() en el Editor,
+        // Opci√≥n A: Llamar a un m√©todo p√∫blico del padre si tenemos puntero
+        // Opci√≥n B (M√°s desacoplada): Simplemente hacerse invisible o pedir al processor que cierre el estado
+        // Como tu l√≥gica actual depende de toggleTuner() en el Editor,
         // necesitamos acceder al AudioEngine para apagar el tuner state.
 
         processor.getAudioEngine().setTunerEnabled(false);
         this->setVisible(false);
-        // Nota: El Editor principal detectar· el cambio de estado en el timer o repaint si es necesario,
-        // o idealmente usamos un callback. Por simplicidad ahora, replicamos la lÛgica inversa.
+        // Nota: El Editor principal detectar√° el cambio de estado en el timer o repaint si es necesario,
+        // o idealmente usamos un callback. Por simplicidad ahora, replicamos la l√≥gica inversa.
         };
 
-    // Selector de AfinaciÛn
+    // Selector de Afinaci√≥n
     addAndMakeVisible(tuningSelector);
     tuningSelector.setJustificationType(juce::Justification::centred);
     tuningSelector.setColour(juce::ComboBox::backgroundColourId, juce::Colour::fromString("ff202020"));
@@ -62,7 +62,7 @@ TunerOverlay::TunerOverlay(NOVAAudioProcessor& p) : processor(p)
         repaint();
         };
 
-    // Botones de …xito
+    // Botones de √âxito
     addAndMakeVisible(resetButton);
     resetButton.setButtonText("TUNE AGAIN");
     resetButton.setColour(juce::TextButton::buttonColourId, juce::Colours::black);
@@ -139,7 +139,7 @@ void TunerOverlay::timerCallback()
 
     float filteredCents = getMedianCents(signalIsValid ? rawCentsError : 0.0f);
 
-    // LÛgica SOTA de Progreso
+    // L√≥gica SOTA de Progreso
     const float TOLERANCE = 6.0f;
     const float PERFECT_TOLERANCE = 2.0f;
     bool isInGreenZone = std::abs(filteredCents) <= TOLERANCE && signalIsValid;
@@ -161,7 +161,7 @@ void TunerOverlay::timerCallback()
 
     tuningProgress = juce::jlimit(0.0f, 100.0f, tuningProgress);
 
-    // Check FinalizaciÛn
+    // Check Finalizaci√≥n
     if (tuningProgress >= 100.0f)
     {
         stringIsTuned[currentStringIndex] = true;
@@ -192,7 +192,7 @@ void TunerOverlay::timerCallback()
 
 void TunerOverlay::paint(juce::Graphics& g)
 {
-    g.fillAll(Nova::Colors::Background.withAlpha(0.98f)); // Fondo casi sÛlido
+    g.fillAll(Nova::Colors::Background.withAlpha(0.98f)); // Fondo casi s√≥lido
     auto bounds = getLocalBounds();
     auto center = bounds.getCentre();
 

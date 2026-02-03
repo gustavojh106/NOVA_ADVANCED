@@ -1,278 +1,12 @@
-#include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-// ==============================================================================
-// CLASES INTERNAS (ASSETS, OVERLAY, DROPZONE)
-// Nota: En el futuro, estas también deberían ir a sus propios archivos en GUI/Browser
-// ==============================================================================
-
-// --- AssetItem ---
-class AssetItem : public juce::Component
-{
-public:
-    AssetItem(const juce::String& name, const juce::String& type, std::function<void()> onSelect)
-        : itemName(name), itemType(type), onSelectCallback(onSelect)
-    {
-        setMouseCursor(juce::MouseCursor::PointingHandCursor);
-    }
-    void mouseUp(const juce::MouseEvent&) override { if (onSelectCallback) onSelectCallback(); }
-    void mouseEnter(const juce::MouseEvent&) override { isHover = true; repaint(); }
-    void mouseExit(const juce::MouseEvent&) override { isHover = false; repaint(); }
-
-    void paint(juce::Graphics& g) override
-    {
-        auto area = getLocalBounds().toFloat();
-        // Usamos Nova::Colors
-        g.setColour(isHover ? juce::Colours::white.withAlpha(0.1f) : juce::Colours::transparentBlack);
-        g.fillRoundedRectangle(area, 6.0f);
-
-        auto iconArea = area.removeFromTop(area.getHeight() * 0.7f).reduced(10);
-        g.setColour(juce::Colour::fromString("ff202020"));
-        g.fillRoundedRectangle(iconArea, 4.0f);
-        g.setColour(juce::Colours::white.withAlpha(0.2f));
-        g.drawRoundedRectangle(iconArea, 4.0f, 1.0f);
-
-        if (itemType == "Amp") {
-            g.setColour(juce::Colours::grey);
-            float yKnob = iconArea.getCentreY();
-            for (int i = 0; i < 4; ++i) g.fillEllipse(iconArea.getX() + 10 + (i * 15), yKnob - 4, 8, 8);
-        }
-        else {
-            g.setColour(juce::Colours::black.withAlpha(0.3f));
-            g.fillEllipse(iconArea.getCentreX() - 15, iconArea.getCentreY() - 15, 12, 12);
-            g.fillEllipse(iconArea.getCentreX() + 3, iconArea.getCentreY() - 15, 12, 12);
-            g.fillEllipse(iconArea.getCentreX() - 15, iconArea.getCentreY() + 3, 12, 12);
-            g.fillEllipse(iconArea.getCentreX() + 3, iconArea.getCentreY() + 3, 12, 12);
-        }
-        g.setColour(juce::Colours::white);
-        g.setFont(14.0f);
-        g.drawText(itemName, area, juce::Justification::centred);
-        if (isHover) {
-            g.setColour(Nova::Colors::CableOnA);
-            g.drawRoundedRectangle(getLocalBounds().toFloat(), 6.0f, 1.5f);
-        }
-    }
-private:
-    juce::String itemName;
-    juce::String itemType;
-    std::function<void()> onSelectCallback;
-    bool isHover = false;
-};
-
-// --- AssetBrowserOverlay ---
-class AssetBrowserOverlay : public juce::Component, public juce::TextEditor::Listener
-{
-public:
-    AssetBrowserOverlay(Nova::ZoneID zone, std::function<void(juce::String)> onAssetSelected, std::function<void()> onClose)
-        : targetZone(zone), onSelect(onAssetSelected), onClose(onClose)
-    {
-        addAndMakeVisible(searchBar);
-        searchBar.setMultiLine(false);
-        searchBar.setTextToShowWhenEmpty("Search model...", juce::Colours::grey);
-        searchBar.setColour(juce::TextEditor::backgroundColourId, juce::Colour::fromString("ff151515"));
-        searchBar.setColour(juce::TextEditor::outlineColourId, juce::Colours::white.withAlpha(0.2f));
-        searchBar.addListener(this);
-
-        addAndMakeVisible(viewport);
-        container.reset(new juce::Component());
-        viewport.setViewedComponent(container.get(), false);
-        viewport.setScrollBarsShown(true, false);
-
-        addAndMakeVisible(closeBtn);
-        closeBtn.setButtonText("X");
-        closeBtn.onClick = onClose;
-        closeBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-
-        populateList("");
-    }
-
-    void paint(juce::Graphics& g) override
-    {
-        g.fillAll(juce::Colours::black.withAlpha(0.85f));
-        auto area = getLocalBounds().reduced(100, 50);
-
-        g.setColour(Nova::Colors::MixerPanel);
-        g.fillRoundedRectangle(area.toFloat(), 12.0f);
-        g.setColour(juce::Colours::white.withAlpha(0.1f));
-        g.drawRoundedRectangle(area.toFloat(), 12.0f, 1.0f);
-
-        g.setColour(juce::Colours::white);
-        g.setFont(24.0f);
-        juce::String title = (targetZone == Nova::ZoneID::Amp) ? "SELECT AMPLIFIER" : "SELECT CABINET";
-        g.drawText(title, area.removeFromTop(60), juce::Justification::centred);
-    }
-
-    void resized() override
-    {
-        auto area = getLocalBounds().reduced(100, 50);
-        closeBtn.setBounds(area.getRight() - 40, area.getY() + 10, 30, 30);
-        area.removeFromTop(60);
-        searchBar.setBounds(area.removeFromTop(40).reduced(100, 0));
-        area.removeFromTop(20);
-        viewport.setBounds(area.reduced(20));
-        layoutItems();
-    }
-    void textEditorTextChanged(juce::TextEditor& editor) override { populateList(editor.getText()); }
-
-private:
-    void populateList(const juce::String& filter)
-    {
-        container->removeAllChildren();
-        items.clear();
-        std::vector<juce::String> mockData;
-        if (targetZone == Nova::ZoneID::Amp) mockData = { "British Lead 800", "USA Rectifier", "Jazz Clean 120", "German Fireball", "Blues Junior", "Bass SuperTube" };
-        else mockData = { "4x12 Vintage 30", "2x12 Greenback", "1x12 Blue Alnico", "8x10 Bass Fridge", "4x12 Recto Std", "2x10 Tremolo" };
-
-        for (const auto& name : mockData) {
-            if (filter.isNotEmpty() && !name.containsIgnoreCase(filter)) continue;
-            auto* item = new AssetItem(name, (targetZone == Nova::ZoneID::Amp ? "Amp" : "Cab"), [this, name]() {
-                juce::String internalID = (targetZone == Nova::ZoneID::Amp) ? "Overdrive" : "Cabinet";
-                if (onSelect) onSelect(internalID);
-                if (onClose) onClose();
-                });
-            container->addAndMakeVisible(item);
-            items.add(item);
-        }
-        layoutItems();
-    }
-    void layoutItems()
-    {
-        int itemSize = 140; int gap = 20;
-        int cols = juce::jmax(1, viewport.getWidth() / (itemSize + gap));
-        int x = 0, y = 0, col = 0;
-        for (auto* item : items) {
-            item->setBounds(x, y, itemSize, itemSize);
-            col++;
-            if (col >= cols) { col = 0; x = 0; y += itemSize + gap; }
-            else { x += itemSize + gap; }
-        }
-        container->setSize(viewport.getWidth(), y + itemSize + gap);
-    }
-    Nova::ZoneID targetZone;
-    std::function<void(juce::String)> onSelect;
-    std::function<void()> onClose;
-    juce::TextEditor searchBar;
-    juce::Viewport viewport;
-    std::unique_ptr<juce::Component> container;
-    juce::OwnedArray<AssetItem> items;
-    juce::TextButton closeBtn;
-};
-
-// --- DropZone ---
-class DropZone : public juce::Component, public juce::DragAndDropTarget
-{
-public:
-    DropZone(NOVAAudioProcessor& p, Nova::ChainID c, Nova::ZoneID z)
-        : proc(p), chain(c), zone(z) {
-    }
-
-    bool isInterestedInDragSource(const SourceDetails&) override
-    {
-        if (zone == Nova::ZoneID::Amp || zone == Nova::ZoneID::Cabinet) return false;
-        return true;
-    }
-
-    void itemDropped(const SourceDetails& d) override
-    {
-        isHover = false; repaint();
-        proc.requestAddPedal(d.description.toString(), chain, zone);
-    }
-    void itemDragEnter(const SourceDetails&) override { isHover = true; repaint(); }
-    void itemDragExit(const SourceDetails&) override { isHover = false; repaint(); }
-    void mouseDown(const juce::MouseEvent& e) override
-    {
-        if ((zone == Nova::ZoneID::Amp || zone == Nova::ZoneID::Cabinet) && e.mods.isLeftButtonDown())
-            if (auto* mainEditor = findParentComponentOfClass<NOVAAudioProcessorEditor>())
-                mainEditor->showOverlay(zone, chain);
-    }
-
-    void paint(juce::Graphics& g) override
-    {
-        bool isFixedSlot = (zone == Nova::ZoneID::Amp || zone == Nova::ZoneID::Cabinet);
-
-        if (!isFixedSlot) {
-            g.setColour(Nova::Colors::GridLine.withAlpha(0.2f));
-            for (int x = 0; x < getWidth(); x += 20) g.drawVerticalLine(x, 0.0f, (float)getHeight());
-            g.setColour(Nova::Colors::GridLine.withAlpha(0.1f));
-            for (int y = 0; y < getHeight(); y += 20) g.drawHorizontalLine(y, 0.0f, (float)getWidth());
-        }
-
-        g.setColour(Nova::Colors::ZoneOutline.withAlpha(isFixedSlot ? 0.4f : 0.2f));
-        g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(2), 6.0f, 1.0f);
-
-        if (isFixedSlot) {
-            if (isMouseOver(true) && !isHover) g.setColour(juce::Colours::white.withAlpha(0.2f));
-            else g.setColour(juce::Colours::white.withAlpha(0.05f));
-            auto center = getLocalBounds().getCentre().toFloat();
-            g.fillEllipse(center.x - 25, center.y - 25, 50, 50);
-            g.setColour(juce::Colours::grey);
-            g.fillRect(center.x - 1.5f, center.y - 12, 3.0f, 24.0f);
-            g.fillRect(center.x - 12, center.y - 1.5f, 24.0f, 3.0f);
-            g.setFont(12.0f);
-            g.drawText(zone == Nova::ZoneID::Amp ? "ADD AMP" : "ADD CAB", getLocalBounds().removeFromBottom(30), juce::Justification::centred);
-        }
-        else {
-            juce::String label = (zone == Nova::ZoneID::Pre) ? "PRE-FX" : "FX LOOP";
-            g.setColour(juce::Colours::grey.withAlpha(0.3f)); g.setFont(12.f);
-            g.drawText(label, getLocalBounds().removeFromBottom(25), juce::Justification::centred);
-            if (isHover) {
-                g.setColour(juce::Colours::cyan.withAlpha(0.2f)); g.fillRoundedRectangle(getLocalBounds().toFloat(), 6.f);
-                g.setColour(juce::Colours::cyan); g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1), 6.f, 2.0f);
-            }
-        }
-    }
-private:
-    NOVAAudioProcessor& proc;
-    Nova::ChainID chain;
-    Nova::ZoneID zone;
-    bool isHover = false;
-};
-
-// --- ChainLane ---
-class ChainLane : public juce::Component
-{
-public:
-    ChainLane(NOVAAudioProcessor& p, Nova::ChainID c) : chainID(c)
-    {
-        zones.add(new DropZone(p, c, Nova::ZoneID::Pre));
-        zones.add(new DropZone(p, c, Nova::ZoneID::Amp));
-        zones.add(new DropZone(p, c, Nova::ZoneID::FX));
-        zones.add(new DropZone(p, c, Nova::ZoneID::Cabinet));
-        for (auto* z : zones) addAndMakeVisible(z);
-    }
-    void setActive(bool isActive) { isLaneActive = isActive; repaint(); }
-    void resized() override
-    {
-        auto area = getLocalBounds();
-        int totalW = area.getWidth(); int h = area.getHeight();
-        int fixedZoneW = 240; int remainingW = totalW - (fixedZoneW * 2); int flexZoneW = remainingW / 2;
-        zones[0]->setBounds(0, 0, flexZoneW, h);
-        zones[1]->setBounds(flexZoneW, 0, fixedZoneW, h);
-        zones[2]->setBounds(flexZoneW + fixedZoneW, 0, flexZoneW, h);
-        zones[3]->setBounds(totalW - fixedZoneW, 0, fixedZoneW, h);
-    }
-    juce::Rectangle<int> getZoneRect(int zoneIndex) { if (zoneIndex >= 0 && zoneIndex < zones.size()) return zones[zoneIndex]->getBounds(); return {}; }
-    void paint(juce::Graphics& g) override
-    {
-        float y = (float)getHeight() / 2.0f; float w = (float)getWidth();
-        juce::Path cable; cable.startNewSubPath(0, y); cable.lineTo(w, y);
-
-        juce::Colour glow = (chainID == Nova::ChainID::LineA) ? Nova::Colors::CableOnA : Nova::Colors::CableOnB;
-        if (!isLaneActive) glow = Nova::Colors::CableOff;
-
-        g.setColour(juce::Colours::black.withAlpha(0.6f)); g.strokePath(cable, juce::PathStrokeType(10.0f));
-        g.setColour(juce::Colour::fromString("ff151515")); g.strokePath(cable, juce::PathStrokeType(6.0f));
-        g.setColour(glow); g.strokePath(cable, juce::PathStrokeType(isLaneActive ? 2.0f : 1.0f));
-        if (isLaneActive) { g.setColour(glow.withAlpha(0.4f)); g.strokePath(cable, juce::PathStrokeType(8.0f)); }
-    }
-private:
-    juce::OwnedArray<DropZone> zones;
-    Nova::ChainID chainID;
-    bool isLaneActive = false;
-};
+// --- INCLUIMOS NUESTROS WIDGETS MODULARES ---
+#include "../GUI/Widgets/ChainLane.h"
+#include "../GUI/Widgets/AssetBrowserOverlay.h"
+// (AssetItem y DropZone ya se incluyen indirectamente o no se necesitan aquí directamente)
 
 // ==============================================================================
-// IMPLEMENTACIÓN EDITOR PRINCIPAL
+// CONSTRUCTOR E INICIALIZACIÓN
 // ==============================================================================
 
 NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
@@ -337,13 +71,13 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     inputFader.setRange(-60.0, 6.0, 0.1);
     inputFader.setValue(0.0, juce::dontSendNotification);
 
-    // --- 4. MIXER & LANES ---
+    // --- 4. MIXER & LANES (Uso de Clases Modulares) ---
     laneA = std::make_unique<ChainLane>(p, Nova::ChainID::LineA); addAndMakeVisible(laneA.get());
     laneB = std::make_unique<ChainLane>(p, Nova::ChainID::LineB); addAndMakeVisible(laneB.get());
     addAndMakeVisible(btnSwitcher);
     btnSwitcher.onClick = [this] { audioProcessor.cycleSwitcher(); };
 
-    // Line A
+    // Line A Controls
     setupKnob(volSliderA, "LEVEL A", 0.0f, 2.0f, 1.0f);
     volSliderA.onValueChange = [this] {
         audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A)
@@ -360,7 +94,7 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
             .setProperty(Nova::IDs::MIXER_WIDTH_A, (float)widthSliderA.getValue(), nullptr);
         };
 
-    // Line B
+    // Line B Controls
     setupKnob(volSliderB, "LEVEL B", 0.0f, 2.0f, 1.0f);
     volSliderB.onValueChange = [this] {
         audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B)
@@ -411,12 +145,12 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     addAndMakeVisible(btnLoad); btnLoad.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
     addAndMakeVisible(audioProcessor.audioVisualizer);
 
-    // Init
+    // Init Logic
     audioProcessor.pluginState.addListener(this);
     setResizable(true, true);
     setSize(1920, 1080);
 
-    // LOAD INITIAL VALUES
+    // Carga de valores iniciales
     auto settings = audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS);
     auto lA = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A);
     auto lB = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B);
@@ -451,6 +185,10 @@ NOVAAudioProcessorEditor::~NOVAAudioProcessorEditor()
     audioProcessor.pluginState.removeListener(this);
     activePedalEditors.clear();
 }
+
+// ==============================================================================
+// MÉTODOS DE DIBUJADO Y RESIZE
+// ==============================================================================
 
 void NOVAAudioProcessorEditor::setupKnob(juce::Slider& slider, const juce::String& name, float min, float max, float def)
 {
@@ -543,7 +281,10 @@ void NOVAAudioProcessorEditor::drawChannelStrip(juce::Graphics& g, juce::Rectang
 void NOVAAudioProcessorEditor::resized()
 {
     auto area = getLocalBounds();
+
+    // Si hay overlay activo, que ocupe todo
     if (currentOverlay) currentOverlay->setBounds(area);
+    if (tunerOverlay && tunerOverlay->isVisible()) tunerOverlay->setBounds(area);
 
     auto header = area.removeFromTop(80);
     int centerX = header.getCentreX();
@@ -611,14 +352,16 @@ void NOVAAudioProcessorEditor::resized()
     updatePedalGui();
 }
 
+// ==============================================================================
+// LÓGICA DE CONTROL
+// ==============================================================================
+
 void NOVAAudioProcessorEditor::toggleTuner()
 {
     // LÓGICA MODULARIZADA
-    // Accedemos al estado del engine para saber si encender o apagar
     bool currentState = audioProcessor.getAudioEngine().isTunerEnabled();
     bool newState = !currentState;
 
-    // Cambiamos el estado en el engine
     audioProcessor.getAudioEngine().setTunerEnabled(newState);
 
     // Feedback visual en el botón
@@ -629,12 +372,11 @@ void NOVAAudioProcessorEditor::toggleTuner()
         // Instanciamos el NUEVO Overlay modular
         tunerOverlay = std::make_unique<TunerOverlay>(audioProcessor);
         addAndMakeVisible(tunerOverlay.get());
-        tunerOverlay->setBounds(getLocalBounds()); // Cubrir toda la pantalla
+        tunerOverlay->setBounds(getLocalBounds());
         tunerOverlay->toFront(true);
     }
     else
     {
-        // Destruimos el overlay
         tunerOverlay.reset();
     }
 }
@@ -663,6 +405,8 @@ void NOVAAudioProcessorEditor::updateStats()
 void NOVAAudioProcessorEditor::updatePedalGui()
 {
     std::set<juce::AudioProcessorGraph::NodeID> requiredNodeIDs;
+
+    // Función Lambda para procesar cada carril
     auto processLane = [&](Nova::ChainID chain, ChainLane* laneComp)
         {
             if (!laneComp) return;
@@ -679,6 +423,8 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                     requiredNodeIDs.insert(node->nodeID);
                     auto state = treeList.getChild(i);
                     int zoneIdx = state.getProperty(Nova::IDs::PEDAL_ZONE);
+
+                    // Usamos el helper del widget ChainLane
                     auto zoneRect = laneComp->getZoneRect(zoneIdx);
                     int zoneAbsX = laneComp->getX() + zoneRect.getX();
                     int zoneAbsY = laneComp->getY() + zoneRect.getY();
@@ -716,12 +462,14 @@ void NOVAAudioProcessorEditor::updatePedalGui()
     processLane(Nova::ChainID::LineA, laneA.get());
     processLane(Nova::ChainID::LineB, laneB.get());
 
+    // Garbage Collection
     for (auto it = activePedalEditors.begin(); it != activePedalEditors.end(); ) {
         if (requiredNodeIDs.find(it->first) == requiredNodeIDs.end()) it = activePedalEditors.erase(it);
         else ++it;
     }
 
     if (currentOverlay) currentOverlay->toFront(true);
+    if (tunerOverlay && tunerOverlay->isVisible()) tunerOverlay->toFront(true);
 }
 
 void NOVAAudioProcessorEditor::updateSwitcherState()
@@ -757,6 +505,7 @@ bool NOVAAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
 
 void NOVAAudioProcessorEditor::showOverlay(Nova::ZoneID zone, Nova::ChainID chain)
 {
+    // Usamos el widget modular AssetBrowserOverlay
     auto overlay = std::make_unique<AssetBrowserOverlay>(
         zone,
         [this, zone, chain](juce::String typeID) {

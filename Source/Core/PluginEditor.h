@@ -1,22 +1,15 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
-#include "Constants.h"               // <--- Para Nova::IDs y Colors
-#include "../GUI/Overlays/TunerOverlay.h" // <--- Para el nuevo Afinador Modular
+#include "Constants.h"
 
-// Helper para botones arrastrables (Se mantiene aquí por ahora)
-class DraggableButton : public juce::TextButton
-{
-public:
-    using juce::TextButton::TextButton;
-    void mouseDrag(const juce::MouseEvent& e) override
-    {
-        if (auto* container = findParentComponentOfClass<juce::DragAndDropContainer>())
-            container->startDragging(getButtonText(), this);
-    }
-};
+// --- MÓDULOS DE UI ---
+#include "../GUI/Overlays/TunerOverlay.h"
+#include "../GUI/Widgets/DraggableButton.h" // Necesitamos la definición completa aquí porque lo usamos como miembro directo
 
-class ChainLane; // Forward declaration
+// Forward Declarations (Para punteros inteligentes)
+class ChainLane;
+class AssetBrowserOverlay;
 
 // ==============================================================================
 // CLASE PRINCIPAL DEL EDITOR
@@ -33,6 +26,7 @@ public:
     void resized() override;
     bool keyPressed(const juce::KeyPress&) override;
 
+    // Métodos públicos para interacción con hijos (DropZones)
     void showOverlay(Nova::ZoneID zone, Nova::ChainID chain);
     void toggleTuner();
 
@@ -41,7 +35,7 @@ private:
     void setupKnob(juce::Slider& slider, const juce::String& name, float min, float max, float def);
     void drawChannelStrip(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title);
 
-    // Callbacks de ValueTree
+    // Callbacks de ValueTree (Sincronización de Datos)
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override;
     void valueTreeChildAdded(juce::ValueTree&, juce::ValueTree&) override { updatePedalGui(); }
     void valueTreeChildRemoved(juce::ValueTree&, juce::ValueTree&, int) override { updatePedalGui(); }
@@ -52,7 +46,7 @@ private:
 
     NOVAAudioProcessor& audioProcessor;
 
-    // --- HEADER ---
+    // --- 1. HEADER COMPONENTS ---
     juce::TextButton btnStartStop;
     juce::Label lblStats;
 
@@ -61,20 +55,21 @@ private:
     juce::TextButton btnSettings{ "Set" };
     juce::TextButton btnProfile{ "Profile" };
 
-    // --- LEFT COLUMN 1: BROWSER ---
+    // --- 2. BROWSER (Izquierda) ---
     juce::TextEditor searchBarBrowser;
+    // Usamos la clase importada DraggableButton
     DraggableButton btnAddOverdrive{ "Overdrive" };
     DraggableButton btnAddCabinet{ "Cabinet" };
     DraggableButton btnAddNeural{ "Neural Amp" };
 
-    // --- LEFT COLUMN 2: INPUT STRIP ---
+    // --- 3. INPUT STRIP ---
     juce::Slider inputVolume;
     juce::Slider inputGate;
     juce::Slider inputTranspose;
     juce::ToggleButton btnMonoStereo{ "Mono/Stereo" };
     juce::Slider inputFader;
 
-    // --- CENTER: MIXER ---
+    // --- 4. MIXER (Centro) ---
     juce::TextButton btnSwitcher;
 
     // Line A
@@ -87,29 +82,31 @@ private:
     juce::Slider panSliderB;
     juce::Slider widthSliderB;
 
-    // --- RIGHT COLUMN 1: OUTPUT STRIP ---
+    // --- 5. OUTPUT STRIP (Derecha) ---
     juce::Slider outputVolume;
     juce::Slider outputGain;
     juce::Slider outputMix;
     juce::Slider outputFader;
 
-    // --- RIGHT COLUMN 2: PRESETS ---
+    // --- 6. PRESETS & FOOTER ---
     juce::TextEditor searchBarPresets;
     juce::TextButton btnSave{ "SAVE" };
     juce::TextButton btnLoad{ "LOAD" };
 
-    // --- CARRILES ---
+    // --- 7. INFRAESTRUCTURA DE VISUALIZACIÓN ---
+
+    // Carriles de Pedales (Widgets modulares)
     std::unique_ptr<ChainLane> laneA;
     std::unique_ptr<ChainLane> laneB;
 
-    // --- VISUALIZADORES Y MODALES ---
+    // Mapa de editores de pedales activos
     std::map<juce::AudioProcessorGraph::NodeID, std::unique_ptr<juce::AudioProcessorEditor>> activePedalEditors;
-    std::unique_ptr<juce::Component> currentOverlay;
 
-    // --- TUNER (Modularizado) ---
-    std::unique_ptr<TunerOverlay> tunerOverlay; // <--- Reemplaza a tunerDisplay
+    // Overlays (Ventanas modales)
+    std::unique_ptr<juce::Component> currentOverlay; // Para el Browser
+    std::unique_ptr<TunerOverlay> tunerOverlay;      // Para el Afinador
 
-    // Timer para stats
+    // Timer para actualizar CPU y FPS
     class StatsTimer : public juce::Timer {
         NOVAAudioProcessorEditor& parent;
     public:
