@@ -1,46 +1,14 @@
 #pragma once
+
 #include <JuceHeader.h>
-#include "Common.h"
-#include <vector>
 #include <atomic>
+#include <vector>
+
 #include "Constants.h"
 #include "DSP/Global/InputChain.h"
 #include "DSP/Global/OutputChain.h"
 #include "DSP/Global/ChannelStrip.h"
 #include "DSP/Services/TunerService.h"
-
-// ==========================================================
-// PROCESADOR DE GANANCIA (Control de Volumen Independiente)
-// ==========================================================
-//class SimpleGainProcessor : public juce::AudioProcessor
-//{
-//public:
-//    SimpleGainProcessor();
-//
-//    void setGain(float gain);
-//    void prepareToPlay(double, int) override;
-//    void releaseResources() override;
-//    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override;
-//
-//    const juce::String getName() const override { return "Gain"; }
-//    bool hasEditor() const override { return false; }
-//    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
-//    bool acceptsMidi() const override { return false; }
-//    bool producesMidi() const override { return false; }
-//    double getTailLengthSeconds() const override { return 0.0; }
-//    int getNumPrograms() override { return 0; }
-//    int getCurrentProgram() override { return 0; }
-//    void setCurrentProgram(int) override {}
-//    const juce::String getProgramName(int) override { return {}; }
-//    void changeProgramName(int, const juce::String&) override {}
-//    void getStateInformation(juce::MemoryBlock&) override {}
-//    void setStateInformation(const void*, int) override {}
-//    bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
-//
-//private:
-//    float currentGain = 1.0f;
-//    float targetGain = 1.0f;
-//};
 
 // ==========================================================
 // MOTOR DE AUDIO PRINCIPAL
@@ -49,117 +17,97 @@ class AudioEngine : public juce::Thread
 {
 public:
     AudioEngine();
-    ~AudioEngine();
+    ~AudioEngine() override;
 
     void prepare(double sampleRate, int samplesPerBlock, int numIn, int numOut);
     void process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
 
-    // Gestión de Cadenas (Thread-Safe)
+    // Gestión de cadenas (thread-safe)
     void addPedal(const juce::String& type, Nova::ChainID chain, int index);
     void removePedal(Nova::ChainID chain, int index);
     void clearAll();
 
-    // Control
+    // Control global
     void setEngineEnabled(bool enabled);
-    void updateMixer(float gainA, float gainB, Nova::SwitcherMode mode);
+    void updateMixer(float gainA, float gainB, Nova::SwitcherMode mode); // legacy wrapper (no-op)
 
-    // Introspección (para la UI)
+    // Introspección para UI
     const std::vector<juce::AudioProcessorGraph::Node::Ptr>& getNodes(Nova::ChainID chain) const;
 
     double getCpuLoad() const;
     int getLatencyNumSamples() const;
 
-    // TUNER CONTROL
+    // Tuner
     void setTunerEnabled(bool shouldEnable);
 
-    // Getters Inline (Soluciona tus errores de compilación)
-    bool isTunerEnabled() const { return tunerEnabled; }
-    // ALIAS DE COMPATIBILIDAD (Para arreglar el error en PluginProcessor.cpp)
-    bool getTunerEnabled() const { return tunerEnabled; }
+    // Alias (compatibilidad con código existente)
+    bool isTunerEnabled() const { return tunerEnabled.load(); }
+    bool getTunerEnabled() const { return tunerEnabled.load(); }
 
-    // TUNER DATA (Getters seguros)
-    //float getTunerPitch() const { return currentPitch; }
-    //int getTunerNote() const { return currentNote; }
-    //float getTunerCents() const { return currentCents; }
-    //float getTunerRMS() const { return currentRMS; }
-
+    // Tuner data (delegado al servicio)
     float getTunerPitch() const { return tunerService.getCurrentPitch(); }
     float getTunerClarity() const { return tunerService.getCurrentClarity(); }
     float getTunerRMS() const { return tunerService.getCurrentRMS(); }
 
-
+    // Pedal bypass (placeholder)
     void setPedalBypassed(Nova::ChainID chain, int index, bool bypassed);
 
+    // Thread
     void run() override;
 
+    // Params
     void setTuningOffset(int semitones) { tuningOffset = semitones; }
-    int getTuningOffset() const { return tuningOffset; }
-    //float getTunerClarity() const { return currentClarity; }
+    int  getTuningOffset() const { return tuningOffset.load(); }
 
-    void updateGlobalParams(const juce::ValueTree& settings, const juce::ValueTree& lineA, const juce::ValueTree& lineB);
+    void updateGlobalParams(const juce::ValueTree& settings,
+        const juce::ValueTree& lineA,
+        const juce::ValueTree& lineB);
+
 private:
-
-    TunerService tunerService;
-    std::atomic<float> currentClarity{ 0.0f };
-    std::atomic<int> tuningOffset{ 0 };
-
-    std::atomic<float> currentGlobalMix{ 1.0f }; // 1.0 = 100% Wet (Por defecto)
-    juce::AudioBuffer<float> dryBuffer;           // Para guardar la copia limpia
-
-
+    // Graph build
     void rebuildGraph();
-
-    // Core Conexiones
     void connectChainToGain(const std::vector<juce::AudioProcessorGraph::Node::Ptr>& nodes,
-        juce::AudioProcessorGraph::NodeID gainNodeID);
+        juce::AudioProcessorGraph::NodeID targetStripID);
 
+    // DSP / tuner helpers (legacy kept)
+    float calculateFrequency(const float* signal, int numSamples, double sampleRate);
+    std::pair<float, float> calculateFrequencyWithClarity(const float* signal, int numSamples, double sampleRate);
+
+private:
     std::unique_ptr<juce::AudioProcessorGraph> mainGraph;
 
-    // Protección de concurrencia
+    // Concurrency protection
     juce::CriticalSection vectorLock;
     std::vector<juce::AudioProcessorGraph::Node::Ptr> nodesChainA;
     std::vector<juce::AudioProcessorGraph::Node::Ptr> nodesChainB;
 
-    //juce::AudioProcessorGraph::Node::Ptr inputNode;
-    //juce::AudioProcessorGraph::Node::Ptr outputNode;
-    //juce::AudioProcessorGraph::Node::Ptr gainNodeA;
-    //juce::AudioProcessorGraph::Node::Ptr gainNodeB;
-
-
+    // Hardware I/O nodes
     juce::AudioProcessorGraph::Node::Ptr inputNode;
+    juce::AudioProcessorGraph::Node::Ptr outputNode;
 
-    // Estos están bien:
+    // Internal chain nodes
     juce::AudioProcessorGraph::Node::Ptr inputChainNode;
     juce::AudioProcessorGraph::Node::Ptr stripNodeA;
     juce::AudioProcessorGraph::Node::Ptr stripNodeB;
-    juce::AudioProcessorGraph::Node::Ptr outputChainNode; 
-    juce::AudioProcessorGraph::Node::Ptr outputNode;      // Hardware Output
+    juce::AudioProcessorGraph::Node::Ptr outputChainNode;
 
-
+    // Runtime
     double currentSampleRate = 44100.0;
-    int currentBlockSize = 512;
-    int numInputChannels = 2;
-     
-    std::atomic<bool> isEngineOn{ false };
-    double currentRate = 0.0;
-    int startupCounter = 0;
+    int    currentBlockSize = 512;
+    int    numInputChannels = 2;
+
+    std::atomic<bool>   isEngineOn{ false };
     std::atomic<double> cpuUsage{ 0.0 };
 
-    // TUNER DATA
+    double currentRate = 0.0;
+    int startupCounter = 0;
+
+    // Global mix (dry/wet)
+    std::atomic<float> currentGlobalMix{ 1.0f }; // 1.0 = 100% wet
+    juce::AudioBuffer<float> dryBuffer;
+
+    // Tuner
+    TunerService tunerService;
     std::atomic<bool> tunerEnabled{ false };
-    //std::atomic<float> currentPitch{ 0.0f };
-    //std::atomic<int> currentNote{ 0 };
-    //std::atomic<float> currentCents{ 0.0f };
-    //std::atomic<float> currentRMS{ 0.0f };
-
-    // Buffers para el afinador
-    //static constexpr int TUNER_FIFO_SIZE = 16384;
-    //static constexpr int TUNER_PROCESS_SIZE = 4096;
-
-    //juce::AbstractFifo tunerFifo{ TUNER_FIFO_SIZE };
-    //std::vector<float> tunerCircularBuffer;
-    //std::vector<float> tunerWorkBuffer;
-
-    float calculateFrequency(const float* signal, int numSamples, double sampleRate);
-    std::pair<float, float> calculateFrequencyWithClarity(const float* signal, int numSamples, double sampleRate);
+    std::atomic<int>  tuningOffset{ 0 };
 };

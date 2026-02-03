@@ -1,45 +1,47 @@
 #pragma once
+
 #include <JuceHeader.h>
+#include <atomic>
+#include <vector>
+
 #include "../../Constants.h"
 
-class TunerService
+class TunerService final
 {
 public:
     TunerService();
-    ~TunerService();
+    ~TunerService() = default;
 
-    // Llamado desde el Hilo de Audio (ProcessBlock)
-    // Retorna true si se escribió algo (para debug)
+    // Called from the audio thread (processBlock)
     void pushBuffer(const juce::AudioBuffer<float>& buffer);
 
-    // Llamado desde el Background Thread (run)
-    // Realiza los cálculos matemáticos pesados
+    // Called from a background thread (AudioEngine::run)
     void process();
 
-    // Getters Atómicos (Thread-Safe para la UI)
+    // Thread-safe getters (UI)
     float getCurrentPitch() const { return currentPitch.load(); }
     float getCurrentClarity() const { return currentClarity.load(); }
     float getCurrentRMS() const { return currentRMS.load(); }
-    int getCurrentNote() const { return currentNote.load(); }
+    int   getCurrentNote() const { return currentNote.load(); }
 
     void reset();
     void setSampleRate(double rate) { sampleRate = rate; }
 
 private:
-    // Configuración
+    std::pair<float, float> calculateFrequencyWithClarity(const float* signal, int numSamples);
+
+private:
+    // Config
     double sampleRate = 44100.0;
 
-    // Buffers y FIFO
+    // FIFO + buffers
     juce::AbstractFifo tunerFifo{ Nova::Config::TUNER_FIFO_SIZE };
-    std::vector<float> circularBuffer; // Buffer circular de entrada
-    std::vector<float> workBuffer;     // Buffer lineal para procesar
+    std::vector<float> circularBuffer; // ring buffer input
+    std::vector<float> workBuffer;     // contiguous analysis window
 
-    // Resultados Atómicos (Lectura/Escritura concurrente)
+    // Results (written by background thread, read by UI)
     std::atomic<float> currentPitch{ 0.0f };
     std::atomic<float> currentClarity{ 0.0f };
     std::atomic<float> currentRMS{ 0.0f };
-    std::atomic<int> currentNote{ 0 };
-
-    // Matemática Pura (Privada)
-    std::pair<float, float> calculateFrequencyWithClarity(const float* signal, int numSamples);
+    std::atomic<int>   currentNote{ 0 };
 };

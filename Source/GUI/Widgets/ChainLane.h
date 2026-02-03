@@ -1,20 +1,23 @@
 #pragma once
+
 #include <JuceHeader.h>
 #include "DropZone.h"
 
 class ChainLane : public juce::Component
 {
 public:
-    ChainLane(NOVAAudioProcessor& p, Nova::ChainID c);
+    ChainLane(NOVAAudioProcessor& processor, Nova::ChainID chain);
 
-    void setActive(bool isActive);
+    void setActive(bool shouldBeActive);
     void paint(juce::Graphics& g) override;
     void resized() override;
 
-    // Para saber dónde poner los pedales
-    juce::Rectangle<int> getZoneRect(int zoneIndex);
+    // Para saber dónde posicionar los pedales dentro de cada zona
+    juce::Rectangle<int> getZoneRect(int zoneIndex) const;
 
 private:
+    juce::Colour getCableGlowColour() const noexcept;
+
     juce::OwnedArray<DropZone> zones;
     Nova::ChainID chainID;
     bool isLaneActive = false;

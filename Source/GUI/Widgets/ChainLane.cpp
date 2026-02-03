@@ -1,73 +1,102 @@
 #include "ChainLane.h"
 
-ChainLane::ChainLane(NOVAAudioProcessor& p, Nova::ChainID c) : chainID(c)
+namespace
 {
-    // Creamos las 4 zonas obligatorias en orden
+    constexpr int kFixedZoneWidth = 240; // Amp y Cab
+    constexpr float kCableShadowThickness = 10.0f;
+    constexpr float kCableBodyThickness = 6.0f;
+    constexpr float kCableSignalOn = 2.0f;
+    constexpr float kCableSignalOff = 1.0f;
+    constexpr float kCableGlowThickness = 8.0f;
+
+    const juce::Colour kCableBodyColour = juce::Colour::fromString("ff151515");
+}
+
+ChainLane::ChainLane(NOVAAudioProcessor& p, Nova::ChainID c)
+    : chainID(c)
+{
+    // Zonas obligatorias en orden
     zones.add(new DropZone(p, c, Nova::ZoneID::Pre));
     zones.add(new DropZone(p, c, Nova::ZoneID::Amp));
     zones.add(new DropZone(p, c, Nova::ZoneID::FX));
     zones.add(new DropZone(p, c, Nova::ZoneID::Cabinet));
 
-    for (auto* z : zones) addAndMakeVisible(z);
+    for (auto* z : zones)
+        addAndMakeVisible(z);
 }
 
-void ChainLane::setActive(bool isActive)
+void ChainLane::setActive(bool shouldBeActive)
 {
-    isLaneActive = isActive;
+    isLaneActive = shouldBeActive;
     repaint();
+}
+
+juce::Rectangle<int> ChainLane::getZoneRect(int zoneIndex) const
+{
+    if (juce::isPositiveAndBelow(zoneIndex, zones.size()))
+        return zones[zoneIndex]->getBounds();
+
+    return {};
+}
+
+juce::Colour ChainLane::getCableGlowColour() const noexcept
+{
+    if (!isLaneActive)
+        return Nova::Colors::CableOff;
+
+    return (chainID == Nova::ChainID::LineA) ? Nova::Colors::CableOnA
+        : Nova::Colors::CableOnB;
 }
 
 void ChainLane::resized()
 {
-    auto area = getLocalBounds();
-    int totalW = area.getWidth();
-    int h = area.getHeight();
+    const auto area = getLocalBounds();
+    const int totalW = area.getWidth();
+    const int h = area.getHeight();
 
-    int fixedZoneW = 240; // Ancho fijo para Amp y Cab
-    int remainingW = totalW - (fixedZoneW * 2);
-    int flexZoneW = remainingW / 2; // Ancho flexible para Pre y FX
+    const int fixedTotal = kFixedZoneWidth * 2;
+    const int remaining = juce::jmax(0, totalW - fixedTotal);
+    const int flexZoneW = remaining / 2;
 
-    zones[0]->setBounds(0, 0, flexZoneW, h);                    // Pre
-    zones[1]->setBounds(flexZoneW, 0, fixedZoneW, h);           // Amp
-    zones[2]->setBounds(flexZoneW + fixedZoneW, 0, flexZoneW, h);// FX
-    zones[3]->setBounds(totalW - fixedZoneW, 0, fixedZoneW, h); // Cab
-}
+    // Pre | Amp | FX | Cab
+    const int xPre = 0;
+    const int xAmp = xPre + flexZoneW;
+    const int xFx = xAmp + kFixedZoneWidth;
+    const int xCab = totalW - kFixedZoneWidth;
 
-juce::Rectangle<int> ChainLane::getZoneRect(int zoneIndex)
-{
-    if (zoneIndex >= 0 && zoneIndex < zones.size())
-        return zones[zoneIndex]->getBounds();
-    return {};
+    zones[0]->setBounds(xPre, 0, flexZoneW, h);          // Pre
+    zones[1]->setBounds(xAmp, 0, kFixedZoneWidth, h);    // Amp
+    zones[2]->setBounds(xFx, 0, flexZoneW, h);          // FX
+    zones[3]->setBounds(xCab, 0, kFixedZoneWidth, h);    // Cab
 }
 
 void ChainLane::paint(juce::Graphics& g)
 {
-    float y = (float)getHeight() / 2.0f;
-    float w = (float)getWidth();
+    const float y = getHeight() * 0.5f;
+    const float w = (float)getWidth();
 
-    // Dibujamos el cable que atraviesa todo
     juce::Path cable;
-    cable.startNewSubPath(0, y);
+    cable.startNewSubPath(0.0f, y);
     cable.lineTo(w, y);
 
-    juce::Colour glow = (chainID == Nova::ChainID::LineA) ? Nova::Colors::CableOnA : Nova::Colors::CableOnB;
-    if (!isLaneActive) glow = Nova::Colors::CableOff;
+    const auto glow = getCableGlowColour();
 
-    // Sombra del cable
+    // Sombra
     g.setColour(juce::Colours::black.withAlpha(0.6f));
-    g.strokePath(cable, juce::PathStrokeType(10.0f));
+    g.strokePath(cable, juce::PathStrokeType(kCableShadowThickness));
 
-    // Cuerpo del cable
-    g.setColour(juce::Colour::fromString("ff151515"));
-    g.strokePath(cable, juce::PathStrokeType(6.0f));
+    // Cuerpo
+    g.setColour(kCableBodyColour);
+    g.strokePath(cable, juce::PathStrokeType(kCableBodyThickness));
 
-    // Luz interna (señal)
+    // Señal
     g.setColour(glow);
-    g.strokePath(cable, juce::PathStrokeType(isLaneActive ? 2.0f : 1.0f));
+    g.strokePath(cable, juce::PathStrokeType(isLaneActive ? kCableSignalOn : kCableSignalOff));
 
-    // Glow externo si está activo
-    if (isLaneActive) {
+    // Glow externo cuando está activo
+    if (isLaneActive)
+    {
         g.setColour(glow.withAlpha(0.4f));
-        g.strokePath(cable, juce::PathStrokeType(8.0f));
+        g.strokePath(cable, juce::PathStrokeType(kCableGlowThickness));
     }
 }

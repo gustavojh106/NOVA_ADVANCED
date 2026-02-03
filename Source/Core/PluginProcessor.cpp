@@ -1,240 +1,321 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "Constants.h"
+
+// ==============================================================================
+// Constructor / Destructor
+// ==============================================================================
 
 NOVAAudioProcessor::NOVAAudioProcessor()
-    : AudioProcessor(BusesProperties().withInput("In", juce::AudioChannelSet::stereo()).withOutput("Out", juce::AudioChannelSet::stereo())),
-    pluginState(Nova::IDs::MAIN_STATE)
+    : AudioProcessor(BusesProperties()
+        .withInput("In", juce::AudioChannelSet::stereo())
+        .withOutput("Out", juce::AudioChannelSet::stereo()))
+    , pluginState(Nova::IDs::MAIN_STATE)
 {
-    // Estructura Inicial
-    pluginState.appendChild(juce::ValueTree(Nova::IDs::SETTINGS), nullptr);
-    pluginState.appendChild(juce::ValueTree(Nova::IDs::LINE_A), nullptr);
-    pluginState.appendChild(juce::ValueTree(Nova::IDs::LINE_B), nullptr);
-
-    // Valores por defecto
-    auto settings = pluginState.getChildWithName(Nova::IDs::SETTINGS);
-
-    // === REQUISITO 3: SIEMPRE STOP AL INICIO ===
-    settings.setProperty(Nova::IDs::ENGINE_ON, false, nullptr);
-
-    settings.setProperty(Nova::IDs::SWITCH_MODE, (int)Nova::SwitcherMode::Dual_Parallel, nullptr);
-    settings.setProperty(Nova::IDs::MIXER_GAIN_A, 1.0f, nullptr);
-    settings.setProperty(Nova::IDs::MIXER_GAIN_B, 1.0f, nullptr);
+    // Estructura inicial + defaults
+    ensureStateStructure();
+    applyDefaultStateIfNeeded();
 
     pluginState.addListener(this);
 }
 
-NOVAAudioProcessor::~NOVAAudioProcessor() { pluginState.removeListener(this); }
+NOVAAudioProcessor::~NOVAAudioProcessor()
+{
+    pluginState.removeListener(this);
+}
+
+// ==============================================================================
+// JUCE AudioProcessor
+// ==============================================================================
 
 void NOVAAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    // IMPORTANTE: Pasamos los canales reales para que el AudioEngine sepa si es Mono o Stereo
-    audioEngine.prepare(sampleRate, samplesPerBlock, getTotalNumInputChannels(), getTotalNumOutputChannels());
+    // Pasamos canales reales (mono/stereo) al motor
+    audioEngine.prepare(sampleRate,
+        samplesPerBlock,
+        getTotalNumInputChannels(),
+        getTotalNumOutputChannels());
+
     updateMixerFromState();
+}
+
+void NOVAAudioProcessor::releaseResources()
+{
 }
 
 void NOVAAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
 
-    // Delegamos TODO al motor. Él decide si silencia (Tuner/Bypass) o procesa.
-    // No hacer buffer.clear() aquí.
+    // Delegamos al motor (tuner/bypass/processing). No limpiar buffer aquí.
     audioEngine.process(buffer, midi);
 
-    // Visualizador (Thread Safe push)
+    // Visualizador (thread-safe push)
     audioVisualizer.pushBuffer(buffer);
 }
 
-// === LÓGICA DE NEGOCIO ===
+// ==============================================================================
+// Editor / Metadata (boilerplate)
+// ==============================================================================
+
+juce::AudioProcessorEditor* NOVAAudioProcessor::createEditor()
+{
+    // JUCE requiere puntero crudo en la firma.
+    return new NOVAAudioProcessorEditor(*this);
+}
+
+bool NOVAAudioProcessor::hasEditor() const { return true; }
+
+const juce::String NOVAAudioProcessor::getName() const { return "NOVA"; }
+
+bool NOVAAudioProcessor::acceptsMidi() const { return false; }
+bool NOVAAudioProcessor::producesMidi() const { return false; }
+double NOVAAudioProcessor::getTailLengthSeconds() const { return 0.0; }
+
+int NOVAAudioProcessor::getNumPrograms() { return 1; }
+int NOVAAudioProcessor::getCurrentProgram() { return 0; }
+void NOVAAudioProcessor::setCurrentProgram(int) {}
+const juce::String NOVAAudioProcessor::getProgramName(int) { return {}; }
+void NOVAAudioProcessor::changeProgramName(int, const juce::String&) {}
+
+bool NOVAAudioProcessor::isBusesLayoutSupported(const BusesLayout&) const
+{
+    // Aceptamos todo para evitar problemas (tu comportamiento original)
+    return true;
+}
+
+// ==============================================================================
+// State serialization
+// ==============================================================================
+
+void NOVAAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
+{
+    juce::MemoryOutputStream stream(destData, true);
+    pluginState.writeToStream(stream);
+}
+
+void NOVAAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
+{
+    auto loaded = juce::ValueTree::readFromData(data, sizeInBytes);
+
+    if (loaded.isValid() && loaded.hasType(Nova::IDs::MAIN_STATE))
+        pluginState.copyPropertiesAndChildrenFrom(loaded, nullptr);
+
+    // Asegura estructura + defaults mínimos
+    ensureStateStructure();
+
+    // === REQUISITO 3: FORZAR STOP AL CARGAR ===
+    // Ignoramos el archivo guardado, siempre arranca parado.
+    auto settings = getSettingsTree();
+    if (settings.isValid())
+        settings.setProperty(Nova::IDs::ENGINE_ON, false, nullptr);
+
+    updateMixerFromState();
+}
+
+// ==============================================================================
+// Public API (Editor commands)
+// ==============================================================================
+
 double NOVAAudioProcessor::getCpuUsage() const
 {
-    // Llama al método del AudioEngine que creamos anteriormente
     return audioEngine.getCpuLoad();
 }
+
 void NOVAAudioProcessor::requestAddPedal(const juce::String& type, Nova::ChainID chain, Nova::ZoneID zone)
 {
     juce::ValueTree newPedal(Nova::IDs::PEDAL);
     newPedal.setProperty(Nova::IDs::PEDAL_TYPE, type, nullptr);
     newPedal.setProperty(Nova::IDs::PEDAL_ZONE, (int)zone, nullptr);
 
-    auto listID = (chain == Nova::ChainID::LineA) ? Nova::IDs::LINE_A : Nova::IDs::LINE_B;
-    auto list = pluginState.getChildWithName(listID);
+    auto list = getLineTree(chain);
 
-    // Insertar Ordenado por Zona
+    // Insertar ordenado por zona
     int insertIndex = list.getNumChildren();
     for (int i = 0; i < list.getNumChildren(); ++i)
     {
-        int z = list.getChild(i).getProperty(Nova::IDs::PEDAL_ZONE);
+        const int z = (int)list.getChild(i).getProperty(Nova::IDs::PEDAL_ZONE);
         if (z > (int)zone) { insertIndex = i; break; }
     }
+
     list.addChild(newPedal, insertIndex, nullptr);
 }
 
 void NOVAAudioProcessor::requestRemovePedal(Nova::ChainID chain, int index)
 {
-    auto listID = (chain == Nova::ChainID::LineA) ? Nova::IDs::LINE_A : Nova::IDs::LINE_B;
-    pluginState.getChildWithName(listID).removeChild(index, nullptr);
+    getLineTree(chain).removeChild(index, nullptr);
+}
+
+void NOVAAudioProcessor::requestBypassPedal(Nova::ChainID chain, int index, bool bypassed)
+{
+    // Instantáneo (sin cortes)
+    audioEngine.setPedalBypassed(chain, index, bypassed);
+
+    // Persistencia opcional en ValueTree (igual que tu comentario original, no se implementa aquí)
 }
 
 void NOVAAudioProcessor::toggleEngine()
 {
-    auto settings = pluginState.getChildWithName(Nova::IDs::SETTINGS);
-    if (settings.isValid())
-    {
-        bool isOn = settings.getProperty(Nova::IDs::ENGINE_ON);
-        settings.setProperty(Nova::IDs::ENGINE_ON, !isOn, nullptr);
-    }
+    auto settings = getSettingsTree();
+    if (!settings.isValid())
+        return;
+
+    const bool isOn = (bool)settings.getProperty(Nova::IDs::ENGINE_ON);
+    settings.setProperty(Nova::IDs::ENGINE_ON, !isOn, nullptr);
 }
 
 void NOVAAudioProcessor::cycleSwitcher()
 {
-    auto s = pluginState.getChildWithName(Nova::IDs::SETTINGS);
-    if (s.isValid())
-    {
-        int mode = s.getProperty(Nova::IDs::SWITCH_MODE);
-        mode = (mode + 1) % 3;
-        s.setProperty(Nova::IDs::SWITCH_MODE, mode, nullptr);
-    }
+    auto settings = getSettingsTree();
+    if (!settings.isValid())
+        return;
+
+    int mode = (int)settings.getProperty(Nova::IDs::SWITCH_MODE);
+    mode = (mode + 1) % 3;
+    settings.setProperty(Nova::IDs::SWITCH_MODE, mode, nullptr);
 }
 
-// === VALUE TREE LISTENER ===
+void NOVAAudioProcessor::toggleTuner()
+{
+    const bool newState = !audioEngine.getTunerEnabled();
+    audioEngine.setTunerEnabled(newState);
+}
+
+// ==============================================================================
+// ValueTree Listener
+// ==============================================================================
 
 void NOVAAudioProcessor::valueTreeChildAdded(juce::ValueTree& parent, juce::ValueTree& child)
 {
-    if (child.hasType(Nova::IDs::PEDAL))
-    {
-        Nova::ChainID chain;
-        if (parent.hasType(Nova::IDs::LINE_A)) chain = Nova::ChainID::LineA;
-        else if (parent.hasType(Nova::IDs::LINE_B)) chain = Nova::ChainID::LineB;
-        else return;
+    if (!child.hasType(Nova::IDs::PEDAL))
+        return;
 
-        audioEngine.addPedal(child.getProperty(Nova::IDs::PEDAL_TYPE), chain, parent.indexOf(child));
-    }
+    Nova::ChainID chain;
+    if (parent.hasType(Nova::IDs::LINE_A)) chain = Nova::ChainID::LineA;
+    else if (parent.hasType(Nova::IDs::LINE_B)) chain = Nova::ChainID::LineB;
+    else return;
+
+    audioEngine.addPedal(child.getProperty(Nova::IDs::PEDAL_TYPE),
+        chain,
+        parent.indexOf(child));
 }
 
-void NOVAAudioProcessor::valueTreeChildRemoved(juce::ValueTree& parent, juce::ValueTree& child, int index)
+void NOVAAudioProcessor::valueTreeChildRemoved(juce::ValueTree& parent, juce::ValueTree&, int index)
 {
-    if (parent.hasType(Nova::IDs::LINE_A)) audioEngine.removePedal(Nova::ChainID::LineA, index);
-    else if (parent.hasType(Nova::IDs::LINE_B)) audioEngine.removePedal(Nova::ChainID::LineB, index);
+    if (parent.hasType(Nova::IDs::LINE_A))
+        audioEngine.removePedal(Nova::ChainID::LineA, index);
+    else if (parent.hasType(Nova::IDs::LINE_B))
+        audioEngine.removePedal(Nova::ChainID::LineB, index);
 }
 
 void NOVAAudioProcessor::valueTreePropertyChanged(juce::ValueTree& tree, const juce::Identifier& property)
 {
-    // 1. CONTROL DE ENCENDIDO
     if (property == Nova::IDs::ENGINE_ON)
     {
-        bool shouldBeOn = (bool)tree.getProperty(property);
+        const bool shouldBeOn = (bool)tree.getProperty(property);
         audioEngine.setEngineEnabled(shouldBeOn);
+        return;
     }
-    // 2. CAMBIO DE MODO A/B/DUAL
-    else if (property == Nova::IDs::SWITCH_MODE)
+
+    if (property == Nova::IDs::SWITCH_MODE)
     {
-        audioEngine.updateGlobalParams(
-            pluginState.getChildWithName(Nova::IDs::SETTINGS),
-            pluginState.getChildWithName(Nova::IDs::LINE_A),
-            pluginState.getChildWithName(Nova::IDs::LINE_B)
-        );
+        updateGlobalParamsFromState();
+        return;
     }
-    // 3. PARÁMETROS GLOBALES (Input, Mixer y OUTPUT)
-    // Agregamos OUTPUT_VOL, OUTPUT_LIMITER y OUTPUT_MIX a la lista de escucha
-    else if (property == Nova::IDs::INPUT_GAIN ||
+
+    // Parámetros globales (Input + Mixer + Output)
+    if (property == Nova::IDs::INPUT_GAIN ||
         property == Nova::IDs::INPUT_GATE ||
         property == Nova::IDs::FORCE_MONO ||
         property == Nova::IDs::INPUT_TRANS ||
+
         // MIXER A
         property == Nova::IDs::MIXER_GAIN_A ||
         property == Nova::IDs::MIXER_PAN_A ||
         property == Nova::IDs::MIXER_WIDTH_A ||
+
         // MIXER B
         property == Nova::IDs::MIXER_GAIN_B ||
         property == Nova::IDs::MIXER_PAN_B ||
         property == Nova::IDs::MIXER_WIDTH_B ||
-        // OUTPUT (ESTO ES LO QUE FALTABA)
+
+        // OUTPUT
         property == Nova::IDs::OUTPUT_VOL ||
         property == Nova::IDs::OUTPUT_LIMITER ||
         property == Nova::IDs::OUTPUT_MIX)
     {
-        // Si cualquiera de estos cambia, actualizamos los parámetros del motor
-        audioEngine.updateGlobalParams(
-            pluginState.getChildWithName(Nova::IDs::SETTINGS),
-            pluginState.getChildWithName(Nova::IDs::LINE_A),
-            pluginState.getChildWithName(Nova::IDs::LINE_B)
-        );
+        updateGlobalParamsFromState();
+        return;
     }
+}
+
+// ==============================================================================
+// Internal helpers
+// ==============================================================================
+
+juce::ValueTree NOVAAudioProcessor::getSettingsTree() const
+{
+    return pluginState.getChildWithName(Nova::IDs::SETTINGS);
+}
+
+juce::ValueTree NOVAAudioProcessor::getLineTree(Nova::ChainID chain) const
+{
+    const auto id = (chain == Nova::ChainID::LineA) ? Nova::IDs::LINE_A : Nova::IDs::LINE_B;
+    return pluginState.getChildWithName(id);
+}
+
+void NOVAAudioProcessor::ensureStateStructure()
+{
+    // MAIN_STATE ya existe como raíz
+    if (!pluginState.getChildWithName(Nova::IDs::SETTINGS).isValid())
+        pluginState.appendChild(juce::ValueTree(Nova::IDs::SETTINGS), nullptr);
+
+    if (!pluginState.getChildWithName(Nova::IDs::LINE_A).isValid())
+        pluginState.appendChild(juce::ValueTree(Nova::IDs::LINE_A), nullptr);
+
+    if (!pluginState.getChildWithName(Nova::IDs::LINE_B).isValid())
+        pluginState.appendChild(juce::ValueTree(Nova::IDs::LINE_B), nullptr);
+}
+
+void NOVAAudioProcessor::applyDefaultStateIfNeeded()
+{
+    auto settings = getSettingsTree();
+    if (!settings.isValid())
+        return;
+
+    // === REQUISITO 3: SIEMPRE STOP AL INICIO ===
+    settings.setProperty(Nova::IDs::ENGINE_ON, false, nullptr);
+
+    // Defaults
+    settings.setProperty(Nova::IDs::SWITCH_MODE, (int)Nova::SwitcherMode::Dual_Parallel, nullptr);
+    settings.setProperty(Nova::IDs::MIXER_GAIN_A, 1.0f, nullptr);
+    settings.setProperty(Nova::IDs::MIXER_GAIN_B, 1.0f, nullptr);
+}
+
+void NOVAAudioProcessor::updateGlobalParamsFromState()
+{
+    audioEngine.updateGlobalParams(getSettingsTree(),
+        pluginState.getChildWithName(Nova::IDs::LINE_A),
+        pluginState.getChildWithName(Nova::IDs::LINE_B));
 }
 
 void NOVAAudioProcessor::updateMixerFromState()
 {
-    auto s = pluginState.getChildWithName(Nova::IDs::SETTINGS);
-    if (s.isValid())
-    {
-        float gA = s.getProperty(Nova::IDs::MIXER_GAIN_A);
-        float gB = s.getProperty(Nova::IDs::MIXER_GAIN_B);
-        int m = s.getProperty(Nova::IDs::SWITCH_MODE);
-        audioEngine.updateMixer(gA, gB, (Nova::SwitcherMode)m);
-    }
+    auto s = getSettingsTree();
+    if (!s.isValid())
+        return;
+
+    const float gA = (float)s.getProperty(Nova::IDs::MIXER_GAIN_A);
+    const float gB = (float)s.getProperty(Nova::IDs::MIXER_GAIN_B);
+    const int mode = (int)s.getProperty(Nova::IDs::SWITCH_MODE);
+
+    audioEngine.updateMixer(gA, gB, (Nova::SwitcherMode)mode);
 }
 
-// Boilerplate
-juce::AudioProcessorEditor* NOVAAudioProcessor::createEditor()
+// ==============================================================================
+// Factory
+// ==============================================================================
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    // Cambio a puntero crudo solo porque JUCE lo requiere en la firma, 
-    // pero internamente el wrapper toma posesión.
-    return new NOVAAudioProcessorEditor(*this);
-}
-bool NOVAAudioProcessor::hasEditor() const { return true; }
-const juce::String NOVAAudioProcessor::getName() const { return "NOVA"; }
-bool NOVAAudioProcessor::acceptsMidi() const { return false; }
-bool NOVAAudioProcessor::producesMidi() const { return false; }
-double NOVAAudioProcessor::getTailLengthSeconds() const { return 0.0; }
-int NOVAAudioProcessor::getNumPrograms() { return 1; }
-int NOVAAudioProcessor::getCurrentProgram() { return 0; }
-void NOVAAudioProcessor::setCurrentProgram(int) {}
-const juce::String NOVAAudioProcessor::getProgramName(int) { return {}; }
-void NOVAAudioProcessor::changeProgramName(int, const juce::String&) {}
-bool NOVAAudioProcessor::isBusesLayoutSupported(const BusesLayout& l) const { return true; } // Aceptamos todo para evitar problemas
-void NOVAAudioProcessor::getStateInformation(juce::MemoryBlock& d) { juce::MemoryOutputStream s(d, true); pluginState.writeToStream(s); }
-
-void NOVAAudioProcessor::setStateInformation(const void* d, int s)
-{
-    auto t = juce::ValueTree::readFromData(d, s);
-    if (t.isValid() && t.hasType(Nova::IDs::MAIN_STATE))
-    {
-        pluginState.copyPropertiesAndChildrenFrom(t, nullptr);
-    }
-
-    // REPARACIÓN Y FORZADO DE ESTADO STOP
-    auto settings = pluginState.getChildWithName(Nova::IDs::SETTINGS);
-    if (!settings.isValid())
-    {
-        pluginState.appendChild(juce::ValueTree(Nova::IDs::SETTINGS), nullptr);
-        settings = pluginState.getChildWithName(Nova::IDs::SETTINGS);
-        settings.setProperty(Nova::IDs::SWITCH_MODE, 0, nullptr);
-    }
-
-    // === REQUISITO 3: FORZAR STOP AL CARGAR ===
-    // Ignoramos lo que diga el archivo guardado. Siempre arranca parado.
-    settings.setProperty(Nova::IDs::ENGINE_ON, false, nullptr);
-
-    // Asegurar estructura
-    if (!pluginState.getChildWithName(Nova::IDs::LINE_A).isValid()) pluginState.appendChild(juce::ValueTree(Nova::IDs::LINE_A), nullptr);
-    if (!pluginState.getChildWithName(Nova::IDs::LINE_B).isValid()) pluginState.appendChild(juce::ValueTree(Nova::IDs::LINE_B), nullptr);
-
-    updateMixerFromState();
-}
-void NOVAAudioProcessor::requestBypassPedal(Nova::ChainID chain, int index, bool bypassed)
-{
-    // 1. Actualizamos el motor de audio (Instantáneo, sin cortes)
-    audioEngine.setPedalBypassed(chain, index, bypassed);
-
-    // 2. (Opcional) Aquí podrías guardar el estado en el ValueTree para persistencia
-    // Por ahora lo dejamos solo funcional en el audio.
-}
-void NOVAAudioProcessor::releaseResources() {}
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() { return new NOVAAudioProcessor(); }
-void NOVAAudioProcessor::toggleTuner()
-{
-    // Invertimos el estado del afinador
-    bool newState = !audioEngine.getTunerEnabled();
-    audioEngine.setTunerEnabled(newState);
+    return new NOVAAudioProcessor();
 }
