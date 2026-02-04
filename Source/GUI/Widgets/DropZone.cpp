@@ -30,6 +30,7 @@ void DropZone::itemDropped(const SourceDetails& details)
 {
     setHover(false);
 
+
     // Añadir pedal al motor (solo aplica para zonas no fijas, porque las fijas no se interesan)
     proc.requestAddPedal(details.description.toString(), chain, zone);
 }
