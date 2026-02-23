@@ -12,6 +12,7 @@ public:
         std::function<void()> onSelect);
 
     void mouseUp(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
     void mouseEnter(const juce::MouseEvent&) override;
     void mouseExit(const juce::MouseEvent&) override;
     void paint(juce::Graphics& g) override;

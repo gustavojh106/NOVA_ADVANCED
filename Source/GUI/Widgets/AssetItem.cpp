@@ -98,3 +98,19 @@ void AssetItem::paint(juce::Graphics& g)
         g.drawRoundedRectangle(bounds, kCornerRadius, kHoverStroke);
     }
 }
+void AssetItem::mouseDrag(const juce::MouseEvent& e)
+{
+    if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this))
+    {
+        // Mapeamos tu variable interna 'itemType' al prefijo que requiere el DropZone
+        juce::String prefix = "PEDAL";
+
+        if (itemType.containsIgnoreCase("Amp")) prefix = "AMP";
+        else if (itemType.containsIgnoreCase("Cab")) prefix = "CAB";
+
+        // Formateamos: "AMP:Neural Amp"
+        juce::String dragDescription = prefix + ":" + itemName;
+
+        container->startDragging(dragDescription, this);
+    }
+}
