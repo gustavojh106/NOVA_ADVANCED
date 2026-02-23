@@ -1,117 +1,273 @@
 #include "DropZone.h"
 #include "../../Core/PluginEditor.h"
 
+// ==============================================================================
+// CLASE TOOLTIP FLOTANTE (Se inyecta en el Editor Principal)
+// ==============================================================================
+class FloatingTooltip : public juce::Component
+{
+public:
+    FloatingTooltip()
+    {
+        // Importante: Esto evita que el tooltip robe el click o el hover al aparecer
+        setInterceptsMouseClicks(false, false);
+    }
+
+    ~FloatingTooltip() override
+    {
+        if (getParentComponent() != nullptr)
+            getParentComponent()->removeChildComponent(this);
+    }
+
+    void show(juce::Component* topLevelParent, juce::Rectangle<int> iconAreaInParent, const juce::String& text)
+    {
+        helpText = text;
+        topLevelParent->addAndMakeVisible(this); // Lo pegamos a la ventana principal
+
+        int w = 180;
+        int h = 75;
+
+        // Lo posicionamos arriba del icono (i)
+        int x = iconAreaInParent.getX() - w + 20;
+        int y = iconAreaInParent.getY() - h - 5;
+
+        // Si no cabe arriba (ej: zonas muy pegadas al techo), lo bajamos
+        if (y < 0) y = iconAreaInParent.getBottom() + 5;
+        if (x < 0) x = 5;
+
+        setBounds(x, y, w, h);
+        toFront(false); // Traer al frente de TODO en el Eje Z
+    }
+
+    void hide() { setVisible(false); }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.setColour(juce::Colours::black.withAlpha(0.95f));
+        g.fillRoundedRectangle(getLocalBounds().toFloat(), 6.0f);
+        g.setColour(juce::Colours::grey.withAlpha(0.5f));
+        g.drawRoundedRectangle(getLocalBounds().toFloat(), 6.0f, 1.0f);
+        g.setColour(juce::Colours::white);
+        g.setFont(12.0f);
+        g.drawFittedText(helpText, getLocalBounds().reduced(8), juce::Justification::centred, 4);
+    }
+private:
+    juce::String helpText;
+};
+
+
+// ==============================================================================
+// IMPLEMENTACIÓN DE DROPZONE
+// ==============================================================================
+
 DropZone::DropZone(NOVAAudioProcessor& processor, Nova::ChainID chainId, Nova::ZoneID zoneId)
     : proc(processor), chain(chainId), zone(zoneId)
 {
+    setRepaintsOnMouseActivity(true);
+    tooltipOverlay = std::make_unique<FloatingTooltip>(); // Instanciamos el overlay
 }
 
-bool DropZone::isFixedSlot() const noexcept
+DropZone::~DropZone()
 {
-    return zone == Nova::ZoneID::Amp || zone == Nova::ZoneID::Cabinet;
+    stopTimer();
+    tooltipOverlay.reset(); // Destrucción segura
 }
 
-void DropZone::setHover(bool shouldHover)
-{
-    if (isHover == shouldHover)
-        return;
+bool DropZone::isFixedSlot() const noexcept { return zone == Nova::ZoneID::Amp || zone == Nova::ZoneID::Cabinet; }
 
-    isHover = shouldHover;
+void DropZone::resized()
+{
+    auto bounds = getLocalBounds().toFloat();
+    infoIconBounds = bounds.removeFromTop(30.0f).removeFromRight(30.0f).withSizeKeepingCentre(16.0f, 16.0f);
+}
+
+// Validación y Drag & Drop
+bool DropZone::isValidDragType(const juce::String& dragInfo) const
+{
+    if (!dragInfo.contains(":")) return true; // Bypass temporal
+
+    if (zone == Nova::ZoneID::Pre) return dragInfo.startsWith("PRE:");
+    if (zone == Nova::ZoneID::Amp) return dragInfo.startsWith("AMP:");
+    if (zone == Nova::ZoneID::FX)  return dragInfo.startsWith("FX:");
+    if (zone == Nova::ZoneID::Cabinet) return dragInfo.startsWith("CAB:");
+
+    return false;
+}
+
+bool DropZone::isInterestedInDragSource(const SourceDetails& d) { return d.description.isString(); }
+
+void DropZone::itemDragEnter(const SourceDetails& d)
+{
+    dragState = isValidDragType(d.description.toString()) ? DragState::Valid : DragState::Invalid;
     repaint();
 }
 
-bool DropZone::isInterestedInDragSource(const SourceDetails&)
+void DropZone::itemDragExit(const SourceDetails&)
 {
-    // Slots fijos (Amp/Cab) no aceptan drag and drop directo
-    return !isFixedSlot();
+    dragState = DragState::None;
+    repaint();
 }
 
 void DropZone::itemDropped(const SourceDetails& details)
 {
-    setHover(false);
+    dragState = DragState::None;
+    juce::String dragSource = details.description.toString();
 
+    if (isValidDragType(dragSource))
+    {
+        juce::String pedalName = dragSource.contains(":") ? dragSource.substring(dragSource.indexOf(":") + 1) : dragSource;
+        proc.requestAddPedal(pedalName, chain, zone);
+    }
+    else triggerShake();
 
-    // Añadir pedal al motor (solo aplica para zonas no fijas, porque las fijas no se interesan)
-    proc.requestAddPedal(details.description.toString(), chain, zone);
+    repaint();
 }
 
-void DropZone::itemDragEnter(const SourceDetails&) { setHover(true); }
-void DropZone::itemDragExit(const SourceDetails&) { setHover(false); }
+void DropZone::triggerShake()
+{
+    shakeTicks = 0;
+    startTimerHz(60);
+}
+
+void DropZone::timerCallback()
+{
+    shakeOffset = (shakeTicks % 4 < 2) ? 6 : -6;
+    shakeTicks++;
+    if (shakeTicks > 12)
+    {
+        shakeOffset = 0;
+        stopTimer();
+    }
+    repaint();
+}
+
+// ==============================================================================
+// CONTROL DEL MOUSE (AQUÍ ESTÁ LA MAGIA DEL TOOLTIP FLOTANTE)
+// ==============================================================================
+void DropZone::mouseMove(const juce::MouseEvent& e)
+{
+    bool hover = infoIconBounds.contains(e.position.toFloat());
+    if (isHoveringInfo != hover)
+    {
+        isHoveringInfo = hover;
+
+        if (isHoveringInfo)
+        {
+            // Buscamos el editor principal y le pedimos sus coordenadas reales
+            if (auto* editor = findParentComponentOfClass<NOVAAudioProcessorEditor>())
+            {
+                auto iconAreaInEditor = editor->getLocalArea(this, infoIconBounds.toNearestInt());
+                tooltipOverlay->show(editor, iconAreaInEditor, getHelpText());
+            }
+        }
+        else
+        {
+            tooltipOverlay->hide();
+        }
+        repaint();
+    }
+}
+
+void DropZone::mouseExit(const juce::MouseEvent&)
+{
+    if (isHoveringInfo)
+    {
+        isHoveringInfo = false;
+        tooltipOverlay->hide(); // Ocultar si sacamos el ratón rápido
+        repaint();
+    }
+}
 
 void DropZone::mouseDown(const juce::MouseEvent& e)
 {
-    if (!isFixedSlot() || !e.mods.isLeftButtonDown())
-        return;
-
-    if (auto* mainEditor = findParentComponentOfClass<NOVAAudioProcessorEditor>())
-        mainEditor->showOverlay(zone, chain);
+    if (!isFixedSlot() || !e.mods.isLeftButtonDown()) return;
+    if (auto* editor = findParentComponentOfClass<NOVAAudioProcessorEditor>())
+        editor->showOverlay(zone, chain);
 }
 
+juce::String DropZone::getHelpText() const
+{
+    switch (zone)
+    {
+    case Nova::ZoneID::Pre: return "PRE-AMPLIFIER\n\nIdeal for altering gain:\nDistortion, Wah, Compressor.";
+    case Nova::ZoneID::Amp: return "AMPLIFIER HEAD\n\nThe core engine of your tone.";
+    case Nova::ZoneID::FX:  return "POST-AMPLIFIER\n\nModulation and ambiance:\nDelay, Reverb, Chorus.";
+    case Nova::ZoneID::Cabinet: return "SPEAKER CABINET\n\nFinal acoustic simulation\nof the speaker.";
+    default: return juce::String();
+    }
+}
+
+// ==============================================================================
+// DIBUJADO DE LA ZONA (SIN EL TOOLTIP, PORQUE AHORA FLOTA SOLO)
+// ==============================================================================
 void DropZone::drawTechGrid(juce::Graphics& g) const
 {
-    g.setColour(Nova::Colors::GridLine.withAlpha(0.2f));
+    g.setColour(Nova::Colors::GridLine.withAlpha(0.1f));
     for (int x = 0; x < getWidth(); x += 20)
         g.drawVerticalLine(x, 0.0f, (float)getHeight());
-
-    g.setColour(Nova::Colors::GridLine.withAlpha(0.1f));
-    for (int y = 0; y < getHeight(); y += 20)
-        g.drawHorizontalLine(y, 0.0f, (float)getWidth());
 }
 
-void DropZone::drawOutline(juce::Graphics& g, bool fixed) const
+void DropZone::drawDashedOutline(juce::Graphics& g, juce::Colour color, juce::Rectangle<float> area) const
 {
-    g.setColour(Nova::Colors::ZoneOutline.withAlpha(fixed ? 0.4f : 0.2f));
-    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(2.0f), 6.0f, 1.0f);
-}
-
-void DropZone::drawFixedSlotUI(juce::Graphics& g) const
-{
-    const bool mouseOver = isMouseOver(true);
-    g.setColour(juce::Colours::white.withAlpha((mouseOver && !isHover) ? 0.2f : 0.05f));
-
-    auto center = getLocalBounds().getCentre().toFloat();
-    g.fillEllipse(center.x - 25.0f, center.y - 25.0f, 50.0f, 50.0f);
-
-    // Icono "+"
-    g.setColour(juce::Colours::grey);
-    g.fillRect(center.x - 1.5f, center.y - 12.0f, 3.0f, 24.0f);
-    g.fillRect(center.x - 12.0f, center.y - 1.5f, 24.0f, 3.0f);
-
-    g.setFont(12.0f);
-    const auto text = (zone == Nova::ZoneID::Amp) ? "ADD AMP" : "ADD CAB";
-    g.drawText(text, getLocalBounds().removeFromBottom(30), juce::Justification::centred);
-}
-
-void DropZone::drawNormalSlotUI(juce::Graphics& g) const
-{
-    const auto label = (zone == Nova::ZoneID::Pre) ? "PRE-FX" : "FX LOOP";
-
-    g.setColour(juce::Colours::grey.withAlpha(0.3f));
-    g.setFont(12.0f);
-    g.drawText(label, getLocalBounds().removeFromBottom(25), juce::Justification::centred);
-
-    if (!isHover)
-        return;
-
-    g.setColour(Nova::Colors::CableOnA.withAlpha(0.2f));
-    g.fillRoundedRectangle(getLocalBounds().toFloat(), 6.0f);
-
-    g.setColour(Nova::Colors::CableOnA);
-    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f, 2.0f);
+    juce::Path border;
+    border.addRoundedRectangle(area, 6.0f);
+    float dashLengths[] = { 4.0f, 4.0f };
+    juce::PathStrokeType stroke(1.5f);
+    juce::Path dashedPath;
+    stroke.createDashedStroke(dashedPath, border, dashLengths, 2);
+    g.setColour(color);
+    g.strokePath(dashedPath, stroke);
 }
 
 void DropZone::paint(juce::Graphics& g)
 {
-    const bool fixed = isFixedSlot();
+    g.setOrigin(shakeOffset, 0);
 
-    // Grid solo en zonas no fijas
-    if (!fixed)
-        drawTechGrid(g);
+    auto bounds = getLocalBounds().toFloat();
+    if (bounds.isEmpty()) return;
 
-    drawOutline(g, fixed);
+    if (!isFixedSlot()) drawTechGrid(g);
 
-    if (fixed)
-        drawFixedSlotUI(g);
-    else
-        drawNormalSlotUI(g);
+    // Estados Visuales
+    juce::Colour borderColor = juce::Colours::grey.withAlpha(0.3f);
+    juce::Colour bgColor = juce::Colours::transparentBlack;
+
+    if (dragState == DragState::Valid)
+    {
+        borderColor = Nova::Colors::CableOnA;
+        bgColor = Nova::Colors::CableOnA.withAlpha(0.15f);
+    }
+    else if (dragState == DragState::Invalid)
+    {
+        borderColor = juce::Colours::red;
+        bgColor = juce::Colours::red.withAlpha(0.15f);
+    }
+    else if (isMouseOver(true))
+    {
+        borderColor = juce::Colours::white.withAlpha(0.5f);
+        bgColor = juce::Colours::white.withAlpha(0.05f);
+    }
+
+    g.setColour(bgColor);
+    g.fillRoundedRectangle(bounds, 6.0f);
+    drawDashedOutline(g, borderColor, bounds);
+
+    // Textos
+    juce::String title;
+    if (zone == Nova::ZoneID::Pre)      title = "PRE-AMPLIFIER";
+    else if (zone == Nova::ZoneID::Amp) title = "AMPLIFIER HEAD";
+    else if (zone == Nova::ZoneID::FX)  title = "POST-AMPLIFIER";
+    else if (zone == Nova::ZoneID::Cabinet) title = "SPEAKER CABINET";
+
+    g.setColour(isMouseOver(true) ? juce::Colours::white.withAlpha(0.9f) : juce::Colours::grey.withAlpha(0.6f));
+    g.setFont(juce::Font(13.0f, juce::Font::bold));
+
+    auto textArea = bounds.removeFromBottom(40.0f);
+    g.drawFittedText(title, textArea.toNearestInt(), juce::Justification::centred, 1);
+
+    // Icono (i)
+    g.setColour(isHoveringInfo ? juce::Colours::white : juce::Colours::grey.withAlpha(0.6f));
+    g.drawEllipse(infoIconBounds, 1.0f);
+    g.setFont(juce::Font(11.0f, juce::Font::bold));
+    g.drawFittedText("i", infoIconBounds.toNearestInt(), juce::Justification::centred, 1);
 }

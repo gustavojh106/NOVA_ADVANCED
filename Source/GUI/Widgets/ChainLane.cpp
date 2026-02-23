@@ -50,24 +50,32 @@ juce::Colour ChainLane::getCableGlowColour() const noexcept
 
 void ChainLane::resized()
 {
-    const auto area = getLocalBounds();
-    const int totalW = area.getWidth();
-    const int h = area.getHeight();
+    // 1. Reducimos el área general para dar un margen de 4px
+    auto area = getLocalBounds().reduced(4);
+    const int gap = 8; // ESTE ES EL ESPACIO ENTRE ZONAS
 
+    // 2. Calculamos el ancho restante quitando los 3 "gaps"
+    const int totalW = area.getWidth() - (gap * 3);
     const int fixedTotal = kFixedZoneWidth * 2;
-    const int remaining = juce::jmax(0, totalW - fixedTotal);
-    const int flexZoneW = remaining / 2;
+    const int flexZoneW = juce::jmax(0, totalW - fixedTotal) / 2;
 
-    // Pre | Amp | FX | Cab
-    const int xPre = 0;
-    const int xAmp = xPre + flexZoneW;
-    const int xFx = xAmp + kFixedZoneWidth;
-    const int xCab = totalW - kFixedZoneWidth;
+    // 3. Vamos asignando las áreas y "saltando" el gap
+    auto rPre = area.removeFromLeft(flexZoneW);
+    area.removeFromLeft(gap); // Dejamos hueco
 
-    zones[0]->setBounds(xPre, 0, flexZoneW, h);          // Pre
-    zones[1]->setBounds(xAmp, 0, kFixedZoneWidth, h);    // Amp
-    zones[2]->setBounds(xFx, 0, flexZoneW, h);          // FX
-    zones[3]->setBounds(xCab, 0, kFixedZoneWidth, h);    // Cab
+    auto rAmp = area.removeFromLeft(kFixedZoneWidth);
+    area.removeFromLeft(gap); // Dejamos hueco
+
+    auto rFx = area.removeFromLeft(flexZoneW);
+    area.removeFromLeft(gap); // Dejamos hueco
+
+    auto rCab = area.removeFromLeft(kFixedZoneWidth);
+
+    // 4. Aplicamos
+    zones[0]->setBounds(rPre);
+    zones[1]->setBounds(rAmp);
+    zones[2]->setBounds(rFx);
+    zones[3]->setBounds(rCab);
 }
 
 void ChainLane::paint(juce::Graphics& g)
