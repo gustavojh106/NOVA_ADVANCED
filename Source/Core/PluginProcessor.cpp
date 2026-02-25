@@ -95,6 +95,7 @@ void NOVAAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 
 void NOVAAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
+    return;
     auto loaded = juce::ValueTree::readFromData(data, sizeInBytes);
 
     if (loaded.isValid() && loaded.hasType(Nova::IDs::MAIN_STATE))
@@ -123,21 +124,27 @@ double NOVAAudioProcessor::getCpuUsage() const
 
 void NOVAAudioProcessor::requestAddPedal(const juce::String& type, Nova::ChainID chain, Nova::ZoneID zone)
 {
+    // 1. REGLA DE NEGOCIO ESTRICTA (Protección contra el Overlay y botones mal configurados)
+    bool isAmp = type.containsIgnoreCase("Amp");
+    bool isCab = type.containsIgnoreCase("Cab");
+
+    Nova::ZoneID finalZone = zone;
+
+    // Si el motor detecta qué es realmente, fuerza su zona correcta
+    if (isAmp) finalZone = Nova::ZoneID::Amp;
+    else if (isCab) finalZone = Nova::ZoneID::Cabinet;
+    else if (zone == Nova::ZoneID::Amp || zone == Nova::ZoneID::Cabinet)
+        finalZone = Nova::ZoneID::Pre; // Fallback: si intentan meter un pedal normal en Amp/Cab, lo mandamos al Pre
+
+    // 2. Guardado seguro
     juce::ValueTree newPedal(Nova::IDs::PEDAL);
     newPedal.setProperty(Nova::IDs::PEDAL_TYPE, type, nullptr);
-    newPedal.setProperty(Nova::IDs::PEDAL_ZONE, (int)zone, nullptr);
+    newPedal.setProperty(Nova::IDs::PEDAL_ZONE, static_cast<int>(finalZone), nullptr);
 
     auto list = getLineTree(chain);
 
-    // Insertar ordenado por zona
-    int insertIndex = list.getNumChildren();
-    for (int i = 0; i < list.getNumChildren(); ++i)
-    {
-        const int z = (int)list.getChild(i).getProperty(Nova::IDs::PEDAL_ZONE);
-        if (z > (int)zone) { insertIndex = i; break; }
-    }
-
-    list.addChild(newPedal, insertIndex, nullptr);
+    // Seguimos insertando al final (-1) para mantener sincronizado el Índice visual con el AudioEngine
+    list.addChild(newPedal, -1, nullptr);
 }
 
 void NOVAAudioProcessor::requestRemovePedal(Nova::ChainID chain, int index)

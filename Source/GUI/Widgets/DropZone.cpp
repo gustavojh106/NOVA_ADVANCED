@@ -84,15 +84,19 @@ void DropZone::resized()
 // Validación y Drag & Drop
 bool DropZone::isValidDragType(const juce::String& dragInfo) const
 {
-    // Si no trae el separador ":", lo rechazamos de inmediato por seguridad
     if (!dragInfo.contains(":")) return false;
 
-    // Reglas estrictas de ruteo
-    if (zone == Nova::ZoneID::Pre) return dragInfo.startsWith("PEDAL:");
-    if (zone == Nova::ZoneID::FX)  return dragInfo.startsWith("PEDAL:"); // Los pedales pueden ir en ambas zonas
+    // Extraemos el nombre real ignorando el prefijo (Ej: de "PEDAL:Cabinet" sacamos "Cabinet")
+    juce::String itemName = dragInfo.substring(dragInfo.indexOf(":") + 1);
 
-    if (zone == Nova::ZoneID::Amp) return dragInfo.startsWith("AMP:");
-    if (zone == Nova::ZoneID::Cabinet) return dragInfo.startsWith("CAB:");
+    bool isAmp = itemName.containsIgnoreCase("Amp");
+    bool isCab = itemName.containsIgnoreCase("Cab");
+    bool isPedal = !isAmp && !isCab;
+
+    // Reglas estrictas de ruteo
+    if (zone == Nova::ZoneID::Pre || zone == Nova::ZoneID::FX) return isPedal;
+    if (zone == Nova::ZoneID::Amp) return isAmp;
+    if (zone == Nova::ZoneID::Cabinet) return isCab;
 
     return false;
 }

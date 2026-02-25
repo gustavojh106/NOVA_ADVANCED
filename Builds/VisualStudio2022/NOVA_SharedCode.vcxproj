@@ -3417,6 +3417,7 @@
     <ClInclude Include="..\..\Source\Lib\RTNeural\ModelT.h"/>
     <ClInclude Include="..\..\Source\Lib\RTNeural\RTNeural.h"/>
     <ClInclude Include="..\..\Source\Lib\RTNeural\torch_helpers.h"/>
+    <ClInclude Include="..\..\Source\Effects\Amplifiers\ClassicAmp.h"/>
     <ClInclude Include="..\..\Source\Effects\Cabinets\CabinetEditor.h"/>
     <ClInclude Include="..\..\Source\Effects\Cabinets\CabinetPedal.h"/>
     <ClInclude Include="..\..\Source\Effects\Pedals\Neural\NeuralEditor.h"/>

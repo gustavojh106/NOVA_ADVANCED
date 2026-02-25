@@ -856,6 +856,9 @@
         </GROUP>
       </GROUP>
       <GROUP id="{8CDF61A3-C1E7-E8D4-DE29-D0CE71BCBA32}" name="Effects">
+        <GROUP id="{EFA4BDEE-3990-DED3-B823-E50E87812715}" name="Amplifiers">
+          <FILE id="VfEdHh" name="ClassicAmp.h" compile="0" resource="0" file="Source/Effects/Amplifiers/ClassicAmp.h"/>
+        </GROUP>
         <GROUP id="{BD879881-2EBA-7DB7-0691-1F30F2D80A5F}" name="Cabinets">
           <FILE id="zgcSAe" name="CabinetEditor.h" compile="0" resource="0" file="Source/Effects/Cabinets/CabinetEditor.h"/>
           <FILE id="Rwzsje" name="CabinetPedal.h" compile="0" resource="0" file="Source/Effects/Cabinets/CabinetPedal.h"/>

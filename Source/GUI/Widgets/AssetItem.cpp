@@ -102,14 +102,18 @@ void AssetItem::mouseDrag(const juce::MouseEvent& e)
 {
     if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this))
     {
-        // Mapeamos tu variable interna 'itemType' al prefijo que requiere el DropZone
         juce::String prefix = "PEDAL";
 
-        if (itemType.containsIgnoreCase("Amp")) prefix = "AMP";
-        else if (itemType.containsIgnoreCase("Cab")) prefix = "CAB";
+        // Detección a prueba de balas basada en el nombre o en variaciones comunes
+        if (itemName.containsIgnoreCase("Amp") || itemType.containsIgnoreCase("Amp"))
+            prefix = "AMP";
+        else if (itemName.containsIgnoreCase("Cab") || itemType.containsIgnoreCase("Cab"))
+            prefix = "CAB";
 
-        // Formateamos: "AMP:Neural Amp"
         juce::String dragDescription = prefix + ":" + itemName;
+
+        // Mensaje de diagnóstico para asegurar que estamos mandando lo correcto
+        DBG("DRAG INICIADO -> " + dragDescription);
 
         container->startDragging(dragDescription, this);
     }

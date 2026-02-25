@@ -8,6 +8,7 @@
 // Pedales registrados (sí: esto aumenta tiempos de build, pero mantiene el estilo header-only)
 #include "../Effects/Pedals/Overdrive/OverdrivePedal.h"
 #include "../Effects/Cabinets/CabinetPedal.h"
+#include "../Effects/Amplifiers/ClassicAmp.h" // <--- 1. INCLUIMOS EL NUEVO AMPLIFICADOR
 
 class PedalRegistry final
 {
@@ -27,9 +28,9 @@ private:
     static const std::map<juce::String, PedalCreator>& getFactory()
     {
         static const std::map<juce::String, PedalCreator> factory{
-            { "Overdrive", [] { return std::make_unique<OverdrivePedal>(); } },
-            { "Cabinet",   [] { return std::make_unique<CabinetPedal>(); } },
-            // { "MyAmp",   [] { return std::make_unique<MyAmp>(); } },
+            { "Overdrive",   [] { return std::make_unique<OverdrivePedal>(); } },
+            { "Cabinet",     [] { return std::make_unique<CabinetPedal>(); } },
+            { "Classic Amp", [] { return std::make_unique<ClassicAmp>(); } }  // <--- 2. LO REGISTRAMOS EN LA FÁBRICA
         };
         return factory;
     }

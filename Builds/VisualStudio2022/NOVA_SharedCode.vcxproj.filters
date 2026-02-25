@@ -221,6 +221,9 @@
     <Filter Include="NOVA\Source\Lib">
       <UniqueIdentifier>{BFAB9E70-FC03-C760-BB46-0412F8A0E6A8}</UniqueIdentifier>
     </Filter>
+    <Filter Include="NOVA\Source\Effects\Amplifiers">
+      <UniqueIdentifier>{1106ECC8-7E21-B026-D7D7-D446B7AA46C3}</UniqueIdentifier>
+    </Filter>
     <Filter Include="NOVA\Source\Effects\Cabinets">
       <UniqueIdentifier>{A93E96E3-CA11-CDE9-7EE1-0653CF00DD4C}</UniqueIdentifier>
     </Filter>
@@ -5243,6 +5246,9 @@
     </ClInclude>
     <ClInclude Include="..\..\Source\Lib\RTNeural\torch_helpers.h">
       <Filter>NOVA\Source\Lib\RTNeural</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Amplifiers\ClassicAmp.h">
+      <Filter>NOVA\Source\Effects\Amplifiers</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\Effects\Cabinets\CabinetEditor.h">
       <Filter>NOVA\Source\Effects\Cabinets</Filter>
