@@ -82,6 +82,9 @@ private:
     {
         s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         s.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+        s.setRotaryParameters(juce::MathConstants<float>::pi,
+            juce::MathConstants<float>::twoPi,
+            true);
     }
 
     static void configureLabel(juce::Label& l, const juce::String& text, float fontSize)

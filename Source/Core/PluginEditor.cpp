@@ -244,6 +244,12 @@ NOVAAudioProcessorEditor::~NOVAAudioProcessorEditor()
 {
     audioProcessor.pluginState.removeListener(this);
     activePedalEditors.clear();
+
+    for (auto* knob : { &inputVolume, &inputGate, &inputTranspose,
+        &volSliderA, &panSliderA, &widthSliderA,
+        &volSliderB, &panSliderB, &widthSliderB,
+        &outputVolume, &outputGain, &outputMix })
+        knob->setLookAndFeel(nullptr);
 }
 
 // ==============================================================================
@@ -259,6 +265,10 @@ void NOVAAudioProcessorEditor::setupKnob(juce::Slider& slider,
     addAndMakeVisible(slider);
     slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     slider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    slider.setRotaryParameters(juce::MathConstants<float>::pi,
+        juce::MathConstants<float>::twoPi,
+        true);
+    slider.setLookAndFeel(knobLnf);
     slider.setRange(min, max, 0.01);
     slider.setValue(def, juce::dontSendNotification);
     slider.setTooltip(name);

@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
 #include "Constants.h"
+#include "StyleSheet.h"
 
 // --- MÓDULOS DE UI ---
 #include "../GUI/Overlays/TunerOverlay.h"
@@ -63,6 +64,7 @@ private:
     DraggableButton btnAddNeural{ "Neural Amp" };
 
     // --- 3. INPUT STRIP ---
+    juce::SharedResourcePointer<UI::ModernKnobLnF> knobLnf;
     juce::Slider inputVolume;
     juce::Slider inputGate;
     juce::Slider inputTranspose;
