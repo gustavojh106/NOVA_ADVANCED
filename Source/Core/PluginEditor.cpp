@@ -340,8 +340,133 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
     g.setColour(Nova::Colors::MixerPanel);
     g.drawRoundedRectangle(mixerArea.toFloat().reduced(10), 5.0f, 1.0f);
 
+    g.setColour(juce::Colours::white);
     g.drawText("LINE A", mixerArea.getX() + 50, mixerArea.getY() + 10, 100, 20, juce::Justification::centred);
     g.drawText("LINE B", mixerArea.getRight() - 150, mixerArea.getY() + 10, 100, 20, juce::Justification::centred);
+
+    bool aActive = false;
+    bool bActive = false;
+    const auto settings = audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS);
+    if (settings.isValid())
+    {
+        const bool on = (bool)settings.getProperty(Nova::IDs::ENGINE_ON);
+        const int mode = (int)settings.getProperty(Nova::IDs::SWITCH_MODE);
+
+        aActive = on && (mode != (int)Nova::SwitcherMode::LineB_Only);
+        bActive = on && (mode != (int)Nova::SwitcherMode::LineA_Only);
+    }
+
+    const int knobSz = 60;
+    const int knobGap = 10;
+    const int startXA = mixerArea.getX() + 30;
+    const int startXB = mixerArea.getRight() - 30 - knobSz;
+    const int leftGroupRight = startXA + (knobSz * 3) + (knobGap * 2);
+    const int rightGroupLeft = startXB - ((knobSz + knobGap) * 2);
+
+    auto circuitZone = juce::Rectangle<int>(leftGroupRight + 8,
+        mixerArea.getCentreY() - 36,
+        juce::jmax(40, rightGroupLeft - leftGroupRight - 16),
+        72);
+
+    g.setColour(juce::Colour::fromString("ff121212"));
+    g.fillRoundedRectangle(circuitZone.toFloat(), 8.0f);
+    g.setColour(Nova::Colors::Border);
+    g.drawRoundedRectangle(circuitZone.toFloat(), 8.0f, 1.0f);
+
+    const float yA = (float)circuitZone.getY() + 20.0f;
+    const float yB = (float)circuitZone.getBottom() - 20.0f;
+    const float xL = (float)circuitZone.getX() + 8.0f;
+    const float xR = (float)circuitZone.getRight() - 8.0f;
+    const float xC = (float)mixerArea.getCentreX();
+    const float gapHalf = 58.0f;
+
+    const auto switchRect = juce::Rectangle<float>(xC - 50.0f,
+        (float)mixerArea.getCentreY() - 30.0f,
+        100.0f,
+        60.0f);
+
+    const auto selectorPlate = switchRect.expanded(14.0f, 12.0f);
+    juce::ColourGradient plateGrad(juce::Colour::fromString("ff3e3e3e"), selectorPlate.getCentreX(), selectorPlate.getY(),
+        juce::Colour::fromString("ff1a1a1a"), selectorPlate.getCentreX(), selectorPlate.getBottom(), false);
+    g.setGradientFill(plateGrad);
+    g.fillRoundedRectangle(selectorPlate, 8.0f);
+    g.setColour(juce::Colours::black.withAlpha(0.55f));
+    g.drawRoundedRectangle(selectorPlate, 8.0f, 1.4f);
+
+    auto drawScrew = [&](float sx, float sy)
+        {
+            g.setColour(juce::Colour::fromString("ff202020"));
+            g.fillEllipse(sx - 3.2f, sy - 3.2f, 6.4f, 6.4f);
+            g.setColour(juce::Colour::fromString("ff6a6a6a"));
+            g.drawEllipse(sx - 3.2f, sy - 3.2f, 6.4f, 6.4f, 0.8f);
+            g.drawLine(sx - 1.5f, sy, sx + 1.5f, sy, 0.8f);
+        };
+
+    drawScrew(selectorPlate.getX() + 8.0f, selectorPlate.getY() + 8.0f);
+    drawScrew(selectorPlate.getRight() - 8.0f, selectorPlate.getY() + 8.0f);
+    drawScrew(selectorPlate.getX() + 8.0f, selectorPlate.getBottom() - 8.0f);
+    drawScrew(selectorPlate.getRight() - 8.0f, selectorPlate.getBottom() - 8.0f);
+
+    const float switchBottomY = switchRect.getBottom() + 2.0f;
+    const float tapXA = xC - 18.0f;
+    const float tapXB = xC + 18.0f;
+    const float bridgeYA = switchBottomY + 2.0f;
+    const float bridgeYB = switchBottomY + 7.0f;
+
+    auto drawCircuit = [&](float y, float bridgeY, float tapX, bool active, juce::Colour activeColour)
+        {
+            const juce::Colour offColour = juce::Colour::fromString("ff2a2a2a");
+            const float leftInner = xC - gapHalf;
+            const float rightInner = xC + gapHalf;
+
+            // Cables laterales hacia el dashboard
+            g.setColour(offColour);
+            g.drawLine(xL, y, leftInner, y, 4.0f);
+            g.drawLine(rightInner, y, xR, y, 4.0f);
+
+            // Bus central del selector, conectado al dashboard
+            juce::Path busBridge;
+            busBridge.startNewSubPath(leftInner, y);
+            busBridge.lineTo(leftInner, bridgeY);
+            busBridge.lineTo(rightInner, bridgeY);
+            busBridge.lineTo(rightInner, y);
+            g.strokePath(busBridge, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+            juce::Path selectorFeed;
+            selectorFeed.startNewSubPath(tapX, switchBottomY);
+            selectorFeed.lineTo(tapX, bridgeY);
+            selectorFeed.lineTo(xC, bridgeY);
+            g.strokePath(selectorFeed, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+            if (active)
+            {
+                g.setColour(activeColour.withAlpha(0.35f));
+                g.drawLine(xL, y, leftInner, y, 7.0f);
+                g.drawLine(rightInner, y, xR, y, 7.0f);
+                g.strokePath(busBridge, juce::PathStrokeType(7.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.strokePath(selectorFeed, juce::PathStrokeType(7.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+                g.setColour(activeColour);
+                g.drawLine(xL, y, leftInner, y, 2.2f);
+                g.drawLine(rightInner, y, xR, y, 2.2f);
+                g.strokePath(busBridge, juce::PathStrokeType(2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+                g.strokePath(selectorFeed, juce::PathStrokeType(2.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            }
+
+            g.setColour((active ? activeColour : offColour).withAlpha(0.9f));
+            g.fillEllipse(xL - 2.5f, y - 2.5f, 5.0f, 5.0f);
+            g.fillEllipse(xR - 2.5f, y - 2.5f, 5.0f, 5.0f);
+            g.fillEllipse(leftInner - 2.5f, bridgeY - 2.5f, 5.0f, 5.0f);
+            g.fillEllipse(rightInner - 2.5f, bridgeY - 2.5f, 5.0f, 5.0f);
+            g.fillEllipse(tapX - 2.4f, switchBottomY - 2.4f, 4.8f, 4.8f);
+        };
+
+    drawCircuit(yA, bridgeYA, tapXA, aActive, Nova::Colors::CableOnA);
+    drawCircuit(yB, bridgeYB, tapXB, bActive, Nova::Colors::CableOnB);
+
+    g.setFont(11.0f);
+    g.setColour(juce::Colours::grey);
+    g.drawText("CIRCUIT LINK", circuitZone.withTrimmedTop(25), juce::Justification::centredTop);
 
     g.setFont(10.0f);
     g.setColour(juce::Colours::grey);
@@ -366,23 +491,33 @@ void NOVAAudioProcessorEditor::drawChannelStrip(juce::Graphics& g, juce::Rectang
     g.drawVerticalLine(area.getRight(), (float)area.getY(), (float)area.getBottom());
     g.drawVerticalLine(area.getX(), (float)area.getY(), (float)area.getBottom());
 
+    auto contentArea = area;
+
     g.setColour(juce::Colours::white);
     g.setFont(16.0f);
-    g.drawText(title, area.removeFromTop(40), juce::Justification::centred);
+    g.drawText(title, contentArea.removeFromTop(40), juce::Justification::centred);
 
     g.setFont(12.0f);
     g.setColour(juce::Colours::grey);
-    g.drawText("Vol", area.getX(), area.getY() + 50, area.getWidth(), 20, juce::Justification::centred);
+
+    auto drawLabelFor = [&](const juce::String& txt, const juce::Component& c)
+        {
+            const auto b = c.getBounds();
+            if (!b.isEmpty())
+                g.drawText(txt, area.getX(), b.getCentreY() - 10, area.getWidth(), 20, juce::Justification::centred);
+        };
 
     if (title == "INPUT")
     {
-        g.drawText("Gate", area.getX(), area.getY() + 110, area.getWidth(), 20, juce::Justification::centred);
-        g.drawText("Trans", area.getX(), area.getY() + 170, area.getWidth(), 20, juce::Justification::centred);
+        drawLabelFor("Vol", inputVolume);
+        drawLabelFor("Gate", inputGate);
+        drawLabelFor("Trans", inputTranspose);
     }
     else
     {
-        g.drawText("Limit", area.getX(), area.getY() + 110, area.getWidth(), 20, juce::Justification::centred);
-        g.drawText("Mix", area.getX(), area.getY() + 170, area.getWidth(), 20, juce::Justification::centred);
+        drawLabelFor("Vol", outputVolume);
+        drawLabelFor("Limit", outputGain);
+        drawLabelFor("Mix", outputMix);
     }
 }
 
@@ -397,7 +532,6 @@ void NOVAAudioProcessorEditor::resized()
     if (currentOverlay) currentOverlay->setBounds(area);
     if (tunerOverlay && tunerOverlay->isVisible()) tunerOverlay->setBounds(area);
 
-    // Layout constants (no cambian nada, solo legibilidad)
     constexpr int headerH = 80;
     constexpr int footerH = 100;
 
@@ -409,9 +543,7 @@ void NOVAAudioProcessorEditor::resized()
     constexpr int knobSz = 60;
     constexpr int knobGap = 10;
 
-    // -----------------------
-    // HEADER
-    // -----------------------
+    // Header
     auto header = area.removeFromTop(headerH);
     const int cx = header.getCentreX();
 
@@ -424,43 +556,43 @@ void NOVAAudioProcessorEditor::resized()
     btnSettings.setBounds(cx + 160, header.getCentreY() - 15, 40, 40);
     btnProfile.setBounds(cx + 210, header.getCentreY() - 15, 60, 40);
 
-    // -----------------------
-    // FOOTER
-    // -----------------------
+    // Footer
     auto footer = area.removeFromBottom(footerH);
     audioProcessor.audioVisualizer.setBounds(footer);
 
-    // -----------------------
-    // LEFT BROWSER COLUMN
-    // -----------------------
+    // Left browser column
     auto left1 = area.removeFromLeft(leftBrowserW);
     searchBarBrowser.setBounds(left1.removeFromTop(40).reduced(10, 5));
     btnAddOverdrive.setBounds(left1.getX() + 10, left1.getY() + 50, 130, 50);
     btnAddNeural.setBounds(left1.getX() + 10, left1.getY() + 240, 130, 50);
     btnAddCabinet.setBounds(left1.getX() + 10, left1.getY() + 400, 130, 50);
 
-    // -----------------------
-    // INPUT STRIP
-    // -----------------------
+    // Input strip
     auto left2 = area.removeFromLeft(stripW);
-    auto inputArea = left2;
-    inputArea.removeFromTop(60);
+    const int sideKnobW = 50;
+    const int sideKnobH = 50;
+    const int sideGap = 12;
+    const int sideToggleH = 30;
+    const int sideStackH = sideKnobH * 3 + sideGap * 2 + 14 + sideToggleH;
 
-    inputVolume.setBounds(inputArea.removeFromTop(50).reduced(30, 0));
-    inputArea.removeFromTop(10);
+    auto inputKnobCol = juce::Rectangle<int>(left2.getX() + 4, left2.getY(), left2.getWidth() - 34, left2.getHeight());
+    const int inputStartY = inputKnobCol.getY() + (inputKnobCol.getHeight() - sideStackH) / 2;
+    const int inputKnobX = inputKnobCol.getX() + (inputKnobCol.getWidth() - sideKnobW) / 2;
 
-    inputGate.setBounds(inputArea.removeFromTop(50).reduced(30, 0));
-    inputArea.removeFromTop(10);
+    int yIn = inputStartY;
+    inputVolume.setBounds(inputKnobX, yIn, sideKnobW, sideKnobH); yIn += sideKnobH + sideGap;
+    inputGate.setBounds(inputKnobX, yIn, sideKnobW, sideKnobH); yIn += sideKnobH + sideGap;
+    inputTranspose.setBounds(inputKnobX, yIn, sideKnobW, sideKnobH); yIn += sideKnobH + 14;
+    btnMonoStereo.setBounds(inputKnobCol.getX() + 2, yIn, inputKnobCol.getWidth() - 4, sideToggleH);
 
-    inputTranspose.setBounds(inputArea.removeFromTop(50).reduced(30, 0));
-    inputArea.removeFromTop(20);
+    const int sideFaderW = 22;
+    const int sideFaderH = 220;
+    inputFader.setBounds(left2.getRight() - sideFaderW - 6,
+        left2.getY() + (left2.getHeight() - sideFaderH) / 2,
+        sideFaderW,
+        sideFaderH);
 
-    btnMonoStereo.setBounds(inputArea.removeFromTop(30).reduced(10, 0));
-    inputFader.setBounds(left2.getX() + 80, left2.getY() + 300, 30, 200);
-
-    // -----------------------
-    // RIGHT PRESETS COLUMN
-    // -----------------------
+    // Right presets column
     auto right2 = area.removeFromRight(rightPresetsW);
     searchBarPresets.setBounds(right2.removeFromTop(40).reduced(10, 5));
 
@@ -468,31 +600,29 @@ void NOVAAudioProcessorEditor::resized()
     btnSave.setBounds(btnArea.removeFromLeft(75).reduced(5));
     btnLoad.setBounds(btnArea.reduced(5));
 
-    // -----------------------
-    // OUTPUT STRIP
-    // -----------------------
+    // Output strip
     auto right1 = area.removeFromRight(stripW);
-    auto outputArea = right1;
-    outputArea.removeFromTop(60);
+    auto outputKnobCol = juce::Rectangle<int>(right1.getX() + 4, right1.getY(), right1.getWidth() - 34, right1.getHeight());
+    const int outputStartY = outputKnobCol.getY() + (outputKnobCol.getHeight() - sideStackH) / 2;
+    const int outputKnobX = outputKnobCol.getX() + (outputKnobCol.getWidth() - sideKnobW) / 2;
 
-    outputVolume.setBounds(outputArea.removeFromTop(50).reduced(30, 0));
-    outputArea.removeFromTop(10);
+    int yOut = outputStartY;
+    outputVolume.setBounds(outputKnobX, yOut, sideKnobW, sideKnobH); yOut += sideKnobH + sideGap;
+    outputGain.setBounds(outputKnobX, yOut, sideKnobW, sideKnobH); yOut += sideKnobH + sideGap;
+    outputMix.setBounds(outputKnobX, yOut, sideKnobW, sideKnobH);
 
-    outputGain.setBounds(outputArea.removeFromTop(50).reduced(30, 0));
-    outputArea.removeFromTop(10);
+    outputFader.setBounds(right1.getRight() - sideFaderW - 6,
+        right1.getY() + (right1.getHeight() - sideFaderH) / 2,
+        sideFaderW,
+        sideFaderH);
 
-    outputMix.setBounds(outputArea.removeFromTop(50).reduced(30, 0));
-    outputFader.setBounds(right1.getX() + 10, right1.getY() + 300, 30, 200);
-
-    // -----------------------
-    // CENTER: MIXER + LANES
-    // -----------------------
+    // Center: mixer + lanes
     auto center = area;
     auto mixerArea = center.removeFromBottom(mixerH);
 
     btnSwitcher.setBounds(mixerArea.getCentreX() - 50, mixerArea.getCentreY() - 30, 100, 60);
 
-    const int yKnobs = mixerArea.getCentreY() - 10;
+    const int yKnobs = mixerArea.getCentreY() - (knobSz / 2);
     const int startXA = mixerArea.getX() + 30;
 
     volSliderA.setBounds(startXA, yKnobs, knobSz, knobSz);
@@ -749,6 +879,9 @@ void NOVAAudioProcessorEditor::updateSwitcherState()
 
     if (laneA) laneA->setActive(aActive && on);
     if (laneB) laneB->setActive(bActive && on);
+
+    // Forzar refresco de la zona central del circuito al cambiar modo/estado
+    repaint();
 }
 
 void NOVAAudioProcessorEditor::valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier& id)
