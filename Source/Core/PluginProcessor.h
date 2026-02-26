@@ -37,6 +37,9 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
+    bool savePresetToFile(const juce::File& file);
+    bool loadPresetFromFile(const juce::File& file);
+
     // == COMANDOS PÚBLICOS PARA EL EDITOR ==
     void requestAddPedal(const juce::String& type, Nova::ChainID chain, Nova::ZoneID zone);
     void requestRemovePedal(Nova::ChainID chain, int index);
@@ -62,12 +65,15 @@ private:
     // Helpers internos (legibilidad, NO cambian funcionalidad)
     juce::ValueTree getSettingsTree() const;
     juce::ValueTree getLineTree(Nova::ChainID chain) const;
+    static void sanitizeLine(juce::ValueTree line);
+    void resetToCleanState();
     void ensureStateStructure();
     void applyDefaultStateIfNeeded();
     void updateGlobalParamsFromState();
     void updateMixerFromState();
 
     AudioEngine audioEngine;
+    bool suppressStateCallbacks = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NOVAAudioProcessor)
 };

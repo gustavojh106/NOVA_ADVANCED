@@ -107,6 +107,8 @@ private:
     // Overlays (Ventanas modales)
     std::unique_ptr<juce::Component> currentOverlay; // Para el Browser
     std::unique_ptr<TunerOverlay> tunerOverlay;      // Para el Afinador
+    std::unique_ptr<juce::FileChooser> savePresetChooser;
+    std::unique_ptr<juce::FileChooser> loadPresetChooser;
 
     // Timer para actualizar CPU y FPS
     class StatsTimer : public juce::Timer {

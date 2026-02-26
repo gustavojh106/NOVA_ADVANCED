@@ -193,9 +193,73 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
 
     addAndMakeVisible(btnSave);
     btnSave.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
+    btnSave.onClick = [this]
+        {
+            savePresetChooser = std::make_unique<juce::FileChooser>("Save NOVA Preset", juce::File(), "*.nova-preset");
+            savePresetChooser->launchAsync(juce::FileBrowserComponent::saveMode |
+                                           juce::FileBrowserComponent::canSelectFiles |
+                                           juce::FileBrowserComponent::warnAboutOverwriting,
+                [this](const juce::FileChooser& chooser)
+                {
+                    const auto file = chooser.getResult();
+                    if (file != juce::File())
+                        audioProcessor.savePresetToFile(file);
+
+                    savePresetChooser.reset();
+                });
+        };
 
     addAndMakeVisible(btnLoad);
     btnLoad.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
+    btnLoad.onClick = [this]
+        {
+            loadPresetChooser = std::make_unique<juce::FileChooser>("Load NOVA Preset", juce::File(), "*.nova-preset");
+            loadPresetChooser->launchAsync(juce::FileBrowserComponent::openMode |
+                                           juce::FileBrowserComponent::canSelectFiles,
+                [this](const juce::FileChooser& chooser)
+                {
+                    const auto file = chooser.getResult();
+                    if (file == juce::File() || !audioProcessor.loadPresetFromFile(file))
+                    {
+                        loadPresetChooser.reset();
+                        return;
+                    }
+
+                    const auto settings = audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS);
+                    const auto lA = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A);
+                    const auto lB = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B);
+
+                    if (settings.isValid())
+                    {
+                        inputVolume.setValue(settings.getProperty(Nova::IDs::INPUT_GAIN, 0.0f), juce::dontSendNotification);
+                        inputGate.setValue(settings.getProperty(Nova::IDs::INPUT_GATE, -100.0f), juce::dontSendNotification);
+                        inputTranspose.setValue(settings.getProperty(Nova::IDs::INPUT_TRANS, 0), juce::dontSendNotification);
+                        btnMonoStereo.setToggleState(settings.getProperty(Nova::IDs::FORCE_MONO, false), juce::dontSendNotification);
+                        outputVolume.setValue(settings.getProperty(Nova::IDs::OUTPUT_VOL, 0.0f), juce::dontSendNotification);
+                        outputGain.setValue(settings.getProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f), juce::dontSendNotification);
+                        outputMix.setValue(settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f), juce::dontSendNotification);
+                    }
+
+                    if (lA.isValid())
+                    {
+                        volSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_GAIN_A, 1.0f), juce::dontSendNotification);
+                        panSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_PAN_A, 0.0f), juce::dontSendNotification);
+                        widthSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_WIDTH_A, 1.0f), juce::dontSendNotification);
+                    }
+
+                    if (lB.isValid())
+                    {
+                        volSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_GAIN_B, 1.0f), juce::dontSendNotification);
+                        panSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_PAN_B, 0.0f), juce::dontSendNotification);
+                        widthSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_WIDTH_B, 1.0f), juce::dontSendNotification);
+                    }
+
+                    updateSwitcherState();
+                    updatePedalGui();
+                    repaint();
+                    loadPresetChooser.reset();
+                });
+        };
 
     addAndMakeVisible(audioProcessor.audioVisualizer);
 
