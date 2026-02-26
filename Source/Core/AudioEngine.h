@@ -33,6 +33,7 @@ public:
 
     // Introspección para UI
     const std::vector<juce::AudioProcessorGraph::Node::Ptr>& getNodes(Nova::ChainID chain) const;
+    juce::AudioProcessor* getProcessorForPedal(Nova::ChainID chain, int index);
 
     double getCpuLoad() const;
     int getLatencyNumSamples() const;

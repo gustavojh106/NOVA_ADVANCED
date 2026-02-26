@@ -14,19 +14,6 @@ juce::File getStartupPresetPointerFile()
     return appDir.getChildFile("startup-preset.txt");
 }
 
-juce::File readStartupPresetFile()
-{
-    auto pointerFile = getStartupPresetPointerFile();
-    if (!pointerFile.existsAsFile())
-        return {};
-
-    const auto path = pointerFile.loadFileAsString().trim();
-    if (path.isEmpty())
-        return {};
-
-    return juce::File(path);
-}
-
 void writeStartupPresetFile(const juce::File& presetFile)
 {
     auto pointerFile = getStartupPresetPointerFile();
@@ -44,11 +31,8 @@ NOVAAudioProcessor::NOVAAudioProcessor()
         .withOutput("Out", juce::AudioChannelSet::stereo()))
     , pluginState(Nova::IDs::MAIN_STATE)
 {
-    // Arranque limpio siempre: no restaurar sesion automaticamente.
-    resetToCleanState();
-
-    if (auto startupPreset = readStartupPresetFile(); startupPreset.existsAsFile())
-        loadPresetFromFile(startupPreset);
+    // Arranque limpio siempre: mismo comportamiento que botón CLEAR.
+    clearSessionAndForgetStartupPreset();
 
     pluginState.addListener(this);
 }
@@ -123,11 +107,9 @@ void NOVAAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 void NOVAAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     // Regla del sistema: no restaurar automaticamente la ultima sesion del host.
+    // Mismo comportamiento que botón CLEAR en cada apertura/restauración.
     juce::ignoreUnused(data, sizeInBytes);
-    resetToCleanState();
-
-    if (auto startupPreset = readStartupPresetFile(); startupPreset.existsAsFile())
-        loadPresetFromFile(startupPreset);
+    clearSessionAndForgetStartupPreset();
 }
 
 bool NOVAAudioProcessor::savePresetToFile(const juce::File& file)
@@ -135,9 +117,43 @@ bool NOVAAudioProcessor::savePresetToFile(const juce::File& file)
     auto stateToSave = pluginState.createCopy();
     sanitizeLine(stateToSave.getChildWithName(Nova::IDs::LINE_A));
     sanitizeLine(stateToSave.getChildWithName(Nova::IDs::LINE_B));
+    
+    auto savePedalStates = [this, &stateToSave](Nova::ChainID chain)
+        {
+            auto line = (chain == Nova::ChainID::LineA)
+                ? stateToSave.getChildWithName(Nova::IDs::LINE_A)
+                : stateToSave.getChildWithName(Nova::IDs::LINE_B);
 
-    if (auto settings = stateToSave.getChildWithName(Nova::IDs::SETTINGS); settings.isValid())
-        settings.setProperty(Nova::IDs::ENGINE_ON, false, nullptr);
+            if (!line.isValid())
+                return;
+
+            for (int i = 0; i < line.getNumChildren(); ++i)
+            {
+                auto child = line.getChild(i);
+                if (!child.hasType(Nova::IDs::PEDAL))
+                    continue;
+
+                if (auto* proc = audioEngine.getProcessorForPedal(chain, i))
+                {
+                    juce::MemoryBlock pedalState;
+                    proc->getStateInformation(pedalState);
+
+                    if (pedalState.getSize() > 0)
+                    {
+                        child.setProperty(Nova::IDs::PEDAL_STATE,
+                            juce::Base64::toBase64(pedalState.getData(), pedalState.getSize()),
+                            nullptr);
+                    }
+                    else
+                    {
+                        child.removeProperty(Nova::IDs::PEDAL_STATE, nullptr);
+                    }
+                }
+            }
+        };
+
+    savePedalStates(Nova::ChainID::LineA);
+    savePedalStates(Nova::ChainID::LineB);
 
     juce::MemoryOutputStream stream;
     stateToSave.writeToStream(stream);
@@ -197,12 +213,47 @@ bool NOVAAudioProcessor::loadPresetFromFile(const juce::File& file)
     rebuildLine(Nova::ChainID::LineA);
     rebuildLine(Nova::ChainID::LineB);
 
-    if (auto settings = getSettingsTree(); settings.isValid())
-        settings.setProperty(Nova::IDs::ENGINE_ON, false, nullptr);
+    auto restorePedalStates = [this](Nova::ChainID chain)
+        {
+            auto line = getLineTree(chain);
+            if (!line.isValid())
+                return;
+
+            for (int i = 0; i < line.getNumChildren(); ++i)
+            {
+                auto child = line.getChild(i);
+                if (!child.hasType(Nova::IDs::PEDAL))
+                    continue;
+
+                const auto encodedState = child.getProperty(Nova::IDs::PEDAL_STATE).toString();
+                if (encodedState.isEmpty())
+                    continue;
+
+                juce::MemoryOutputStream decoded;
+                if (!juce::Base64::convertFromBase64(decoded, encodedState))
+                    continue;
+
+                if (auto* proc = audioEngine.getProcessorForPedal(chain, i))
+                    proc->setStateInformation(decoded.getData(), (int)decoded.getDataSize());
+            }
+        };
+
+    restorePedalStates(Nova::ChainID::LineA);
+    restorePedalStates(Nova::ChainID::LineB);
 
     updateGlobalParamsFromState();
     updateMixerFromState();
+    writeStartupPresetFile(file);
     return true;
+}
+
+void NOVAAudioProcessor::clearSessionAndForgetStartupPreset()
+{
+    resetToCleanState();
+
+    auto pointerFile = getStartupPresetPointerFile();
+    if (pointerFile.existsAsFile())
+        pointerFile.deleteFile();
 }
 
 // ==============================================================================

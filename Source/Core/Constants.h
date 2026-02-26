@@ -55,6 +55,7 @@ namespace Nova
         static const juce::Identifier PEDAL_TYPE("type");   // Ej: "Overdrive"
         static const juce::Identifier PEDAL_ZONE("zone");   // int (ZoneID)
         static const juce::Identifier PEDAL_ENABLED("enabled"); // bool (Bypass individual)
+        static const juce::Identifier PEDAL_STATE("state"); // base64 blob (estado interno del procesador)
 
         // --- INPUT SECTION ---
         static const juce::Identifier INPUT_GAIN("inGain");      // -60 a +24 dB

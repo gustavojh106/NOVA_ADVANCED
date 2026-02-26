@@ -1,9 +1,9 @@
-ï»¿#include "AudioEngine.h"
+#include "AudioEngine.h"
 #include "PedalRegistry.h"
 #include "GlobalProcessors.h"
 
 // ==========================================================
-// IMPLEMENTACIÃ“N DE AUDIO ENGINE
+// IMPLEMENTACIÓN DE AUDIO ENGINE
 // ==========================================================
 
 AudioEngine::AudioEngine()
@@ -11,7 +11,7 @@ AudioEngine::AudioEngine()
 {
     mainGraph = std::make_unique<juce::AudioProcessorGraph>();
 
-    // Nota: en tu cÃ³digo original lo ponÃ­as en true aquÃ­.
+    // Nota: en tu código original lo ponías en true aquí.
     // Lo dejo igual para no cambiar tu estado inicial real.
     isEngineOn = true;
 
@@ -280,7 +280,7 @@ void AudioEngine::clearAll()
 void AudioEngine::setPedalBypassed(Nova::ChainID, int, bool)
 {
     const juce::ScopedLock sl(vectorLock);
-    // Placeholder: tu lÃ³gica original no implementaba bypass real.
+    // Placeholder: tu lógica original no implementaba bypass real.
 }
 
 // ==========================================================
@@ -290,6 +290,18 @@ void AudioEngine::setPedalBypassed(Nova::ChainID, int, bool)
 const std::vector<juce::AudioProcessorGraph::Node::Ptr>& AudioEngine::getNodes(Nova::ChainID chain) const
 {
     return (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
+}
+
+juce::AudioProcessor* AudioEngine::getProcessorForPedal(Nova::ChainID chain, int index)
+{
+    const juce::ScopedLock sl(vectorLock);
+
+    auto& list = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
+    if (!juce::isPositiveAndBelow(index, (int)list.size()))
+        return nullptr;
+
+    auto node = list[(size_t)index];
+    return node != nullptr ? node->getProcessor() : nullptr;
 }
 
 void AudioEngine::setEngineEnabled(bool enabled) { isEngineOn = enabled; }
@@ -408,7 +420,7 @@ void AudioEngine::run()
         }
         else
         {
-            wait(100);  // tuner apagado => dormir mÃ¡s
+            wait(100);  // tuner apagado => dormir más
         }
     }
 }

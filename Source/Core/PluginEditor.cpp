@@ -2,7 +2,7 @@
 
 #include "../GUI/Widgets/ChainLane.h"
 #include "../GUI/Widgets/AssetBrowserOverlay.h"
-
+#include <algorithm>
 // ==============================================================================
 // CONSTRUCTOR / INIT
 // ==============================================================================
@@ -29,7 +29,7 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     addAndMakeVisible(btnSettings);
     addAndMakeVisible(btnProfile);
 
-    // IMPORTANTE: esto estaba en resized() (redundante). Aquí queda 1 vez y ya.
+    // IMPORTANTE: esto estaba en resized() (redundante). AquÃ­ queda 1 vez y ya.
     btnTuner.onClick = [this] { toggleTuner(); };
 
     // -----------------------
@@ -51,7 +51,7 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     // 3. Configurar el Gabinete
     addAndMakeVisible(btnAddCabinet);
     btnAddCabinet.setButtonText("Cabinet");
-    btnAddCabinet.setItemType("CAB");     // <--- ¡AQUÍ ESTÁ LA MAGIA!
+    btnAddCabinet.setItemType("CAB");     // <--- Â¡AQUÃ ESTÃ LA MAGIA!
     // -----------------------
     // INPUT STRIP
     // -----------------------
@@ -189,77 +189,31 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     // PRESETS & FOOTER
     // -----------------------
     addAndMakeVisible(searchBarPresets);
-    searchBarPresets.setTextToShowWhenEmpty("Search...", juce::Colours::grey);
+    searchBarPresets.setTextToShowWhenEmpty("Filter...", juce::Colours::grey);
+    searchBarPresets.onTextChange = [this] { refreshPresetList(); };
+
+    addAndMakeVisible(lblCurrentPreset);
+    lblCurrentPreset.setJustificationType(juce::Justification::centred);
+    lblCurrentPreset.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+    lblCurrentPreset.setFont(12.0f);
+    setCurrentPreset("No Preset");
+
+    addAndMakeVisible(presetSelector);
+    presetSelector.setTextWhenNothingSelected("No Presets");
+    // Seleccionar en la lista no cambia el preset activo hasta presionar LOAD.
+    presetSelector.onChange = [] {};
 
     addAndMakeVisible(btnSave);
     btnSave.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
-    btnSave.onClick = [this]
-        {
-            savePresetChooser = std::make_unique<juce::FileChooser>("Save NOVA Preset", juce::File(), "*.nova-preset");
-            savePresetChooser->launchAsync(juce::FileBrowserComponent::saveMode |
-                                           juce::FileBrowserComponent::canSelectFiles |
-                                           juce::FileBrowserComponent::warnAboutOverwriting,
-                [this](const juce::FileChooser& chooser)
-                {
-                    const auto file = chooser.getResult();
-                    if (file != juce::File())
-                        audioProcessor.savePresetToFile(file);
-
-                    savePresetChooser.reset();
-                });
-        };
+    btnSave.onClick = [this] { saveSelectedOrPromptPreset(); };
 
     addAndMakeVisible(btnLoad);
     btnLoad.setColour(juce::TextButton::buttonColourId, juce::Colours::darkgreen);
-    btnLoad.onClick = [this]
-        {
-            loadPresetChooser = std::make_unique<juce::FileChooser>("Load NOVA Preset", juce::File(), "*.nova-preset");
-            loadPresetChooser->launchAsync(juce::FileBrowserComponent::openMode |
-                                           juce::FileBrowserComponent::canSelectFiles,
-                [this](const juce::FileChooser& chooser)
-                {
-                    const auto file = chooser.getResult();
-                    if (file == juce::File() || !audioProcessor.loadPresetFromFile(file))
-                    {
-                        loadPresetChooser.reset();
-                        return;
-                    }
+    btnLoad.onClick = [this] { loadSelectedPreset(); };
 
-                    const auto settings = audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS);
-                    const auto lA = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A);
-                    const auto lB = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B);
-
-                    if (settings.isValid())
-                    {
-                        inputVolume.setValue(settings.getProperty(Nova::IDs::INPUT_GAIN, 0.0f), juce::dontSendNotification);
-                        inputGate.setValue(settings.getProperty(Nova::IDs::INPUT_GATE, -100.0f), juce::dontSendNotification);
-                        inputTranspose.setValue(settings.getProperty(Nova::IDs::INPUT_TRANS, 0), juce::dontSendNotification);
-                        btnMonoStereo.setToggleState(settings.getProperty(Nova::IDs::FORCE_MONO, false), juce::dontSendNotification);
-                        outputVolume.setValue(settings.getProperty(Nova::IDs::OUTPUT_VOL, 0.0f), juce::dontSendNotification);
-                        outputGain.setValue(settings.getProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f), juce::dontSendNotification);
-                        outputMix.setValue(settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f), juce::dontSendNotification);
-                    }
-
-                    if (lA.isValid())
-                    {
-                        volSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_GAIN_A, 1.0f), juce::dontSendNotification);
-                        panSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_PAN_A, 0.0f), juce::dontSendNotification);
-                        widthSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_WIDTH_A, 1.0f), juce::dontSendNotification);
-                    }
-
-                    if (lB.isValid())
-                    {
-                        volSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_GAIN_B, 1.0f), juce::dontSendNotification);
-                        panSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_PAN_B, 0.0f), juce::dontSendNotification);
-                        widthSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_WIDTH_B, 1.0f), juce::dontSendNotification);
-                    }
-
-                    updateSwitcherState();
-                    updatePedalGui();
-                    repaint();
-                    loadPresetChooser.reset();
-                });
-        };
+    addAndMakeVisible(btnClear);
+    btnClear.setColour(juce::TextButton::buttonColourId, juce::Colours::darkred);
+    btnClear.onClick = [this] { clearPresetAndSession(); };
 
     addAndMakeVisible(audioProcessor.audioVisualizer);
 
@@ -272,31 +226,27 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     setSize(1920, 1080);
 
     // Valores iniciales
-    const auto settings = audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS);
-    const auto lA = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A);
-    const auto lB = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B);
+    syncControlsFromState();
 
-    if (settings.isValid())
+    const auto startupPointer = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("NOVA")
+        .getChildFile("startup-preset.txt");
+
+    if (startupPointer.existsAsFile())
     {
-        inputVolume.setValue(settings.getProperty(Nova::IDs::INPUT_GAIN, 0.0f), juce::dontSendNotification);
-        inputGate.setValue(settings.getProperty(Nova::IDs::INPUT_GATE, -100.0f), juce::dontSendNotification);
-        inputTranspose.setValue(settings.getProperty(Nova::IDs::INPUT_TRANS, 0), juce::dontSendNotification);
-        btnMonoStereo.setToggleState(settings.getProperty(Nova::IDs::FORCE_MONO, false), juce::dontSendNotification);
+        const auto presetPath = startupPointer.loadFileAsString().trim();
+        const auto startupPreset = juce::File(presetPath);
+        if (startupPreset.existsAsFile())
+            setCurrentPreset(startupPreset.getFileNameWithoutExtension());
+        else
+            setCurrentPreset("No Preset");
+    }
+    else
+    {
+        setCurrentPreset("No Preset");
     }
 
-    if (lA.isValid())
-    {
-        volSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_GAIN_A, 1.0f), juce::dontSendNotification);
-        panSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_PAN_A, 0.0f), juce::dontSendNotification);
-        widthSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_WIDTH_A, 1.0f), juce::dontSendNotification);
-    }
-
-    if (lB.isValid())
-    {
-        volSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_GAIN_B, 1.0f), juce::dontSendNotification);
-        panSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_PAN_B, 0.0f), juce::dontSendNotification);
-        widthSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_WIDTH_B, 1.0f), juce::dontSendNotification);
-    }
+    refreshPresetList();
 
     updateSwitcherState();
     updatePedalGui();
@@ -337,6 +287,192 @@ void NOVAAudioProcessorEditor::setupKnob(juce::Slider& slider,
     slider.setValue(def, juce::dontSendNotification);
     slider.setTooltip(name);
 }
+
+juce::File NOVAAudioProcessorEditor::getPresetDirectory() const
+{
+    auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("NOVA")
+        .getChildFile("Presets");
+
+    if (!dir.exists())
+        dir.createDirectory();
+
+    return dir;
+}
+
+juce::File NOVAAudioProcessorEditor::getPresetFileForName(const juce::String& presetName) const
+{
+    auto safe = presetName.trim();
+    safe = safe.retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_");
+
+    if (safe.isEmpty())
+        safe = "Preset";
+
+    return getPresetDirectory().getChildFile(safe + ".nova-preset");
+}
+
+void NOVAAudioProcessorEditor::setCurrentPreset(const juce::String& presetName)
+{
+    currentPresetName = presetName.trim().isEmpty() ? "No Preset" : presetName.trim();
+    const auto label = (currentPresetName == "No Preset")
+        ? juce::String("No Preset")
+        : juce::String("Preset: ") + currentPresetName;
+    lblCurrentPreset.setText(label, juce::dontSendNotification);
+}
+
+void NOVAAudioProcessorEditor::refreshPresetList()
+{
+    juce::Array<juce::File> found;
+    getPresetDirectory().findChildFiles(found, juce::File::TypesOfFileToFind::findFiles, false, "*.nova-preset");
+
+    std::vector<juce::File> sorted;
+    sorted.reserve((size_t)found.size());
+    for (auto& f : found)
+        sorted.push_back(f);
+
+    std::sort(sorted.begin(), sorted.end(),
+        [](const juce::File& a, const juce::File& b)
+        {
+            return a.getFileNameWithoutExtension().compareNatural(b.getFileNameWithoutExtension()) < 0;
+        });
+
+    const auto filter = searchBarPresets.getText().trim();
+
+    presetFiles.clear();
+    for (const auto& f : sorted)
+    {
+        const auto name = f.getFileNameWithoutExtension();
+        if (filter.isNotEmpty() && !name.containsIgnoreCase(filter))
+            continue;
+
+        presetFiles.push_back(f);
+    }
+
+    presetSelector.clear(juce::dontSendNotification);
+
+    int selectedId = 0;
+    for (size_t i = 0; i < presetFiles.size(); ++i)
+    {
+        const auto name = presetFiles[i].getFileNameWithoutExtension();
+        presetSelector.addItem(name, (int)i + 1);
+
+        if (name == currentPresetName)
+            selectedId = (int)i + 1;
+    }
+
+    if (selectedId > 0)
+        presetSelector.setSelectedId(selectedId, juce::dontSendNotification);
+    else
+        presetSelector.setSelectedId(0, juce::dontSendNotification);
+
+    presetSelector.setTextWhenNothingSelected(presetFiles.empty() ? "No Presets" : "Select Preset");
+}
+
+void NOVAAudioProcessorEditor::syncControlsFromState()
+{
+    const auto settings = audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS);
+    const auto lA = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A);
+    const auto lB = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B);
+
+    if (settings.isValid())
+    {
+        inputVolume.setValue(settings.getProperty(Nova::IDs::INPUT_GAIN, 0.0f), juce::dontSendNotification);
+        inputGate.setValue(settings.getProperty(Nova::IDs::INPUT_GATE, -100.0f), juce::dontSendNotification);
+        inputTranspose.setValue(settings.getProperty(Nova::IDs::INPUT_TRANS, 0), juce::dontSendNotification);
+        btnMonoStereo.setToggleState(settings.getProperty(Nova::IDs::FORCE_MONO, false), juce::dontSendNotification);
+
+        outputVolume.setValue(settings.getProperty(Nova::IDs::OUTPUT_VOL, 0.0f), juce::dontSendNotification);
+        outputGain.setValue(settings.getProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f), juce::dontSendNotification);
+        outputMix.setValue(settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f), juce::dontSendNotification);
+        outputFader.setValue(settings.getProperty(Nova::IDs::OUTPUT_VOL, 0.0f), juce::dontSendNotification);
+    }
+
+    if (lA.isValid())
+    {
+        volSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_GAIN_A, 1.0f), juce::dontSendNotification);
+        panSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_PAN_A, 0.0f), juce::dontSendNotification);
+        widthSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_WIDTH_A, 1.0f), juce::dontSendNotification);
+    }
+
+    if (lB.isValid())
+    {
+        volSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_GAIN_B, 1.0f), juce::dontSendNotification);
+        panSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_PAN_B, 0.0f), juce::dontSendNotification);
+        widthSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_WIDTH_B, 1.0f), juce::dontSendNotification);
+    }
+}
+
+void NOVAAudioProcessorEditor::savePresetWithName(const juce::String& presetName)
+{
+    const auto target = getPresetFileForName(presetName);
+    if (!audioProcessor.savePresetToFile(target))
+        return;
+
+    setCurrentPreset(target.getFileNameWithoutExtension());
+    refreshPresetList();
+}
+
+void NOVAAudioProcessorEditor::saveSelectedOrPromptPreset()
+{
+    juce::String suggestedName;
+    const int idx = presetSelector.getSelectedId() - 1;
+
+    if (juce::isPositiveAndBelow(idx, (int)presetFiles.size()))
+        suggestedName = presetFiles[(size_t)idx].getFileNameWithoutExtension();
+    else if (currentPresetName != "No Preset")
+        suggestedName = currentPresetName;
+
+    auto* alert = new juce::AlertWindow("Save Preset", "Preset name", juce::AlertWindow::NoIcon);
+    alert->addTextEditor("name", suggestedName, "Name");
+    alert->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    juce::Component::SafePointer<NOVAAudioProcessorEditor> safeThis(this);
+    alert->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safeThis, alert](int result)
+        {
+            if (safeThis == nullptr || result != 1)
+                return;
+
+            const auto name = alert->getTextEditorContents("name").trim();
+            if (name.isEmpty())
+                return;
+
+            safeThis->savePresetWithName(name);
+        }), true);
+}
+
+void NOVAAudioProcessorEditor::loadSelectedPreset()
+{
+    const int idx = presetSelector.getSelectedId() - 1;
+    if (!juce::isPositiveAndBelow(idx, (int)presetFiles.size()))
+        return;
+
+    const auto& target = presetFiles[(size_t)idx];
+    if (!audioProcessor.loadPresetFromFile(target))
+        return;
+
+    setCurrentPreset(target.getFileNameWithoutExtension());
+    syncControlsFromState();
+    refreshPresetList();
+    updateSwitcherState();
+    updatePedalGui();
+    repaint();
+}
+
+void NOVAAudioProcessorEditor::clearPresetAndSession()
+{
+    audioProcessor.clearSessionAndForgetStartupPreset();
+
+    setCurrentPreset("No Preset");
+    presetSelector.setSelectedId(0, juce::dontSendNotification);
+    syncControlsFromState();
+    refreshPresetList();
+    updateSwitcherState();
+    updatePedalGui();
+    repaint();
+}
+
 
 // ==============================================================================
 // PAINT
@@ -658,11 +794,16 @@ void NOVAAudioProcessorEditor::resized()
 
     // Right presets column
     auto right2 = area.removeFromRight(rightPresetsW);
-    searchBarPresets.setBounds(right2.removeFromTop(40).reduced(10, 5));
+    searchBarPresets.setBounds(right2.removeFromTop(32).reduced(10, 4));
+    lblCurrentPreset.setBounds(right2.removeFromTop(24).reduced(8, 2));
+    presetSelector.setBounds(right2.removeFromTop(34).reduced(8, 2));
+    right2.removeFromTop(8);
 
-    auto btnArea = right2.removeFromBottom(60);
-    btnSave.setBounds(btnArea.removeFromLeft(75).reduced(5));
-    btnLoad.setBounds(btnArea.reduced(5));
+    auto btnArea = right2.removeFromBottom(96);
+    auto topButtons = btnArea.removeFromTop(42);
+    btnSave.setBounds(topButtons.removeFromLeft(75).reduced(5));
+    btnLoad.setBounds(topButtons.reduced(5));
+    btnClear.setBounds(btnArea.removeFromTop(42).reduced(5));
 
     // Output strip
     auto right1 = area.removeFromRight(stripW);
@@ -803,7 +944,7 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                     {
                         juce::String procName = n->getProcessor()->getName();
 
-                        // Si coinciden lógicamente, los emparejamos
+                        // Si coinciden lÃ³gicamente, los emparejamos
                         if (procName.containsIgnoreCase(expectedType) || expectedType.containsIgnoreCase(procName))
                         {
                             matchedNode = n;
@@ -813,14 +954,14 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                     }
                 }
 
-                // Fallback: Si el nombre está raro, simplemente agarramos el primer nodo libre que coincida en orden
+                // Fallback: Si el nombre estÃ¡ raro, simplemente agarramos el primer nodo libre que coincida en orden
                 if (!matchedNode && availableNodes.size() > 0)
                 {
                     matchedNode = availableNodes[0];
                     availableNodes.remove(0);
                 }
 
-                // Si logramos emparejarlo (es decir, el motor SÍ logró cargar este código viejo sin explotar)
+                // Si logramos emparejarlo (es decir, el motor SÃ logrÃ³ cargar este cÃ³digo viejo sin explotar)
                 if (matchedNode)
                 {
                     if (zIdx >= 0 && zIdx < 4)
@@ -880,7 +1021,7 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                     // EL SALVAVIDAS: Intentamos crear su ventana normal
                     juce::AudioProcessorEditor* newEditor = item.node->getProcessor()->createEditor();
 
-                    // Si es código ultra viejo y devuelve nullptr, le forzamos una UI genérica de JUCE
+                    // Si es cÃ³digo ultra viejo y devuelve nullptr, le forzamos una UI genÃ©rica de JUCE
                     if (newEditor == nullptr)
                     {
                         newEditor = new juce::GenericAudioProcessorEditor(*(item.node->getProcessor()));
@@ -986,3 +1127,4 @@ void NOVAAudioProcessorEditor::showOverlay(Nova::ZoneID zone, Nova::ChainID chai
     overlay->setBounds(getLocalBounds());
     currentOverlay = std::move(overlay);
 }
+

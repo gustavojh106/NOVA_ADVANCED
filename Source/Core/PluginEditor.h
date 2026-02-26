@@ -1,12 +1,13 @@
 #pragma once
 #include <JuceHeader.h>
+#include <vector>
 #include "PluginProcessor.h"
 #include "Constants.h"
 #include "StyleSheet.h"
 
-// --- MÓDULOS DE UI ---
+// --- MÃ“DULOS DE UI ---
 #include "../GUI/Overlays/TunerOverlay.h"
-#include "../GUI/Widgets/DraggableButton.h" // Necesitamos la definición completa aquí porque lo usamos como miembro directo
+#include "../GUI/Widgets/DraggableButton.h" // Necesitamos la definiciÃ³n completa aquÃ­ porque lo usamos como miembro directo
 
 // Forward Declarations (Para punteros inteligentes)
 class ChainLane;
@@ -27,7 +28,7 @@ public:
     void resized() override;
     bool keyPressed(const juce::KeyPress&) override;
 
-    // Métodos públicos para interacción con hijos (DropZones)
+    // MÃ©todos pÃºblicos para interacciÃ³n con hijos (DropZones)
     void showOverlay(Nova::ZoneID zone, Nova::ChainID chain);
     void toggleTuner();
 
@@ -36,7 +37,7 @@ private:
     void setupKnob(juce::Slider& slider, const juce::String& name, float min, float max, float def);
     void drawChannelStrip(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title);
 
-    // Callbacks de ValueTree (Sincronización de Datos)
+    // Callbacks de ValueTree (SincronizaciÃ³n de Datos)
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override;
     void valueTreeChildAdded(juce::ValueTree&, juce::ValueTree&) override { updatePedalGui(); }
     void valueTreeChildRemoved(juce::ValueTree&, juce::ValueTree&, int) override { updatePedalGui(); }
@@ -44,6 +45,15 @@ private:
     void updatePedalGui();
     void updateSwitcherState();
     void updateStats();
+    void syncControlsFromState();
+    void refreshPresetList();
+    juce::File getPresetDirectory() const;
+    juce::File getPresetFileForName(const juce::String& presetName) const;
+    void setCurrentPreset(const juce::String& presetName);
+    void saveSelectedOrPromptPreset();
+    void savePresetWithName(const juce::String& presetName);
+    void loadSelectedPreset();
+    void clearPresetAndSession();
 
     NOVAAudioProcessor& audioProcessor;
 
@@ -92,10 +102,15 @@ private:
 
     // --- 6. PRESETS & FOOTER ---
     juce::TextEditor searchBarPresets;
+    juce::ComboBox presetSelector;
+    juce::Label lblCurrentPreset;
     juce::TextButton btnSave{ "SAVE" };
     juce::TextButton btnLoad{ "LOAD" };
+    juce::TextButton btnClear{ "CLEAR" };
+    std::vector<juce::File> presetFiles;
+    juce::String currentPresetName { "No Preset" };
 
-    // --- 7. INFRAESTRUCTURA DE VISUALIZACIÓN ---
+    // --- 7. INFRAESTRUCTURA DE VISUALIZACIÃ“N ---
 
     // Carriles de Pedales (Widgets modulares)
     std::unique_ptr<ChainLane> laneA;
@@ -107,8 +122,6 @@ private:
     // Overlays (Ventanas modales)
     std::unique_ptr<juce::Component> currentOverlay; // Para el Browser
     std::unique_ptr<TunerOverlay> tunerOverlay;      // Para el Afinador
-    std::unique_ptr<juce::FileChooser> savePresetChooser;
-    std::unique_ptr<juce::FileChooser> loadPresetChooser;
 
     // Timer para actualizar CPU y FPS
     class StatsTimer : public juce::Timer {
@@ -121,3 +134,4 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NOVAAudioProcessorEditor)
 };
+

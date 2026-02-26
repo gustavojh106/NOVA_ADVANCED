@@ -39,6 +39,7 @@ public:
 
     bool savePresetToFile(const juce::File& file);
     bool loadPresetFromFile(const juce::File& file);
+    void clearSessionAndForgetStartupPreset();
 
     // == COMANDOS PÚBLICOS PARA EL EDITOR ==
     void requestAddPedal(const juce::String& type, Nova::ChainID chain, Nova::ZoneID zone);
