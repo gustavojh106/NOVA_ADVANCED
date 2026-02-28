@@ -5,8 +5,8 @@ OutputChainProcessor::OutputChainProcessor()
         .withInput("In", juce::AudioChannelSet::stereo())
         .withOutput("Out", juce::AudioChannelSet::stereo()))
 {
-    limiter.setThreshold(0.0f);  // dB
-    limiter.setRelease(100.0f);  // ms
+    limiter.setThreshold(0.0f);
+    limiter.setRelease(100.0f);
 }
 
 void OutputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
@@ -15,6 +15,10 @@ void OutputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
     gain.prepare(spec);
     limiter.prepare(spec);
+
+    gain.setRampDurationSeconds(0.02);
+    limiterSmooth.reset(sampleRate, 0.02);
+    limiterSmooth.setCurrentAndTargetValue(limiterThresholdTarget);
 }
 
 void OutputChainProcessor::releaseResources()
@@ -25,7 +29,8 @@ void OutputChainProcessor::releaseResources()
 void OutputChainProcessor::setParams(float volDb, float limitDb)
 {
     outputVolDb = volDb;
-    limiterThreshold = limitDb;
+    limiterThresholdTarget = limitDb;
+    limiterSmooth.setTargetValue(limitDb);
 }
 
 void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -37,7 +42,8 @@ void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     gain.setGainDecibels(outputVolDb);
     gain.process(context);
 
-    // 2) Limiter (solo si está “activado” según tu threshold)
+    // 2) Limiter with smoothed threshold
+    const float limiterThreshold = limiterSmooth.getNextValue();
     if (limiterThreshold < -0.1f)
     {
         limiter.setThreshold(limiterThreshold);

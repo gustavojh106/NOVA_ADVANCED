@@ -12,9 +12,9 @@ public:
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
-    // gainVal: escala lineal (0.0 .. 2.0)
-    // panVal : -1.0 (L) .. +1.0 (R)
-    // widthVal: 0.0 (mono) .. 2.0 (extra ancho), 1.0 = normal
+    // gainVal: linear gain (0.0 .. 2.0)
+    // panVal: -1.0 (L) .. +1.0 (R)
+    // widthVal: 0.0 (mono) .. 2.0 (extra wide), 1.0 = normal
     void setParams(float gainVal, float panVal, float widthVal);
 
     // Boilerplate (JUCE)
@@ -37,9 +37,10 @@ public:
     bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
 
 private:
-    juce::dsp::Gain<float>   gain;
-    juce::dsp::Panner<float> panner;
+    juce::dsp::Gain<float> gain;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> panSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmooth;
 
-    // Width con Mid/Side manual (JUCE dsp no trae un width simple estándar)
+    float targetPan = 0.0f;
     float targetWidth = 1.0f;
 };

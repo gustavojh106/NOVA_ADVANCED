@@ -1,11 +1,11 @@
 #include "ChannelStrip.h"
+#include <cmath>
 
 ChannelStripProcessor::ChannelStripProcessor()
     : AudioProcessor(BusesProperties()
         .withInput("In", juce::AudioChannelSet::stereo())
         .withOutput("Out", juce::AudioChannelSet::stereo()))
 {
-    panner.setRule(juce::dsp::PannerRule::linear);
 }
 
 void ChannelStripProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
@@ -13,7 +13,12 @@ void ChannelStripProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
     juce::dsp::ProcessSpec spec{ sampleRate, (juce::uint32)samplesPerBlock, 2 };
 
     gain.prepare(spec);
-    panner.prepare(spec);
+    gain.setRampDurationSeconds(0.02);
+
+    panSmooth.reset(sampleRate, 0.02);
+    widthSmooth.reset(sampleRate, 0.02);
+    panSmooth.setCurrentAndTargetValue(targetPan);
+    widthSmooth.setCurrentAndTargetValue(targetWidth);
 }
 
 void ChannelStripProcessor::releaseResources()
@@ -22,14 +27,13 @@ void ChannelStripProcessor::releaseResources()
 
 void ChannelStripProcessor::setParams(float gainVal, float panVal, float widthVal)
 {
-    // gainVal viene como escala lineal (0.0 .. 2.0)
-    gain.setGainLinear(gainVal);
+    gain.setGainLinear(juce::jlimit(0.0f, 2.0f, gainVal));
 
-    // panVal: -1..+1
-    panner.setPan(panVal);
+    targetPan = juce::jlimit(-1.0f, 1.0f, panVal);
+    targetWidth = juce::jlimit(0.0f, 2.0f, widthVal);
 
-    // widthVal: se aplica en Mid/Side
-    targetWidth = widthVal;
+    panSmooth.setTargetValue(targetPan);
+    widthSmooth.setTargetValue(targetWidth);
 }
 
 void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -37,28 +41,34 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
 
-    // 1) Gain
+    // 1) Gain (smoothed internally)
     gain.process(context);
 
-    // 2) Width (Mid/Side) — solo si es estéreo y width != 1.0
-    if (buffer.getNumChannels() == 2 && std::abs(targetWidth - 1.0f) > 0.01f)
+    if (buffer.getNumChannels() != 2)
+        return;
+
+    auto* l = buffer.getWritePointer(0);
+    auto* r = buffer.getWritePointer(1);
+    const int numSamples = buffer.getNumSamples();
+
+    // 2) Width + equal-power pan with per-sample smoothing
+    for (int i = 0; i < numSamples; ++i)
     {
-        auto* l = buffer.getWritePointer(0);
-        auto* r = buffer.getWritePointer(1);
-        const int numSamples = buffer.getNumSamples();
+        const float width = widthSmooth.getNextValue();
+        const float pan = panSmooth.getNextValue();
 
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const float mid = (l[i] + r[i]) * 0.5f;
-            float side = (l[i] - r[i]) * 0.5f;
+        const float mid = (l[i] + r[i]) * 0.5f;
+        float side = (l[i] - r[i]) * 0.5f;
+        side *= width;
 
-            side *= targetWidth;
+        float sampleL = mid + side;
+        float sampleR = mid - side;
 
-            l[i] = mid + side;
-            r[i] = mid - side;
-        }
+        const float theta = (pan + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
+        const float gainL = std::cos(theta);
+        const float gainR = std::sin(theta);
+
+        l[i] = sampleL * gainL;
+        r[i] = sampleR * gainR;
     }
-
-    // 3) Pan
-    panner.process(context);
 }

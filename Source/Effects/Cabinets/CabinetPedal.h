@@ -34,6 +34,7 @@ public:
         juce::dsp::ProcessSpec spec{ sampleRate, static_cast<juce::uint32>(samplesPerBlock), 2 };
         convolution.prepare(spec);
         convolution.reset();
+        prepareBypassSmoother(sampleRate, samplesPerBlock);
         isPrepared = true;
     }
 
@@ -41,7 +42,7 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!shouldProcess(buffer))
+        if (!beginBypassProcess(buffer))
             return;
 
         if (isPrepared && convolution.getCurrentIRSize() > 0)
@@ -50,6 +51,8 @@ public:
             juce::dsp::ProcessContextReplacing<float> context(block);
             convolution.process(context);
         }
+
+        endBypassProcess(buffer);
     }
 
     const juce::String getName() const override { return "Cabinet"; }

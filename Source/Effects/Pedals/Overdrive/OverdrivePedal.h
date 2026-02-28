@@ -88,8 +88,11 @@ public:
 
         *processorChain.get<3>().state =
             *juce::dsp::IIR::Coefficients<float>::makeLowPass(innerSampleRate, 3500.0f);
+        *processorChain.get<5>().state =
+            *juce::dsp::IIR::Coefficients<float>::makeHighPass(innerSampleRate, 20.0f);
 
         setLatencySamples(oversampler.getLatencyInSamples());
+        prepareBypassSmoother(sampleRate, samplesPerBlock);
 
         reset();
         isPrepared = true;
@@ -114,7 +117,7 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!shouldProcess(buffer) || !isPrepared)
+        if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
         juce::dsp::AudioBlock<float> block(buffer);
@@ -129,6 +132,7 @@ public:
 
         processorChain.process(context);
         oversampler.processSamplesDown(block);
+        endBypassProcess(buffer);
     }
 
 private:
@@ -138,7 +142,7 @@ private:
         SotaClipper,                  // Clip
         juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>>, // Post
         juce::dsp::Gain<float>,       // Level
-        juce::dsp::Bias<float>        // DC offset remover (as you use it)
+        juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> // DC blocker
     >;
 
     Chain processorChain;

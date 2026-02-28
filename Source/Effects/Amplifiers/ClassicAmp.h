@@ -96,6 +96,7 @@ class ClassicAmp final : public ProcessorBase
 {
 public:
     ClassicAmp()
+        : oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
         addParameter(driveParam = new juce::AudioParameterFloat("ampDrive", "Drive", 0.5f, 6.0f, 2.5f));
         addParameter(levelParam = new juce::AudioParameterFloat("ampLevel", "Level", 0.0f, 2.0f, 1.0f));
@@ -109,26 +110,99 @@ public:
         return new ClassicAmpEditor(*this, driveParam, levelParam);
     }
 
-    void prepareToPlay(double, int) override {}
-    void releaseResources() override {}
+    void prepareToPlay(double sampleRate, int samplesPerBlock) override
+    {
+        if (sampleRate <= 0.0)
+            return;
+
+        oversampler.initProcessing(static_cast<size_t>(samplesPerBlock));
+        const double innerRate = sampleRate * 4.0;
+
+        juce::dsp::ProcessSpec spec;
+        spec.sampleRate = innerRate;
+        spec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock) * 4;
+        spec.numChannels = static_cast<juce::uint32>(juce::jmax(1, getTotalNumOutputChannels()));
+
+        preHighPass.prepare(spec);
+        postLowPass.prepare(spec);
+        dcBlock.prepare(spec);
+
+        *preHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(innerRate, 35.0f);
+        *postLowPass.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(innerRate, 9000.0f);
+        *dcBlock.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(innerRate, 20.0f);
+
+        driveSmooth.reset(innerRate, 0.01);
+        levelSmooth.reset(innerRate, 0.01);
+        driveSmooth.setCurrentAndTargetValue(driveParam != nullptr ? *driveParam : 2.5f);
+        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
+
+        setLatencySamples(oversampler.getLatencyInSamples());
+        prepareBypassSmoother(sampleRate, samplesPerBlock);
+
+        reset();
+        isPrepared = true;
+    }
+
+    void releaseResources() override
+    {
+        isPrepared = false;
+    }
+
+    void reset() override
+    {
+        oversampler.reset();
+        preHighPass.reset();
+        postLowPass.reset();
+        dcBlock.reset();
+    }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!shouldProcess(buffer))
+        if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
-        const float drive = driveParam != nullptr ? *driveParam : 2.5f;
-        const float level = levelParam != nullptr ? *levelParam : 1.0f;
+        juce::dsp::AudioBlock<float> block(buffer);
+        auto upsampledBlock = oversampler.processSamplesUp(block);
+        juce::dsp::ProcessContextReplacing<float> context(upsampledBlock);
 
-        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+        preHighPass.process(context);
+
+        driveSmooth.setTargetValue(driveParam != nullptr ? *driveParam : 2.5f);
+        levelSmooth.setTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
+
+        float* channelData[2] = { nullptr, nullptr };
+        const int numChannels = (int)juce::jmin<size_t>(2, upsampledBlock.getNumChannels());
+        for (int ch = 0; ch < numChannels; ++ch)
+            channelData[ch] = upsampledBlock.getChannelPointer((size_t)ch);
+
+        const int numSamples = (int)upsampledBlock.getNumSamples();
+        for (int sample = 0; sample < numSamples; ++sample)
         {
-            auto* channelData = buffer.getWritePointer(channel);
-            for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
-                channelData[sample] = std::tanh(channelData[sample] * drive) * level;
+            const float drive = driveSmooth.getNextValue();
+            const float level = levelSmooth.getNextValue();
+
+            for (int ch = 0; ch < numChannels; ++ch)
+                channelData[ch][sample] = std::tanh(channelData[ch][sample] * drive) * level;
         }
+
+        postLowPass.process(context);
+        dcBlock.process(context);
+        oversampler.processSamplesDown(block);
+        endBypassProcess(buffer);
     }
 
 private:
+    using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+        juce::dsp::IIR::Coefficients<float>>;
+
+    juce::dsp::Oversampling<float> oversampler;
+    Filter preHighPass;
+    Filter postLowPass;
+    Filter dcBlock;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> levelSmooth;
+
     juce::AudioParameterFloat* driveParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
+    bool isPrepared = false;
 };

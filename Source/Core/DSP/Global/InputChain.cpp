@@ -5,11 +5,10 @@ InputChainProcessor::InputChainProcessor()
         .withInput("In", juce::AudioChannelSet::stereo())
         .withOutput("Out", juce::AudioChannelSet::stereo()))
 {
-    // Defaults del gate (sensibles para guitarra)
     gate.setThreshold(-100.0f);
     gate.setRatio(12.0f);
-    gate.setAttack(0.5f);   // ms
-    gate.setRelease(50.0f); // ms
+    gate.setAttack(0.5f);
+    gate.setRelease(50.0f);
 
     gain.setGainDecibels(0.0f);
 }
@@ -20,6 +19,7 @@ void InputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
     gate.prepare(spec);
     gain.prepare(spec);
+    gain.setRampDurationSeconds(0.02);
 }
 
 void InputChainProcessor::releaseResources()
@@ -30,13 +30,11 @@ void InputChainProcessor::releaseResources()
 
 void InputChainProcessor::setParams(float gainDb, float gateDb, bool forceMono, int inputChannelIndex)
 {
-    // Actualmente no se usa, pero se mantiene por compatibilidad/API
     juce::ignoreUnused(inputChannelIndex);
 
     inputGainDb = gainDb;
     gateThreshold = gateDb;
 
-    // Ruteo: si forzamos mono, asumimos guitarra por Input 1 (Left)
     currentRouting = forceMono ? Nova::InputRouting::Left
         : Nova::InputRouting::Stereo;
 }
@@ -49,7 +47,7 @@ void InputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     const int numSamples = buffer.getNumSamples();
     const int numCh = buffer.getNumChannels();
 
-    // 1) Input routing (solo si hay al menos 2 canales)
+    // 1) Input routing
     if (numCh > 1)
     {
         auto* l = buffer.getWritePointer(0);
@@ -57,25 +55,25 @@ void InputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
 
         switch (currentRouting)
         {
-        case Nova::InputRouting::Left:
-            juce::FloatVectorOperations::copy(r, l, numSamples); // L -> R
-            break;
+            case Nova::InputRouting::Left:
+                juce::FloatVectorOperations::copy(r, l, numSamples);
+                break;
 
-        case Nova::InputRouting::Right:
-            juce::FloatVectorOperations::copy(l, r, numSamples); // R -> L
-            break;
+            case Nova::InputRouting::Right:
+                juce::FloatVectorOperations::copy(l, r, numSamples);
+                break;
 
-        case Nova::InputRouting::Sum:
-            for (int i = 0; i < numSamples; ++i)
-            {
-                const float sum = (l[i] + r[i]) * 0.5f;
-                l[i] = sum;
-                r[i] = sum;
-            }
-            break;
+            case Nova::InputRouting::Sum:
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    const float sum = (l[i] + r[i]) * 0.5f;
+                    l[i] = sum;
+                    r[i] = sum;
+                }
+                break;
 
-        default:
-            break;
+            default:
+                break;
         }
     }
 
@@ -83,7 +81,7 @@ void InputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     gain.setGainDecibels(inputGainDb);
     gain.process(context);
 
-    // 3) Noise gate (evitar procesarlo cuando está prácticamente "apagado")
+    // 3) Noise gate
     if (gateThreshold > -95.0f)
     {
         gate.setThreshold(gateThreshold);

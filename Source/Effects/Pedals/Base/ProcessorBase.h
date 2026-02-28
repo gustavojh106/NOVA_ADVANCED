@@ -23,10 +23,7 @@ public:
             return;
 
         isBypassed = shouldBypass;
-
-        // Optional: clear internal state when re-enabling to avoid stale tails
-        if (!shouldBypass)
-            reset();
+        bypassChanged = true;
     }
 
     bool getBypassed() const { return isBypassed.load(); }
@@ -113,15 +110,112 @@ public:
     void changeProgramName(int, const juce::String&) override {}
 
 protected:
-    // Returns true if the derived processor should process.
-    // If false, the caller should return immediately (true-bypass behavior).
-    bool shouldProcess(juce::AudioBuffer<float>& /*buffer*/)
+    // Call from prepareToPlay() of derived processors.
+    void prepareBypassSmoother(double sampleRate, int maxBlockSize)
     {
-        return !isBypassed.load();
+        const double sr = sampleRate > 0.0 ? sampleRate : 44100.0;
+        const int blockSize = juce::jmax(1, maxBlockSize);
+
+        wetMix.reset(sr, 0.01);
+        const float initialWet = isBypassed.load() ? 0.0f : 1.0f;
+        wetMix.setCurrentAndTargetValue(initialWet);
+        transitionActive = false;
+        dryBuffer.setSize(juce::jmax(1, getTotalNumOutputChannels()),
+            blockSize,
+            false,
+            false,
+            true);
+        bypassPrepared = true;
+    }
+
+    // Call at the beginning of processBlock() in derived processors.
+    // Returns false when fully bypassed and no transition is active.
+    bool beginBypassProcess(juce::AudioBuffer<float>& buffer)
+    {
+        if (!bypassPrepared)
+            prepareBypassSmoother(getSampleRate(), buffer.getNumSamples());
+
+        if (dryBuffer.getNumChannels() < buffer.getNumChannels()
+            || dryBuffer.getNumSamples() < buffer.getNumSamples())
+        {
+            dryBuffer.setSize(buffer.getNumChannels(),
+                buffer.getNumSamples(),
+                false,
+                false,
+                true);
+        }
+
+        if (bypassChanged.exchange(false))
+        {
+            const bool shouldBypass = isBypassed.load();
+            if (!shouldBypass)
+                reset();
+
+            wetMix.setTargetValue(shouldBypass ? 0.0f : 1.0f);
+            transitionActive = true;
+        }
+
+        const bool shouldBypass = isBypassed.load();
+        const bool fullyBypassed = shouldBypass
+            && !wetMix.isSmoothing()
+            && wetMix.getCurrentValue() <= 0.0001f;
+
+        if (fullyBypassed)
+        {
+            transitionActive = false;
+            return false;
+        }
+
+        const int numSamples = buffer.getNumSamples();
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            const auto* src = buffer.getReadPointer(ch);
+            auto* dst = dryBuffer.getWritePointer(ch);
+            juce::FloatVectorOperations::copy(dst, src, numSamples);
+        }
+
+        return true;
+    }
+
+    // Call at the end of processBlock() in derived processors.
+    void endBypassProcess(juce::AudioBuffer<float>& buffer)
+    {
+        if (!transitionActive && !wetMix.isSmoothing())
+            return;
+
+        const int numSamples = buffer.getNumSamples();
+        const int numChannels = buffer.getNumChannels();
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float wet = wetMix.getNextValue();
+            const float dry = 1.0f - wet;
+
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                auto* out = buffer.getWritePointer(ch);
+                const auto* in = dryBuffer.getReadPointer(ch);
+                out[i] = (out[i] * wet) + (in[i] * dry);
+            }
+        }
+
+        if (!wetMix.isSmoothing())
+            transitionActive = false;
+    }
+
+    // Backward-compatible helper (legacy callers).
+    bool shouldProcess(juce::AudioBuffer<float>& buffer)
+    {
+        return beginBypassProcess(buffer);
     }
 
 private:
     std::atomic<bool> isBypassed{ false };
+    std::atomic<bool> bypassChanged{ false };
+    bool bypassPrepared = false;
+    bool transitionActive = false;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> wetMix;
+    juce::AudioBuffer<float> dryBuffer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ProcessorBase)
 };

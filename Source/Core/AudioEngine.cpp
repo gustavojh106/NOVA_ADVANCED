@@ -276,6 +276,8 @@ void AudioEngine::applyGlobalParamsNow(const GlobalParamsSnapshot& snapshot)
 
     const bool muteA = (snapshot.switchMode == (int)Nova::SwitcherMode::LineB_Only);
     const bool muteB = (snapshot.switchMode == (int)Nova::SwitcherMode::LineA_Only);
+    const bool dualParallel = (snapshot.switchMode == (int)Nova::SwitcherMode::Dual_Parallel);
+    constexpr float kParallelGainComp = 0.70710678f; // -3 dB per side when summing two active lines
 
     if (stripNodeA)
     {
@@ -284,6 +286,8 @@ void AudioEngine::applyGlobalParamsNow(const GlobalParamsSnapshot& snapshot)
             float gain = muteA ? 0.0f : snapshot.gainA;
             if (!muteA && gain <= 0.001f)
                 gain = 1.0f;
+            if (!muteA && dualParallel)
+                gain *= kParallelGainComp;
 
             p->setParams(gain, snapshot.panA, snapshot.widthA);
         }
@@ -296,6 +300,8 @@ void AudioEngine::applyGlobalParamsNow(const GlobalParamsSnapshot& snapshot)
             float gain = muteB ? 0.0f : snapshot.gainB;
             if (!muteB && gain <= 0.001f)
                 gain = 1.0f;
+            if (!muteB && dualParallel)
+                gain *= kParallelGainComp;
 
             p->setParams(gain, snapshot.panB, snapshot.widthB);
         }

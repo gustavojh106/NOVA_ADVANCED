@@ -12,8 +12,8 @@ public:
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
-    // volDb: volumen master en dB
-    // limitDb: threshold del limiter en dB (0.0 = “off” según tu lógica)
+    // volDb: master output gain in dB
+    // limitDb: limiter threshold in dB (0.0 = off)
     void setParams(float volDb, float limitDb);
 
     // Boilerplate JUCE
@@ -36,9 +36,10 @@ public:
     bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
 
 private:
-    juce::dsp::Gain<float>    gain;
+    juce::dsp::Gain<float> gain;
     juce::dsp::Limiter<float> limiter;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> limiterSmooth;
 
     float outputVolDb = 0.0f;
-    float limiterThreshold = 0.0f;
+    float limiterThresholdTarget = 0.0f;
 };
