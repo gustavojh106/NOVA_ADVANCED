@@ -903,146 +903,166 @@ void NOVAAudioProcessorEditor::updatePedalGui()
 
     auto processLane = [&](Nova::ChainID chain, ChainLane* laneComp)
         {
-            if (!laneComp) return;
-            laneComp->resized();
+            if (!laneComp)
+                return;
 
             const auto& engineNodes = audioProcessor.getAudioEngine().getNodes(chain);
             const auto treeListID = (chain == Nova::ChainID::LineA) ? Nova::IDs::LINE_A : Nova::IDs::LINE_B;
             auto treeList = audioProcessor.pluginState.getChildWithName(treeListID);
 
-            // Hacemos una copia temporal de los nodos generados por el motor de audio
             juce::Array<juce::AudioProcessorGraph::Node::Ptr> availableNodes;
-            for (auto n : engineNodes) availableNodes.add(n);
+            for (auto n : engineNodes)
+                availableNodes.add(n);
 
-            int zoneCounts[4] = { 0, 0, 0, 0 };
-
-            // ==============================================================================
-            // 1. EMPAREJAMIENTO INTELIGENTE (Self-Healing)
-            // ==============================================================================
-            struct MatchedItem {
+            struct DrawItem
+            {
                 juce::ValueTree state;
                 juce::AudioProcessorGraph::Node::Ptr node;
-                int zoneIdx;
+                int zoneIdx = 0;
+                juce::AudioProcessorEditor* editor = nullptr;
+                int preferredW = 120;
+                int preferredH = 180;
+                bool createdNow = false;
             };
-            std::vector<MatchedItem> itemsToDraw;
+
+            std::vector<DrawItem> itemsToDraw;
+            itemsToDraw.reserve((size_t)treeList.getNumChildren());
 
             for (int i = 0; i < treeList.getNumChildren(); ++i)
             {
                 auto state = treeList.getChild(i);
-                if (state.getType() != Nova::IDs::PEDAL) continue;
+                if (state.getType() != Nova::IDs::PEDAL)
+                    continue;
 
                 juce::String expectedType = state.getProperty(Nova::IDs::PEDAL_TYPE).toString();
-                int zIdx = static_cast<int>(state.getProperty(Nova::IDs::PEDAL_ZONE, 0));
+                const int zIdx = static_cast<int>(state.getProperty(Nova::IDs::PEDAL_ZONE, 0));
+                if (zIdx < 0 || zIdx > 3)
+                    continue;
 
                 juce::AudioProcessorGraph::Node::Ptr matchedNode = nullptr;
 
-                // Buscamos a su "alma gemela" en los nodos de audio comparando los nombres
                 for (int j = 0; j < availableNodes.size(); ++j)
                 {
                     auto n = availableNodes[j];
                     if (n && n->getProcessor())
                     {
                         juce::String procName = n->getProcessor()->getName();
-
-                        // Si coinciden lógicamente, los emparejamos
                         if (procName.containsIgnoreCase(expectedType) || expectedType.containsIgnoreCase(procName))
                         {
                             matchedNode = n;
-                            availableNodes.remove(j); // Lo sacamos de la lista para no repetirlo
+                            availableNodes.remove(j);
                             break;
                         }
                     }
                 }
 
-                // Fallback: Si el nombre está raro, simplemente agarramos el primer nodo libre que coincida en orden
                 if (!matchedNode && availableNodes.size() > 0)
                 {
                     matchedNode = availableNodes[0];
                     availableNodes.remove(0);
                 }
 
-                // Si logramos emparejarlo (es decir, el motor SÍ logró cargar este código viejo sin explotar)
                 if (matchedNode)
-                {
-                    if (zIdx >= 0 && zIdx < 4)
-                    {
-                        zoneCounts[zIdx]++;
-                        itemsToDraw.push_back({ state, matchedNode, zIdx });
-                    }
-                }
+                    itemsToDraw.push_back({ state, matchedNode, zIdx });
             }
 
-            // ==============================================================================
-            // 2. DIBUJO, LAYOUT Y SALVAGUARDA DE INTERFAZ
-            // ==============================================================================
-            int flowCounters[4] = { 0, 0, 0, 0 };
-
-            for (const auto& item : itemsToDraw)
+            for (auto& item : itemsToDraw)
             {
                 requiredNodeIDs.insert(item.node->nodeID);
-                const int zoneIdx = item.zoneIdx;
 
-                const auto zoneRect = laneComp->getZoneRect(zoneIdx);
-                const int zoneAbsX = laneComp->getX() + zoneRect.getX();
-                const int zoneAbsY = laneComp->getY() + zoneRect.getY();
-                const int zoneW = zoneRect.getWidth();
-                const int zoneH = zoneRect.getHeight();
-
-                const int pW = 120, pH = 180;
-                const int finalY = zoneAbsY + (zoneH - pH) / 2;
-                int finalX = 0;
-
-                if (zoneIdx == (int)Nova::ZoneID::Amp || zoneIdx == (int)Nova::ZoneID::Cabinet)
-                {
-                    finalX = zoneAbsX + (zoneW - pW) / 2;
-                }
-                else
-                {
-                    int count = zoneCounts[zoneIdx];
-                    int current = flowCounters[zoneIdx];
-                    int gap = 15;
-
-                    int totalNeeded = (count * pW) + ((count - 1) * gap);
-                    if (totalNeeded > zoneW - 20 && count > 1)
-                    {
-                        gap = (zoneW - 20 - (count * pW)) / (count - 1);
-                        totalNeeded = (count * pW) + ((count - 1) * gap);
-                    }
-
-                    int startX = zoneAbsX + (zoneW - totalNeeded) / 2;
-                    finalX = startX + (current * (pW + gap));
-                }
-
-                juce::AudioProcessorEditor* editor = nullptr;
                 auto it = activePedalEditors.find(item.node->nodeID);
+                juce::AudioProcessorEditor* editor = nullptr;
 
                 if (it == activePedalEditors.end())
                 {
-                    // EL SALVAVIDAS: Intentamos crear su ventana normal
                     juce::AudioProcessorEditor* newEditor = item.node->getProcessor()->createEditor();
-
-                    // Si es código ultra viejo y devuelve nullptr, le forzamos una UI genérica de JUCE
                     if (newEditor == nullptr)
-                    {
                         newEditor = new juce::GenericAudioProcessorEditor(*(item.node->getProcessor()));
-                    }
 
                     if (newEditor != nullptr)
                     {
                         addAndMakeVisible(newEditor);
                         activePedalEditors[item.node->nodeID].reset(newEditor);
                         editor = newEditor;
+                        item.createdNow = true;
                     }
                 }
-                else editor = it->second.get();
+                else
+                {
+                    editor = it->second.get();
+                }
 
                 if (editor)
                 {
-                    editor->setBounds(finalX, finalY, pW, pH);
-                    editor->toFront(false);
+                    item.editor = editor;
+                    item.preferredW = juce::jmax(100, editor->getWidth());
+                    item.preferredH = juce::jmax(140, editor->getHeight());
+                }
+            }
+
+            for (int zoneIdx = 0; zoneIdx < 4; ++zoneIdx)
+            {
+                std::vector<DrawItem*> zoneItems;
+                zoneItems.reserve(itemsToDraw.size());
+
+                for (auto& item : itemsToDraw)
+                    if (item.zoneIdx == zoneIdx && item.editor != nullptr)
+                        zoneItems.push_back(&item);
+
+                if (zoneItems.empty())
+                    continue;
+
+                const auto zoneRect = laneComp->getZoneRect(zoneIdx);
+                if (zoneRect.isEmpty())
+                    continue;
+
+                const int zoneAbsX = laneComp->getX() + zoneRect.getX();
+                const int zoneAbsY = laneComp->getY() + zoneRect.getY();
+                const int zoneW = zoneRect.getWidth();
+                const int zoneH = zoneRect.getHeight();
+
+                if (zoneIdx == (int)Nova::ZoneID::Amp || zoneIdx == (int)Nova::ZoneID::Cabinet)
+                {
+                    for (auto* item : zoneItems)
+                    {
+                        const int finalX = zoneAbsX + (zoneW - item->preferredW) / 2;
+                        const int finalY = zoneAbsY + (zoneH - item->preferredH) / 2;
+                        item->editor->setBounds(finalX, finalY, item->preferredW, item->preferredH);
+
+                        if (item->createdNow)
+                            item->editor->toFront(false);
+                    }
+
+                    continue;
                 }
 
-                flowCounters[zoneIdx]++;
+                int widthSum = 0;
+                for (auto* item : zoneItems)
+                    widthSum += item->preferredW;
+
+                int gap = 15;
+                const int itemCount = (int)zoneItems.size();
+                const int availableW = juce::jmax(0, zoneW - 20);
+                int totalNeeded = widthSum + (itemCount - 1) * gap;
+
+                if (itemCount > 1 && totalNeeded > availableW)
+                {
+                    gap = (availableW - widthSum) / (itemCount - 1);
+                    gap = juce::jlimit(-40, 15, gap);
+                    totalNeeded = widthSum + (itemCount - 1) * gap;
+                }
+
+                int currentX = zoneAbsX + juce::jmax(10, (zoneW - totalNeeded) / 2);
+                for (auto* item : zoneItems)
+                {
+                    const int finalY = zoneAbsY + (zoneH - item->preferredH) / 2;
+                    item->editor->setBounds(currentX, finalY, item->preferredW, item->preferredH);
+
+                    if (item->createdNow)
+                        item->editor->toFront(false);
+
+                    currentX += item->preferredW + gap;
+                }
             }
         };
 
@@ -1057,8 +1077,10 @@ void NOVAAudioProcessorEditor::updatePedalGui()
             ++it;
     }
 
-    if (currentOverlay) currentOverlay->toFront(true);
-    if (tunerOverlay && tunerOverlay->isVisible()) tunerOverlay->toFront(true);
+    if (currentOverlay)
+        currentOverlay->toFront(true);
+    if (tunerOverlay && tunerOverlay->isVisible())
+        tunerOverlay->toFront(true);
 }
 
 void NOVAAudioProcessorEditor::updateSwitcherState()
@@ -1127,4 +1149,3 @@ void NOVAAudioProcessorEditor::showOverlay(Nova::ZoneID zone, Nova::ChainID chai
     overlay->setBounds(getLocalBounds());
     currentOverlay = std::move(overlay);
 }
-
