@@ -32,7 +32,7 @@ NOVAAudioProcessor::NOVAAudioProcessor()
         .withOutput("Out", juce::AudioChannelSet::stereo()))
     , pluginState(Nova::IDs::MAIN_STATE)
 {
-    // Arranque limpio siempre: mismo comportamiento que botón CLEAR.
+    // Arranque limpio siempre: mismo comportamiento que boton CLEAR.
     clearSessionAndForgetStartupPreset();
 
     pluginState.addListener(this);
@@ -108,7 +108,7 @@ void NOVAAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 void NOVAAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     // Regla del sistema: no restaurar automaticamente la ultima sesion del host.
-    // Mismo comportamiento que botón CLEAR en cada apertura/restauración.
+    // Mismo comportamiento que boton CLEAR en cada apertura/restauracion.
     juce::ignoreUnused(data, sizeInBytes);
     clearSessionAndForgetStartupPreset();
 }
@@ -208,6 +208,8 @@ bool NOVAAudioProcessor::loadPresetFromFile(const juce::File& file)
                     continue;
 
                 audioEngine.addPedal(child.getProperty(Nova::IDs::PEDAL_TYPE).toString(), chain, i);
+                const bool enabled = (bool)child.getProperty(Nova::IDs::PEDAL_ENABLED, true);
+                audioEngine.setPedalBypassed(chain, i, !enabled);
             }
         };
 
@@ -278,6 +280,8 @@ void NOVAAudioProcessor::requestAddPedal(const juce::String& type, Nova::ChainID
     juce::ValueTree newPedal(Nova::IDs::PEDAL);
     newPedal.setProperty(Nova::IDs::PEDAL_TYPE, canonicalType, nullptr);
     newPedal.setProperty(Nova::IDs::PEDAL_ZONE, static_cast<int>(finalZone), nullptr);
+    newPedal.setProperty(Nova::IDs::PEDAL_ENABLED, true, nullptr);
+    newPedal.setProperty(Nova::IDs::PEDAL_ID, juce::Uuid().toString(), nullptr);
 
     auto list = getLineTree(chain);
     list.addChild(newPedal, -1, nullptr);
@@ -290,7 +294,15 @@ void NOVAAudioProcessor::requestRemovePedal(Nova::ChainID chain, int index)
 
 void NOVAAudioProcessor::requestBypassPedal(Nova::ChainID chain, int index, bool bypassed)
 {
-    audioEngine.setPedalBypassed(chain, index, bypassed);
+    auto line = getLineTree(chain);
+    if (!line.isValid() || !juce::isPositiveAndBelow(index, line.getNumChildren()))
+        return;
+
+    auto child = line.getChild(index);
+    if (!child.hasType(Nova::IDs::PEDAL))
+        return;
+
+    child.setProperty(Nova::IDs::PEDAL_ENABLED, !bypassed, nullptr);
 }
 
 void NOVAAudioProcessor::toggleEngine()
@@ -337,7 +349,11 @@ void NOVAAudioProcessor::valueTreeChildAdded(juce::ValueTree& parent, juce::Valu
     else if (parent.hasType(Nova::IDs::LINE_B)) chain = Nova::ChainID::LineB;
     else return;
 
-    audioEngine.addPedal(child.getProperty(Nova::IDs::PEDAL_TYPE), chain, parent.indexOf(child));
+    const auto index = parent.indexOf(child);
+    audioEngine.addPedal(child.getProperty(Nova::IDs::PEDAL_TYPE), chain, index);
+
+    const bool enabled = (bool)child.getProperty(Nova::IDs::PEDAL_ENABLED, true);
+    audioEngine.setPedalBypassed(chain, index, !enabled);
 }
 
 void NOVAAudioProcessor::valueTreeChildRemoved(juce::ValueTree& parent, juce::ValueTree&, int index)
@@ -355,6 +371,23 @@ void NOVAAudioProcessor::valueTreePropertyChanged(juce::ValueTree& tree, const j
 {
     if (suppressStateCallbacks)
         return;
+
+    if (property == Nova::IDs::PEDAL_ENABLED && tree.hasType(Nova::IDs::PEDAL))
+    {
+        auto parent = tree.getParent();
+        if (!parent.isValid())
+            return;
+
+        Nova::ChainID chain;
+        if (parent.hasType(Nova::IDs::LINE_A)) chain = Nova::ChainID::LineA;
+        else if (parent.hasType(Nova::IDs::LINE_B)) chain = Nova::ChainID::LineB;
+        else return;
+
+        const int index = parent.indexOf(tree);
+        const bool enabled = (bool)tree.getProperty(Nova::IDs::PEDAL_ENABLED, true);
+        audioEngine.setPedalBypassed(chain, index, !enabled);
+        return;
+    }
 
     if (property == Nova::IDs::ENGINE_ON)
     {
@@ -433,6 +466,10 @@ void NOVAAudioProcessor::sanitizeLine(juce::ValueTree line)
 
         child.setProperty(Nova::IDs::PEDAL_TYPE, canonicalType, nullptr);
         child.setProperty(Nova::IDs::PEDAL_ZONE, static_cast<int>(finalZone), nullptr);
+        if (!child.hasProperty(Nova::IDs::PEDAL_ENABLED))
+            child.setProperty(Nova::IDs::PEDAL_ENABLED, true, nullptr);
+        if (!child.hasProperty(Nova::IDs::PEDAL_ID))
+            child.setProperty(Nova::IDs::PEDAL_ID, juce::Uuid().toString(), nullptr);
     }
 }
 
@@ -552,15 +589,8 @@ void NOVAAudioProcessor::updateGlobalParamsFromState()
 
 void NOVAAudioProcessor::updateMixerFromState()
 {
-    auto s = getSettingsTree();
-    if (!s.isValid())
-        return;
-
-    const float gA = (float)s.getProperty(Nova::IDs::MIXER_GAIN_A);
-    const float gB = (float)s.getProperty(Nova::IDs::MIXER_GAIN_B);
-    const int mode = (int)s.getProperty(Nova::IDs::SWITCH_MODE);
-
-    audioEngine.updateMixer(gA, gB, (Nova::SwitcherMode)mode);
+    // Keep API for compatibility; mixer/global params are handled in one path.
+    updateGlobalParamsFromState();
 }
 
 // ==============================================================================

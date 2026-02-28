@@ -1,90 +1,134 @@
 #pragma once
+
 #include <JuceHeader.h>
 #include <cmath>
+#include <memory>
 
-// ==============================================================================
-// EDITOR (GUI DEL AMPLIFICADOR)
-// ==============================================================================
-class ClassicAmpEditor : public juce::AudioProcessorEditor
+#include "../Pedals/Base/ProcessorBase.h"
+
+class ClassicAmpEditor final : public juce::AudioProcessorEditor
 {
 public:
-    ClassicAmpEditor(juce::AudioProcessor& p) : AudioProcessorEditor(&p)
+    ClassicAmpEditor(juce::AudioProcessor& processor,
+        juce::AudioParameterFloat* drive,
+        juce::AudioParameterFloat* level)
+        : juce::AudioProcessorEditor(&processor)
     {
-        setSize(120, 180); // Medida estándar de tus pedales
+        configureSlider(driveSlider);
+        configureSlider(levelSlider);
+
+        driveAttachment = std::make_unique<juce::SliderParameterAttachment>(*drive, driveSlider);
+        levelAttachment = std::make_unique<juce::SliderParameterAttachment>(*level, levelSlider);
+
+        title.setText("CLASSIC AMP", juce::dontSendNotification);
+        title.setJustificationType(juce::Justification::centred);
+        title.setFont(juce::Font(13.0f, juce::Font::bold));
+        title.setColour(juce::Label::textColourId, juce::Colours::white);
+        addAndMakeVisible(title);
+
+        driveLabel.setText("DRIVE", juce::dontSendNotification);
+        driveLabel.setJustificationType(juce::Justification::centred);
+        driveLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        addAndMakeVisible(driveLabel);
+
+        levelLabel.setText("LEVEL", juce::dontSendNotification);
+        levelLabel.setJustificationType(juce::Justification::centred);
+        levelLabel.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
+        addAndMakeVisible(levelLabel);
+
+        addAndMakeVisible(driveSlider);
+        addAndMakeVisible(levelSlider);
+
+        setSize(140, 190);
     }
 
     void paint(juce::Graphics& g) override
     {
-        auto bounds = getLocalBounds().toFloat();
+        const auto bounds = getLocalBounds().toFloat();
 
-        // Fondo oscuro estilo "cabezal de amplificador"
         g.fillAll(juce::Colour::fromString("ff1a1a1a"));
-
-        // Borde sutil
-        g.setColour(juce::Colours::grey.withAlpha(0.3f));
+        g.setColour(juce::Colours::grey.withAlpha(0.35f));
         g.drawRoundedRectangle(bounds.reduced(2.0f), 6.0f, 2.0f);
 
-        // Título central
-        g.setColour(juce::Colours::white);
-        g.setFont(juce::Font(16.0f, juce::Font::bold));
-        g.drawFittedText("CLASSIC\nAMP", bounds.reduced(10).toNearestInt(), juce::Justification::centredTop, 2);
-
-        // Indicador LED de encendido
-        g.setColour(juce::Colours::red);
-        g.fillEllipse(bounds.getCentreX() - 4.0f, 60.0f, 8.0f, 8.0f);
-
-        // Brillo del LED
-        g.setColour(juce::Colours::red.withAlpha(0.3f));
-        g.fillEllipse(bounds.getCentreX() - 8.0f, 56.0f, 16.0f, 16.0f);
+        g.setColour(juce::Colours::red.withAlpha(0.7f));
+        g.fillEllipse(bounds.getCentreX() - 3.0f, 24.0f, 6.0f, 6.0f);
     }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(8);
+        title.setBounds(area.removeFromTop(20));
+        area.removeFromTop(8);
+
+        auto row = area.removeFromTop(120);
+        auto left = row.removeFromLeft(row.getWidth() / 2);
+
+        driveSlider.setBounds(left.reduced(6));
+        levelSlider.setBounds(row.reduced(6));
+
+        auto labels = area.removeFromTop(26);
+        driveLabel.setBounds(labels.removeFromLeft(labels.getWidth() / 2));
+        levelLabel.setBounds(labels);
+    }
+
+private:
+    static void configureSlider(juce::Slider& s)
+    {
+        s.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        s.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+        s.setRotaryParameters(juce::MathConstants<float>::pi,
+            juce::MathConstants<float>::twoPi,
+            true);
+    }
+
+    juce::Slider driveSlider;
+    juce::Slider levelSlider;
+
+    juce::Label title;
+    juce::Label driveLabel;
+    juce::Label levelLabel;
+
+    std::unique_ptr<juce::SliderParameterAttachment> driveAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> levelAttachment;
 };
 
-// ==============================================================================
-// PROCESSOR (DSP DEL AMPLIFICADOR)
-// ==============================================================================
-class ClassicAmp : public juce::AudioProcessor
+class ClassicAmp final : public ProcessorBase
 {
 public:
-    ClassicAmp() : AudioProcessor(BusesProperties().withInput("Input", juce::AudioChannelSet::stereo(), true)
-        .withOutput("Output", juce::AudioChannelSet::stereo(), true)) {
+    ClassicAmp()
+    {
+        addParameter(driveParam = new juce::AudioParameterFloat("ampDrive", "Drive", 0.5f, 6.0f, 2.5f));
+        addParameter(levelParam = new juce::AudioParameterFloat("ampLevel", "Level", 0.0f, 2.0f, 1.0f));
     }
 
-    ~ClassicAmp() override = default;
+    const juce::String getName() const override { return "Classic Amp"; }
+
+    bool hasEditor() const override { return true; }
+    juce::AudioProcessorEditor* createEditor() override
+    {
+        return new ClassicAmpEditor(*this, driveParam, levelParam);
+    }
 
     void prepareToPlay(double, int) override {}
     void releaseResources() override {}
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        // DSP de prueba: Simulación muy básica de tubo (Soft-Clipping con tangente hiperbólica)
-        const float drive = 2.5f; // Cantidad de saturación fija
+        if (!shouldProcess(buffer))
+            return;
+
+        const float drive = driveParam != nullptr ? *driveParam : 2.5f;
+        const float level = levelParam != nullptr ? *levelParam : 1.0f;
 
         for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
         {
             auto* channelData = buffer.getWritePointer(channel);
             for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
-            {
-                float input = channelData[sample];
-                channelData[sample] = std::tanh(input * drive);
-            }
+                channelData[sample] = std::tanh(channelData[sample] * drive) * level;
         }
     }
 
-    // Funciones vitales para la interfaz gráfica
-    juce::AudioProcessorEditor* createEditor() override { return new ClassicAmpEditor(*this); }
-    bool hasEditor() const override { return true; }
-
-    // Funciones genéricas de JUCE
-    const juce::String getName() const override { return "Classic Amp"; }
-    bool acceptsMidi() const override { return false; }
-    bool producesMidi() const override { return false; }
-    bool isMidiEffect() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram(int) override {}
-    const juce::String getProgramName(int) override { return {}; }
-    void changeProgramName(int, const juce::String&) override {}
-    void getStateInformation(juce::MemoryBlock&) override {}
-    void setStateInformation(const void*, int) override {}
+private:
+    juce::AudioParameterFloat* driveParam = nullptr;
+    juce::AudioParameterFloat* levelParam = nullptr;
 };

@@ -1,6 +1,5 @@
 #include "AudioEngine.h"
 #include "PedalRegistry.h"
-#include "GlobalProcessors.h"
 #include "../Effects/Pedals/Base/ProcessorBase.h"
 
 // ==========================================================
@@ -177,9 +176,13 @@ void AudioEngine::updateGlobalParams(const juce::ValueTree& settings,
 
             p->setParams(outVol, limit);
 
-            // Mix slider: 0..100 -> 0..1
-            const float mixPercent = (float)settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f);
-            currentGlobalMix = juce::jlimit(0.0f, 100.0f, mixPercent) / 100.0f;
+            // Backward-compatible normalization:
+            // older presets may carry 0..1, current UI stores 0..100.
+            const float mixRaw = (float)settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f);
+            const float mixNormalized = (mixRaw <= 1.0f)
+                ? juce::jlimit(0.0f, 1.0f, mixRaw)
+                : juce::jlimit(0.0f, 100.0f, mixRaw) / 100.0f;
+            currentGlobalMix = mixNormalized;
         }
     }
 
@@ -220,7 +223,7 @@ void AudioEngine::updateGlobalParams(const juce::ValueTree& settings,
     }
 }
 
-// Legacy wrapper (tu comportamiento original: no hace nada)
+// Legacy wrapper kept for compatibility.
 void AudioEngine::updateMixer(float, float, Nova::SwitcherMode) {}
 
 // ==========================================================
