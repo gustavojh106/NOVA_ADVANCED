@@ -906,7 +906,7 @@ void NOVAAudioProcessorEditor::updatePedalGui()
             if (!laneComp)
                 return;
 
-            const auto& engineNodes = audioProcessor.getAudioEngine().getNodes(chain);
+            const auto engineNodes = audioProcessor.getAudioEngine().getNodes(chain);
             const auto treeListID = (chain == Nova::ChainID::LineA) ? Nova::IDs::LINE_A : Nova::IDs::LINE_B;
             auto treeList = audioProcessor.pluginState.getChildWithName(treeListID);
 

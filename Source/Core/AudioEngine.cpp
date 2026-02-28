@@ -2,6 +2,8 @@
 #include "PedalRegistry.h"
 #include "../Effects/Pedals/Base/ProcessorBase.h"
 
+#include <cmath>
+
 // ==========================================================
 // IMPLEMENTACION DE AUDIO ENGINE
 // ==========================================================
@@ -10,11 +12,7 @@ AudioEngine::AudioEngine()
     : juce::Thread("AudioEngineThread")
 {
     mainGraph = std::make_unique<juce::AudioProcessorGraph>();
-
-    // Nota: en tu codigo original lo ponias en true aqui.
-    // Lo dejo igual para no cambiar tu estado inicial real.
-    isEngineOn = true;
-
+    isEngineOn = false;
     startThread(juce::Thread::Priority::high);
 }
 
@@ -38,87 +36,115 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     currentBlockSize = samplesPerBlock;
     numInputChannels = numIn;
 
+    audioThreadID = {};
+    consecutiveCorruptBlocks = 0;
+    recoveryCooldownBlocks = 0;
+
     tunerService.setSampleRate(sampleRate);
     tunerService.reset();
     startupCounter = 5;
 
-    mainGraph->setPlayConfigDetails(numIn, numOut, sampleRate, samplesPerBlock);
-    mainGraph->prepareToPlay(sampleRate, samplesPerBlock);
-    dryBuffer.setSize(juce::jmax(1, numOut), samplesPerBlock, false, false, true);
-
-    const bool missingNodes = (inputChainNode == nullptr ||
-        stripNodeA == nullptr ||
-        stripNodeB == nullptr ||
-        outputChainNode == nullptr);
-
-    const bool graphEmpty = (inputNode == nullptr ||
-        mainGraph->getNodeForId(inputNode->nodeID) == nullptr);
-
-    if (graphEmpty || missingNodes)
     {
-        mainGraph->clear();
+        const juce::ScopedLock sl(vectorLock);
 
-        // 1) Hardware I/O
-        inputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
-            juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
+        mainGraph->suspendProcessing(true);
+        mainGraph->setPlayConfigDetails(numIn, numOut, sampleRate, samplesPerBlock);
+        mainGraph->prepareToPlay(sampleRate, samplesPerBlock);
+        dryBuffer.setSize(juce::jmax(1, numOut), samplesPerBlock, false, false, true);
 
-        outputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
-            juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
+        const bool missingNodes = (inputChainNode == nullptr ||
+            stripNodeA == nullptr ||
+            stripNodeB == nullptr ||
+            outputChainNode == nullptr ||
+            outputNode == nullptr);
 
-        // 2) Internal processors
-        inputChainNode = mainGraph->addNode(std::make_unique<InputChainProcessor>());
-        stripNodeA = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
-        stripNodeB = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
+        const bool graphEmpty = (inputNode == nullptr ||
+            mainGraph->getNodeForId(inputNode->nodeID) == nullptr);
 
-        // 3) Output chain (mastering)
-        outputChainNode = mainGraph->addNode(std::make_unique<OutputChainProcessor>());
-    }
+        if (graphEmpty || missingNodes)
+        {
+            mainGraph->clear();
+            nodesChainA.clear();
+            nodesChainB.clear();
 
-    // =========================================================================
-    // INPUT ROUTING (input summing)
-    // =========================================================================
-    // 1) Remove old connections coming from hardware input
-    for (auto c : mainGraph->getConnections())
-        if (c.source.nodeID == inputNode->nodeID)
+            // 1) Hardware I/O
+            inputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
+                juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
+
+            outputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
+                juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
+
+            // 2) Internal processors
+            inputChainNode = mainGraph->addNode(std::make_unique<InputChainProcessor>());
+            stripNodeA = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
+            stripNodeB = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
+
+            // 3) Output chain
+            outputChainNode = mainGraph->addNode(std::make_unique<OutputChainProcessor>());
+        }
+
+        // INPUT ROUTING: remove old connections from hardware input.
+        juce::Array<juce::AudioProcessorGraph::Connection> toRemove;
+        for (const auto& c : mainGraph->getConnections())
+            if (inputNode != nullptr && c.source.nodeID == inputNode->nodeID)
+                toRemove.add(c);
+
+        for (const auto& c : toRemove)
             mainGraph->removeConnection(c);
 
-    // 2) Send input to both channels of InputChain
-    if (inputChainNode)
-    {
-        mainGraph->addConnection({ { inputNode->nodeID, 0 }, { inputChainNode->nodeID, 0 } });
+        // Send input to both channels of InputChain.
+        if (inputNode != nullptr && inputChainNode != nullptr)
+        {
+            mainGraph->addConnection({ { inputNode->nodeID, 0 }, { inputChainNode->nodeID, 0 } });
 
-        if (numIn > 1)
-            mainGraph->addConnection({ { inputNode->nodeID, 1 }, { inputChainNode->nodeID, 1 } });
-        else
-            mainGraph->addConnection({ { inputNode->nodeID, 0 }, { inputChainNode->nodeID, 1 } });
+            if (numIn > 1)
+                mainGraph->addConnection({ { inputNode->nodeID, 1 }, { inputChainNode->nodeID, 1 } });
+            else
+                mainGraph->addConnection({ { inputNode->nodeID, 0 }, { inputChainNode->nodeID, 1 } });
+        }
+
+        rebuildGraph();
+        resetGraphStateNow();
+
+        mainGraph->suspendProcessing(false);
     }
 
-    rebuildGraph();
-
+    applyPendingGlobalParams();
     startThread(juce::Thread::Priority::low);
 }
 
 void AudioEngine::rebuildGraph()
 {
-    // Remove all non-hardware-input outgoing connections
-    for (auto c : mainGraph->getConnections())
+    if (mainGraph == nullptr)
+        return;
+
+    juce::Array<juce::AudioProcessorGraph::Connection> toRemove;
+
+    for (const auto& c : mainGraph->getConnections())
     {
-        const bool isHardwareInput = (c.source.nodeID == inputNode->nodeID);
+        const bool isHardwareInput = (inputNode != nullptr && c.source.nodeID == inputNode->nodeID);
         if (!isHardwareInput)
-            mainGraph->removeConnection(c);
+            toRemove.add(c);
     }
 
+    for (const auto& c : toRemove)
+        mainGraph->removeConnection(c);
+
     // 1) InputChain -> Pedals -> Strip
-    if (inputChainNode && stripNodeA) connectChainToGain(nodesChainA, stripNodeA->nodeID);
-    if (inputChainNode && stripNodeB) connectChainToGain(nodesChainB, stripNodeB->nodeID);
+    if (inputChainNode && stripNodeA)
+        connectChainToGain(nodesChainA, stripNodeA->nodeID);
+
+    if (inputChainNode && stripNodeB)
+        connectChainToGain(nodesChainB, stripNodeB->nodeID);
 
     // 2) Strips -> OutputChain -> Hardware Output
-    if (!outputChainNode)
+    if (!outputChainNode || !outputNode)
         return;
 
     for (auto* strip : { stripNodeA.get(), stripNodeB.get() })
     {
-        if (!strip) continue;
+        if (strip == nullptr)
+            continue;
 
         mainGraph->addConnection({ { strip->nodeID, 0 }, { outputChainNode->nodeID, 0 } });
         mainGraph->addConnection({ { strip->nodeID, 1 }, { outputChainNode->nodeID, 1 } });
@@ -131,11 +157,21 @@ void AudioEngine::rebuildGraph()
 void AudioEngine::connectChainToGain(const std::vector<juce::AudioProcessorGraph::Node::Ptr>& nodes,
     juce::AudioProcessorGraph::NodeID targetStripID)
 {
+    if (mainGraph == nullptr || inputChainNode == nullptr)
+        return;
+
+    if (mainGraph->getNodeForId(targetStripID) == nullptr)
+        return;
+
     juce::AudioProcessorGraph::NodeID currentSource = inputChainNode->nodeID;
 
     for (const auto& node : nodes)
     {
-        if (!node) continue;
+        if (!node)
+            continue;
+
+        if (mainGraph->getNodeForId(node->nodeID) == nullptr)
+            continue;
 
         mainGraph->addConnection({ { currentSource, 0 }, { node->nodeID, 0 } });
         mainGraph->addConnection({ { currentSource, 1 }, { node->nodeID, 1 } });
@@ -150,77 +186,299 @@ void AudioEngine::updateGlobalParams(const juce::ValueTree& settings,
     const juce::ValueTree& lineA,
     const juce::ValueTree& lineB)
 {
-    // 1) Input chain
+    GlobalParamsSnapshot snapshot;
+
+    if (settings.isValid())
+    {
+        snapshot.inputGainDb = (float)settings.getProperty(Nova::IDs::INPUT_GAIN, 0.0f);
+        snapshot.gateThresholdDb = (float)settings.getProperty(Nova::IDs::INPUT_GATE, -100.0f);
+        snapshot.forceMono = (bool)settings.getProperty(Nova::IDs::FORCE_MONO, false);
+        snapshot.inputTranspose = (int)settings.getProperty(Nova::IDs::INPUT_TRANS, 0);
+
+        snapshot.outputVolumeDb = (float)settings.getProperty(Nova::IDs::OUTPUT_VOL, 0.0f);
+        snapshot.outputLimiterDb = (float)settings.getProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f);
+        snapshot.outputMixRaw = (float)settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f);
+
+        snapshot.switchMode = (int)settings.getProperty(Nova::IDs::SWITCH_MODE,
+            (int)Nova::SwitcherMode::Dual_Parallel);
+    }
+
+    if (lineA.isValid())
+    {
+        snapshot.gainA = (float)lineA.getProperty(Nova::IDs::MIXER_GAIN_A, 1.0f);
+        snapshot.panA = (float)lineA.getProperty(Nova::IDs::MIXER_PAN_A, 0.0f);
+        snapshot.widthA = (float)lineA.getProperty(Nova::IDs::MIXER_WIDTH_A, 1.0f);
+    }
+
+    if (lineB.isValid())
+    {
+        snapshot.gainB = (float)lineB.getProperty(Nova::IDs::MIXER_GAIN_B, 1.0f);
+        snapshot.panB = (float)lineB.getProperty(Nova::IDs::MIXER_PAN_B, 0.0f);
+        snapshot.widthB = (float)lineB.getProperty(Nova::IDs::MIXER_WIDTH_B, 1.0f);
+    }
+
+    {
+        const juce::SpinLock::ScopedLockType lock(globalParamsLock);
+        pendingGlobalParams = snapshot;
+    }
+
+    globalParamsDirty = true;
+}
+
+void AudioEngine::applyPendingGlobalParams()
+{
+    if (!globalParamsDirty.exchange(false))
+        return;
+
+    GlobalParamsSnapshot snapshot;
+    {
+        const juce::SpinLock::ScopedLockType lock(globalParamsLock);
+        snapshot = pendingGlobalParams;
+    }
+
+    const juce::ScopedLock sl(vectorLock);
+    applyGlobalParamsNow(snapshot);
+}
+
+void AudioEngine::applyGlobalParamsNow(const GlobalParamsSnapshot& snapshot)
+{
     if (inputChainNode)
     {
         if (auto* p = dynamic_cast<InputChainProcessor*>(inputChainNode->getProcessor()))
         {
-            const float inGain = (float)settings.getProperty(Nova::IDs::INPUT_GAIN);
-            float gateThresh = (float)settings.getProperty(Nova::IDs::INPUT_GATE);
-            const bool mono = (bool)settings.getProperty(Nova::IDs::FORCE_MONO);
-            const int  trans = (int)settings.getProperty(Nova::IDs::INPUT_TRANS);
+            float gateThreshold = snapshot.gateThresholdDb;
+            if (gateThreshold == 0.0f)
+                gateThreshold = -100.0f;
 
-            if (gateThresh == 0.0f) gateThresh = -100.0f;
-
-            p->setParams(inGain, gateThresh, mono, trans);
+            p->setParams(snapshot.inputGainDb,
+                gateThreshold,
+                snapshot.forceMono,
+                snapshot.inputTranspose);
         }
     }
 
-    // 2) Output chain (master)
     if (outputChainNode)
     {
         if (auto* p = dynamic_cast<OutputChainProcessor*>(outputChainNode->getProcessor()))
         {
-            const float outVol = (float)settings.getProperty(Nova::IDs::OUTPUT_VOL, 0.0f);
-            const float limit = (float)settings.getProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f);
-
-            p->setParams(outVol, limit);
+            p->setParams(snapshot.outputVolumeDb, snapshot.outputLimiterDb);
 
             // Backward-compatible normalization:
             // older presets may carry 0..1, current UI stores 0..100.
-            const float mixRaw = (float)settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f);
+            const float mixRaw = snapshot.outputMixRaw;
             const float mixNormalized = (mixRaw <= 1.0f)
                 ? juce::jlimit(0.0f, 1.0f, mixRaw)
                 : juce::jlimit(0.0f, 100.0f, mixRaw) / 100.0f;
+
             currentGlobalMix = mixNormalized;
         }
     }
 
-    // 3) Strip A
+    const bool muteA = (snapshot.switchMode == (int)Nova::SwitcherMode::LineB_Only);
+    const bool muteB = (snapshot.switchMode == (int)Nova::SwitcherMode::LineA_Only);
+
     if (stripNodeA)
     {
         if (auto* p = dynamic_cast<ChannelStripProcessor*>(stripNodeA->getProcessor()))
         {
-            const int mode = (int)settings.getProperty(Nova::IDs::SWITCH_MODE);
-            const bool muted = (mode == (int)Nova::SwitcherMode::LineB_Only);
+            float gain = muteA ? 0.0f : snapshot.gainA;
+            if (!muteA && gain <= 0.001f)
+                gain = 1.0f;
 
-            float gain = muted ? 0.0f : (float)lineA.getProperty(Nova::IDs::MIXER_GAIN_A);
-            const float pan = (float)lineA.getProperty(Nova::IDs::MIXER_PAN_A);
-            const float width = (float)lineA.getProperty(Nova::IDs::MIXER_WIDTH_A);
-
-            if (!muted && gain <= 0.001f) gain = 1.0f; // keep original safeguard
-
-            p->setParams(gain, pan, width);
+            p->setParams(gain, snapshot.panA, snapshot.widthA);
         }
     }
 
-    // 4) Strip B
     if (stripNodeB)
     {
         if (auto* p = dynamic_cast<ChannelStripProcessor*>(stripNodeB->getProcessor()))
         {
-            const int mode = (int)settings.getProperty(Nova::IDs::SWITCH_MODE);
-            const bool muted = (mode == (int)Nova::SwitcherMode::LineA_Only);
+            float gain = muteB ? 0.0f : snapshot.gainB;
+            if (!muteB && gain <= 0.001f)
+                gain = 1.0f;
 
-            float gain = muted ? 0.0f : (float)lineB.getProperty(Nova::IDs::MIXER_GAIN_B);
-            const float pan = (float)lineB.getProperty(Nova::IDs::MIXER_PAN_B);
-            const float width = (float)lineB.getProperty(Nova::IDs::MIXER_WIDTH_B);
-
-            if (!muted && gain <= 0.001f) gain = 1.0f;
-
-            p->setParams(gain, pan, width);
+            p->setParams(gain, snapshot.panB, snapshot.widthB);
         }
     }
+}
+
+void AudioEngine::enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe)
+{
+    {
+        const juce::ScopedLock sl(graphCommandLock);
+        pendingGraphCommands.push_back(cmd);
+    }
+
+    if (!flushIfSafe)
+        return;
+
+    const auto currentThread = juce::Thread::getCurrentThreadId();
+    if (currentThread != audioThreadID)
+        flushPendingGraphCommands(true);
+}
+
+void AudioEngine::flushPendingGraphCommands(bool suspendGraph)
+{
+    std::deque<GraphCommand> commands;
+
+    {
+        const juce::ScopedLock sl(graphCommandLock);
+        if (pendingGraphCommands.empty())
+            return;
+
+        commands.swap(pendingGraphCommands);
+    }
+
+    const juce::ScopedLock sl(vectorLock);
+
+    if (suspendGraph && mainGraph)
+        mainGraph->suspendProcessing(true);
+
+    bool topologyChanged = false;
+    bool resetRequested = false;
+
+    for (const auto& cmd : commands)
+        applyGraphCommandNow(cmd, topologyChanged, resetRequested);
+
+    if (topologyChanged)
+        rebuildGraph();
+
+    if (topologyChanged || resetRequested)
+    {
+        resetGraphStateNow();
+        startupCounter = juce::jmax(startupCounter, 6);
+    }
+
+    if (suspendGraph && mainGraph)
+        mainGraph->suspendProcessing(false);
+}
+
+void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyChanged, bool& resetRequested)
+{
+    if (mainGraph == nullptr)
+        return;
+
+    auto& chain = (cmd.chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
+
+    switch (cmd.type)
+    {
+        case GraphCommandType::AddPedal:
+        {
+            if (auto pedal = PedalRegistry::createPedal(cmd.pedalType))
+            {
+                pedal->setPlayConfigDetails(2, 2, currentSampleRate, currentBlockSize);
+                pedal->prepareToPlay(currentSampleRate, currentBlockSize);
+
+                auto node = mainGraph->addNode(std::move(pedal));
+                if (node != nullptr)
+                {
+                    if (cmd.index >= 0 && cmd.index <= (int)chain.size())
+                        chain.insert(chain.begin() + cmd.index, node);
+                    else
+                        chain.push_back(node);
+
+                    topologyChanged = true;
+                }
+            }
+            break;
+        }
+
+        case GraphCommandType::RemovePedal:
+        {
+            if (cmd.index >= 0 && cmd.index < (int)chain.size())
+            {
+                auto node = chain[(size_t)cmd.index];
+                if (node != nullptr && mainGraph->getNodeForId(node->nodeID) != nullptr)
+                    mainGraph->removeNode(node->nodeID);
+
+                chain.erase(chain.begin() + cmd.index);
+                topologyChanged = true;
+            }
+            break;
+        }
+
+        case GraphCommandType::ClearAll:
+        {
+            auto removeChain = [this](std::vector<juce::AudioProcessorGraph::Node::Ptr>& list)
+                {
+                    for (auto& node : list)
+                    {
+                        if (node != nullptr && mainGraph->getNodeForId(node->nodeID) != nullptr)
+                            mainGraph->removeNode(node->nodeID);
+                    }
+
+                    list.clear();
+                };
+
+            removeChain(nodesChainA);
+            removeChain(nodesChainB);
+            topologyChanged = true;
+            break;
+        }
+
+        case GraphCommandType::SetPedalBypass:
+        {
+            if (!juce::isPositiveAndBelow(cmd.index, (int)chain.size()))
+                break;
+
+            auto node = chain[(size_t)cmd.index];
+            if (node == nullptr || node->getProcessor() == nullptr)
+                break;
+
+            auto* processor = node->getProcessor();
+            if (auto* base = dynamic_cast<ProcessorBase*>(processor))
+            {
+                base->setBypassed(cmd.flag);
+            }
+            else
+            {
+                processor->suspendProcessing(cmd.flag);
+                if (!cmd.flag)
+                    processor->reset();
+            }
+            break;
+        }
+
+        case GraphCommandType::SetEngineEnabled:
+        {
+            const bool previous = isEngineOn.exchange(cmd.flag);
+            if (cmd.flag && !previous)
+                resetRequested = true;
+
+            if (!cmd.flag)
+                startupCounter = 0;
+
+            break;
+        }
+
+        default:
+            break;
+    }
+}
+
+void AudioEngine::resetGraphStateNow()
+{
+    auto resetNode = [](juce::AudioProcessorGraph::Node::Ptr& node)
+        {
+            if (node != nullptr && node->getProcessor() != nullptr)
+                node->getProcessor()->reset();
+        };
+
+    resetNode(inputChainNode);
+    resetNode(stripNodeA);
+    resetNode(stripNodeB);
+    resetNode(outputChainNode);
+
+    for (auto& n : nodesChainA)
+        resetNode(n);
+
+    for (auto& n : nodesChainB)
+        resetNode(n);
+
+    if (dryBuffer.getNumSamples() > 0)
+        dryBuffer.clear();
+
+    tunerService.reset();
 }
 
 // Legacy wrapper kept for compatibility.
@@ -232,96 +490,47 @@ void AudioEngine::updateMixer(float, float, Nova::SwitcherMode) {}
 
 void AudioEngine::addPedal(const juce::String& type, Nova::ChainID chain, int index)
 {
-    const juce::ScopedLock sl(vectorLock);
-    mainGraph->suspendProcessing(true);
-
-    if (auto pedal = PedalRegistry::createPedal(type))
-    {
-        pedal->setPlayConfigDetails(2, 2, currentSampleRate, currentBlockSize);
-        pedal->prepareToPlay(currentSampleRate, currentBlockSize);
-
-        auto node = mainGraph->addNode(std::move(pedal));
-        auto& list = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
-
-        if (index >= 0 && index <= (int)list.size())
-            list.insert(list.begin() + index, node);
-        else
-            list.push_back(node);
-
-        rebuildGraph();
-    }
-
-    mainGraph->suspendProcessing(false);
+    GraphCommand cmd;
+    cmd.type = GraphCommandType::AddPedal;
+    cmd.pedalType = type;
+    cmd.chain = chain;
+    cmd.index = index;
+    enqueueGraphCommand(cmd, true);
 }
 
 void AudioEngine::removePedal(Nova::ChainID chain, int index)
 {
-    const juce::ScopedLock sl(vectorLock);
-    mainGraph->suspendProcessing(true);
-
-    auto& list = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
-
-    if (index >= 0 && index < (int)list.size())
-    {
-        mainGraph->removeNode(list[index]->nodeID);
-        list.erase(list.begin() + index);
-        rebuildGraph();
-    }
-
-    mainGraph->suspendProcessing(false);
+    GraphCommand cmd;
+    cmd.type = GraphCommandType::RemovePedal;
+    cmd.chain = chain;
+    cmd.index = index;
+    enqueueGraphCommand(cmd, true);
 }
 
 void AudioEngine::clearAll()
 {
-    const juce::ScopedLock sl(vectorLock);
-    mainGraph->suspendProcessing(true);
-
-    auto removeChainNodes = [this](std::vector<juce::AudioProcessorGraph::Node::Ptr>& chain)
-        {
-            for (auto& node : chain)
-            {
-                if (node != nullptr && mainGraph->getNodeForId(node->nodeID) != nullptr)
-                    mainGraph->removeNode(node->nodeID);
-            }
-
-            chain.clear();
-        };
-
-    removeChainNodes(nodesChainA);
-    removeChainNodes(nodesChainB);
-    rebuildGraph();
-
-    mainGraph->suspendProcessing(false);
+    GraphCommand cmd;
+    cmd.type = GraphCommandType::ClearAll;
+    enqueueGraphCommand(cmd, true);
 }
 
 void AudioEngine::setPedalBypassed(Nova::ChainID chain, int index, bool bypassed)
 {
-    const juce::ScopedLock sl(vectorLock);
-    auto& list = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
-    if (!juce::isPositiveAndBelow(index, (int)list.size()))
-        return;
-
-    auto node = list[(size_t)index];
-    if (node == nullptr || node->getProcessor() == nullptr)
-        return;
-
-    auto* processor = node->getProcessor();
-    if (auto* base = dynamic_cast<ProcessorBase*>(processor))
-    {
-        base->setBypassed(bypassed);
-        return;
-    }
-
-    // Fallback for processors not derived from ProcessorBase.
-    processor->suspendProcessing(bypassed);
+    GraphCommand cmd;
+    cmd.type = GraphCommandType::SetPedalBypass;
+    cmd.chain = chain;
+    cmd.index = index;
+    cmd.flag = bypassed;
+    enqueueGraphCommand(cmd, true);
 }
 
 // ==========================================================
 // INFO / CONTROL
 // ==========================================================
 
-const std::vector<juce::AudioProcessorGraph::Node::Ptr>& AudioEngine::getNodes(Nova::ChainID chain) const
+std::vector<juce::AudioProcessorGraph::Node::Ptr> AudioEngine::getNodes(Nova::ChainID chain) const
 {
+    const juce::ScopedLock sl(vectorLock);
     return (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
 }
 
@@ -334,10 +543,20 @@ juce::AudioProcessor* AudioEngine::getProcessorForPedal(Nova::ChainID chain, int
         return nullptr;
 
     auto node = list[(size_t)index];
-    return node != nullptr ? node->getProcessor() : nullptr;
+    if (node == nullptr || mainGraph->getNodeForId(node->nodeID) == nullptr)
+        return nullptr;
+
+    return node->getProcessor();
 }
 
-void AudioEngine::setEngineEnabled(bool enabled) { isEngineOn = enabled; }
+void AudioEngine::setEngineEnabled(bool enabled)
+{
+    GraphCommand cmd;
+    cmd.type = GraphCommandType::SetEngineEnabled;
+    cmd.flag = enabled;
+    enqueueGraphCommand(cmd, true);
+}
+
 double AudioEngine::getCpuLoad() const { return cpuUsage.load(); }
 int AudioEngine::getLatencyNumSamples() const { return mainGraph ? mainGraph->getLatencySamples() : 0; }
 
@@ -353,9 +572,47 @@ void AudioEngine::setTunerEnabled(bool shouldEnable)
 // PROCESS
 // ==========================================================
 
+bool AudioEngine::sanitizeAudioBuffer(juce::AudioBuffer<float>& buffer)
+{
+    bool hadInvalid = false;
+    constexpr float kHardAbsLimit = 24.0f;
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        auto* data = buffer.getWritePointer(ch);
+        const int numSamples = buffer.getNumSamples();
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            float v = data[i];
+
+            if (!std::isfinite(v))
+            {
+                data[i] = 0.0f;
+                hadInvalid = true;
+                continue;
+            }
+
+            if (std::abs(v) > kHardAbsLimit)
+            {
+                data[i] = juce::jlimit(-kHardAbsLimit, kHardAbsLimit, v);
+                hadInvalid = true;
+            }
+        }
+    }
+
+    return hadInvalid;
+}
+
 void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
+    if (audioThreadID == juce::Thread::ThreadID())
+        audioThreadID = juce::Thread::getCurrentThreadId();
+
     const auto startTime = juce::Time::getMillisecondCounterHiRes();
+
+    flushPendingGraphCommands(false);
+    applyPendingGlobalParams();
 
     // 1) Tuner mode: capture + mute
     if (tunerEnabled)
@@ -369,8 +626,16 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     // 2) Engine off or warming up
     if (!isEngineOn || startupCounter > 0)
     {
-        if (startupCounter > 0) --startupCounter;
+        if (startupCounter > 0)
+            --startupCounter;
 
+        buffer.clear();
+        cpuUsage = 0.0;
+        return;
+    }
+
+    if (mainGraph == nullptr)
+    {
         buffer.clear();
         cpuUsage = 0.0;
         return;
@@ -414,7 +679,30 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         }
     }
 
-    // 6) CPU meter
+    // 6) Safety net + auto-heal
+    const bool hadCorruption = sanitizeAudioBuffer(buffer);
+
+    if (hadCorruption)
+        ++consecutiveCorruptBlocks;
+    else
+        consecutiveCorruptBlocks = 0;
+
+    if (recoveryCooldownBlocks > 0)
+        --recoveryCooldownBlocks;
+
+    if (consecutiveCorruptBlocks >= 2 && recoveryCooldownBlocks == 0)
+    {
+        const juce::ScopedLock sl(vectorLock);
+        resetGraphStateNow();
+
+        startupCounter = juce::jmax(startupCounter, 8);
+        recoveryCooldownBlocks = 256;
+        consecutiveCorruptBlocks = 0;
+
+        buffer.clear();
+    }
+
+    // 7) CPU meter
     const auto endTime = juce::Time::getMillisecondCounterHiRes();
     const double timeTakenMs = endTime - startTime;
 
