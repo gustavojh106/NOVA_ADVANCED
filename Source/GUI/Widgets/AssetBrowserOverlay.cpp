@@ -1,4 +1,5 @@
 #include "AssetBrowserOverlay.h"
+#include "../../Core/PedalRegistry.h"
 
 namespace
 {
@@ -31,7 +32,6 @@ AssetBrowserOverlay::AssetBrowserOverlay(Nova::ZoneID zone,
     onSelect(std::move(onAssetSelected)),
     onClose(std::move(onCloseFn))
 {
-    // Search
     addAndMakeVisible(searchBar);
     searchBar.setMultiLine(false);
     searchBar.setTextToShowWhenEmpty("Search model...", juce::Colours::grey);
@@ -39,19 +39,18 @@ AssetBrowserOverlay::AssetBrowserOverlay(Nova::ZoneID zone,
     searchBar.setColour(juce::TextEditor::outlineColourId, juce::Colours::white.withAlpha(0.2f));
     searchBar.addListener(this);
 
-    // Viewport / Container
     addAndMakeVisible(viewport);
     container = std::make_unique<juce::Component>();
     viewport.setViewedComponent(container.get(), false);
     viewport.setScrollBarsShown(true, false);
 
-    // Close button
     addAndMakeVisible(closeBtn);
     closeBtn.setButtonText("X");
     closeBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     closeBtn.onClick = [this]
         {
-            if (onClose) onClose();
+            if (onClose)
+                onClose();
         };
 
     populateList({});
@@ -67,18 +66,9 @@ juce::String AssetBrowserOverlay::getTypeLabelForZone() const
     return (targetZone == Nova::ZoneID::Amp) ? "Amp" : "Cab";
 }
 
-std::vector<juce::String> AssetBrowserOverlay::getMockDataForZone() const
+std::vector<juce::String> AssetBrowserOverlay::getAvailableTypeIDsForZone() const
 {
-    if (targetZone == Nova::ZoneID::Amp)
-        return { "British Lead 800", "USA Rectifier", "Jazz Clean 120", "German Fireball", "Blues Junior", "Bass SuperTube" };
-
-    return { "4x12 Vintage 30", "2x12 Greenback", "1x12 Blue Alnico", "8x10 Bass Fridge", "4x12 Recto Std", "2x10 Tremolo" };
-}
-
-// Nota: esto preserva TU mapeo actual (aunque no tenga sentido aún).
-juce::String AssetBrowserOverlay::mapToInternalID(const juce::String&) const
-{
-    return (targetZone == Nova::ZoneID::Amp) ? "Overdrive" : "Cabinet";
+    return PedalRegistry::getPedalTypesForZone(targetZone);
 }
 
 void AssetBrowserOverlay::paint(juce::Graphics& g)
@@ -130,19 +120,21 @@ void AssetBrowserOverlay::populateList(const juce::String& filter)
     container->removeAllChildren();
     items.clear();
 
-    const auto mockData = getMockDataForZone();
+    const auto typeIDs = getAvailableTypeIDsForZone();
     const auto typeLabel = getTypeLabelForZone();
 
-    for (const auto& name : mockData)
+    for (const auto& typeID : typeIDs)
     {
-        if (filter.isNotEmpty() && !name.containsIgnoreCase(filter))
+        if (filter.isNotEmpty() && !typeID.containsIgnoreCase(filter))
             continue;
 
-        auto* item = new AssetItem(name, typeLabel, [this, name]
+        auto* item = new AssetItem(typeID, typeLabel, [this, typeID]
             {
-                const auto internalID = mapToInternalID(name);
-                if (onSelect) onSelect(internalID);
-                if (onClose)  onClose();
+                if (onSelect)
+                    onSelect(typeID);
+
+                if (onClose)
+                    onClose();
             });
 
         container->addAndMakeVisible(item);

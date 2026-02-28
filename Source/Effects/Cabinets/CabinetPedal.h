@@ -41,6 +41,9 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
+        if (!shouldProcess(buffer))
+            return;
+
         if (isPrepared && convolution.getCurrentIRSize() > 0)
         {
             juce::dsp::AudioBlock<float> block(buffer);

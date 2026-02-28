@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "PedalRegistry.h"
 
 namespace
 {
@@ -243,6 +244,7 @@ bool NOVAAudioProcessor::loadPresetFromFile(const juce::File& file)
 
     updateGlobalParamsFromState();
     updateMixerFromState();
+    audioEngine.setEngineEnabled((bool)getSettingsTree().getProperty(Nova::IDs::ENGINE_ON, false));
     writeStartupPresetFile(file);
     return true;
 }
@@ -267,18 +269,14 @@ double NOVAAudioProcessor::getCpuUsage() const
 
 void NOVAAudioProcessor::requestAddPedal(const juce::String& type, Nova::ChainID chain, Nova::ZoneID zone)
 {
-    const bool isAmp = type.containsIgnoreCase("Amp");
-    const bool isCab = type.containsIgnoreCase("Cab");
+    const auto canonicalType = PedalRegistry::canonicalType(type);
+    if (!PedalRegistry::isTypeSupported(canonicalType))
+        return;
 
-    Nova::ZoneID finalZone = zone;
-
-    if (isAmp) finalZone = Nova::ZoneID::Amp;
-    else if (isCab) finalZone = Nova::ZoneID::Cabinet;
-    else if (zone == Nova::ZoneID::Amp || zone == Nova::ZoneID::Cabinet)
-        finalZone = Nova::ZoneID::Pre;
+    const auto finalZone = Nova::PedalCatalog::enforceZone(canonicalType, zone);
 
     juce::ValueTree newPedal(Nova::IDs::PEDAL);
-    newPedal.setProperty(Nova::IDs::PEDAL_TYPE, type, nullptr);
+    newPedal.setProperty(Nova::IDs::PEDAL_TYPE, canonicalType, nullptr);
     newPedal.setProperty(Nova::IDs::PEDAL_ZONE, static_cast<int>(finalZone), nullptr);
 
     auto list = getLineTree(chain);
@@ -419,19 +417,21 @@ void NOVAAudioProcessor::sanitizeLine(juce::ValueTree line)
             continue;
         }
 
-        const juce::String type = child.getProperty(Nova::IDs::PEDAL_TYPE).toString();
-        const bool isAmp = type.containsIgnoreCase("Amp");
-        const bool isCab = type.containsIgnoreCase("Cab");
+        const auto canonicalType = PedalRegistry::canonicalType(
+            child.getProperty(Nova::IDs::PEDAL_TYPE).toString());
 
-        auto zone = static_cast<Nova::ZoneID>(
+        if (!PedalRegistry::isTypeSupported(canonicalType))
+        {
+            line.removeChild(i, nullptr);
+            continue;
+        }
+
+        const auto zone = static_cast<Nova::ZoneID>(
             (int)child.getProperty(Nova::IDs::PEDAL_ZONE, (int)Nova::ZoneID::Pre));
 
-        Nova::ZoneID finalZone = zone;
-        if (isAmp) finalZone = Nova::ZoneID::Amp;
-        else if (isCab) finalZone = Nova::ZoneID::Cabinet;
-        else if (zone == Nova::ZoneID::Amp || zone == Nova::ZoneID::Cabinet)
-            finalZone = Nova::ZoneID::Pre;
+        const auto finalZone = Nova::PedalCatalog::enforceZone(canonicalType, zone);
 
+        child.setProperty(Nova::IDs::PEDAL_TYPE, canonicalType, nullptr);
         child.setProperty(Nova::IDs::PEDAL_ZONE, static_cast<int>(finalZone), nullptr);
     }
 }
@@ -478,6 +478,7 @@ void NOVAAudioProcessor::resetToCleanState()
     }
 
     audioEngine.clearAll();
+    audioEngine.setEngineEnabled(false);
     updateGlobalParamsFromState();
     updateMixerFromState();
 }

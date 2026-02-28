@@ -1,5 +1,6 @@
 #include "DropZone.h"
 #include "../../Core/PluginEditor.h"
+#include "../../Core/PedalCatalog.h"
 
 // ==============================================================================
 // CLASE TOOLTIP FLOTANTE (Se inyecta en el Editor Principal)
@@ -57,7 +58,7 @@ private:
 
 
 // ==============================================================================
-// IMPLEMENTACIÓN DE DROPZONE
+// IMPLEMENTACION DE DROPZONE
 // ==============================================================================
 
 DropZone::DropZone(NOVAAudioProcessor& processor, Nova::ChainID chainId, Nova::ZoneID zoneId)
@@ -70,7 +71,7 @@ DropZone::DropZone(NOVAAudioProcessor& processor, Nova::ChainID chainId, Nova::Z
 DropZone::~DropZone()
 {
     stopTimer();
-    tooltipOverlay.reset(); // Destrucción segura
+    tooltipOverlay.reset(); // Destruccion segura
 }
 
 bool DropZone::isFixedSlot() const noexcept { return zone == Nova::ZoneID::Amp || zone == Nova::ZoneID::Cabinet; }
@@ -81,24 +82,14 @@ void DropZone::resized()
     infoIconBounds = bounds.removeFromTop(30.0f).removeFromRight(30.0f).withSizeKeepingCentre(16.0f, 16.0f);
 }
 
-// Validación y Drag & Drop
+// Validacion y Drag & Drop
 bool DropZone::isValidDragType(const juce::String& dragInfo) const
 {
-    if (!dragInfo.contains(":")) return false;
+    if (!dragInfo.contains(":"))
+        return false;
 
-    // Extraemos el nombre real ignorando el prefijo (Ej: de "PEDAL:Cabinet" sacamos "Cabinet")
-    juce::String itemName = dragInfo.substring(dragInfo.indexOf(":") + 1);
-
-    bool isAmp = itemName.containsIgnoreCase("Amp");
-    bool isCab = itemName.containsIgnoreCase("Cab");
-    bool isPedal = !isAmp && !isCab;
-
-    // Reglas estrictas de ruteo
-    if (zone == Nova::ZoneID::Pre || zone == Nova::ZoneID::FX) return isPedal;
-    if (zone == Nova::ZoneID::Amp) return isAmp;
-    if (zone == Nova::ZoneID::Cabinet) return isCab;
-
-    return false;
+    const auto itemName = dragInfo.substring(dragInfo.indexOf(":") + 1);
+    return Nova::PedalCatalog::canLiveInZone(itemName, zone);
 }
 bool DropZone::isInterestedInDragSource(const SourceDetails& d) { return d.description.isString(); }
 
@@ -148,7 +139,7 @@ void DropZone::timerCallback()
 }
 
 // ==============================================================================
-// CONTROL DEL MOUSE (AQUÍ ESTÁ LA MAGIA DEL TOOLTIP FLOTANTE)
+// CONTROL DEL MOUSE (AQUI ESTA LA MAGIA DEL TOOLTIP FLOTANTE)
 // ==============================================================================
 void DropZone::mouseMove(const juce::MouseEvent& e)
 {
@@ -179,7 +170,7 @@ void DropZone::mouseExit(const juce::MouseEvent&)
     if (isHoveringInfo)
     {
         isHoveringInfo = false;
-        tooltipOverlay->hide(); // Ocultar si sacamos el ratón rápido
+        tooltipOverlay->hide(); // Ocultar si sacamos el raton rapido
         repaint();
     }
 }

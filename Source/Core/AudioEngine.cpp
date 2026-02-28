@@ -1,9 +1,10 @@
 #include "AudioEngine.h"
 #include "PedalRegistry.h"
 #include "GlobalProcessors.h"
+#include "../Effects/Pedals/Base/ProcessorBase.h"
 
 // ==========================================================
-// IMPLEMENTACIÓN DE AUDIO ENGINE
+// IMPLEMENTACION DE AUDIO ENGINE
 // ==========================================================
 
 AudioEngine::AudioEngine()
@@ -11,7 +12,7 @@ AudioEngine::AudioEngine()
 {
     mainGraph = std::make_unique<juce::AudioProcessorGraph>();
 
-    // Nota: en tu código original lo ponías en true aquí.
+    // Nota: en tu codigo original lo ponias en true aqui.
     // Lo dejo igual para no cambiar tu estado inicial real.
     isEngineOn = true;
 
@@ -38,11 +39,13 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     currentBlockSize = samplesPerBlock;
     numInputChannels = numIn;
 
+    tunerService.setSampleRate(sampleRate);
     tunerService.reset();
     startupCounter = 5;
 
     mainGraph->setPlayConfigDetails(numIn, numOut, sampleRate, samplesPerBlock);
     mainGraph->prepareToPlay(sampleRate, samplesPerBlock);
+    dryBuffer.setSize(juce::jmax(1, numOut), samplesPerBlock, false, false, true);
 
     const bool missingNodes = (inputChainNode == nullptr ||
         stripNodeA == nullptr ||
@@ -270,17 +273,44 @@ void AudioEngine::clearAll()
     const juce::ScopedLock sl(vectorLock);
     mainGraph->suspendProcessing(true);
 
-    nodesChainA.clear();
-    nodesChainB.clear();
+    auto removeChainNodes = [this](std::vector<juce::AudioProcessorGraph::Node::Ptr>& chain)
+        {
+            for (auto& node : chain)
+            {
+                if (node != nullptr && mainGraph->getNodeForId(node->nodeID) != nullptr)
+                    mainGraph->removeNode(node->nodeID);
+            }
+
+            chain.clear();
+        };
+
+    removeChainNodes(nodesChainA);
+    removeChainNodes(nodesChainB);
     rebuildGraph();
 
     mainGraph->suspendProcessing(false);
 }
 
-void AudioEngine::setPedalBypassed(Nova::ChainID, int, bool)
+void AudioEngine::setPedalBypassed(Nova::ChainID chain, int index, bool bypassed)
 {
     const juce::ScopedLock sl(vectorLock);
-    // Placeholder: tu lógica original no implementaba bypass real.
+    auto& list = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
+    if (!juce::isPositiveAndBelow(index, (int)list.size()))
+        return;
+
+    auto node = list[(size_t)index];
+    if (node == nullptr || node->getProcessor() == nullptr)
+        return;
+
+    auto* processor = node->getProcessor();
+    if (auto* base = dynamic_cast<ProcessorBase*>(processor))
+    {
+        base->setBypassed(bypassed);
+        return;
+    }
+
+    // Fallback for processors not derived from ProcessorBase.
+    processor->suspendProcessing(bypassed);
 }
 
 // ==========================================================
@@ -345,28 +375,19 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
 
     // 3) Dry/Wet mix
     const float mix = currentGlobalMix.load();
-    const bool isMixActive = (mix < 0.99f);
+    const bool isMixRequested = (mix < 0.99f);
+    const bool hasDryCapacity = dryBuffer.getNumChannels() >= buffer.getNumChannels()
+        && dryBuffer.getNumSamples() >= buffer.getNumSamples();
+    const bool isMixActive = isMixRequested && hasDryCapacity;
 
     if (isMixActive)
     {
-        if (dryBuffer.getNumChannels() < buffer.getNumChannels() ||
-            dryBuffer.getNumSamples() != buffer.getNumSamples())
-        {
-            dryBuffer.setSize(buffer.getNumChannels(), buffer.getNumSamples());
-        }
-
         const int numSamples = buffer.getNumSamples();
-        const auto* inL = buffer.getReadPointer(0);
-        const auto* inR = (buffer.getNumChannels() > 1) ? buffer.getReadPointer(1) : nullptr;
-
-        for (int ch = 0; ch < dryBuffer.getNumChannels(); ++ch)
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
         {
+            const auto* src = buffer.getReadPointer(ch);
             auto* dryCh = dryBuffer.getWritePointer(ch);
-
-            if (inR != nullptr)
-                for (int i = 0; i < numSamples; ++i) dryCh[i] = (inL[i] + inR[i]) * 0.5f;
-            else
-                for (int i = 0; i < numSamples; ++i) dryCh[i] = inL[i];
+            juce::FloatVectorOperations::copy(dryCh, src, numSamples);
         }
     }
 
@@ -420,7 +441,7 @@ void AudioEngine::run()
         }
         else
         {
-            wait(100);  // tuner apagado => dormir más
+            wait(100);  // tuner apagado => dormir mas
         }
     }
 }

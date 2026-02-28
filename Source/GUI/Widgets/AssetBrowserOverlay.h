@@ -25,8 +25,7 @@ private:
 
     juce::String getTitleForZone() const;
     juce::String getTypeLabelForZone() const;
-    std::vector<juce::String> getMockDataForZone() const;
-    juce::String mapToInternalID(const juce::String& displayName) const;
+    std::vector<juce::String> getAvailableTypeIDsForZone() const;
 
     Nova::ZoneID targetZone{};
     std::function<void(juce::String)> onSelect;
