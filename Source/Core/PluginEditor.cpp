@@ -56,37 +56,17 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     // INPUT STRIP
     // -----------------------
     setupKnob(inputVolume, "IN GAIN", -60.0f, 24.0f, 0.0f);
-    inputVolume.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
-                .setProperty(Nova::IDs::INPUT_GAIN, (float)inputVolume.getValue(), nullptr);
-        };
 
     setupKnob(inputGate, "GATE", -100.0f, 0.0f, -100.0f);
     inputGate.setTextValueSuffix(" dB");
-    inputGate.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
-                .setProperty(Nova::IDs::INPUT_GATE, (float)inputGate.getValue(), nullptr);
-        };
 
     setupKnob(inputTranspose, "TRANS", -12.0f, 12.0f, 0.0f);
     inputTranspose.setRange(-12.0, 12.0, 1.0);
-    inputTranspose.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
-                .setProperty(Nova::IDs::INPUT_TRANS, (int)inputTranspose.getValue(), nullptr);
-        };
 
     addAndMakeVisible(btnMonoStereo);
     btnMonoStereo.setButtonText("MONO");
     btnMonoStereo.setClickingTogglesState(true);
     btnMonoStereo.setColour(juce::ToggleButton::tickColourId, Nova::Colors::Accent);
-    btnMonoStereo.onClick = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
-                .setProperty(Nova::IDs::FORCE_MONO, btnMonoStereo.getToggleState(), nullptr);
-        };
 
     addAndMakeVisible(inputFader);
     inputFader.setSliderStyle(juce::Slider::LinearVertical);
@@ -108,71 +88,26 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
 
     // Line A
     setupKnob(volSliderA, "LEVEL A", 0.0f, 2.0f, 1.0f);
-    volSliderA.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A)
-                .setProperty(Nova::IDs::MIXER_GAIN_A, (float)volSliderA.getValue(), nullptr);
-        };
 
     setupKnob(panSliderA, "PAN A", -1.0f, 1.0f, 0.0f);
-    panSliderA.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A)
-                .setProperty(Nova::IDs::MIXER_PAN_A, (float)panSliderA.getValue(), nullptr);
-        };
 
     setupKnob(widthSliderA, "WIDTH A", 0.0f, 2.0f, 1.0f);
-    widthSliderA.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A)
-                .setProperty(Nova::IDs::MIXER_WIDTH_A, (float)widthSliderA.getValue(), nullptr);
-        };
 
     // Line B
     setupKnob(volSliderB, "LEVEL B", 0.0f, 2.0f, 1.0f);
-    volSliderB.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B)
-                .setProperty(Nova::IDs::MIXER_GAIN_B, (float)volSliderB.getValue(), nullptr);
-        };
 
     setupKnob(panSliderB, "PAN B", -1.0f, 1.0f, 0.0f);
-    panSliderB.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B)
-                .setProperty(Nova::IDs::MIXER_PAN_B, (float)panSliderB.getValue(), nullptr);
-        };
 
     setupKnob(widthSliderB, "WIDTH B", 0.0f, 2.0f, 1.0f);
-    widthSliderB.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B)
-                .setProperty(Nova::IDs::MIXER_WIDTH_B, (float)widthSliderB.getValue(), nullptr);
-        };
 
     // -----------------------
     // OUTPUT STRIP
     // -----------------------
     setupKnob(outputVolume, "MASTER", -60.0f, 12.0f, 0.0f);
-    outputVolume.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
-                .setProperty(Nova::IDs::OUTPUT_VOL, (float)outputVolume.getValue(), nullptr);
-        };
 
     setupKnob(outputGain, "LIMIT", -20.0f, 0.0f, 0.0f);
-    outputGain.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
-                .setProperty(Nova::IDs::OUTPUT_LIMITER, (float)outputGain.getValue(), nullptr);
-        };
 
     setupKnob(outputMix, "MIX", 0.0f, 100.0f, 100.0f);
-    outputMix.onValueChange = [this]
-        {
-            audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS)
-                .setProperty(Nova::IDs::OUTPUT_MIX, (float)outputMix.getValue(), nullptr);
-        };
 
     addAndMakeVisible(outputFader);
     outputFader.setSliderStyle(juce::Slider::LinearVertical);
@@ -184,6 +119,36 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
             // Igual que antes: fader mueve el knob MASTER
             outputVolume.setValue(outputFader.getValue(), juce::sendNotification);
         };
+
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::INPUT_GAIN.toString()))
+        inputVolumeAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, inputVolume);
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::INPUT_GATE.toString()))
+        inputGateAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, inputGate);
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::INPUT_TRANS.toString()))
+        inputTransposeAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, inputTranspose);
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::FORCE_MONO.toString()))
+        monoAttachment = std::make_unique<juce::ButtonParameterAttachment>(*param, btnMonoStereo);
+
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::MIXER_GAIN_A.toString()))
+        volAAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, volSliderA);
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::MIXER_PAN_A.toString()))
+        panAAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, panSliderA);
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::MIXER_WIDTH_A.toString()))
+        widthAAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, widthSliderA);
+
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::MIXER_GAIN_B.toString()))
+        volBAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, volSliderB);
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::MIXER_PAN_B.toString()))
+        panBAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, panSliderB);
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::MIXER_WIDTH_B.toString()))
+        widthBAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, widthSliderB);
+
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::OUTPUT_VOL.toString()))
+        outputVolumeAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, outputVolume);
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::OUTPUT_LIMITER.toString()))
+        outputLimiterAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, outputGain);
+    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::OUTPUT_MIX.toString()))
+        outputMixAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, outputMix);
 
     // -----------------------
     // PRESETS & FOOTER
@@ -370,36 +335,7 @@ void NOVAAudioProcessorEditor::refreshPresetList()
 
 void NOVAAudioProcessorEditor::syncControlsFromState()
 {
-    const auto settings = audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS);
-    const auto lA = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_A);
-    const auto lB = audioProcessor.pluginState.getChildWithName(Nova::IDs::LINE_B);
-
-    if (settings.isValid())
-    {
-        inputVolume.setValue(settings.getProperty(Nova::IDs::INPUT_GAIN, 0.0f), juce::dontSendNotification);
-        inputGate.setValue(settings.getProperty(Nova::IDs::INPUT_GATE, -100.0f), juce::dontSendNotification);
-        inputTranspose.setValue(settings.getProperty(Nova::IDs::INPUT_TRANS, 0), juce::dontSendNotification);
-        btnMonoStereo.setToggleState(settings.getProperty(Nova::IDs::FORCE_MONO, false), juce::dontSendNotification);
-
-        outputVolume.setValue(settings.getProperty(Nova::IDs::OUTPUT_VOL, 0.0f), juce::dontSendNotification);
-        outputGain.setValue(settings.getProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f), juce::dontSendNotification);
-        outputMix.setValue(settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f), juce::dontSendNotification);
-        outputFader.setValue(settings.getProperty(Nova::IDs::OUTPUT_VOL, 0.0f), juce::dontSendNotification);
-    }
-
-    if (lA.isValid())
-    {
-        volSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_GAIN_A, 1.0f), juce::dontSendNotification);
-        panSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_PAN_A, 0.0f), juce::dontSendNotification);
-        widthSliderA.setValue(lA.getProperty(Nova::IDs::MIXER_WIDTH_A, 1.0f), juce::dontSendNotification);
-    }
-
-    if (lB.isValid())
-    {
-        volSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_GAIN_B, 1.0f), juce::dontSendNotification);
-        panSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_PAN_B, 0.0f), juce::dontSendNotification);
-        widthSliderB.setValue(lB.getProperty(Nova::IDs::MIXER_WIDTH_B, 1.0f), juce::dontSendNotification);
-    }
+    outputFader.setValue(outputVolume.getValue(), juce::dontSendNotification);
 }
 
 void NOVAAudioProcessorEditor::savePresetWithName(const juce::String& presetName)
@@ -544,17 +480,10 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawText("LINE A", mixerArea.getX() + 50, mixerArea.getY() + 10, 100, 20, juce::Justification::centred);
     g.drawText("LINE B", mixerArea.getRight() - 150, mixerArea.getY() + 10, 100, 20, juce::Justification::centred);
 
-    bool aActive = false;
-    bool bActive = false;
-    const auto settings = audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS);
-    if (settings.isValid())
-    {
-        const bool on = (bool)settings.getProperty(Nova::IDs::ENGINE_ON);
-        const int mode = (int)settings.getProperty(Nova::IDs::SWITCH_MODE);
-
-        aActive = on && (mode != (int)Nova::SwitcherMode::LineB_Only);
-        bActive = on && (mode != (int)Nova::SwitcherMode::LineA_Only);
-    }
+    const bool on = audioProcessor.isEngineOn();
+    const int mode = (int)audioProcessor.getSwitcherMode();
+    const bool aActive = on && (mode != (int)Nova::SwitcherMode::LineB_Only);
+    const bool bActive = on && (mode != (int)Nova::SwitcherMode::LineA_Only);
 
     const int knobSz = 60;
     const int knobGap = 10;
@@ -893,6 +822,7 @@ void NOVAAudioProcessorEditor::updateStats()
         << "  |  Proc: " << juce::String(procTimeMs, 2) << "ms"
         << "  |  Buf: " << juce::String(bufferDurationMs, 1) << "ms";
 
+    outputFader.setValue(outputVolume.getValue(), juce::dontSendNotification);
     lblStats.setText(txt, juce::dontSendNotification);
     lblStats.setColour(juce::Label::textColourId, (cpuPercent > 90.0) ? juce::Colours::red : juce::Colours::grey);
 }
@@ -910,14 +840,10 @@ void NOVAAudioProcessorEditor::updatePedalGui()
             const auto treeListID = (chain == Nova::ChainID::LineA) ? Nova::IDs::LINE_A : Nova::IDs::LINE_B;
             auto treeList = audioProcessor.pluginState.getChildWithName(treeListID);
 
-            juce::Array<juce::AudioProcessorGraph::Node::Ptr> availableNodes;
-            for (auto n : engineNodes)
-                availableNodes.add(n);
-
             struct DrawItem
             {
                 juce::ValueTree state;
-                juce::AudioProcessorGraph::Node::Ptr node;
+                AudioEngine::ChainNodeView nodeView;
                 int zoneIdx = 0;
                 juce::AudioProcessorEditor* editor = nullptr;
                 int preferredW = 120;
@@ -927,6 +853,7 @@ void NOVAAudioProcessorEditor::updatePedalGui()
 
             std::vector<DrawItem> itemsToDraw;
             itemsToDraw.reserve((size_t)treeList.getNumChildren());
+            std::set<juce::AudioProcessorGraph::NodeID> usedNodeIDs;
 
             for (int i = 0; i < treeList.getNumChildren(); ++i)
             {
@@ -939,50 +866,68 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                 if (zIdx < 0 || zIdx > 3)
                     continue;
 
-                juce::AudioProcessorGraph::Node::Ptr matchedNode = nullptr;
+                AudioEngine::ChainNodeView matchedNodeView;
+                bool foundMatch = false;
+                const auto pedalID = state.getProperty(Nova::IDs::PEDAL_ID).toString();
 
-                for (int j = 0; j < availableNodes.size(); ++j)
+                for (const auto& candidate : engineNodes)
                 {
-                    auto n = availableNodes[j];
-                    if (n && n->getProcessor())
+                    if (candidate.node == nullptr || candidate.node->getProcessor() == nullptr)
+                        continue;
+                    if (usedNodeIDs.find(candidate.node->nodeID) != usedNodeIDs.end())
+                        continue;
+
+                    if (candidate.pedalID == pedalID && pedalID.isNotEmpty())
                     {
-                        juce::String procName = n->getProcessor()->getName();
+                        matchedNodeView = candidate;
+                        foundMatch = true;
+                        break;
+                    }
+                }
+
+                if (!foundMatch)
+                {
+                    for (const auto& candidate : engineNodes)
+                    {
+                        if (candidate.node == nullptr || candidate.node->getProcessor() == nullptr)
+                            continue;
+                        if (usedNodeIDs.find(candidate.node->nodeID) != usedNodeIDs.end())
+                            continue;
+
+                        juce::String procName = candidate.node->getProcessor()->getName();
                         if (procName.containsIgnoreCase(expectedType) || expectedType.containsIgnoreCase(procName))
                         {
-                            matchedNode = n;
-                            availableNodes.remove(j);
+                            matchedNodeView = candidate;
+                            foundMatch = true;
                             break;
                         }
                     }
                 }
 
-                if (!matchedNode && availableNodes.size() > 0)
+                if (foundMatch)
                 {
-                    matchedNode = availableNodes[0];
-                    availableNodes.remove(0);
+                    usedNodeIDs.insert(matchedNodeView.node->nodeID);
+                    itemsToDraw.push_back({ state, matchedNodeView, zIdx });
                 }
-
-                if (matchedNode)
-                    itemsToDraw.push_back({ state, matchedNode, zIdx });
             }
 
             for (auto& item : itemsToDraw)
             {
-                requiredNodeIDs.insert(item.node->nodeID);
+                requiredNodeIDs.insert(item.nodeView.node->nodeID);
 
-                auto it = activePedalEditors.find(item.node->nodeID);
+                auto it = activePedalEditors.find(item.nodeView.node->nodeID);
                 juce::AudioProcessorEditor* editor = nullptr;
 
                 if (it == activePedalEditors.end())
                 {
-                    juce::AudioProcessorEditor* newEditor = item.node->getProcessor()->createEditor();
+                    juce::AudioProcessorEditor* newEditor = item.nodeView.node->getProcessor()->createEditor();
                     if (newEditor == nullptr)
-                        newEditor = new juce::GenericAudioProcessorEditor(*(item.node->getProcessor()));
+                        newEditor = new juce::GenericAudioProcessorEditor(*(item.nodeView.node->getProcessor()));
 
                     if (newEditor != nullptr)
                     {
                         addAndMakeVisible(newEditor);
-                        activePedalEditors[item.node->nodeID].reset(newEditor);
+                        activePedalEditors[item.nodeView.node->nodeID].reset(newEditor);
                         editor = newEditor;
                         item.createdNow = true;
                     }
@@ -1085,11 +1030,8 @@ void NOVAAudioProcessorEditor::updatePedalGui()
 
 void NOVAAudioProcessorEditor::updateSwitcherState()
 {
-    auto s = audioProcessor.pluginState.getChildWithName(Nova::IDs::SETTINGS);
-    if (!s.isValid()) return;
-
-    const bool on = s.getProperty(Nova::IDs::ENGINE_ON);
-    const int mode = s.getProperty(Nova::IDs::SWITCH_MODE);
+    const bool on = audioProcessor.isEngineOn();
+    const int mode = (int)audioProcessor.getSwitcherMode();
 
     btnStartStop.setButtonText(on ? "POWER ON" : "POWER OFF");
     btnStartStop.setColour(juce::TextButton::buttonOnColourId, on ? juce::Colours::green : juce::Colours::red);
@@ -1113,8 +1055,8 @@ void NOVAAudioProcessorEditor::updateSwitcherState()
 
 void NOVAAudioProcessorEditor::valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier& id)
 {
-    if (id == Nova::IDs::ENGINE_ON || id == Nova::IDs::SWITCH_MODE)
-        updateSwitcherState();
+    if (id == Nova::IDs::PEDAL_ENABLED || id == Nova::IDs::PEDAL_TYPE || id == Nova::IDs::PEDAL_ZONE)
+        updatePedalGui();
 }
 
 bool NOVAAudioProcessorEditor::keyPressed(const juce::KeyPress& key)

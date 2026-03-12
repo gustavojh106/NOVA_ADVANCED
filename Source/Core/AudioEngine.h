@@ -11,62 +11,17 @@
 #include "DSP/Global/ChannelStrip.h"
 #include "DSP/Services/TunerService.h"
 
-// ==========================================================
-// MOTOR DE AUDIO PRINCIPAL
-// ==========================================================
 class AudioEngine : public juce::Thread
 {
 public:
-    AudioEngine();
-    ~AudioEngine() override;
+    struct ChainNodeView
+    {
+        juce::AudioProcessorGraph::Node::Ptr node;
+        juce::String pedalID;
+        Nova::ZoneID zone = Nova::ZoneID::Pre;
+    };
 
-    void prepare(double sampleRate, int samplesPerBlock, int numIn, int numOut);
-    void process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
-
-    // Gestion de cadenas
-    void addPedal(const juce::String& type, Nova::ChainID chain, int index);
-    void removePedal(Nova::ChainID chain, int index);
-    void clearAll();
-
-    // Control global
-    void setEngineEnabled(bool enabled);
-    void updateMixer(float gainA, float gainB, Nova::SwitcherMode mode); // legacy wrapper (no-op)
-
-    // Introspeccion para UI
-    std::vector<juce::AudioProcessorGraph::Node::Ptr> getNodes(Nova::ChainID chain) const;
-    juce::AudioProcessor* getProcessorForPedal(Nova::ChainID chain, int index);
-
-    double getCpuLoad() const;
-    int getLatencyNumSamples() const;
-
-    // Tuner
-    void setTunerEnabled(bool shouldEnable);
-
-    // Alias (compatibilidad con codigo existente)
-    bool isTunerEnabled() const { return tunerEnabled.load(); }
-    bool getTunerEnabled() const { return tunerEnabled.load(); }
-
-    // Tuner data (delegado al servicio)
-    float getTunerPitch() const { return tunerService.getCurrentPitch(); }
-    float getTunerClarity() const { return tunerService.getCurrentClarity(); }
-    float getTunerRMS() const { return tunerService.getCurrentRMS(); }
-
-    // Pedal bypass
-    void setPedalBypassed(Nova::ChainID chain, int index, bool bypassed);
-
-    // Thread
-    void run() override;
-
-    // Params
-    void setTuningOffset(int semitones) { tuningOffset = semitones; }
-    int  getTuningOffset() const { return tuningOffset.load(); }
-
-    void updateGlobalParams(const juce::ValueTree& settings,
-        const juce::ValueTree& lineA,
-        const juce::ValueTree& lineB);
-
-private:
-    struct GlobalParamsSnapshot
+    struct RuntimeGlobalParams
     {
         float inputGainDb = 0.0f;
         float gateThresholdDb = -100.0f;
@@ -75,7 +30,7 @@ private:
 
         float outputVolumeDb = 0.0f;
         float outputLimiterDb = 0.0f;
-        float outputMixRaw = 100.0f; // Backward compatible: 0..1 and 0..100
+        float outputMixRaw = 100.0f;
 
         int switchMode = (int)Nova::SwitcherMode::Dual_Parallel;
 
@@ -86,6 +41,58 @@ private:
         float gainB = 1.0f;
         float panB = 0.0f;
         float widthB = 1.0f;
+    };
+
+    AudioEngine();
+    ~AudioEngine() override;
+
+    void prepare(double sampleRate, int samplesPerBlock, int numIn, int numOut);
+    void process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi);
+
+    void addPedal(const juce::String& type,
+        Nova::ChainID chain,
+        int index,
+        Nova::ZoneID zone = Nova::ZoneID::Pre,
+        juce::String pedalID = {});
+    void removePedal(Nova::ChainID chain, int index);
+    void clearAll();
+
+    void setEngineEnabled(bool enabled);
+    void updateMixer(float gainA, float gainB, Nova::SwitcherMode mode);
+
+    std::vector<ChainNodeView> getNodes(Nova::ChainID chain) const;
+    juce::AudioProcessor* getProcessorForPedal(Nova::ChainID chain, int index);
+
+    double getCpuLoad() const;
+    int getLatencyNumSamples() const;
+
+    void setTunerEnabled(bool shouldEnable);
+
+    bool isTunerEnabled() const { return tunerEnabled.load(); }
+    bool getTunerEnabled() const { return tunerEnabled.load(); }
+
+    float getTunerPitch() const { return tunerService.getCurrentPitch(); }
+    float getTunerClarity() const { return tunerService.getCurrentClarity(); }
+    float getTunerRMS() const { return tunerService.getCurrentRMS(); }
+
+    void setPedalBypassed(Nova::ChainID chain, int index, bool bypassed);
+
+    void run() override;
+
+    void setTuningOffset(int semitones) { tuningOffset = semitones; }
+    int  getTuningOffset() const { return tuningOffset.load(); }
+
+    void updateGlobalParams(const RuntimeGlobalParams& snapshot);
+    void updateGlobalParams(const juce::ValueTree& settings,
+        const juce::ValueTree& lineA,
+        const juce::ValueTree& lineB);
+
+private:
+    struct ChainNodeSlot
+    {
+        juce::AudioProcessorGraph::Node::Ptr node;
+        juce::String pedalID;
+        Nova::ZoneID zone = Nova::ZoneID::Pre;
     };
 
     enum class GraphCommandType
@@ -101,48 +108,44 @@ private:
     {
         GraphCommandType type = GraphCommandType::ClearAll;
         juce::String pedalType;
+        juce::String pedalID;
         Nova::ChainID chain = Nova::ChainID::LineA;
+        Nova::ZoneID zone = Nova::ZoneID::Pre;
         int index = -1;
         bool flag = false;
     };
 
-    // Graph build
     void rebuildGraph();
-    void connectChainToGain(const std::vector<juce::AudioProcessorGraph::Node::Ptr>& nodes,
+    void connectChainToGain(const std::vector<ChainNodeSlot>& nodes,
         juce::AudioProcessorGraph::NodeID targetStripID);
 
-    // Command/control plane
     void enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe);
     void flushPendingGraphCommands(bool suspendGraph);
     void applyGraphCommandNow(const GraphCommand& cmd, bool& topologyChanged, bool& resetRequested);
     void applyPendingGlobalParams();
-    void applyGlobalParamsNow(const GlobalParamsSnapshot& snapshot);
+    void applyGlobalParamsNow(const RuntimeGlobalParams& snapshot);
     void resetGraphStateNow();
     bool sanitizeAudioBuffer(juce::AudioBuffer<float>& buffer);
+    void updateDryWetLatencyCompensation();
 
-    // DSP / tuner helpers (legacy kept)
     float calculateFrequency(const float* signal, int numSamples, double sampleRate);
     std::pair<float, float> calculateFrequencyWithClarity(const float* signal, int numSamples, double sampleRate);
 
 private:
     std::unique_ptr<juce::AudioProcessorGraph> mainGraph;
 
-    // Concurrency protection
     mutable juce::CriticalSection vectorLock;
-    std::vector<juce::AudioProcessorGraph::Node::Ptr> nodesChainA;
-    std::vector<juce::AudioProcessorGraph::Node::Ptr> nodesChainB;
+    std::vector<ChainNodeSlot> nodesChainA;
+    std::vector<ChainNodeSlot> nodesChainB;
 
-    // Hardware I/O nodes
     juce::AudioProcessorGraph::Node::Ptr inputNode;
     juce::AudioProcessorGraph::Node::Ptr outputNode;
 
-    // Internal chain nodes
     juce::AudioProcessorGraph::Node::Ptr inputChainNode;
     juce::AudioProcessorGraph::Node::Ptr stripNodeA;
     juce::AudioProcessorGraph::Node::Ptr stripNodeB;
     juce::AudioProcessorGraph::Node::Ptr outputChainNode;
 
-    // Runtime
     double currentSampleRate = 44100.0;
     int    currentBlockSize = 512;
     int    numInputChannels = 2;
@@ -153,24 +156,20 @@ private:
     double currentRate = 0.0;
     int startupCounter = 0;
 
-    // Global mix (dry/wet)
-    std::atomic<float> currentGlobalMix{ 1.0f }; // 1.0 = 100% wet
-    juce::AudioBuffer<float> dryBuffer;
+    std::atomic<float> currentGlobalMix{ 1.0f };
+    juce::dsp::DryWetMixer<float> dryWetMixer{ Nova::Config::MAX_GRAPH_LATENCY_SAMPLES };
 
-    // Tuner
     TunerService tunerService;
     std::atomic<bool> tunerEnabled{ false };
     std::atomic<int>  tuningOffset{ 0 };
 
-    // Thread-safe control plane
     juce::CriticalSection graphCommandLock;
     std::deque<GraphCommand> pendingGraphCommands;
 
     juce::SpinLock globalParamsLock;
-    GlobalParamsSnapshot pendingGlobalParams;
+    RuntimeGlobalParams pendingGlobalParams;
     std::atomic<bool> globalParamsDirty{ false };
 
-    // Runtime integrity / recovery
     int consecutiveCorruptBlocks = 0;
     int recoveryCooldownBlocks = 0;
     juce::Thread::ThreadID audioThreadID = {};

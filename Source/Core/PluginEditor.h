@@ -123,12 +123,27 @@ private:
     std::unique_ptr<juce::Component> currentOverlay; // Para el Browser
     std::unique_ptr<TunerOverlay> tunerOverlay;      // Para el Afinador
 
+    std::unique_ptr<juce::SliderParameterAttachment> inputVolumeAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> inputGateAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> inputTransposeAttachment;
+    std::unique_ptr<juce::ButtonParameterAttachment> monoAttachment;
+    std::unique_ptr<juce::ButtonParameterAttachment> engineAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> volAAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> panAAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> widthAAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> volBAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> panBAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> widthBAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> outputVolumeAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> outputLimiterAttachment;
+    std::unique_ptr<juce::SliderParameterAttachment> outputMixAttachment;
+
     // Timer para actualizar CPU y FPS
     class StatsTimer : public juce::Timer {
         NOVAAudioProcessorEditor& parent;
     public:
         StatsTimer(NOVAAudioProcessorEditor& p) : parent(p) { startTimer(500); }
-        void timerCallback() override { parent.updateStats(); }
+        void timerCallback() override { parent.updateStats(); parent.updateSwitcherState(); }
     };
     std::unique_ptr<StatsTimer> statsTimer;
 

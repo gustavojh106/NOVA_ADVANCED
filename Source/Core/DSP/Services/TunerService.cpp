@@ -82,6 +82,7 @@ void TunerService::process()
     {
         currentClarity = 0.0f;
         currentPitch = 0.0f;
+        currentNote = 0;
         return;
     }
 
@@ -100,6 +101,8 @@ void TunerService::process()
     else
     {
         currentClarity = 0.0f; // noisy/unstable input
+        currentPitch = 0.0f;
+        currentNote = 0;
     }
 }
 

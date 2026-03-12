@@ -3,6 +3,7 @@
 #include "../Effects/Pedals/Base/ProcessorBase.h"
 
 #include <cmath>
+#include <algorithm>
 
 // ==========================================================
 // IMPLEMENTACION DE AUDIO ENGINE
@@ -12,6 +13,8 @@ AudioEngine::AudioEngine()
     : juce::Thread("AudioEngineThread")
 {
     mainGraph = std::make_unique<juce::AudioProcessorGraph>();
+    dryWetMixer.setMixingRule(juce::dsp::DryWetMixingRule::linear);
+    dryWetMixer.setWetMixProportion(1.0f);
     isEngineOn = false;
     startThread(juce::Thread::Priority::high);
 }
@@ -50,7 +53,13 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
         mainGraph->suspendProcessing(true);
         mainGraph->setPlayConfigDetails(numIn, numOut, sampleRate, samplesPerBlock);
         mainGraph->prepareToPlay(sampleRate, samplesPerBlock);
-        dryBuffer.setSize(juce::jmax(1, numOut), samplesPerBlock, false, false, true);
+
+        juce::dsp::ProcessSpec dryWetSpec;
+        dryWetSpec.sampleRate = sampleRate;
+        dryWetSpec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
+        dryWetSpec.numChannels = static_cast<juce::uint32>(juce::jmax(1, numOut));
+        dryWetMixer.prepare(dryWetSpec);
+        dryWetMixer.setWetMixProportion(currentGlobalMix.load());
 
         const bool missingNodes = (inputChainNode == nullptr ||
             stripNodeA == nullptr ||
@@ -104,6 +113,7 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
         }
 
         rebuildGraph();
+        updateDryWetLatencyCompensation();
         resetGraphStateNow();
 
         mainGraph->suspendProcessing(false);
@@ -154,7 +164,7 @@ void AudioEngine::rebuildGraph()
     mainGraph->addConnection({ { outputChainNode->nodeID, 1 }, { outputNode->nodeID, 1 } });
 }
 
-void AudioEngine::connectChainToGain(const std::vector<juce::AudioProcessorGraph::Node::Ptr>& nodes,
+void AudioEngine::connectChainToGain(const std::vector<ChainNodeSlot>& nodes,
     juce::AudioProcessorGraph::NodeID targetStripID)
 {
     if (mainGraph == nullptr || inputChainNode == nullptr)
@@ -165,8 +175,35 @@ void AudioEngine::connectChainToGain(const std::vector<juce::AudioProcessorGraph
 
     juce::AudioProcessorGraph::NodeID currentSource = inputChainNode->nodeID;
 
-    for (const auto& node : nodes)
+    std::vector<size_t> orderedIndices;
+    orderedIndices.reserve(nodes.size());
+
+    for (size_t i = 0; i < nodes.size(); ++i)
+        orderedIndices.push_back(i);
+
+    const auto zoneRank = [](Nova::ZoneID zone) noexcept
     {
+        switch (zone)
+        {
+            case Nova::ZoneID::Pre:     return 0;
+            case Nova::ZoneID::Amp:     return 1;
+            case Nova::ZoneID::FX:      return 2;
+            case Nova::ZoneID::Cabinet: return 3;
+            default:                    return 4;
+        }
+    };
+
+    std::stable_sort(orderedIndices.begin(), orderedIndices.end(),
+        [&nodes, &zoneRank](size_t lhs, size_t rhs)
+        {
+            return zoneRank(nodes[lhs].zone) < zoneRank(nodes[rhs].zone);
+        });
+
+    for (const auto index : orderedIndices)
+    {
+        const auto& slot = nodes[index];
+        const auto& node = slot.node;
+
         if (!node)
             continue;
 
@@ -186,7 +223,7 @@ void AudioEngine::updateGlobalParams(const juce::ValueTree& settings,
     const juce::ValueTree& lineA,
     const juce::ValueTree& lineB)
 {
-    GlobalParamsSnapshot snapshot;
+    RuntimeGlobalParams snapshot;
 
     if (settings.isValid())
     {
@@ -217,12 +254,21 @@ void AudioEngine::updateGlobalParams(const juce::ValueTree& settings,
         snapshot.widthB = (float)lineB.getProperty(Nova::IDs::MIXER_WIDTH_B, 1.0f);
     }
 
+    updateGlobalParams(snapshot);
+}
+
+void AudioEngine::updateGlobalParams(const RuntimeGlobalParams& snapshot)
+{
     {
         const juce::SpinLock::ScopedLockType lock(globalParamsLock);
         pendingGlobalParams = snapshot;
     }
 
     globalParamsDirty = true;
+
+    const auto currentThread = juce::Thread::getCurrentThreadId();
+    if (currentThread != audioThreadID)
+        applyPendingGlobalParams();
 }
 
 void AudioEngine::applyPendingGlobalParams()
@@ -230,7 +276,7 @@ void AudioEngine::applyPendingGlobalParams()
     if (!globalParamsDirty.exchange(false))
         return;
 
-    GlobalParamsSnapshot snapshot;
+    RuntimeGlobalParams snapshot;
     {
         const juce::SpinLock::ScopedLockType lock(globalParamsLock);
         snapshot = pendingGlobalParams;
@@ -240,7 +286,7 @@ void AudioEngine::applyPendingGlobalParams()
     applyGlobalParamsNow(snapshot);
 }
 
-void AudioEngine::applyGlobalParamsNow(const GlobalParamsSnapshot& snapshot)
+void AudioEngine::applyGlobalParamsNow(const RuntimeGlobalParams& snapshot)
 {
     if (inputChainNode)
     {
@@ -271,6 +317,7 @@ void AudioEngine::applyGlobalParamsNow(const GlobalParamsSnapshot& snapshot)
                 : juce::jlimit(0.0f, 100.0f, mixRaw) / 100.0f;
 
             currentGlobalMix = mixNormalized;
+            dryWetMixer.setWetMixProportion(mixNormalized);
         }
     }
 
@@ -306,6 +353,13 @@ void AudioEngine::applyGlobalParamsNow(const GlobalParamsSnapshot& snapshot)
             p->setParams(gain, snapshot.panB, snapshot.widthB);
         }
     }
+}
+
+void AudioEngine::updateDryWetLatencyCompensation()
+{
+    dryWetMixer.setWetLatency(static_cast<float>(juce::jlimit(0,
+        Nova::Config::MAX_GRAPH_LATENCY_SAMPLES,
+        getLatencyNumSamples())));
 }
 
 void AudioEngine::enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe)
@@ -347,7 +401,10 @@ void AudioEngine::flushPendingGraphCommands(bool suspendGraph)
         applyGraphCommandNow(cmd, topologyChanged, resetRequested);
 
     if (topologyChanged)
+    {
         rebuildGraph();
+        updateDryWetLatencyCompensation();
+    }
 
     if (topologyChanged || resetRequested)
     {
@@ -378,10 +435,15 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
                 auto node = mainGraph->addNode(std::move(pedal));
                 if (node != nullptr)
                 {
+                    ChainNodeSlot slot;
+                    slot.node = node;
+                    slot.pedalID = cmd.pedalID;
+                    slot.zone = cmd.zone;
+
                     if (cmd.index >= 0 && cmd.index <= (int)chain.size())
-                        chain.insert(chain.begin() + cmd.index, node);
+                        chain.insert(chain.begin() + cmd.index, std::move(slot));
                     else
-                        chain.push_back(node);
+                        chain.push_back(std::move(slot));
 
                     topologyChanged = true;
                 }
@@ -393,7 +455,7 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
         {
             if (cmd.index >= 0 && cmd.index < (int)chain.size())
             {
-                auto node = chain[(size_t)cmd.index];
+                auto node = chain[(size_t)cmd.index].node;
                 if (node != nullptr && mainGraph->getNodeForId(node->nodeID) != nullptr)
                     mainGraph->removeNode(node->nodeID);
 
@@ -405,12 +467,12 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
 
         case GraphCommandType::ClearAll:
         {
-            auto removeChain = [this](std::vector<juce::AudioProcessorGraph::Node::Ptr>& list)
+            auto removeChain = [this](std::vector<ChainNodeSlot>& list)
                 {
                     for (auto& node : list)
                     {
-                        if (node != nullptr && mainGraph->getNodeForId(node->nodeID) != nullptr)
-                            mainGraph->removeNode(node->nodeID);
+                        if (node.node != nullptr && mainGraph->getNodeForId(node.node->nodeID) != nullptr)
+                            mainGraph->removeNode(node.node->nodeID);
                     }
 
                     list.clear();
@@ -428,10 +490,10 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
                 break;
 
             auto node = chain[(size_t)cmd.index];
-            if (node == nullptr || node->getProcessor() == nullptr)
+            if (node.node == nullptr || node.node->getProcessor() == nullptr)
                 break;
 
-            auto* processor = node->getProcessor();
+            auto* processor = node.node->getProcessor();
             if (auto* base = dynamic_cast<ProcessorBase*>(processor))
             {
                 base->setBypassed(cmd.flag);
@@ -476,13 +538,12 @@ void AudioEngine::resetGraphStateNow()
     resetNode(outputChainNode);
 
     for (auto& n : nodesChainA)
-        resetNode(n);
+        resetNode(n.node);
 
     for (auto& n : nodesChainB)
-        resetNode(n);
+        resetNode(n.node);
 
-    if (dryBuffer.getNumSamples() > 0)
-        dryBuffer.clear();
+    dryWetMixer.reset();
 
     tunerService.reset();
 }
@@ -494,13 +555,19 @@ void AudioEngine::updateMixer(float, float, Nova::SwitcherMode) {}
 // PEDAL MANAGEMENT
 // ==========================================================
 
-void AudioEngine::addPedal(const juce::String& type, Nova::ChainID chain, int index)
+void AudioEngine::addPedal(const juce::String& type,
+    Nova::ChainID chain,
+    int index,
+    Nova::ZoneID zone,
+    juce::String pedalID)
 {
     GraphCommand cmd;
     cmd.type = GraphCommandType::AddPedal;
     cmd.pedalType = type;
     cmd.chain = chain;
     cmd.index = index;
+    cmd.zone = zone;
+    cmd.pedalID = std::move(pedalID);
     enqueueGraphCommand(cmd, true);
 }
 
@@ -534,10 +601,17 @@ void AudioEngine::setPedalBypassed(Nova::ChainID chain, int index, bool bypassed
 // INFO / CONTROL
 // ==========================================================
 
-std::vector<juce::AudioProcessorGraph::Node::Ptr> AudioEngine::getNodes(Nova::ChainID chain) const
+std::vector<AudioEngine::ChainNodeView> AudioEngine::getNodes(Nova::ChainID chain) const
 {
     const juce::ScopedLock sl(vectorLock);
-    return (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
+    const auto& source = (chain == Nova::ChainID::LineA) ? nodesChainA : nodesChainB;
+    std::vector<ChainNodeView> result;
+    result.reserve(source.size());
+
+    for (const auto& slot : source)
+        result.push_back({ slot.node, slot.pedalID, slot.zone });
+
+    return result;
 }
 
 juce::AudioProcessor* AudioEngine::getProcessorForPedal(Nova::ChainID chain, int index)
@@ -548,7 +622,7 @@ juce::AudioProcessor* AudioEngine::getProcessorForPedal(Nova::ChainID chain, int
     if (!juce::isPositiveAndBelow(index, (int)list.size()))
         return nullptr;
 
-    auto node = list[(size_t)index];
+    auto node = list[(size_t)index].node;
     if (node == nullptr || mainGraph->getNodeForId(node->nodeID) == nullptr)
         return nullptr;
 
@@ -616,8 +690,6 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         audioThreadID = juce::Thread::getCurrentThreadId();
 
     const auto startTime = juce::Time::getMillisecondCounterHiRes();
-
-    flushPendingGraphCommands(false);
     applyPendingGlobalParams();
 
     // 1) Tuner mode: capture + mute
@@ -647,43 +719,15 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         return;
     }
 
-    // 3) Dry/Wet mix
-    const float mix = currentGlobalMix.load();
-    const bool isMixRequested = (mix < 0.99f);
-    const bool hasDryCapacity = dryBuffer.getNumChannels() >= buffer.getNumChannels()
-        && dryBuffer.getNumSamples() >= buffer.getNumSamples();
-    const bool isMixActive = isMixRequested && hasDryCapacity;
-
-    if (isMixActive)
-    {
-        const int numSamples = buffer.getNumSamples();
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            const auto* src = buffer.getReadPointer(ch);
-            auto* dryCh = dryBuffer.getWritePointer(ch);
-            juce::FloatVectorOperations::copy(dryCh, src, numSamples);
-        }
-    }
+    // 3) Dry/Wet mix with latency compensation
+    dryWetMixer.setWetMixProportion(currentGlobalMix.load());
+    dryWetMixer.pushDrySamples(juce::dsp::AudioBlock<const float>(buffer));
 
     // 4) Process wet
     mainGraph->processBlock(buffer, midi);
 
     // 5) Mix final
-    if (isMixActive)
-    {
-        const int numSamples = buffer.getNumSamples();
-        const float dryMix = 1.0f - mix;
-
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* wetData = buffer.getWritePointer(ch);
-            const int dryChIndex = (ch < dryBuffer.getNumChannels()) ? ch : 0;
-            const auto* dryData = dryBuffer.getReadPointer(dryChIndex);
-
-            for (int i = 0; i < numSamples; ++i)
-                wetData[i] = (wetData[i] * mix) + (dryData[i] * dryMix);
-        }
-    }
+    dryWetMixer.mixWetSamples(juce::dsp::AudioBlock<float>(buffer));
 
     // 6) Safety net + auto-heal
     const bool hadCorruption = sanitizeAudioBuffer(buffer);

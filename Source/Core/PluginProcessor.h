@@ -56,6 +56,9 @@ public:
 
     AudioEngine& getAudioEngine() { return audioEngine; }
     double getCpuUsage() const;
+    juce::RangedAudioParameter* getGlobalParameter(const juce::String& paramID) const;
+    bool isEngineOn() const;
+    Nova::SwitcherMode getSwitcherMode() const;
 
 private:
     // ValueTree Listener
@@ -67,14 +70,42 @@ private:
     juce::ValueTree getSettingsTree() const;
     juce::ValueTree getLineTree(Nova::ChainID chain) const;
     static void sanitizeLine(juce::ValueTree line);
+    void createGlobalParameters();
+    AudioEngine::RuntimeGlobalParams makeRuntimeGlobalParams() const;
+    void writeParameterStateToTree(juce::ValueTree settings, juce::ValueTree lineA, juce::ValueTree lineB) const;
+    void applyTreeStateToParameters(juce::ValueTree settings, juce::ValueTree lineA, juce::ValueTree lineB);
+    void refreshEngineEnabledIfNeeded();
+    void refreshEngineGlobalParamsIfNeeded(bool force);
     void resetToCleanState();
     void ensureStateStructure();
     void applyDefaultStateIfNeeded();
+    bool applyStateTree(const juce::ValueTree& loadedState, const juce::File* presetFile);
     void updateGlobalParamsFromState();
     void updateMixerFromState();
 
     AudioEngine audioEngine;
     bool suppressStateCallbacks = false;
+    bool suppressParamSync = false;
+    bool hasPushedRuntimeGlobals = false;
+    bool hasPushedEngineEnabled = false;
+    bool lastEngineEnabled = false;
+    AudioEngine::RuntimeGlobalParams lastRuntimeGlobalParams;
+
+    juce::AudioParameterBool* engineOnParam = nullptr;
+    juce::AudioParameterChoice* switchModeParam = nullptr;
+    juce::AudioParameterFloat* inputGainParam = nullptr;
+    juce::AudioParameterFloat* inputGateParam = nullptr;
+    juce::AudioParameterInt* inputTransposeParam = nullptr;
+    juce::AudioParameterBool* forceMonoParam = nullptr;
+    juce::AudioParameterFloat* gainAParam = nullptr;
+    juce::AudioParameterFloat* panAParam = nullptr;
+    juce::AudioParameterFloat* widthAParam = nullptr;
+    juce::AudioParameterFloat* gainBParam = nullptr;
+    juce::AudioParameterFloat* panBParam = nullptr;
+    juce::AudioParameterFloat* widthBParam = nullptr;
+    juce::AudioParameterFloat* outputVolParam = nullptr;
+    juce::AudioParameterFloat* outputLimiterParam = nullptr;
+    juce::AudioParameterFloat* outputMixParam = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NOVAAudioProcessor)
 };
