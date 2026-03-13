@@ -3,6 +3,182 @@
 #include "../GUI/Widgets/ChainLane.h"
 #include "../GUI/Widgets/AssetBrowserOverlay.h"
 #include <algorithm>
+
+class PedalSlotComponent final : public juce::Component
+{
+public:
+    PedalSlotComponent(NOVAAudioProcessor& ownerProcessor,
+        Nova::ChainID ownerChain,
+        std::unique_ptr<juce::AudioProcessorEditor> childEditor)
+        : processor(ownerProcessor),
+          chain(ownerChain),
+          embeddedEditor(std::move(childEditor))
+    {
+        addAndMakeVisible(powerButton);
+        powerButton.onClick = [this] { toggleBypass(); };
+
+        addAndMakeVisible(removeButton);
+        removeButton.onClick = [this] { removePedal(); };
+
+        if (embeddedEditor != nullptr)
+        {
+            addAndMakeVisible(embeddedEditor.get());
+            embeddedEditor->setInterceptsMouseClicks(true, true);
+        }
+
+        powerButton.setTriggeredOnMouseDown(false);
+        removeButton.setTriggeredOnMouseDown(false);
+    }
+
+    void setPedalState(juce::ValueTree newState)
+    {
+        pedalState = newState;
+        refreshVisualState();
+        repaint();
+    }
+
+    int getPreferredWidth() const
+    {
+        return juce::jmax(166, (embeddedEditor != nullptr ? embeddedEditor->getWidth() : 210) + 10);
+    }
+
+    int getPreferredHeight() const
+    {
+        return juce::jmax(148, (embeddedEditor != nullptr ? embeddedEditor->getHeight() : 200) + kHeaderHeight + 10);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        const bool enabled = isPedalEnabled();
+
+        juce::ColourGradient body(enabled ? juce::Colour::fromString("ff151a20") : juce::Colour::fromString("ff0b0d10"),
+            bounds.getCentreX(),
+            bounds.getY(),
+            enabled ? juce::Colour::fromString("ff0d1116") : juce::Colour::fromString("ff060708"),
+            bounds.getCentreX(),
+            bounds.getBottom(),
+            false);
+        g.setGradientFill(body);
+        g.fillRoundedRectangle(bounds, 14.0f);
+
+        g.setColour(enabled ? juce::Colours::white.withAlpha(0.08f) : juce::Colours::white.withAlpha(0.03f));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), 14.0f, 1.0f);
+
+        auto header = bounds.reduced(6.0f).removeFromTop((float)kHeaderHeight - 4.0f);
+        g.setColour(enabled ? juce::Colour::fromString("ff1a222b") : juce::Colour::fromString("ff101318"));
+        g.fillRoundedRectangle(header, 10.0f);
+
+        g.setColour(enabled ? juce::Colours::white.withAlpha(0.72f) : juce::Colours::white.withAlpha(0.32f));
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText(getDisplayName().toUpperCase(),
+            header.toNearestInt().reduced(8, 0).withTrimmedRight(64),
+            juce::Justification::centredLeft);
+
+        if (!enabled)
+        {
+            auto overlay = bounds.reduced(6.0f);
+            overlay.removeFromTop((float)kHeaderHeight);
+
+            g.setColour(juce::Colours::black.withAlpha(0.62f));
+            g.fillRoundedRectangle(overlay, 10.0f);
+
+            g.setColour(juce::Colour::fromString("ff20262d"));
+            const float midY = overlay.getCentreY();
+            g.drawLine(overlay.getX() + 20.0f, midY, overlay.getRight() - 20.0f, midY, 2.0f);
+            g.drawLine(overlay.getRight() - 34.0f, midY - 7.0f, overlay.getRight() - 20.0f, midY, 2.0f);
+            g.drawLine(overlay.getRight() - 34.0f, midY + 7.0f, overlay.getRight() - 20.0f, midY, 2.0f);
+
+            g.setColour(juce::Colours::white.withAlpha(0.52f));
+            g.setFont(juce::Font(12.0f, juce::Font::bold));
+            g.drawText("POWER OFF", overlay.toNearestInt().withTrimmedBottom(8), juce::Justification::centredBottom);
+        }
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds().reduced(6);
+        auto header = area.removeFromTop(kHeaderHeight);
+
+        removeButton.setBounds(header.removeFromRight(24).reduced(2));
+        powerButton.setBounds(header.removeFromRight(42).reduced(2));
+
+        if (embeddedEditor != nullptr)
+            embeddedEditor->setBounds(area.reduced(0, 2));
+    }
+
+private:
+    static constexpr int kHeaderHeight = 30;
+
+    bool isPedalEnabled() const
+    {
+        return (bool)pedalState.getProperty(Nova::IDs::PEDAL_ENABLED, true);
+    }
+
+    juce::String getDisplayName() const
+    {
+        if (pedalState.isValid())
+        {
+            const auto type = pedalState.getProperty(Nova::IDs::PEDAL_TYPE).toString();
+            if (type.isNotEmpty())
+                return type;
+        }
+
+        return embeddedEditor != nullptr ? embeddedEditor->getName() : juce::String("Pedal");
+    }
+
+    int getPedalIndex() const
+    {
+        auto parent = pedalState.getParent();
+        return parent.isValid() ? parent.indexOf(pedalState) : -1;
+    }
+
+    void toggleBypass()
+    {
+        const int index = getPedalIndex();
+        if (index < 0)
+            return;
+
+        processor.requestBypassPedal(chain, index, isPedalEnabled());
+    }
+
+    void removePedal()
+    {
+        const int index = getPedalIndex();
+        if (index < 0)
+            return;
+
+        processor.requestRemovePedal(chain, index);
+    }
+
+    void refreshVisualState()
+    {
+        const bool enabled = isPedalEnabled();
+        if (embeddedEditor != nullptr)
+        {
+            embeddedEditor->setAlpha(enabled ? 1.0f : 0.22f);
+            embeddedEditor->setEnabled(enabled);
+        }
+
+        powerButton.setButtonText(enabled ? "ON" : "OFF");
+        powerButton.setColour(juce::TextButton::buttonColourId,
+            enabled ? juce::Colour::fromString("ff154a28") : juce::Colour::fromString("ff361616"));
+        powerButton.setColour(juce::TextButton::textColourOffId,
+            enabled ? juce::Colour::fromString("ff9bffd0") : juce::Colour::fromString("ffffa0a0"));
+
+        removeButton.setButtonText("X");
+        removeButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff2c1115"));
+        removeButton.setColour(juce::TextButton::textColourOffId, juce::Colour::fromString("ffffb0b0"));
+    }
+
+    NOVAAudioProcessor& processor;
+    Nova::ChainID chain;
+    juce::ValueTree pedalState;
+    std::unique_ptr<juce::AudioProcessorEditor> embeddedEditor;
+    juce::TextButton powerButton;
+    juce::TextButton removeButton;
+};
+
 // ==============================================================================
 // CONSTRUCTOR / INIT
 // ==============================================================================
@@ -42,6 +218,14 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     addAndMakeVisible(btnAddOverdrive);
     btnAddOverdrive.setButtonText("Overdrive");
     btnAddOverdrive.setItemType("PEDAL"); // Opcional, ya es PEDAL por defecto
+
+    addAndMakeVisible(btnAddDelay);
+    btnAddDelay.setButtonText("Delay");
+    btnAddDelay.setItemType("PEDAL");
+
+    addAndMakeVisible(btnAddReverb);
+    btnAddReverb.setButtonText("Reverb");
+    btnAddReverb.setItemType("PEDAL");
 
     // 2. Configurar el Amplificador
     addAndMakeVisible(btnAddNeural);
@@ -446,9 +630,10 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
 
     g.setColour(juce::Colours::white);
     g.setFont(14.0f);
-    g.drawText("PEDALS", left1.getX(), left1.getY() + 60, left1.getWidth(), 20, juce::Justification::centred);
-    g.drawText("AMPLIFIERS", left1.getX(), left1.getY() + 250, left1.getWidth(), 20, juce::Justification::centred);
-    g.drawText("CABINETS", left1.getX(), left1.getY() + 400, left1.getWidth(), 20, juce::Justification::centred);
+    g.drawText("DRIVE", left1.getX(), left1.getY() + 60, left1.getWidth(), 20, juce::Justification::centred);
+    g.drawText("SPACE FX", left1.getX(), left1.getY() + 180, left1.getWidth(), 20, juce::Justification::centred);
+    g.drawText("AMPLIFIERS", left1.getX(), left1.getY() + 320, left1.getWidth(), 20, juce::Justification::centred);
+    g.drawText("CABINETS", left1.getX(), left1.getY() + 470, left1.getWidth(), 20, juce::Justification::centred);
 
     // Input strip
     auto left2 = area.removeFromLeft(120);
@@ -693,8 +878,10 @@ void NOVAAudioProcessorEditor::resized()
     auto left1 = area.removeFromLeft(leftBrowserW);
     searchBarBrowser.setBounds(left1.removeFromTop(40).reduced(10, 5));
     btnAddOverdrive.setBounds(left1.getX() + 10, left1.getY() + 50, 130, 50);
-    btnAddNeural.setBounds(left1.getX() + 10, left1.getY() + 240, 130, 50);
-    btnAddCabinet.setBounds(left1.getX() + 10, left1.getY() + 400, 130, 50);
+    btnAddDelay.setBounds(left1.getX() + 10, left1.getY() + 170, 130, 50);
+    btnAddReverb.setBounds(left1.getX() + 10, left1.getY() + 230, 130, 50);
+    btnAddNeural.setBounds(left1.getX() + 10, left1.getY() + 320, 130, 50);
+    btnAddCabinet.setBounds(left1.getX() + 10, left1.getY() + 470, 130, 50);
 
     // Input strip
     auto left2 = area.removeFromLeft(stripW);
@@ -845,7 +1032,7 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                 juce::ValueTree state;
                 AudioEngine::ChainNodeView nodeView;
                 int zoneIdx = 0;
-                juce::AudioProcessorEditor* editor = nullptr;
+                PedalSlotComponent* slot = nullptr;
                 int preferredW = 120;
                 int preferredH = 180;
                 bool createdNow = false;
@@ -916,32 +1103,35 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                 requiredNodeIDs.insert(item.nodeView.node->nodeID);
 
                 auto it = activePedalEditors.find(item.nodeView.node->nodeID);
-                juce::AudioProcessorEditor* editor = nullptr;
+                PedalSlotComponent* slot = nullptr;
 
                 if (it == activePedalEditors.end())
                 {
-                    juce::AudioProcessorEditor* newEditor = item.nodeView.node->getProcessor()->createEditor();
+                    std::unique_ptr<juce::AudioProcessorEditor> newEditor(item.nodeView.node->getProcessor()->createEditor());
                     if (newEditor == nullptr)
-                        newEditor = new juce::GenericAudioProcessorEditor(*(item.nodeView.node->getProcessor()));
+                        newEditor = std::make_unique<juce::GenericAudioProcessorEditor>(*(item.nodeView.node->getProcessor()));
 
                     if (newEditor != nullptr)
                     {
-                        addAndMakeVisible(newEditor);
-                        activePedalEditors[item.nodeView.node->nodeID].reset(newEditor);
-                        editor = newEditor;
+                        auto host = std::make_unique<PedalSlotComponent>(audioProcessor, chain, std::move(newEditor));
+                        host->setPedalState(item.state);
+                        addAndMakeVisible(host.get());
+                        slot = host.get();
+                        activePedalEditors[item.nodeView.node->nodeID] = std::move(host);
                         item.createdNow = true;
                     }
                 }
                 else
                 {
-                    editor = it->second.get();
+                    slot = it->second.get();
+                    slot->setPedalState(item.state);
                 }
 
-                if (editor)
+                if (slot)
                 {
-                    item.editor = editor;
-                    item.preferredW = juce::jmax(100, editor->getWidth());
-                    item.preferredH = juce::jmax(140, editor->getHeight());
+                    item.slot = slot;
+                    item.preferredW = juce::jmax(166, slot->getPreferredWidth());
+                    item.preferredH = juce::jmax(152, slot->getPreferredHeight());
                 }
             }
 
@@ -951,7 +1141,7 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                 zoneItems.reserve(itemsToDraw.size());
 
                 for (auto& item : itemsToDraw)
-                    if (item.zoneIdx == zoneIdx && item.editor != nullptr)
+                    if (item.zoneIdx == zoneIdx && item.slot != nullptr)
                         zoneItems.push_back(&item);
 
                 if (zoneItems.empty())
@@ -972,10 +1162,10 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                     {
                         const int finalX = zoneAbsX + (zoneW - item->preferredW) / 2;
                         const int finalY = zoneAbsY + (zoneH - item->preferredH) / 2;
-                        item->editor->setBounds(finalX, finalY, item->preferredW, item->preferredH);
+                        item->slot->setBounds(finalX, finalY, item->preferredW, item->preferredH);
 
                         if (item->createdNow)
-                            item->editor->toFront(false);
+                            item->slot->toFront(false);
                     }
 
                     continue;
@@ -1001,10 +1191,10 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                 for (auto* item : zoneItems)
                 {
                     const int finalY = zoneAbsY + (zoneH - item->preferredH) / 2;
-                    item->editor->setBounds(currentX, finalY, item->preferredW, item->preferredH);
+                    item->slot->setBounds(currentX, finalY, item->preferredW, item->preferredH);
 
                     if (item->createdNow)
-                        item->editor->toFront(false);
+                        item->slot->toFront(false);
 
                     currentX += item->preferredW + gap;
                 }

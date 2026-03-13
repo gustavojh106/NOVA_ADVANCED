@@ -34,7 +34,7 @@ AssetBrowserOverlay::AssetBrowserOverlay(Nova::ZoneID zone,
 {
     addAndMakeVisible(searchBar);
     searchBar.setMultiLine(false);
-    searchBar.setTextToShowWhenEmpty("Search model...", juce::Colours::grey);
+    searchBar.setTextToShowWhenEmpty("Search asset...", juce::Colours::grey);
     searchBar.setColour(juce::TextEditor::backgroundColourId, juce::Colour::fromString("ff151515"));
     searchBar.setColour(juce::TextEditor::outlineColourId, juce::Colours::white.withAlpha(0.2f));
     searchBar.addListener(this);
@@ -58,12 +58,26 @@ AssetBrowserOverlay::AssetBrowserOverlay(Nova::ZoneID zone,
 
 juce::String AssetBrowserOverlay::getTitleForZone() const
 {
-    return (targetZone == Nova::ZoneID::Amp) ? "SELECT AMPLIFIER" : "SELECT CABINET";
+    switch (targetZone)
+    {
+        case Nova::ZoneID::Pre:     return "SELECT PRE EFFECT";
+        case Nova::ZoneID::Amp:     return "SELECT AMPLIFIER";
+        case Nova::ZoneID::FX:      return "SELECT POST EFFECT";
+        case Nova::ZoneID::Cabinet: return "SELECT CABINET";
+        default:                    return "SELECT ASSET";
+    }
 }
 
 juce::String AssetBrowserOverlay::getTypeLabelForZone() const
 {
-    return (targetZone == Nova::ZoneID::Amp) ? "Amp" : "Cab";
+    switch (targetZone)
+    {
+        case Nova::ZoneID::Amp:     return "Amp";
+        case Nova::ZoneID::Cabinet: return "Cab";
+        case Nova::ZoneID::FX:      return "Space";
+        case Nova::ZoneID::Pre:
+        default:                    return "Pedal";
+    }
 }
 
 std::vector<juce::String> AssetBrowserOverlay::getAvailableTypeIDsForZone() const

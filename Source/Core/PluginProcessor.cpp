@@ -6,6 +6,26 @@
 
 namespace
 {
+#if JUCE_DEBUG
+void maybeRunAudioValidationTestsOnce()
+{
+    static bool hasRun = false;
+
+    if (hasRun)
+        return;
+
+    const auto envValue = juce::SystemStats::getEnvironmentVariable("NOVA_RUN_AUDIO_TESTS", {});
+    if (envValue != "1")
+        return;
+
+    // Run the NOVA audio-engine validation suite on demand without affecting normal debug startup.
+    hasRun = true;
+    juce::UnitTestRunner runner;
+    runner.setAssertOnFailure(false);
+    runner.runTestsInCategory("NOVA");
+}
+#endif
+
 juce::File getStartupPresetPointerFile()
 {
     auto appDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
@@ -70,6 +90,10 @@ NOVAAudioProcessor::NOVAAudioProcessor()
         .withOutput("Out", juce::AudioChannelSet::stereo()))
     , pluginState(Nova::IDs::MAIN_STATE)
 {
+#if JUCE_DEBUG
+    maybeRunAudioValidationTestsOnce();
+#endif
+
     createGlobalParameters();
 
     // Arranque limpio siempre: mismo comportamiento que boton CLEAR.

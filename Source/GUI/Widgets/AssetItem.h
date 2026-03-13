@@ -19,6 +19,9 @@ public:
 
 private:
     bool isAmpType() const noexcept { return itemType == "Amp"; }
+    bool isCabType() const noexcept { return itemType == "Cab"; }
+    bool isDelayType() const noexcept { return itemName.containsIgnoreCase("delay"); }
+    bool isReverbType() const noexcept { return itemName.containsIgnoreCase("reverb"); }
 
     juce::String itemName;
     juce::String itemType;

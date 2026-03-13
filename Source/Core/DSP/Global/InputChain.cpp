@@ -50,7 +50,7 @@ void InputChainProcessor::setParams(float gainDb, float gateDb, bool forceMono, 
     gateThreshold = gateDb;
     inputTranspose = juce::jlimit(-12, 12, inputTransposeSemitones);
 
-    currentRouting = forceMono ? Nova::InputRouting::Left
+    currentRouting = forceMono ? Nova::InputRouting::Sum
         : Nova::InputRouting::Stereo;
 
     transposeRatioSmooth.setTargetValue(semitonesToRatio(inputTranspose));

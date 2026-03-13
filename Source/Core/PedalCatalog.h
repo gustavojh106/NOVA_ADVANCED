@@ -21,10 +21,12 @@ struct Entry
     Kind kind;
 };
 
-inline const std::array<Entry, 3>& entries() noexcept
+inline const std::array<Entry, 5>& entries() noexcept
 {
-    static constexpr std::array<Entry, 3> data{ {
+    static constexpr std::array<Entry, 5> data{ {
         { "Overdrive",  "Overdrive",  Kind::Pedal },
+        { "Delay",      "Delay",      Kind::Pedal },
+        { "Reverb",     "Reverb",     Kind::Pedal },
         { "Classic Amp", "Classic Amp", Kind::Amplifier },
         { "Cabinet",    "Cabinet",    Kind::Cabinet }
     } };
@@ -99,4 +101,3 @@ inline bool canLiveInZone(const juce::String& requestedType, ZoneID zone)
     }
 }
 }
-

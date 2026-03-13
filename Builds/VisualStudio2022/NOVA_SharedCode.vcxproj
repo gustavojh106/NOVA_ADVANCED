@@ -159,6 +159,7 @@
     <ClCompile Include="..\..\Source\Effects\Pedals\Neural\NeuralEditor.cpp"/>
     <ClCompile Include="..\..\Source\Effects\Pedals\Neural\NeuralPedal.cpp"/>
     <ClCompile Include="..\..\Source\Core\AudioEngine.cpp"/>
+    <ClCompile Include="..\..\Source\Core\AudioEngineTests.cpp"/>
     <ClCompile Include="..\..\Source\Core\PluginEditor.cpp"/>
     <ClCompile Include="..\..\Source\Core\PluginProcessor.cpp"/>
     <ClCompile Include="..\..\..\..\..\..\Downloads\juce-8.0.12-windows\JUCE\modules\juce_audio_basics\audio_play_head\juce_AudioPlayHead.cpp">

@@ -10,6 +10,8 @@
 
 // Registered pedals
 #include "../Effects/Pedals/Overdrive/OverdrivePedal.h"
+#include "../Effects/Pedals/Delay/DelayPedal.h"
+#include "../Effects/Pedals/Reverb/ReverbPedal.h"
 #include "../Effects/Cabinets/CabinetPedal.h"
 #include "../Effects/Amplifiers/ClassicAmp.h"
 
@@ -65,6 +67,8 @@ private:
     {
         static const std::map<juce::String, PedalCreator> factory{
             { "Overdrive",   [] { return std::make_unique<OverdrivePedal>(); } },
+            { "Delay",       [] { return std::make_unique<DelayPedal>(); } },
+            { "Reverb",      [] { return std::make_unique<ReverbPedal>(); } },
             { "Cabinet",     [] { return std::make_unique<CabinetPedal>(); } },
             { "Classic Amp", [] { return std::make_unique<ClassicAmp>(); } }
         };

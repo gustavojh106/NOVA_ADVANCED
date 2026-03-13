@@ -60,13 +60,13 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         const float mid = (l[i] + r[i]) * 0.5f;
         float side = (l[i] - r[i]) * 0.5f;
         side *= width;
+        const float widthComp = (width > 1.0f) ? (1.0f / std::sqrt(width)) : 1.0f;
 
-        float sampleL = mid + side;
-        float sampleR = mid - side;
+        float sampleL = (mid + side) * widthComp;
+        float sampleR = (mid - side) * widthComp;
 
-        const float theta = (pan + 1.0f) * 0.25f * juce::MathConstants<float>::pi;
-        const float gainL = std::cos(theta);
-        const float gainR = std::sin(theta);
+        const float gainL = (pan > 0.0f) ? (1.0f - pan) : 1.0f;
+        const float gainR = (pan < 0.0f) ? (1.0f + pan) : 1.0f;
 
         l[i] = sampleL * gainL;
         r[i] = sampleR * gainR;

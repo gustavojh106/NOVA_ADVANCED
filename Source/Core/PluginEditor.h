@@ -12,6 +12,7 @@
 // Forward Declarations (Para punteros inteligentes)
 class ChainLane;
 class AssetBrowserOverlay;
+class PedalSlotComponent;
 
 // ==============================================================================
 // CLASE PRINCIPAL DEL EDITOR
@@ -70,6 +71,8 @@ private:
     juce::TextEditor searchBarBrowser;
     // Usamos la clase importada DraggableButton
     DraggableButton btnAddOverdrive{ "Overdrive" };
+    DraggableButton btnAddDelay{ "Delay" };
+    DraggableButton btnAddReverb{ "Reverb" };
     DraggableButton btnAddCabinet{ "Cabinet" };
     DraggableButton btnAddNeural{ "Neural Amp" };
 
@@ -117,7 +120,7 @@ private:
     std::unique_ptr<ChainLane> laneB;
 
     // Mapa de editores de pedales activos
-    std::map<juce::AudioProcessorGraph::NodeID, std::unique_ptr<juce::AudioProcessorEditor>> activePedalEditors;
+    std::map<juce::AudioProcessorGraph::NodeID, std::unique_ptr<PedalSlotComponent>> activePedalEditors;
 
     // Overlays (Ventanas modales)
     std::unique_ptr<juce::Component> currentOverlay; // Para el Browser

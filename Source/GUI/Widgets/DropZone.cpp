@@ -177,7 +177,9 @@ void DropZone::mouseExit(const juce::MouseEvent&)
 
 void DropZone::mouseDown(const juce::MouseEvent& e)
 {
-    if (!isFixedSlot() || !e.mods.isLeftButtonDown()) return;
+    if (!e.mods.isLeftButtonDown() || infoIconBounds.contains(e.position.toFloat()))
+        return;
+
     if (auto* editor = findParentComponentOfClass<NOVAAudioProcessorEditor>())
         editor->showOverlay(zone, chain);
 }

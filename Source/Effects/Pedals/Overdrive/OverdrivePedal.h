@@ -1,60 +1,22 @@
 #pragma once
 
 #include "../Base/ProcessorBase.h"
-#include "OverdriveEditor.h"
+#include "../Base/PremiumPedalUI.h"
+
 #include <juce_dsp/juce_dsp.h>
+#include <cmath>
 
-// -----------------------------------------------------------------------------
-// High-performance clipper (fast tanh approximation + slight asymmetry)
-// -----------------------------------------------------------------------------
-struct SotaClipper
-{
-    void prepare(const juce::dsp::ProcessSpec&) {}
-    void reset() {}
-
-    inline float fastTanh(float x) const noexcept
-    {
-        const float x2 = x * x;
-        return x * (27.0f + x2) / (27.0f + 9.0f * x2);
-    }
-
-    template <typename ProcessContext>
-    void process(const ProcessContext& context) noexcept
-    {
-        auto&& in = context.getInputBlock();
-        auto&& out = context.getOutputBlock();
-
-        const size_t numChannels = in.getNumChannels();
-        const size_t numSamples = in.getNumSamples();
-
-        for (size_t ch = 0; ch < numChannels; ++ch)
-        {
-            auto* src = in.getChannelPointer(ch);
-            auto* dst = out.getChannelPointer(ch);
-
-            for (size_t i = 0; i < numSamples; ++i)
-            {
-                const float x = src[i];
-                const float isNegative = (float)(x < 0.0f);
-                const float driveFactor = 1.0f + (0.2f * isNegative);
-
-                dst[i] = fastTanh(x / driveFactor) * driveFactor;
-            }
-        }
-    }
-};
-
-// -----------------------------------------------------------------------------
-// Overdrive pedal
-// -----------------------------------------------------------------------------
 class OverdrivePedal final : public ProcessorBase
 {
 public:
     OverdrivePedal()
         : oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
-        addParameter(driveParam = new juce::AudioParameterFloat("drive", "Drive", 0.0f, 100.0f, 25.0f));
-        addParameter(levelParam = new juce::AudioParameterFloat("level", "Level", 0.0f, 1.0f, 0.1f));
+        addParameter(driveParam = new juce::AudioParameterFloat("drive", "Drive", 0.0f, 100.0f, 30.0f));
+        addParameter(toneParam = new juce::AudioParameterFloat("tone", "Tone", 0.0f, 1.0f, 0.58f));
+        addParameter(textureParam = new juce::AudioParameterFloat("texture", "Texture", 0.0f, 1.0f, 0.42f));
+        addParameter(mixParam = new juce::AudioParameterFloat("mix", "Mix", 0.0f, 1.0f, 1.0f));
+        addParameter(levelParam = new juce::AudioParameterFloat("level", "Level", 0.0f, 1.0f, 0.74f));
     }
 
     const juce::String getName() const override { return "Overdrive"; }
@@ -62,7 +24,19 @@ public:
     bool hasEditor() const override { return true; }
     juce::AudioProcessorEditor* createEditor() override
     {
-        return new OverdriveEditor(*this, driveParam, levelParam);
+        using namespace Nova::PedalUI;
+
+        return new PremiumPedalEditor(*this,
+            "Drive",
+            "Aurora",
+            juce::Colour::fromString("fff36f45"),
+            {
+                { "Drive", driveParam, [](float value) { return formatPercentFromHundred(value); } },
+                { "Tone", toneParam, [](float value) { return formatPercent(value); } },
+                { "Texture", textureParam, [](float value) { return formatPercent(value); } },
+                { "Mix", mixParam, [](float value) { return formatPercent(value); } },
+                { "Level", levelParam, [](float value) { return formatPercent(value); } }
+            });
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -70,44 +44,40 @@ public:
         if (sampleRate <= 0.0)
             return;
 
-        oversampler.initProcessing(static_cast<size_t>(samplesPerBlock));
-        const double innerSampleRate = sampleRate * 4.0;
+        oversampler.reset();
+        oversampler.initProcessing((size_t)juce::jmax(1, samplesPerBlock));
 
-        juce::dsp::ProcessSpec spec;
-        spec.sampleRate = innerSampleRate;
-        spec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock) * 4;
-        spec.numChannels = 2;
+        const auto innerRate = sampleRate * 4.0;
+        juce::dsp::ProcessSpec innerSpec;
+        innerSpec.sampleRate = innerRate;
+        innerSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock * 4);
+        innerSpec.numChannels = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
 
-        processorChain.prepare(spec);
+        preHighPass.prepare(innerSpec);
+        prePresence.prepare(innerSpec);
+        driveStage.prepare(innerSpec);
+        postBody.prepare(innerSpec);
+        postLowPass.prepare(innerSpec);
+        dcBlock.prepare(innerSpec);
 
-        *processorChain.get<0>().state =
-            *juce::dsp::IIR::Coefficients<float>::makeHighPass(innerSampleRate, 300.0f);
+        mixSmooth.reset(sampleRate, 0.02);
+        levelSmooth.reset(sampleRate, 0.02);
+        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
+        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelFromControl(*levelParam) : 1.0f);
 
-        processorChain.get<1>().setRampDurationSeconds(0.05); // Drive
-        processorChain.get<4>().setRampDurationSeconds(0.05); // Level
+        scratchBuffer.setSize(juce::jmax(2, getTotalNumOutputChannels()),
+            juce::jmax(1, samplesPerBlock),
+            false,
+            false,
+            true);
 
-        *processorChain.get<3>().state =
-            *juce::dsp::IIR::Coefficients<float>::makeLowPass(innerSampleRate, 3500.0f);
-        *processorChain.get<5>().state =
-            *juce::dsp::IIR::Coefficients<float>::makeHighPass(innerSampleRate, 20.0f);
+        currentInnerSampleRate = innerRate;
 
-        setLatencySamples(oversampler.getLatencyInSamples());
+        setLatencySamples((int)oversampler.getLatencyInSamples());
         prepareBypassSmoother(sampleRate, samplesPerBlock);
 
         reset();
         isPrepared = true;
-    }
-
-    void reset() override
-    {
-        oversampler.reset();
-        processorChain.reset();
-
-        if (isPrepared)
-        {
-            processorChain.get<1>().setGainLinear(*driveParam);
-            processorChain.get<4>().setGainLinear(*levelParam);
-        }
     }
 
     void releaseResources() override
@@ -115,41 +85,189 @@ public:
         isPrepared = false;
     }
 
+    void reset() override
+    {
+        oversampler.reset();
+        preHighPass.reset();
+        prePresence.reset();
+        postBody.reset();
+        postLowPass.reset();
+        dcBlock.reset();
+        driveStage.reset();
+
+        if (driveParam != nullptr && textureParam != nullptr)
+            driveStage.setTargets(*driveParam, *textureParam);
+
+        if (mixParam != nullptr)
+            mixSmooth.setCurrentAndTargetValue(*mixParam);
+
+        if (levelParam != nullptr)
+            levelSmooth.setCurrentAndTargetValue(levelFromControl(*levelParam));
+    }
+
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
+        if (scratchBuffer.getNumChannels() < buffer.getNumChannels()
+            || scratchBuffer.getNumSamples() < buffer.getNumSamples())
+        {
+            scratchBuffer.setSize(buffer.getNumChannels(),
+                buffer.getNumSamples(),
+                false,
+                false,
+                true);
+        }
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch), buffer.getReadPointer(ch), buffer.getNumSamples());
+
+        updateFilters();
+        driveStage.setTargets(driveParam != nullptr ? *driveParam : 30.0f,
+            textureParam != nullptr ? *textureParam : 0.42f);
+        mixSmooth.setTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
+        levelSmooth.setTargetValue(levelFromControl(levelParam != nullptr ? *levelParam : 0.74f));
+
         juce::dsp::AudioBlock<float> block(buffer);
+        auto upsampled = oversampler.processSamplesUp(block);
+        juce::dsp::ProcessContextReplacing<float> innerContext(upsampled);
 
-        processorChain.get<1>().setGainLinear(
-            juce::Decibels::decibelsToGain(static_cast<float>(*driveParam) * 0.6f));
-
-        processorChain.get<4>().setGainLinear(*levelParam);
-
-        auto upsampledBlock = oversampler.processSamplesUp(block);
-        juce::dsp::ProcessContextReplacing<float> context(upsampledBlock);
-
-        processorChain.process(context);
+        preHighPass.process(innerContext);
+        prePresence.process(innerContext);
+        driveStage.process(innerContext);
+        postBody.process(innerContext);
+        postLowPass.process(innerContext);
+        dcBlock.process(innerContext);
         oversampler.processSamplesDown(block);
+
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        {
+            const float mix = mixSmooth.getNextValue();
+            const float dry = 1.0f - mix;
+            const float level = levelSmooth.getNextValue();
+
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                const float clean = scratchBuffer.getSample(ch, sample);
+                const float wet = buffer.getSample(ch, sample);
+                buffer.setSample(ch, sample, ((wet * mix) + (clean * dry)) * level);
+            }
+        }
+
         endBypassProcess(buffer);
     }
 
 private:
-    using Chain = juce::dsp::ProcessorChain<
-        juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>>, // Pre
-        juce::dsp::Gain<float>,       // Drive
-        SotaClipper,                  // Clip
-        juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>>, // Post
-        juce::dsp::Gain<float>,       // Level
-        juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> // DC blocker
-    >;
+    class ResponsiveDriveStage
+    {
+    public:
+        void prepare(const juce::dsp::ProcessSpec& spec)
+        {
+            sampleRate = spec.sampleRate;
+            driveSmooth.reset(sampleRate, 0.012);
+            textureSmooth.reset(sampleRate, 0.02);
+            reset();
+        }
 
-    Chain processorChain;
+        void reset()
+        {
+            dcOffset = 0.0f;
+        }
+
+        void setTargets(float driveControl, float textureControl)
+        {
+            driveSmooth.setTargetValue(juce::Decibels::decibelsToGain(4.0f + driveControl * 0.34f));
+            textureSmooth.setTargetValue(juce::jlimit(0.0f, 1.0f, textureControl));
+        }
+
+        template <typename ProcessContext>
+        void process(const ProcessContext& context) noexcept
+        {
+            auto&& block = context.getOutputBlock();
+            const auto channels = (int)block.getNumChannels();
+            const auto samples = (int)block.getNumSamples();
+
+            for (int sample = 0; sample < samples; ++sample)
+            {
+                const float drive = driveSmooth.getNextValue();
+                const float texture = textureSmooth.getNextValue();
+                const float asymmetry = 0.03f + texture * 0.24f;
+                const float density = 1.2f + texture * 2.2f;
+                const float sparkle = 0.20f + texture * 0.45f;
+
+                for (int ch = 0; ch < channels; ++ch)
+                {
+                    auto* data = block.getChannelPointer((size_t)ch);
+                    float x = data[sample] * drive;
+                    x += asymmetry * x * x * juce::jlimit(-1.5f, 1.5f, x);
+
+                    const float rounded = std::tanh(x);
+                    const float focused = std::atan(density * x) * (2.0f / juce::MathConstants<float>::pi);
+                    float y = juce::jmap(texture, rounded, (rounded * (1.0f - sparkle)) + (focused * sparkle));
+
+                    dcOffset = (dcOffset * 0.9993f) + (y * 0.0007f);
+                    data[sample] = y - dcOffset;
+                }
+            }
+        }
+
+    private:
+        double sampleRate = 44100.0;
+        juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveSmooth;
+        juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> textureSmooth;
+        float dcOffset = 0.0f;
+    };
+
+    using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+        juce::dsp::IIR::Coefficients<float>>;
+
+    static float levelFromControl(float control) noexcept
+    {
+        return juce::jmap(juce::jlimit(0.0f, 1.0f, control), 0.08f, 1.55f);
+    }
+
+    void updateFilters()
+    {
+        const float tone = toneParam != nullptr ? *toneParam : 0.58f;
+        const float texture = textureParam != nullptr ? *textureParam : 0.42f;
+        const float toneFreq = juce::jmap(tone, 1700.0f, 9200.0f);
+        const float presenceGain = juce::jmap(tone + texture * 0.4f, -3.0f, 7.0f);
+        const float bodyGain = juce::jmap(texture, -1.2f, 2.4f);
+
+        *preHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentInnerSampleRate, 38.0f);
+        *prePresence.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(currentInnerSampleRate,
+            1050.0f,
+            0.75f,
+            juce::Decibels::decibelsToGain(presenceGain));
+        *postBody.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentInnerSampleRate,
+            240.0f,
+            0.72f,
+            juce::Decibels::decibelsToGain(bodyGain));
+        *postLowPass.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(currentInnerSampleRate,
+            toneFreq,
+            0.68f);
+        *dcBlock.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentInnerSampleRate, 18.0f);
+    }
+
     juce::dsp::Oversampling<float> oversampler;
+    Filter preHighPass;
+    Filter prePresence;
+    ResponsiveDriveStage driveStage;
+    Filter postBody;
+    Filter postLowPass;
+    Filter dcBlock;
+
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> levelSmooth;
+    juce::AudioBuffer<float> scratchBuffer;
 
     juce::AudioParameterFloat* driveParam = nullptr;
+    juce::AudioParameterFloat* toneParam = nullptr;
+    juce::AudioParameterFloat* textureParam = nullptr;
+    juce::AudioParameterFloat* mixParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
 
+    double currentInnerSampleRate = 176400.0;
     bool isPrepared = false;
 };

@@ -157,6 +157,7 @@ private:
     int startupCounter = 0;
 
     std::atomic<float> currentGlobalMix{ 1.0f };
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> wetMixSmooth;
     juce::dsp::DryWetMixer<float> dryWetMixer{ Nova::Config::MAX_GRAPH_LATENCY_SAMPLES };
 
     TunerService tunerService;

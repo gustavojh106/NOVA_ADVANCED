@@ -60,6 +60,8 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
         dryWetSpec.numChannels = static_cast<juce::uint32>(juce::jmax(1, numOut));
         dryWetMixer.prepare(dryWetSpec);
         dryWetMixer.setWetMixProportion(currentGlobalMix.load());
+        wetMixSmooth.reset(sampleRate, 0.02);
+        wetMixSmooth.setCurrentAndTargetValue(currentGlobalMix.load());
 
         const bool missingNodes = (inputChainNode == nullptr ||
             stripNodeA == nullptr ||
@@ -265,10 +267,6 @@ void AudioEngine::updateGlobalParams(const RuntimeGlobalParams& snapshot)
     }
 
     globalParamsDirty = true;
-
-    const auto currentThread = juce::Thread::getCurrentThreadId();
-    if (currentThread != audioThreadID)
-        applyPendingGlobalParams();
 }
 
 void AudioEngine::applyPendingGlobalParams()
@@ -317,14 +315,14 @@ void AudioEngine::applyGlobalParamsNow(const RuntimeGlobalParams& snapshot)
                 : juce::jlimit(0.0f, 100.0f, mixRaw) / 100.0f;
 
             currentGlobalMix = mixNormalized;
-            dryWetMixer.setWetMixProportion(mixNormalized);
+            wetMixSmooth.setTargetValue(mixNormalized);
         }
     }
 
     const bool muteA = (snapshot.switchMode == (int)Nova::SwitcherMode::LineB_Only);
     const bool muteB = (snapshot.switchMode == (int)Nova::SwitcherMode::LineA_Only);
     const bool dualParallel = (snapshot.switchMode == (int)Nova::SwitcherMode::Dual_Parallel);
-    constexpr float kParallelGainComp = 0.70710678f; // -3 dB per side when summing two active lines
+    constexpr float kParallelGainComp = 0.5f; // Unity amplitude when both lines carry the same source
 
     if (stripNodeA)
     {
@@ -690,6 +688,9 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         audioThreadID = juce::Thread::getCurrentThreadId();
 
     const auto startTime = juce::Time::getMillisecondCounterHiRes();
+
+    // Apply queued topology/state changes at a block boundary on the audio thread.
+    flushPendingGraphCommands(false);
     applyPendingGlobalParams();
 
     // 1) Tuner mode: capture + mute
@@ -701,13 +702,12 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         return;
     }
 
-    // 2) Engine off or warming up
+    // 2) Engine off or warming up: keep a transparent dry path.
     if (!isEngineOn || startupCounter > 0)
     {
         if (startupCounter > 0)
             --startupCounter;
 
-        buffer.clear();
         cpuUsage = 0.0;
         return;
     }
@@ -720,7 +720,7 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     }
 
     // 3) Dry/Wet mix with latency compensation
-    dryWetMixer.setWetMixProportion(currentGlobalMix.load());
+    dryWetMixer.setWetMixProportion(wetMixSmooth.getCurrentValue());
     dryWetMixer.pushDrySamples(juce::dsp::AudioBlock<const float>(buffer));
 
     // 4) Process wet
@@ -728,6 +728,9 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
 
     // 5) Mix final
     dryWetMixer.mixWetSamples(juce::dsp::AudioBlock<float>(buffer));
+
+    if (wetMixSmooth.isSmoothing())
+        wetMixSmooth.skip(buffer.getNumSamples());
 
     // 6) Safety net + auto-heal
     const bool hadCorruption = sanitizeAudioBuffer(buffer);

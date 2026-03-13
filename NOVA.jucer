@@ -884,6 +884,7 @@
       </GROUP>
       <GROUP id="{F408AF80-EAB5-6526-8D68-81E3A5C510C4}" name="Core">
         <FILE id="bZC07n" name="AudioEngine.cpp" compile="1" resource="0" file="Source/Core/AudioEngine.cpp"/>
+        <FILE id="NOVAAT" name="AudioEngineTests.cpp" compile="1" resource="0" file="Source/Core/AudioEngineTests.cpp"/>
         <FILE id="Mxw8oG" name="AudioEngine.h" compile="0" resource="0" file="Source/Core/AudioEngine.h"/>
         <FILE id="IEEVX0" name="Common.h" compile="0" resource="0" file="Source/Core/Common.h"/>
         <FILE id="rYgCIg" name="Constants.h" compile="0" resource="0" file="Source/Core/Constants.h"/>
