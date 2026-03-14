@@ -116,7 +116,7 @@ void NOVAAudioProcessor::createGlobalParameters()
         Nova::IDs::SWITCH_MODE.toString(),
         "Switcher",
         juce::StringArray{ "Line A", "Line B", "Dual" },
-        (int)Nova::SwitcherMode::Dual_Parallel));
+        (int)Nova::SwitcherMode::LineA_Only));
 
     addParameter(inputGainParam = new juce::AudioParameterFloat(
         Nova::IDs::INPUT_GAIN.toString(), "Input Gain", -60.0f, 24.0f, 0.0f));
@@ -162,7 +162,7 @@ AudioEngine::RuntimeGlobalParams NOVAAudioProcessor::makeRuntimeGlobalParams() c
     snapshot.outputMixRaw = outputMixParam != nullptr ? outputMixParam->get() : 100.0f;
 
     snapshot.switchMode = switchModeParam != nullptr ? switchModeParam->getIndex()
-        : (int)Nova::SwitcherMode::Dual_Parallel;
+        : (int)Nova::SwitcherMode::LineA_Only;
 
     snapshot.gainA = gainAParam != nullptr ? gainAParam->get() : 1.0f;
     snapshot.panA = panAParam != nullptr ? panAParam->get() : 0.0f;
@@ -222,7 +222,7 @@ void NOVAAudioProcessor::applyTreeStateToParameters(juce::ValueTree settings,
         if (switchModeParam != nullptr)
             switchModeParam->setValueNotifyingHost(switchModeParam->convertTo0to1(
                 static_cast<float>((int)settings.getProperty(Nova::IDs::SWITCH_MODE,
-                    (int)Nova::SwitcherMode::Dual_Parallel))));
+                    (int)Nova::SwitcherMode::LineA_Only))));
 
         if (inputGainParam != nullptr)
             inputGainParam->setValueNotifyingHost(inputGainParam->convertTo0to1(
@@ -585,7 +585,7 @@ bool NOVAAudioProcessor::isEngineOn() const
 Nova::SwitcherMode NOVAAudioProcessor::getSwitcherMode() const
 {
     const int mode = switchModeParam != nullptr ? switchModeParam->getIndex()
-        : (int)Nova::SwitcherMode::Dual_Parallel;
+        : (int)Nova::SwitcherMode::LineA_Only;
     return static_cast<Nova::SwitcherMode>(juce::jlimit(0, 2, mode));
 }
 
@@ -681,7 +681,10 @@ void NOVAAudioProcessor::cycleSwitcher()
     if (switchModeParam == nullptr)
         return;
 
-    const int mode = (switchModeParam->getIndex() + 1) % 3;
+    const int currentMode = switchModeParam->getIndex();
+    const int mode = (currentMode == (int)Nova::SwitcherMode::LineA_Only)
+        ? (int)Nova::SwitcherMode::LineB_Only
+        : (int)Nova::SwitcherMode::LineA_Only;
     switchModeParam->setValueNotifyingHost(switchModeParam->convertTo0to1(static_cast<float>(mode)));
     writeParameterStateToTree(getSettingsTree(),
         getLineTree(Nova::ChainID::LineA),
@@ -830,7 +833,7 @@ void NOVAAudioProcessor::resetToCleanState()
     if (settings.isValid())
     {
         settings.setProperty(Nova::IDs::ENGINE_ON, false, nullptr);
-        settings.setProperty(Nova::IDs::SWITCH_MODE, (int)Nova::SwitcherMode::Dual_Parallel, nullptr);
+        settings.setProperty(Nova::IDs::SWITCH_MODE, (int)Nova::SwitcherMode::LineA_Only, nullptr);
         settings.setProperty(Nova::IDs::INPUT_GAIN, 0.0f, nullptr);
         settings.setProperty(Nova::IDs::INPUT_GATE, -100.0f, nullptr);
         settings.setProperty(Nova::IDs::FORCE_MONO, false, nullptr);
@@ -884,7 +887,7 @@ void NOVAAudioProcessor::applyDefaultStateIfNeeded()
     if (!settings.hasProperty(Nova::IDs::ENGINE_ON))
         settings.setProperty(Nova::IDs::ENGINE_ON, false, nullptr);
     if (!settings.hasProperty(Nova::IDs::SWITCH_MODE))
-        settings.setProperty(Nova::IDs::SWITCH_MODE, (int)Nova::SwitcherMode::Dual_Parallel, nullptr);
+        settings.setProperty(Nova::IDs::SWITCH_MODE, (int)Nova::SwitcherMode::LineA_Only, nullptr);
     if (!settings.hasProperty(Nova::IDs::INPUT_GAIN))
         settings.setProperty(Nova::IDs::INPUT_GAIN, 0.0f, nullptr);
     if (!settings.hasProperty(Nova::IDs::INPUT_GATE))

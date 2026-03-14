@@ -26,6 +26,7 @@ void TunerService::pushBuffer(const juce::AudioBuffer<float>& buffer)
     const int numSamples = buffer.getNumSamples();
     const auto* inL = buffer.getReadPointer(0);
     const auto* inR = (buffer.getNumChannels() > 1) ? buffer.getReadPointer(1) : nullptr;
+    const float monoScale = (inR != nullptr) ? 0.5f : 1.0f;
 
     int start1 = 0, size1 = 0, start2 = 0, size2 = 0;
     tunerFifo.prepareToWrite(numSamples, start1, size1, start2, size2);
@@ -35,7 +36,7 @@ void TunerService::pushBuffer(const juce::AudioBuffer<float>& buffer)
     {
         float v = inL[i];
         if (inR) v += inR[i];
-        circularBuffer[start1 + i] = v * 0.5f; // sum to mono
+        circularBuffer[start1 + i] = v * monoScale;
     }
 
     // Write block 2 (wrap-around)
@@ -43,7 +44,7 @@ void TunerService::pushBuffer(const juce::AudioBuffer<float>& buffer)
     {
         float v = inL[size1 + i];
         if (inR) v += inR[size1 + i];
-        circularBuffer[start2 + i] = v * 0.5f;
+        circularBuffer[start2 + i] = v * monoScale;
     }
 
     tunerFifo.finishedWrite(size1 + size2);
@@ -111,6 +112,29 @@ std::pair<float, float> TunerService::calculateFrequencyWithClarity(const float*
     if (sampleRate <= 0.0)
         return { 0.0f, 0.0f };
 
+    const auto normalizedCorrelation = [signal, numSamples](int lag) noexcept
+    {
+        float sum = 0.0f;
+        float sumSqA = 0.0f;
+        float sumSqB = 0.0f;
+        const int limit = numSamples - lag;
+
+        for (int i = 0; i < limit; ++i)
+        {
+            const float s1 = signal[i];
+            const float s2 = signal[i + lag];
+            sum += s1 * s2;
+            sumSqA += s1 * s1;
+            sumSqB += s2 * s2;
+        }
+
+        const float denom = std::sqrt(sumSqA * sumSqB);
+        if (denom <= 0.00001f)
+            return 0.0f;
+
+        return sum / denom;
+    };
+
     int minPeriod = (int)(sampleRate / 1500.0);
     int maxPeriod = (int)(sampleRate / 40.0); // down to ~40 Hz
     if (maxPeriod > numSamples / 2) maxPeriod = numSamples / 2;
@@ -121,20 +145,7 @@ std::pair<float, float> TunerService::calculateFrequencyWithClarity(const float*
     // Simple autocorrelation (YIN-like simplified)
     for (int lag = minPeriod; lag < maxPeriod; ++lag)
     {
-        float sum = 0.0f;
-        float sumSq = 0.0f;
-        const int limit = numSamples - lag;
-
-        for (int i = 0; i < limit; ++i)
-        {
-            const float s1 = signal[i];
-            const float s2 = signal[i + lag];
-            sum += s1 * s2;
-            sumSq += s1 * s1;
-        }
-
-        float correlation = 0.0f;
-        if (sumSq > 0.00001f) correlation = sum / sumSq;
+        const float correlation = normalizedCorrelation(lag);
 
         if (correlation > bestCorrelation)
         {
@@ -151,17 +162,8 @@ std::pair<float, float> TunerService::calculateFrequencyWithClarity(const float*
 
     if (bestPeriod > minPeriod && bestPeriod < maxPeriod - 1)
     {
-        float prevCorr = 0.0f;
-        float nextCorr = 0.0f;
-
-        const int limitPrev = numSamples - (bestPeriod - 1);
-        const int limitNext = numSamples - (bestPeriod + 1);
-
-        for (int i = 0; i < limitPrev; ++i)
-            prevCorr += signal[i] * signal[i + (bestPeriod - 1)];
-
-        for (int i = 0; i < limitNext; ++i)
-            nextCorr += signal[i] * signal[i + (bestPeriod + 1)];
+        const float prevCorr = normalizedCorrelation(bestPeriod - 1);
+        const float nextCorr = normalizedCorrelation(bestPeriod + 1);
 
         const float denominator = prevCorr - 2.0f * bestCorrelation + nextCorr;
 

@@ -31,22 +31,22 @@ public:
     juce::Label* createSliderTextBox(juce::Slider& slider) override
     {
         auto* label = LookAndFeel_V4::createSliderTextBox(slider);
-        label->setFont(juce::Font(11.0f, juce::Font::bold));
+        label->setFont(juce::Font(10.0f, juce::Font::bold));
         label->setJustificationType(juce::Justification::centred);
-        label->setBorderSize(juce::BorderSize<int>(2, 6, 2, 6));
-        label->setColour(juce::Label::backgroundColourId, juce::Colour::fromString("ff11151a"));
-        label->setColour(juce::Label::outlineColourId, accent.withAlpha(0.22f));
-        label->setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.92f));
+        label->setBorderSize(juce::BorderSize<int>(1, 4, 1, 4));
+        label->setColour(juce::Label::backgroundColourId, juce::Colour::fromString("ff12161b"));
+        label->setColour(juce::Label::outlineColourId, juce::Colour::fromString("ff2c3742"));
+        label->setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.88f));
         return label;
     }
 
     void drawLabel(juce::Graphics& g, juce::Label& label) override
     {
-        auto bounds = label.getLocalBounds().toFloat().reduced(0.5f);
-        g.setColour(juce::Colour::fromString("ff0f1217"));
-        g.fillRoundedRectangle(bounds, 7.0f);
-        g.setColour(accent.withAlpha(0.18f));
-        g.drawRoundedRectangle(bounds, 7.0f, 1.0f);
+        auto bounds = label.getLocalBounds().toFloat().reduced(0.5f, 1.0f);
+        g.setColour(juce::Colour::fromString("ff171c22"));
+        g.fillRoundedRectangle(bounds, 4.0f);
+        g.setColour(juce::Colour::fromString("ff252d36"));
+        g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
         g.setColour(label.findColour(juce::Label::textColourId));
         g.setFont(label.getFont());
         g.drawFittedText(label.getText(), label.getLocalBounds().reduced(4, 1), label.getJustificationType(), 1);
@@ -63,28 +63,20 @@ public:
         juce::Slider& slider) override
     {
         const auto alpha = slider.isEnabled() ? 1.0f : 0.35f;
-        const auto bounds = juce::Rectangle<float>((float)x, (float)y, (float)width, (float)height).reduced(7.0f, 5.0f);
+        const auto bounds = juce::Rectangle<float>((float)x, (float)y, (float)width, (float)height).reduced(8.0f, 6.0f);
         const float radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f;
         const auto centre = bounds.getCentre();
         const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
 
-        g.setColour(juce::Colours::black.withAlpha(0.45f * alpha));
-        g.fillEllipse(bounds.translated(0.0f, 3.0f));
-
-        juce::ColourGradient outer(juce::Colour::fromString("ff343b45"), centre.x, bounds.getY(),
-            juce::Colour::fromString("ff0f1318"), centre.x, bounds.getBottom(), false);
-        g.setGradientFill(outer);
+        g.setColour(juce::Colour::fromString("ff171c22").withMultipliedAlpha(alpha));
         g.fillEllipse(bounds);
 
-        const auto ring = bounds.reduced(radius * 0.1f);
-        juce::ColourGradient inner(juce::Colour::fromString("ff69707a"), centre.x, ring.getY(),
-            juce::Colour::fromString("ff242930"), centre.x, ring.getBottom(), false);
-        g.setGradientFill(inner);
-        g.fillEllipse(ring);
-
-        g.setColour(juce::Colours::white.withAlpha(0.08f * alpha));
-        g.drawEllipse(ring.reduced(1.2f), 1.0f);
-        g.setColour(juce::Colours::black.withAlpha(0.6f * alpha));
+        const auto face = bounds.reduced(radius * 0.12f);
+        g.setColour(juce::Colour::fromString("ff242b33").withMultipliedAlpha(alpha));
+        g.fillEllipse(face);
+        g.setColour(juce::Colour::fromString("ff303a45").withMultipliedAlpha(alpha));
+        g.drawEllipse(face, 1.0f);
+        g.setColour(juce::Colour::fromString("ff0f1318").withMultipliedAlpha(alpha));
         g.drawEllipse(bounds, 1.0f);
 
         juce::Path track;
@@ -97,8 +89,8 @@ public:
             rotaryEndAngle,
             true);
 
-        g.setColour(juce::Colour::fromString("ff20252b").withMultipliedAlpha(alpha));
-        g.strokePath(track, juce::PathStrokeType(5.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour(juce::Colour::fromString("ff2a3139").withMultipliedAlpha(alpha));
+        g.strokePath(track, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
         juce::Path valueArc;
         valueArc.addCentredArc(centre.x,
@@ -110,23 +102,21 @@ public:
             angle,
             true);
 
-        juce::ColourGradient glow(accent.brighter(0.4f), centre.x, bounds.getY(),
-            accent.darker(0.35f), centre.x, bounds.getBottom(), false);
-        g.setGradientFill(glow);
-        g.strokePath(valueArc, juce::PathStrokeType(5.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour(accent.withMultipliedAlpha(alpha));
+        g.strokePath(valueArc, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        const float pointerLength = radius * 0.8f;
-        const float pointerThickness = 3.0f;
+        const float pointerLength = radius * 0.68f;
+        const float pointerThickness = 2.0f;
         juce::Path pointer;
-        pointer.addRoundedRectangle(-pointerThickness * 0.5f, -pointerLength * 0.8f, pointerThickness, pointerLength, 1.3f);
+        pointer.addRoundedRectangle(-pointerThickness * 0.5f, -pointerLength * 0.84f, pointerThickness, pointerLength, 1.0f);
 
         g.setColour(juce::Colours::white.withAlpha(0.95f * alpha));
         g.fillPath(pointer, juce::AffineTransform::rotation(angle).translated(centre.x, centre.y));
 
-        g.setColour(accent.withAlpha(0.95f * alpha));
-        g.fillEllipse(centre.x - 3.6f, centre.y - 3.6f, 7.2f, 7.2f);
-        g.setColour(juce::Colours::white.withAlpha(0.35f * alpha));
-        g.drawEllipse(centre.x - 3.6f, centre.y - 3.6f, 7.2f, 7.2f, 1.0f);
+        g.setColour(juce::Colour::fromString("ff0f1318").withMultipliedAlpha(alpha));
+        g.fillEllipse(centre.x - 3.0f, centre.y - 3.0f, 6.0f, 6.0f);
+        g.setColour(accent.withAlpha(0.9f * alpha));
+        g.drawEllipse(centre.x - 3.0f, centre.y - 3.0f, 6.0f, 6.0f, 1.0f);
     }
 
 private:
@@ -142,8 +132,8 @@ public:
         juce::String titleText,
         juce::Colour accentColour,
         std::initializer_list<ParameterBinding> parameterBindings,
-        int width = 236,
-        int height = 228)
+        int width = 206,
+        int height = 170)
         : juce::AudioProcessorEditor(&processor),
           owner(processor),
           category(std::move(pedalType)),
@@ -169,41 +159,31 @@ public:
     void paint(juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();
+        const bool bypassed = isBypassed();
 
-        juce::ColourGradient shell(juce::Colour::fromString("ff323842"), bounds.getCentreX(), bounds.getY(),
-            juce::Colour::fromString("ff15191e"), bounds.getCentreX(), bounds.getBottom(), false);
-        g.setGradientFill(shell);
-        g.fillRoundedRectangle(bounds, 18.0f);
+        g.setColour(bypassed ? juce::Colour::fromString("ff0c0f12") : juce::Colour::fromString("ff11161b"));
+        g.fillRoundedRectangle(bounds, 10.0f);
+        g.setColour(bypassed ? juce::Colour::fromString("ff1a1f24") : juce::Colour::fromString("ff29323b"));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), 10.0f, 1.0f);
 
-        g.setColour(juce::Colours::black.withAlpha(0.36f));
-        g.drawRoundedRectangle(bounds.reduced(1.0f), 18.0f, 1.8f);
-
-        g.setGradientFill(juce::ColourGradient(accent.withAlpha(0.24f), 0.0f, 0.0f,
-            juce::Colours::transparentBlack, 0.0f, 72.0f, false));
-        g.fillRoundedRectangle(bounds.reduced(8.0f, 6.0f), 14.0f);
-
-        auto badge = juce::Rectangle<float>(16.0f, 14.0f, bounds.getWidth() - 32.0f, 42.0f);
-        g.setColour(juce::Colour::fromString("aa090c10"));
-        g.fillRoundedRectangle(badge, 14.0f);
-        g.setColour(accent.withAlpha(0.26f));
-        g.drawRoundedRectangle(badge, 14.0f, 1.1f);
+        auto badge = juce::Rectangle<float>(10.0f, 10.0f, bounds.getWidth() - 20.0f, 24.0f);
+        g.setColour(bypassed ? juce::Colour::fromString("ff12161a") : juce::Colour::fromString("ff151c22"));
+        g.fillRoundedRectangle(badge, 6.0f);
+        g.setColour(bypassed ? juce::Colour::fromString("ff1d2328") : accent.withAlpha(0.30f));
+        g.drawRoundedRectangle(badge, 6.0f, 1.0f);
 
         g.setColour(juce::Colours::white.withAlpha(0.66f));
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
-        g.drawText(category.toUpperCase(), badge.removeFromTop(18.0f), juce::Justification::centred);
+        g.setFont(juce::Font(10.0f, juce::Font::bold));
+        g.drawText((category + "  " + title).toUpperCase(), badge.toNearestInt().reduced(8, 0), juce::Justification::centredLeft);
 
-        g.setColour(juce::Colours::white.withAlpha(0.98f));
-        g.setFont(juce::Font(16.0f, juce::Font::bold));
-        g.drawText(title.toUpperCase(), badge, juce::Justification::centred);
-
-        drawStatusLight(g);
-        drawHardware(g);
+        g.setColour(bypassed ? juce::Colour::fromString("ff6f3b3b") : accent);
+        g.fillRoundedRectangle(badge.removeFromRight(8.0f).reduced(1.0f, 5.0f), 2.0f);
     }
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced(12);
-        area.removeFromTop(60);
+        auto area = getLocalBounds().reduced(8);
+        area.removeFromTop(34);
 
         if (controls.empty())
             return;
@@ -212,13 +192,13 @@ public:
         const int topCount = total <= 3 ? total : (total + 1) / 2;
         const int bottomCount = total - topCount;
 
-        auto topRow = area.removeFromTop(bottomCount > 0 ? 76 : area.getHeight());
+        auto topRow = area.removeFromTop(bottomCount > 0 ? 60 : area.getHeight());
         layoutRow(topRow, 0, topCount);
 
         if (bottomCount > 0)
         {
-            area.removeFromTop(4);
-            layoutRow(area.removeFromTop(76), topCount, bottomCount);
+            area.removeFromTop(2);
+            layoutRow(area.removeFromTop(60), topCount, bottomCount);
         }
     }
 
@@ -247,7 +227,7 @@ private:
 
         auto control = std::make_unique<Control>();
         control->slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
-        control->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 50, 16);
+        control->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 46, 14);
         control->slider.setRotaryParameters(juce::degreesToRadians(210.0f),
             juce::degreesToRadians(510.0f),
             true);
@@ -268,7 +248,7 @@ private:
         };
 
         control->label.setText(binding.label.toUpperCase(), juce::dontSendNotification);
-        control->label.setFont(juce::Font(10.0f, juce::Font::bold));
+        control->label.setFont(juce::Font(9.0f, juce::Font::bold));
         control->label.setJustificationType(juce::Justification::centred);
         control->label.setInterceptsMouseClicks(false, false);
 
@@ -287,9 +267,9 @@ private:
         const int cellWidth = row.getWidth() / count;
         for (int i = 0; i < count; ++i)
         {
-            auto cell = row.withTrimmedLeft(i * cellWidth).removeFromLeft(cellWidth).reduced(3, 1);
+            auto cell = row.withTrimmedLeft(i * cellWidth).removeFromLeft(cellWidth).reduced(2, 1);
             auto& control = *controls[(size_t)(startIndex + i)];
-            control.label.setBounds(cell.removeFromTop(18));
+            control.label.setBounds(cell.removeFromTop(14));
             control.slider.setBounds(cell);
         }
     }
@@ -300,37 +280,6 @@ private:
             return base->getBypassed();
 
         return false;
-    }
-
-    void drawStatusLight(juce::Graphics& g) const
-    {
-        const auto led = juce::Rectangle<float>((float)getWidth() - 32.0f, 18.0f, 10.0f, 10.0f);
-        const auto colour = isBypassed() ? juce::Colour::fromString("ff5b1f1f") : accent;
-
-        g.setColour(colour.withAlpha(0.22f));
-        g.fillEllipse(led.expanded(8.0f));
-        g.setColour(colour);
-        g.fillEllipse(led);
-        g.setColour(juce::Colours::white.withAlpha(0.38f));
-        g.fillEllipse(led.reduced(4.0f));
-    }
-
-    void drawHardware(juce::Graphics& g) const
-    {
-        const auto drawBolt = [&g](float x, float y)
-        {
-            g.setColour(juce::Colour::fromString("ff0e1115"));
-            g.fillEllipse(x - 4.0f, y - 4.0f, 8.0f, 8.0f);
-            g.setColour(juce::Colours::white.withAlpha(0.12f));
-            g.drawEllipse(x - 4.0f, y - 4.0f, 8.0f, 8.0f, 1.0f);
-            g.drawLine(x - 1.5f, y, x + 1.5f, y, 1.1f);
-            g.drawLine(x, y - 1.5f, x, y + 1.5f, 1.1f);
-        };
-
-        drawBolt(12.0f, 12.0f);
-        drawBolt((float)getWidth() - 12.0f, 12.0f);
-        drawBolt(12.0f, (float)getHeight() - 12.0f);
-        drawBolt((float)getWidth() - 12.0f, (float)getHeight() - 12.0f);
     }
 
     juce::AudioProcessor& owner;

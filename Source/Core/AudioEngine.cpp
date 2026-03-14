@@ -42,6 +42,7 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     audioThreadID = {};
     consecutiveCorruptBlocks = 0;
     recoveryCooldownBlocks = 0;
+    appliedGlobalParamsRevision.store(0, std::memory_order_relaxed);
 
     tunerService.setSampleRate(sampleRate);
     tunerService.reset();
@@ -239,7 +240,7 @@ void AudioEngine::updateGlobalParams(const juce::ValueTree& settings,
         snapshot.outputMixRaw = (float)settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f);
 
         snapshot.switchMode = (int)settings.getProperty(Nova::IDs::SWITCH_MODE,
-            (int)Nova::SwitcherMode::Dual_Parallel);
+            (int)Nova::SwitcherMode::LineA_Only);
     }
 
     if (lineA.isValid())
@@ -266,22 +267,38 @@ void AudioEngine::updateGlobalParams(const RuntimeGlobalParams& snapshot)
         pendingGlobalParams = snapshot;
     }
 
-    globalParamsDirty = true;
+    globalParamsRevision.fetch_add(1, std::memory_order_release);
 }
 
 void AudioEngine::applyPendingGlobalParams()
 {
-    if (!globalParamsDirty.exchange(false))
+    const auto pendingRevision = globalParamsRevision.load(std::memory_order_acquire);
+    if (pendingRevision == appliedGlobalParamsRevision.load(std::memory_order_relaxed))
         return;
 
     RuntimeGlobalParams snapshot;
+    uint32_t capturedRevision = pendingRevision;
+    const bool runningOnAudioThread = (audioThreadID != juce::Thread::ThreadID()
+        && juce::Thread::getCurrentThreadId() == audioThreadID);
+
     {
-        const juce::SpinLock::ScopedLockType lock(globalParamsLock);
+        if (runningOnAudioThread)
+        {
+            if (!globalParamsLock.tryEnter())
+                return;
+        }
+        else
+        {
+            globalParamsLock.enter();
+        }
+
         snapshot = pendingGlobalParams;
+        capturedRevision = globalParamsRevision.load(std::memory_order_relaxed);
+        globalParamsLock.exit();
     }
 
-    const juce::ScopedLock sl(vectorLock);
     applyGlobalParamsNow(snapshot);
+    appliedGlobalParamsRevision.store(capturedRevision, std::memory_order_release);
 }
 
 void AudioEngine::applyGlobalParamsNow(const RuntimeGlobalParams& snapshot)
@@ -365,29 +382,51 @@ void AudioEngine::enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe)
     {
         const juce::ScopedLock sl(graphCommandLock);
         pendingGraphCommands.push_back(cmd);
+        graphCommandsPending.store(true, std::memory_order_release);
     }
 
-    if (!flushIfSafe)
-        return;
-
-    const auto currentThread = juce::Thread::getCurrentThreadId();
-    if (currentThread != audioThreadID)
-        flushPendingGraphCommands(true);
+    if (flushIfSafe)
+        notify();
 }
 
 void AudioEngine::flushPendingGraphCommands(bool suspendGraph)
 {
+    if (!graphCommandsPending.load(std::memory_order_acquire))
+        return;
+
+    const bool runningOnAudioThread = (!suspendGraph
+        && audioThreadID != juce::Thread::ThreadID()
+        && juce::Thread::getCurrentThreadId() == audioThreadID);
+
     std::deque<GraphCommand> commands;
 
     {
-        const juce::ScopedLock sl(graphCommandLock);
-        if (pendingGraphCommands.empty())
+        const bool hasGraphLock = runningOnAudioThread ? graphCommandLock.tryEnter() : (graphCommandLock.enter(), true);
+        if (!hasGraphLock)
             return;
 
+        if (pendingGraphCommands.empty())
+        {
+            graphCommandsPending.store(false, std::memory_order_release);
+            graphCommandLock.exit();
+            return;
+        }
+
         commands.swap(pendingGraphCommands);
+        graphCommandsPending.store(!pendingGraphCommands.empty(), std::memory_order_release);
+        graphCommandLock.exit();
     }
 
-    const juce::ScopedLock sl(vectorLock);
+    const bool hasVectorLock = runningOnAudioThread ? vectorLock.tryEnter() : (vectorLock.enter(), true);
+    if (!hasVectorLock)
+    {
+        const juce::ScopedLock sl(graphCommandLock);
+        for (auto it = commands.rbegin(); it != commands.rend(); ++it)
+            pendingGraphCommands.push_front(std::move(*it));
+
+        graphCommandsPending.store(true, std::memory_order_release);
+        return;
+    }
 
     if (suspendGraph && mainGraph)
         mainGraph->suspendProcessing(true);
@@ -412,6 +451,8 @@ void AudioEngine::flushPendingGraphCommands(bool suspendGraph)
 
     if (suspendGraph && mainGraph)
         mainGraph->suspendProcessing(false);
+
+    vectorLock.exit();
 }
 
 void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyChanged, bool& resetRequested)
@@ -745,11 +786,18 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
 
     if (consecutiveCorruptBlocks >= 2 && recoveryCooldownBlocks == 0)
     {
-        const juce::ScopedLock sl(vectorLock);
-        resetGraphStateNow();
+        if (vectorLock.tryEnter())
+        {
+            resetGraphStateNow();
+            vectorLock.exit();
+            startupCounter = juce::jmax(startupCounter, 8);
+            recoveryCooldownBlocks = 256;
+        }
+        else
+        {
+            recoveryCooldownBlocks = 32;
+        }
 
-        startupCounter = juce::jmax(startupCounter, 8);
-        recoveryCooldownBlocks = 256;
         consecutiveCorruptBlocks = 0;
 
         buffer.clear();
@@ -781,11 +829,11 @@ void AudioEngine::run()
         if (tunerEnabled)
         {
             tunerService.process();
-            wait(5);    // no quemar CPU
+            wait(5);
         }
         else
         {
-            wait(100);  // tuner apagado => dormir mas
+            wait(40);
         }
     }
 }
@@ -798,6 +846,29 @@ std::pair<float, float> AudioEngine::calculateFrequencyWithClarity(const float* 
 {
     if (sampleRate <= 0.0) return { 0.0f, 0.0f };
 
+    const auto normalizedCorrelation = [signal, numSamples](int lag) noexcept
+    {
+        float sum = 0.0f;
+        float sumSqA = 0.0f;
+        float sumSqB = 0.0f;
+        const int limit = numSamples - lag;
+
+        for (int i = 0; i < limit; ++i)
+        {
+            const float s1 = signal[i];
+            const float s2 = signal[i + lag];
+            sum += s1 * s2;
+            sumSqA += s1 * s1;
+            sumSqB += s2 * s2;
+        }
+
+        const float denom = std::sqrt(sumSqA * sumSqB);
+        if (denom <= 0.00001f)
+            return 0.0f;
+
+        return sum / denom;
+    };
+
     int minPeriod = (int)(sampleRate / 1500.0);
     int maxPeriod = (int)(sampleRate / 40.0);
     if (maxPeriod > numSamples / 2) maxPeriod = numSamples / 2;
@@ -807,15 +878,7 @@ std::pair<float, float> AudioEngine::calculateFrequencyWithClarity(const float* 
 
     for (int lag = minPeriod; lag < maxPeriod; ++lag)
     {
-        float sum = 0.0f;
-        int limit = numSamples - lag;
-        for (int i = 0; i < limit; ++i) sum += signal[i] * signal[i + lag];
-
-        float sumSq = 0.0f;
-        for (int i = 0; i < limit; ++i) sumSq += signal[i] * signal[i];
-
-        float correlation = 0.0f;
-        if (sumSq > 0.00001f) correlation = sum / sumSq;
+        const float correlation = normalizedCorrelation(lag);
 
         if (correlation > bestCorrelation)
         {
@@ -829,17 +892,8 @@ std::pair<float, float> AudioEngine::calculateFrequencyWithClarity(const float* 
     float finalPeriod = (float)bestPeriod;
     if (bestPeriod > minPeriod && bestPeriod < maxPeriod - 1)
     {
-        float prevCorr = 0.0f;
-        float nextCorr = 0.0f;
-
-        int limitPrev = numSamples - (bestPeriod - 1);
-        int limitNext = numSamples - (bestPeriod + 1);
-
-        for (int i = 0; i < limitPrev; ++i) prevCorr += signal[i] * signal[i + (bestPeriod - 1)];
-        prevCorr /= (float)limitPrev;
-
-        for (int i = 0; i < limitNext; ++i) nextCorr += signal[i] * signal[i + (bestPeriod + 1)];
-        nextCorr /= (float)limitNext;
+        const float prevCorr = normalizedCorrelation(bestPeriod - 1);
+        const float nextCorr = normalizedCorrelation(bestPeriod + 1);
 
         float denominator = prevCorr - 2.0f * bestCorrelation + nextCorr;
         if (std::abs(denominator) > 0.00001f)

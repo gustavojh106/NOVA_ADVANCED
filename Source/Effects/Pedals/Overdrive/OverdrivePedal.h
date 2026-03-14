@@ -5,6 +5,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
+#include <limits>
 
 class OverdrivePedal final : public ProcessorBase
 {
@@ -72,6 +73,8 @@ public:
             true);
 
         currentInnerSampleRate = innerRate;
+        cachedTone = std::numeric_limits<float>::quiet_NaN();
+        cachedTexture = std::numeric_limits<float>::quiet_NaN();
 
         setLatencySamples((int)oversampler.getLatencyInSamples());
         prepareBypassSmoother(sampleRate, samplesPerBlock);
@@ -123,7 +126,7 @@ public:
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch), buffer.getReadPointer(ch), buffer.getNumSamples());
 
-        updateFilters();
+        updateFiltersIfNeeded();
         driveStage.setTargets(driveParam != nullptr ? *driveParam : 30.0f,
             textureParam != nullptr ? *textureParam : 0.42f);
         mixSmooth.setTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
@@ -227,10 +230,18 @@ private:
         return juce::jmap(juce::jlimit(0.0f, 1.0f, control), 0.08f, 1.55f);
     }
 
-    void updateFilters()
+    void updateFiltersIfNeeded()
     {
         const float tone = toneParam != nullptr ? *toneParam : 0.58f;
         const float texture = textureParam != nullptr ? *textureParam : 0.42f;
+
+        const bool toneChanged = !std::isfinite(cachedTone) || std::abs(cachedTone - tone) > 1.0e-4f;
+        const bool textureChanged = !std::isfinite(cachedTexture) || std::abs(cachedTexture - texture) > 1.0e-4f;
+        if (!toneChanged && !textureChanged)
+            return;
+
+        cachedTone = tone;
+        cachedTexture = texture;
         const float toneFreq = juce::jmap(tone, 1700.0f, 9200.0f);
         const float presenceGain = juce::jmap(tone + texture * 0.4f, -3.0f, 7.0f);
         const float bodyGain = juce::jmap(texture, -1.2f, 2.4f);
@@ -269,5 +280,7 @@ private:
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentInnerSampleRate = 176400.0;
+    float cachedTone = std::numeric_limits<float>::quiet_NaN();
+    float cachedTexture = std::numeric_limits<float>::quiet_NaN();
     bool isPrepared = false;
 };

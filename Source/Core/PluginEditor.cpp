@@ -39,12 +39,12 @@ public:
 
     int getPreferredWidth() const
     {
-        return juce::jmax(166, (embeddedEditor != nullptr ? embeddedEditor->getWidth() : 210) + 10);
+        return juce::jmax(150, (embeddedEditor != nullptr ? embeddedEditor->getWidth() : 190) + 8);
     }
 
     int getPreferredHeight() const
     {
-        return juce::jmax(148, (embeddedEditor != nullptr ? embeddedEditor->getHeight() : 200) + kHeaderHeight + 10);
+        return juce::jmax(132, (embeddedEditor != nullptr ? embeddedEditor->getHeight() : 170) + kHeaderHeight + 8);
     }
 
     void paint(juce::Graphics& g) override
@@ -108,7 +108,7 @@ public:
     }
 
 private:
-    static constexpr int kHeaderHeight = 30;
+    static constexpr int kHeaderHeight = 24;
 
     bool isPedalEnabled() const
     {
@@ -166,7 +166,7 @@ private:
         powerButton.setColour(juce::TextButton::textColourOffId,
             enabled ? juce::Colour::fromString("ff9bffd0") : juce::Colour::fromString("ffffa0a0"));
 
-        removeButton.setButtonText("X");
+        removeButton.setButtonText("x");
         removeButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff2c1115"));
         removeButton.setColour(juce::TextButton::textColourOffId, juce::Colour::fromString("ffffb0b0"));
     }
@@ -1232,7 +1232,7 @@ void NOVAAudioProcessorEditor::updateSwitcherState()
 
     if (mode == 0) { txt = "ROUTING: LINE A"; aActive = true; }
     else if (mode == 1) { txt = "ROUTING: LINE B"; bActive = true; }
-    else { txt = "ROUTING: PARALLEL"; aActive = true; bActive = true; }
+    else { txt = "ROUTING: LEGACY PARALLEL"; aActive = true; bActive = true; }
 
     btnSwitcher.setButtonText(txt);
 

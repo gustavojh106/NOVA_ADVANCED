@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <atomic>
+#include <cstdint>
 #include <deque>
 #include <vector>
 
@@ -32,7 +33,7 @@ public:
         float outputLimiterDb = 0.0f;
         float outputMixRaw = 100.0f;
 
-        int switchMode = (int)Nova::SwitcherMode::Dual_Parallel;
+        int switchMode = (int)Nova::SwitcherMode::LineA_Only;
 
         float gainA = 1.0f;
         float panA = 0.0f;
@@ -166,10 +167,12 @@ private:
 
     juce::CriticalSection graphCommandLock;
     std::deque<GraphCommand> pendingGraphCommands;
+    std::atomic<bool> graphCommandsPending{ false };
 
     juce::SpinLock globalParamsLock;
     RuntimeGlobalParams pendingGlobalParams;
-    std::atomic<bool> globalParamsDirty{ false };
+    std::atomic<uint32_t> globalParamsRevision{ 0 };
+    std::atomic<uint32_t> appliedGlobalParamsRevision{ 0 };
 
     int consecutiveCorruptBlocks = 0;
     int recoveryCooldownBlocks = 0;

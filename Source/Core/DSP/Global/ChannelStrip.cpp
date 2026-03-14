@@ -25,9 +25,18 @@ void ChannelStripProcessor::releaseResources()
 {
 }
 
+void ChannelStripProcessor::reset()
+{
+    gain.reset();
+    gain.setGainLinear(targetGain);
+    panSmooth.setCurrentAndTargetValue(targetPan);
+    widthSmooth.setCurrentAndTargetValue(targetWidth);
+}
+
 void ChannelStripProcessor::setParams(float gainVal, float panVal, float widthVal)
 {
-    gain.setGainLinear(juce::jlimit(0.0f, 2.0f, gainVal));
+    targetGain = juce::jlimit(0.0f, 2.0f, gainVal);
+    gain.setGainLinear(targetGain);
 
     targetPan = juce::jlimit(-1.0f, 1.0f, panVal);
     targetWidth = juce::jlimit(0.0f, 2.0f, widthVal);
@@ -51,7 +60,9 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     auto* r = buffer.getWritePointer(1);
     const int numSamples = buffer.getNumSamples();
 
-    // 2) Width + equal-power pan with per-sample smoothing
+    constexpr float halfPi = juce::MathConstants<float>::halfPi;
+
+    // 2) Width + smooth balance curve with per-sample smoothing
     for (int i = 0; i < numSamples; ++i)
     {
         const float width = widthSmooth.getNextValue();
@@ -65,8 +76,8 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         float sampleL = (mid + side) * widthComp;
         float sampleR = (mid - side) * widthComp;
 
-        const float gainL = (pan > 0.0f) ? (1.0f - pan) : 1.0f;
-        const float gainR = (pan < 0.0f) ? (1.0f + pan) : 1.0f;
+        const float gainL = (pan > 0.0f) ? std::cos(pan * halfPi) : 1.0f;
+        const float gainR = (pan < 0.0f) ? std::cos(-pan * halfPi) : 1.0f;
 
         l[i] = sampleL * gainL;
         r[i] = sampleR * gainR;

@@ -39,8 +39,22 @@ void InputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 void InputChainProcessor::releaseResources()
 {
+    reset();
+}
+
+void InputChainProcessor::reset()
+{
     gate.reset();
+    gate.setThreshold(gateThreshold);
+    gate.setRatio(12.0f);
+    gate.setAttack(0.5f);
+    gate.setRelease(50.0f);
+
     gain.reset();
+    gain.setGainDecibels(inputGainDb);
+
+    transposeRatioSmooth.setCurrentAndTargetValue(semitonesToRatio(inputTranspose));
+    transposeMixSmooth.setCurrentAndTargetValue(inputTranspose == 0 ? 0.0f : 1.0f);
     resetPitchShifter();
 }
 

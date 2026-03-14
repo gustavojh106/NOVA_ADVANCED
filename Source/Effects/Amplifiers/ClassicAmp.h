@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
+#include <limits>
 
 #include "../Pedals/Base/ProcessorBase.h"
 #include "../Pedals/Base/PremiumPedalUI.h"
@@ -38,8 +39,8 @@ public:
                 { "Depth", depthParam, [](float value) { return formatPercent(value); } },
                 { "Master", levelParam, [](float value) { return formatGain(value); } }
             },
-            246,
-            236);
+            214,
+            178);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -66,6 +67,9 @@ public:
 
         masterSmooth.reset(sampleRate, 0.02);
         masterSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
+        cachedTone = std::numeric_limits<float>::quiet_NaN();
+        cachedPresence = std::numeric_limits<float>::quiet_NaN();
+        cachedDepth = std::numeric_limits<float>::quiet_NaN();
 
         setLatencySamples((int)oversampler.getLatencyInSamples());
         prepareBypassSmoother(sampleRate, samplesPerBlock);
@@ -101,7 +105,7 @@ public:
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
-        updateVoicing();
+        updateVoicingIfNeeded();
         ampCore.setDriveTarget(driveParam != nullptr ? *driveParam : 2.8f);
         masterSmooth.setTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
 
@@ -186,11 +190,21 @@ private:
     using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
         juce::dsp::IIR::Coefficients<float>>;
 
-    void updateVoicing()
+    void updateVoicingIfNeeded()
     {
         const float tone = toneParam != nullptr ? *toneParam : 0.58f;
         const float presence = presenceParam != nullptr ? *presenceParam : 0.55f;
         const float depth = depthParam != nullptr ? *depthParam : 0.46f;
+
+        const bool toneChanged = !std::isfinite(cachedTone) || std::abs(cachedTone - tone) > 1.0e-4f;
+        const bool presenceChanged = !std::isfinite(cachedPresence) || std::abs(cachedPresence - presence) > 1.0e-4f;
+        const bool depthChanged = !std::isfinite(cachedDepth) || std::abs(cachedDepth - depth) > 1.0e-4f;
+        if (!toneChanged && !presenceChanged && !depthChanged)
+            return;
+
+        cachedTone = tone;
+        cachedPresence = presence;
+        cachedDepth = depth;
 
         const float cutoff = juce::jmap(tone, 1800.0f, 8500.0f);
         const float presenceGain = juce::jmap(presence, -1.0f, 6.5f);
@@ -227,5 +241,8 @@ private:
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentInnerRate = 176400.0;
+    float cachedTone = std::numeric_limits<float>::quiet_NaN();
+    float cachedPresence = std::numeric_limits<float>::quiet_NaN();
+    float cachedDepth = std::numeric_limits<float>::quiet_NaN();
     bool isPrepared = false;
 };

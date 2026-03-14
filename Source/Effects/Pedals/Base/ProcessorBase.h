@@ -114,14 +114,14 @@ protected:
     void prepareBypassSmoother(double sampleRate, int maxBlockSize)
     {
         const double sr = sampleRate > 0.0 ? sampleRate : 44100.0;
-        const int blockSize = juce::jmax(1, maxBlockSize);
+        const int maxSamplesPerBlock = juce::jmax(1, maxBlockSize);
 
         wetMix.reset(sr, 0.01);
         const float initialWet = isBypassed.load() ? 0.0f : 1.0f;
         wetMix.setCurrentAndTargetValue(initialWet);
         transitionActive = false;
         dryBuffer.setSize(juce::jmax(1, getTotalNumOutputChannels()),
-            blockSize,
+            maxSamplesPerBlock,
             false,
             false,
             true);

@@ -1,5 +1,18 @@
 #include "OutputChain.h"
 
+float OutputChainProcessor::applySoftCeiling(float x) noexcept
+{
+    constexpr float ceiling = 0.983f; // ~ -0.15 dBFS
+    const float sign = juce::jlimit(-1.0f, 1.0f, x < 0.0f ? -1.0f : 1.0f);
+    const float mag = std::abs(x);
+    if (mag <= ceiling)
+        return x;
+
+    const float normalized = (mag - ceiling) / juce::jmax(0.0001f, 1.0f - ceiling);
+    const float shaped = ceiling + ((1.0f - ceiling) * std::tanh(normalized));
+    return sign * juce::jmin(1.0f, shaped);
+}
+
 OutputChainProcessor::OutputChainProcessor()
     : AudioProcessor(BusesProperties()
         .withInput("In", juce::AudioChannelSet::stereo())
@@ -15,6 +28,8 @@ void OutputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
     gain.prepare(spec);
     limiter.prepare(spec);
+    for (auto& filter : dcBlockers)
+        filter.prepare(sampleRate);
 
     gain.setRampDurationSeconds(0.02);
     limiterSmooth.reset(sampleRate, 0.02);
@@ -23,7 +38,21 @@ void OutputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 void OutputChainProcessor::releaseResources()
 {
+    reset();
+}
+
+void OutputChainProcessor::reset()
+{
+    gain.reset();
+    gain.setGainDecibels(outputVolDb);
+
     limiter.reset();
+    limiter.setThreshold(limiterThresholdTarget);
+    limiter.setRelease(100.0f);
+    limiterSmooth.setCurrentAndTargetValue(limiterThresholdTarget);
+
+    for (auto& filter : dcBlockers)
+        filter.reset();
 }
 
 void OutputChainProcessor::setParams(float volDb, float limitDb)
@@ -48,5 +77,14 @@ void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     {
         limiter.setThreshold(limiterThreshold);
         limiter.process(context);
+    }
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        auto* data = buffer.getWritePointer(ch);
+        auto& dcBlock = dcBlockers[(size_t)juce::jmin(ch, (int)dcBlockers.size() - 1)];
+
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            data[i] = applySoftCeiling(dcBlock.process(data[i]));
     }
 }

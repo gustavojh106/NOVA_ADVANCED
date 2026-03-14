@@ -5,6 +5,7 @@
 
 #include <JuceHeader.h>
 #include <cmath>
+#include <limits>
 
 class ReverbPedal final : public ProcessorBase
 {
@@ -37,8 +38,8 @@ public:
                 { "Predelay", preDelayParam, [](float value) { return formatMilliseconds(value); } },
                 { "Mix", mixParam, [](float value) { return formatPercent(value); } }
             },
-            246,
-            236);
+            214,
+            178);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -69,6 +70,14 @@ public:
             filter.setCutoff(toneParam != nullptr ? *toneParam : 6200.0f);
         }
 
+        for (auto& filter : inputHighPassFilters)
+            filter.prepare(sampleRate);
+
+        cachedRoomSize = std::numeric_limits<float>::quiet_NaN();
+        cachedDamping = std::numeric_limits<float>::quiet_NaN();
+        cachedToneCutoff = std::numeric_limits<float>::quiet_NaN();
+        cachedLowCut = std::numeric_limits<float>::quiet_NaN();
+
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
         isPrepared = true;
@@ -87,7 +96,16 @@ public:
         predelayWritePos = 0;
         reverb.reset();
 
+        if (preDelayParam != nullptr)
+            preDelaySmooth.setCurrentAndTargetValue(*preDelayParam);
+
+        if (mixParam != nullptr)
+            mixSmooth.setCurrentAndTargetValue(*mixParam);
+
         for (auto& filter : toneFilters)
+            filter.reset();
+
+        for (auto& filter : inputHighPassFilters)
             filter.reset();
     }
 
@@ -104,23 +122,12 @@ public:
             juce::FloatVectorOperations::clear(wetBuffer.getWritePointer(ch), buffer.getNumSamples());
         }
 
-        juce::dsp::Reverb::Parameters params;
-        params.roomSize = sizeParam != nullptr ? *sizeParam : 0.62f;
-        params.damping = dampingParam != nullptr ? *dampingParam : 0.38f;
-        params.width = 1.0f;
-        params.freezeMode = 0.0f;
-        params.wetLevel = 1.0f;
-        params.dryLevel = 0.0f;
-        reverb.setParameters(params);
-
         preDelaySmooth.setTargetValue(preDelayParam != nullptr ? *preDelayParam : 24.0f);
         mixSmooth.setTargetValue(mixParam != nullptr ? *mixParam : 0.26f);
-
-        const float toneCutoff = toneParam != nullptr ? *toneParam : 6200.0f;
-        toneFilters[0].setCutoff(toneCutoff);
-        toneFilters[1].setCutoff(toneCutoff);
+        updateVoicingIfNeeded();
 
         const int predelayLength = predelayBuffer.getNumSamples();
+        constexpr float halfPi = juce::MathConstants<float>::halfPi;
 
         for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
         {
@@ -130,7 +137,8 @@ public:
 
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
-                const float input = dryBuffer.getSample(ch, sample);
+                const float input = inputHighPassFilters[(size_t)juce::jmin(ch, (int)inputHighPassFilters.size() - 1)]
+                    .process(dryBuffer.getSample(ch, sample));
                 wetBuffer.setSample(ch, sample, readPredelaySample(ch, predelaySamples, predelayLength));
                 predelayBuffer.setSample(ch, predelayWritePos, input);
             }
@@ -147,14 +155,16 @@ public:
         for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
         {
             const float mix = mixSmooth.getNextValue();
+            const float dryGain = std::cos(mix * halfPi);
+            const float wetGain = std::sin(mix * halfPi);
 
             const float wetL = toneFilters[0].process(wetBuffer.getSample(0, sample));
-            buffer.setSample(0, sample, juce::jmap(mix, dryBuffer.getSample(0, sample), wetL));
+            buffer.setSample(0, sample, (dryBuffer.getSample(0, sample) * dryGain) + (wetL * wetGain));
 
             if (buffer.getNumChannels() > 1)
             {
                 const float wetR = toneFilters[1].process(wetBuffer.getSample(1, sample));
-                buffer.setSample(1, sample, juce::jmap(mix, dryBuffer.getSample(1, sample), wetR));
+                buffer.setSample(1, sample, (dryBuffer.getSample(1, sample) * dryGain) + (wetR * wetGain));
             }
         }
 
@@ -195,6 +205,84 @@ private:
         float state = 0.0f;
     };
 
+    struct OnePoleHighPass
+    {
+        void prepare(double newSampleRate)
+        {
+            sampleRate = juce::jmax(1.0, newSampleRate);
+            setCutoff(140.0f);
+            reset();
+        }
+
+        void reset()
+        {
+            x1 = 0.0f;
+            y1 = 0.0f;
+        }
+
+        void setCutoff(float hz)
+        {
+            const auto cutoff = juce::jlimit(20.0f, (float)(sampleRate * 0.45), hz);
+            pole = (float)std::exp(-2.0 * juce::MathConstants<double>::pi * cutoff / sampleRate);
+        }
+
+        float process(float x) noexcept
+        {
+            const float y = x - x1 + (pole * y1);
+            x1 = x;
+            y1 = y;
+            return y;
+        }
+
+        double sampleRate = 44100.0;
+        float pole = 0.98f;
+        float x1 = 0.0f;
+        float y1 = 0.0f;
+    };
+
+    void updateVoicingIfNeeded()
+    {
+        const float roomSize = sizeParam != nullptr ? *sizeParam : 0.62f;
+        const float damping = dampingParam != nullptr ? *dampingParam : 0.38f;
+        const float toneCutoff = toneParam != nullptr ? *toneParam : 6200.0f;
+        const float lowCut = juce::jmap(juce::jlimit(0.0f, 1.0f, (roomSize * 0.55f) + (damping * 0.45f)),
+            85.0f,
+            180.0f);
+
+        const bool roomChanged = !std::isfinite(cachedRoomSize) || std::abs(cachedRoomSize - roomSize) > 1.0e-4f;
+        const bool dampingChanged = !std::isfinite(cachedDamping) || std::abs(cachedDamping - damping) > 1.0e-4f;
+        const bool toneChanged = !std::isfinite(cachedToneCutoff) || std::abs(cachedToneCutoff - toneCutoff) > 0.5f;
+        const bool lowCutChanged = !std::isfinite(cachedLowCut) || std::abs(cachedLowCut - lowCut) > 0.5f;
+
+        if (roomChanged || dampingChanged)
+        {
+            juce::dsp::Reverb::Parameters params;
+            params.roomSize = roomSize;
+            params.damping = damping;
+            params.width = 1.0f;
+            params.freezeMode = 0.0f;
+            params.wetLevel = 1.0f;
+            params.dryLevel = 0.0f;
+            reverb.setParameters(params);
+            cachedRoomSize = roomSize;
+            cachedDamping = damping;
+        }
+
+        if (toneChanged)
+        {
+            toneFilters[0].setCutoff(toneCutoff);
+            toneFilters[1].setCutoff(toneCutoff);
+            cachedToneCutoff = toneCutoff;
+        }
+
+        if (lowCutChanged)
+        {
+            inputHighPassFilters[0].setCutoff(lowCut);
+            inputHighPassFilters[1].setCutoff(lowCut);
+            cachedLowCut = lowCut;
+        }
+    }
+
     void ensureScratchBuffers(int numSamples)
     {
         if (wetBuffer.getNumSamples() < numSamples)
@@ -224,6 +312,7 @@ private:
     juce::AudioBuffer<float> wetBuffer;
     juce::AudioBuffer<float> dryBuffer;
     std::array<OnePoleLowPass, 2> toneFilters;
+    std::array<OnePoleHighPass, 2> inputHighPassFilters;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> preDelaySmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
 
@@ -236,5 +325,9 @@ private:
     double currentSampleRate = 44100.0;
     int maxPredelaySamples = 1;
     int predelayWritePos = 0;
+    float cachedRoomSize = std::numeric_limits<float>::quiet_NaN();
+    float cachedDamping = std::numeric_limits<float>::quiet_NaN();
+    float cachedToneCutoff = std::numeric_limits<float>::quiet_NaN();
+    float cachedLowCut = std::numeric_limits<float>::quiet_NaN();
     bool isPrepared = false;
 };

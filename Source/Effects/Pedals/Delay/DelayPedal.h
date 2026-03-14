@@ -5,6 +5,7 @@
 
 #include <JuceHeader.h>
 #include <cmath>
+#include <limits>
 
 class DelayPedal final : public ProcessorBase
 {
@@ -37,8 +38,8 @@ public:
                 { "Spread", spreadParam, [](float value) { return formatPercent(value); } },
                 { "Mix", mixParam, [](float value) { return formatPercent(value); } }
             },
-            246,
-            236);
+            214,
+            178);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -66,6 +67,11 @@ public:
             filter.setCutoff(toneParam != nullptr ? *toneParam : 4800.0f);
         }
 
+        for (auto& filter : feedbackHighPassFilters)
+            filter.prepare(sampleRate);
+
+        cachedToneCutoff = std::numeric_limits<float>::quiet_NaN();
+
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
         isPrepared = true;
@@ -81,7 +87,22 @@ public:
         delayBuffer.clear();
         delayWritePos = 0;
 
+        if (timeParam != nullptr)
+            timeSmooth.setCurrentAndTargetValue(*timeParam);
+
+        if (feedbackParam != nullptr)
+            feedbackSmooth.setCurrentAndTargetValue(*feedbackParam);
+
+        if (spreadParam != nullptr)
+            spreadSmooth.setCurrentAndTargetValue(*spreadParam);
+
+        if (mixParam != nullptr)
+            mixSmooth.setCurrentAndTargetValue(*mixParam);
+
         for (auto& filter : toneFilters)
+            filter.reset();
+
+        for (auto& filter : feedbackHighPassFilters)
             filter.reset();
     }
 
@@ -95,9 +116,7 @@ public:
         spreadSmooth.setTargetValue(spreadParam != nullptr ? *spreadParam : 0.42f);
         mixSmooth.setTargetValue(mixParam != nullptr ? *mixParam : 0.3f);
 
-        const float cutoff = toneParam != nullptr ? *toneParam : 4800.0f;
-        toneFilters[0].setCutoff(cutoff);
-        toneFilters[1].setCutoff(cutoff);
+        updateToneFiltersIfNeeded();
 
         const int delayBufferLength = delayBuffer.getNumSamples();
 
@@ -119,8 +138,10 @@ public:
             const float wetR = readDelaySample(1, delayRight, delayBufferLength);
 
             const float crossfeed = spread * 0.82f;
-            const float fbL = toneFilters[0].process((wetL * (1.0f - crossfeed)) + (wetR * crossfeed));
-            const float fbR = toneFilters[1].process((wetR * (1.0f - crossfeed)) + (wetL * crossfeed));
+            const float fbL = feedbackHighPassFilters[0].process(
+                toneFilters[0].process((wetL * (1.0f - crossfeed)) + (wetR * crossfeed)));
+            const float fbR = feedbackHighPassFilters[1].process(
+                toneFilters[1].process((wetR * (1.0f - crossfeed)) + (wetL * crossfeed)));
 
             const float inL = buffer.getSample(0, sample);
             const float inR = buffer.getNumChannels() > 1 ? buffer.getSample(1, sample) : inL;
@@ -173,6 +194,52 @@ private:
         float state = 0.0f;
     };
 
+    struct OnePoleHighPass
+    {
+        void prepare(double newSampleRate)
+        {
+            sampleRate = juce::jmax(1.0, newSampleRate);
+            setCutoff(35.0f);
+            reset();
+        }
+
+        void reset()
+        {
+            x1 = 0.0f;
+            y1 = 0.0f;
+        }
+
+        void setCutoff(float hz)
+        {
+            const auto cutoff = juce::jlimit(20.0f, (float)(sampleRate * 0.45), hz);
+            pole = (float)std::exp(-2.0 * juce::MathConstants<double>::pi * cutoff / sampleRate);
+        }
+
+        float process(float x) noexcept
+        {
+            const float y = x - x1 + (pole * y1);
+            x1 = x;
+            y1 = y;
+            return y;
+        }
+
+        double sampleRate = 44100.0;
+        float pole = 0.99f;
+        float x1 = 0.0f;
+        float y1 = 0.0f;
+    };
+
+    void updateToneFiltersIfNeeded()
+    {
+        const float cutoff = toneParam != nullptr ? *toneParam : 4800.0f;
+        if (std::isfinite(cachedToneCutoff) && std::abs(cachedToneCutoff - cutoff) <= 0.5f)
+            return;
+
+        cachedToneCutoff = cutoff;
+        toneFilters[0].setCutoff(cutoff);
+        toneFilters[1].setCutoff(cutoff);
+    }
+
     float readDelaySample(int channel, float delayInSamples, int bufferLength) const noexcept
     {
         float readPosition = (float)delayWritePos - delayInSamples;
@@ -190,6 +257,7 @@ private:
 
     juce::AudioBuffer<float> delayBuffer;
     std::array<OnePoleLowPass, 2> toneFilters;
+    std::array<OnePoleHighPass, 2> feedbackHighPassFilters;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> timeSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> feedbackSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> spreadSmooth;
@@ -204,5 +272,6 @@ private:
     double currentSampleRate = 44100.0;
     int maxDelaySamples = 1;
     int delayWritePos = 0;
+    float cachedToneCutoff = std::numeric_limits<float>::quiet_NaN();
     bool isPrepared = false;
 };

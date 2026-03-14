@@ -10,6 +10,7 @@ public:
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
+    void reset() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     // gainVal: linear gain (0.0 .. 2.0)
@@ -41,6 +42,7 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> panSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmooth;
 
+    float targetGain = 1.0f;
     float targetPan = 0.0f;
     float targetWidth = 1.0f;
 };

@@ -145,8 +145,13 @@ private:
     class StatsTimer : public juce::Timer {
         NOVAAudioProcessorEditor& parent;
     public:
-        StatsTimer(NOVAAudioProcessorEditor& p) : parent(p) { startTimer(500); }
-        void timerCallback() override { parent.updateStats(); parent.updateSwitcherState(); }
+        StatsTimer(NOVAAudioProcessorEditor& p) : parent(p) { startTimerHz(15); }
+        void timerCallback() override
+        {
+            parent.updateStats();
+            parent.updateSwitcherState();
+            parent.updatePedalGui();
+        }
     };
     std::unique_ptr<StatsTimer> statsTimer;
 

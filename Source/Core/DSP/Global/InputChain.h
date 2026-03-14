@@ -11,6 +11,7 @@ public:
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
+    void reset() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     void setParams(float gainDb, float gateDb, bool forceMono, int inputTransposeSemitones = 0);

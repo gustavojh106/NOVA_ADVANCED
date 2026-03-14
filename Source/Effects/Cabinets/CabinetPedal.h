@@ -37,8 +37,8 @@ public:
                 { "Mix", mixParam, [](float value) { return formatPercent(value); } },
                 { "Level", levelParam, [](float value) { return formatGain(value); } }
             },
-            248,
-            236);
+            214,
+            178);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
