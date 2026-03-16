@@ -6,12 +6,13 @@ class DraggableButton : public juce::TextButton
 public:
     using juce::TextButton::TextButton; // Heredar constructores
 
-    // NUEVO: MÈtodo para asignarle el tipo (PEDAL, AMP, CAB) desde la UI principal
+    // NUEVO: M√©todo para asignarle el tipo (PEDAL, AMP, CAB) desde la UI principal
     void setItemType(const juce::String& type) { itemType = type; }
 
     void mouseDrag(const juce::MouseEvent& e) override
     {
-        // Usar findParentDragContainerFor es la forma m·s segura en JUCE
+        juce::ignoreUnused(e);
+        // Usar findParentDragContainerFor es la forma m√°s segura en JUCE
         if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this))
         {
             // Formateamos el string final. Ejemplo: "PEDAL:Overdrive" o "AMP:Neural Amp"

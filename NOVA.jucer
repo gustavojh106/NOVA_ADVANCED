@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
 <JUCERPROJECT id="GECmzc" name="NOVA" projectType="audioplug" useAppConfig="0"
-              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1">
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1"
+              companyName="NOVA Audio" companyWebsite="" companyEmail=""
+              companyCopyright="Copyright (c) 2026 NOVA Audio"
+              bundleIdentifier="com.novaaudio.nova" pluginManufacturer="NOVA Audio"
+              pluginManufacturerCode="NvAu" pluginCode="NvFx"
+              aaxIdentifier="com.novaaudio.nova">
   <MAINGROUP id="o1UNQu" name="NOVA">
     <GROUP id="{010BF944-105C-4CF6-034C-4B0EAF802B6F}" name="Source">
       <GROUP id="{53A40730-C864-217C-5B56-F067C3543F1F}" name="Data"/>

@@ -28,6 +28,7 @@ namespace Nova
 
         static const juce::Identifier LINE_A("LINE_A");
         static const juce::Identifier LINE_B("LINE_B");
+        static const juce::Identifier STATE_SCHEMA_VERSION("schemaVersion");
 
         static const juce::Identifier ENGINE_ON("engineOn");
         static const juce::Identifier SWITCH_MODE("switchMode");
@@ -83,6 +84,7 @@ namespace Nova
         static constexpr int TUNER_FIFO_SIZE = 16384;
         static constexpr int TUNER_PROCESS_SIZE = 4096;
         static constexpr int MAX_GRAPH_LATENCY_SAMPLES = 8192;
+        static constexpr int STATE_SCHEMA_VERSION = 1;
 
         static constexpr int HEADER_HEIGHT = 80;
         static constexpr int FOOTER_HEIGHT = 100;

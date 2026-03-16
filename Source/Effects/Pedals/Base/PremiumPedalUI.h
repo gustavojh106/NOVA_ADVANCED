@@ -31,7 +31,7 @@ public:
     juce::Label* createSliderTextBox(juce::Slider& slider) override
     {
         auto* label = LookAndFeel_V4::createSliderTextBox(slider);
-        label->setFont(juce::Font(10.0f, juce::Font::bold));
+        label->setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
         label->setJustificationType(juce::Justification::centred);
         label->setBorderSize(juce::BorderSize<int>(1, 4, 1, 4));
         label->setColour(juce::Label::backgroundColourId, juce::Colour::fromString("ff12161b"));
@@ -173,7 +173,7 @@ public:
         g.drawRoundedRectangle(badge, 6.0f, 1.0f);
 
         g.setColour(juce::Colours::white.withAlpha(0.66f));
-        g.setFont(juce::Font(10.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
         g.drawText((category + "  " + title).toUpperCase(), badge.toNearestInt().reduced(8, 0), juce::Justification::centredLeft);
 
         g.setColour(bypassed ? juce::Colour::fromString("ff6f3b3b") : accent);
@@ -248,7 +248,7 @@ private:
         };
 
         control->label.setText(binding.label.toUpperCase(), juce::dontSendNotification);
-        control->label.setFont(juce::Font(9.0f, juce::Font::bold));
+        control->label.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
         control->label.setJustificationType(juce::Justification::centred);
         control->label.setInterceptsMouseClicks(false, false);
 

@@ -1,9 +1,61 @@
 #include "AudioEngine.h"
 #include "PedalRegistry.h"
+#include "SessionLogger.h"
 #include "../Effects/Pedals/Base/ProcessorBase.h"
 
 #include <cmath>
 #include <algorithm>
+
+namespace
+{
+juce::String boolToText(bool value)
+{
+    return value ? "true" : "false";
+}
+
+juce::String zoneToText(Nova::ZoneID zone)
+{
+    switch (zone)
+    {
+        case Nova::ZoneID::Pre:     return "Pre";
+        case Nova::ZoneID::Amp:     return "Amp";
+        case Nova::ZoneID::FX:      return "FX";
+        case Nova::ZoneID::Cabinet: return "Cabinet";
+        default:                    return "Unknown";
+    }
+}
+
+juce::String switchModeToText(int mode)
+{
+    switch (static_cast<Nova::SwitcherMode>(mode))
+    {
+        case Nova::SwitcherMode::LineA_Only:  return "LineA_Only";
+        case Nova::SwitcherMode::LineB_Only:  return "LineB_Only";
+        case Nova::SwitcherMode::Dual_Parallel: return "Dual_Parallel";
+        default: return "Unknown";
+    }
+}
+
+juce::String formatRuntimeParams(const AudioEngine::RuntimeGlobalParams& snapshot)
+{
+    juce::String result;
+    result << "inputGainDb=" << snapshot.inputGainDb
+        << ", gateThresholdDb=" << snapshot.gateThresholdDb
+        << ", forceMono=" << boolToText(snapshot.forceMono)
+        << ", inputTranspose=" << snapshot.inputTranspose
+        << ", outputVolumeDb=" << snapshot.outputVolumeDb
+        << ", outputLimiterDb=" << snapshot.outputLimiterDb
+        << ", outputMixRaw=" << snapshot.outputMixRaw
+        << ", switchMode=" << switchModeToText(snapshot.switchMode)
+        << ", gainA=" << snapshot.gainA
+        << ", panA=" << snapshot.panA
+        << ", widthA=" << snapshot.widthA
+        << ", gainB=" << snapshot.gainB
+        << ", panB=" << snapshot.panB
+        << ", widthB=" << snapshot.widthB;
+    return result;
+}
+}
 
 // ==========================================================
 // IMPLEMENTACION DE AUDIO ENGINE
@@ -16,11 +68,13 @@ AudioEngine::AudioEngine()
     dryWetMixer.setMixingRule(juce::dsp::DryWetMixingRule::linear);
     dryWetMixer.setWetMixProportion(1.0f);
     isEngineOn = false;
+    NovaDiagnostics::SessionLogger::logEvent("engine.lifecycle", "AudioEngine constructed");
     startThread(juce::Thread::Priority::high);
 }
 
 AudioEngine::~AudioEngine()
 {
+    NovaDiagnostics::SessionLogger::logEvent("engine.lifecycle", "AudioEngine shutting down");
     stopThread(4000);
 
     if (mainGraph)
@@ -47,6 +101,11 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     tunerService.setSampleRate(sampleRate);
     tunerService.reset();
     startupCounter = 5;
+    silentOutputBlockCounter.store(0, std::memory_order_relaxed);
+    silentOutputIncidentActive.store(false, std::memory_order_relaxed);
+    pendingSilentOutputLog.store(false, std::memory_order_relaxed);
+    pendingSilentOutputRecoveryLog.store(false, std::memory_order_relaxed);
+    pendingAutoHealLog.store(false, std::memory_order_relaxed);
 
     {
         const juce::ScopedLock sl(vectorLock);
@@ -75,24 +134,41 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
 
         if (graphEmpty || missingNodes)
         {
-            mainGraph->clear();
-            nodesChainA.clear();
-            nodesChainB.clear();
+            const bool preservePedalTopology = (!nodesChainA.empty() || !nodesChainB.empty());
+
+            if (!preservePedalTopology)
+            {
+                mainGraph->clear();
+                nodesChainA.clear();
+                nodesChainB.clear();
+            }
 
             // 1) Hardware I/O
-            inputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
-                juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
+            if (inputNode == nullptr || mainGraph->getNodeForId(inputNode->nodeID) == nullptr)
+            {
+                inputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
+                    juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode));
+            }
 
-            outputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
-                juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
+            if (outputNode == nullptr || mainGraph->getNodeForId(outputNode->nodeID) == nullptr)
+            {
+                outputNode = mainGraph->addNode(std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
+                    juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode));
+            }
 
             // 2) Internal processors
-            inputChainNode = mainGraph->addNode(std::make_unique<InputChainProcessor>());
-            stripNodeA = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
-            stripNodeB = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
+            if (inputChainNode == nullptr || mainGraph->getNodeForId(inputChainNode->nodeID) == nullptr)
+                inputChainNode = mainGraph->addNode(std::make_unique<InputChainProcessor>());
+
+            if (stripNodeA == nullptr || mainGraph->getNodeForId(stripNodeA->nodeID) == nullptr)
+                stripNodeA = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
+
+            if (stripNodeB == nullptr || mainGraph->getNodeForId(stripNodeB->nodeID) == nullptr)
+                stripNodeB = mainGraph->addNode(std::make_unique<ChannelStripProcessor>());
 
             // 3) Output chain
-            outputChainNode = mainGraph->addNode(std::make_unique<OutputChainProcessor>());
+            if (outputChainNode == nullptr || mainGraph->getNodeForId(outputChainNode->nodeID) == nullptr)
+                outputChainNode = mainGraph->addNode(std::make_unique<OutputChainProcessor>());
         }
 
         // INPUT ROUTING: remove old connections from hardware input.
@@ -123,6 +199,12 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     }
 
     applyPendingGlobalParams();
+    NovaDiagnostics::SessionLogger::logEvent("engine.prepare",
+        "Prepared engine: sampleRate=" + juce::String(sampleRate)
+        + ", blockSize=" + juce::String(samplesPerBlock)
+        + ", inputs=" + juce::String(numIn)
+        + ", outputs=" + juce::String(numOut)
+        + juce::newLine + buildDiagnosticReport());
     startThread(juce::Thread::Priority::low);
 }
 
@@ -270,6 +352,75 @@ void AudioEngine::updateGlobalParams(const RuntimeGlobalParams& snapshot)
     globalParamsRevision.fetch_add(1, std::memory_order_release);
 }
 
+juce::String AudioEngine::describeChainState(const std::vector<ChainNodeSlot>& chain) const
+{
+    juce::StringArray lines;
+
+    for (size_t i = 0; i < chain.size(); ++i)
+    {
+        const auto& slot = chain[i];
+        juce::String line;
+        line << "#" << (int)i
+            << " zone=" << zoneToText(slot.zone)
+            << " pedalID=" << (slot.pedalID.isEmpty() ? "<none>" : slot.pedalID);
+
+        if (slot.node == nullptr || slot.node->getProcessor() == nullptr)
+        {
+            line << " processor=<null>";
+            lines.add(line);
+            continue;
+        }
+
+        auto* processor = slot.node->getProcessor();
+        line << " processor=" << processor->getName()
+            << " suspended=" << boolToText(processor->isSuspended());
+
+        if (auto* base = dynamic_cast<ProcessorBase*>(processor))
+            line << " bypassed=" << boolToText(base->getBypassed());
+
+        lines.add(line);
+    }
+
+    if (lines.isEmpty())
+        lines.add("<empty>");
+
+    return lines.joinIntoString(juce::newLine);
+}
+
+juce::String AudioEngine::buildDiagnosticReport() const
+{
+    RuntimeGlobalParams params;
+    {
+        const juce::SpinLock::ScopedLockType lock(globalParamsLock);
+        params = pendingGlobalParams;
+    }
+
+    const juce::ScopedLock sl(vectorLock);
+
+    juce::String report;
+    report << "engineOn=" << boolToText(isEngineOn.load())
+        << ", tunerEnabled=" << boolToText(tunerEnabled.load())
+        << ", sampleRate=" << currentSampleRate
+        << ", blockSize=" << currentBlockSize
+        << ", inputChannels=" << numInputChannels
+        << ", startupCounter=" << startupCounter
+        << ", graphLatencySamples=" << getLatencyNumSamples()
+        << ", wetMix=" << currentGlobalMix.load()
+        << ", cpuLoad=" << cpuUsage.load()
+        << ", pendingGlobalRevision=" << (int)globalParamsRevision.load()
+        << ", appliedGlobalRevision=" << (int)appliedGlobalParamsRevision.load()
+        << ", consecutiveCorruptBlocks=" << consecutiveCorruptBlocks
+        << ", recoveryCooldownBlocks=" << recoveryCooldownBlocks
+        << ", lastInputPeak=" << lastInputPeak.load()
+        << ", lastOutputPeak=" << lastOutputPeak.load()
+        << juce::newLine
+        << "runtimeParams: " << formatRuntimeParams(params) << juce::newLine
+        << "chainA:" << juce::newLine << describeChainState(nodesChainA) << juce::newLine
+        << "chainB:" << juce::newLine << describeChainState(nodesChainB);
+
+    return report;
+}
+
 void AudioEngine::applyPendingGlobalParams()
 {
     const auto pendingRevision = globalParamsRevision.load(std::memory_order_acquire);
@@ -384,6 +535,16 @@ void AudioEngine::enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe)
         pendingGraphCommands.push_back(cmd);
         graphCommandsPending.store(true, std::memory_order_release);
     }
+
+    juce::String message;
+    message << "type=" << static_cast<int>(cmd.type)
+        << ", chain=" << (cmd.chain == Nova::ChainID::LineA ? "A" : "B")
+        << ", index=" << cmd.index
+        << ", zone=" << zoneToText(cmd.zone)
+        << ", pedalType=" << cmd.pedalType
+        << ", pedalID=" << cmd.pedalID
+        << ", flag=" << boolToText(cmd.flag);
+    NovaDiagnostics::SessionLogger::logEvent("engine.graph.enqueue", message);
 
     if (flushIfSafe)
         notify();
@@ -636,6 +797,15 @@ void AudioEngine::setPedalBypassed(Nova::ChainID chain, int index, bool bypassed
     enqueueGraphCommand(cmd, true);
 }
 
+void AudioEngine::synchronizeProcessingState()
+{
+    const bool runningOnAudioThread = (audioThreadID != juce::Thread::ThreadID()
+        && juce::Thread::getCurrentThreadId() == audioThreadID);
+
+    flushPendingGraphCommands(!runningOnAudioThread);
+    applyPendingGlobalParams();
+}
+
 // ==========================================================
 // INFO / CONTROL
 // ==========================================================
@@ -674,6 +844,8 @@ void AudioEngine::setEngineEnabled(bool enabled)
     cmd.type = GraphCommandType::SetEngineEnabled;
     cmd.flag = enabled;
     enqueueGraphCommand(cmd, true);
+    NovaDiagnostics::SessionLogger::logEvent("engine.state",
+        "Requested engineEnabled=" + boolToText(enabled));
 }
 
 double AudioEngine::getCpuLoad() const { return cpuUsage.load(); }
@@ -723,12 +895,24 @@ bool AudioEngine::sanitizeAudioBuffer(juce::AudioBuffer<float>& buffer)
     return hadInvalid;
 }
 
+float AudioEngine::measureBlockPeak(const juce::AudioBuffer<float>& buffer)
+{
+    float peak = 0.0f;
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        peak = juce::jmax(peak, buffer.getMagnitude(ch, 0, buffer.getNumSamples()));
+
+    return peak;
+}
+
 void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     if (audioThreadID == juce::Thread::ThreadID())
         audioThreadID = juce::Thread::getCurrentThreadId();
 
     const auto startTime = juce::Time::getMillisecondCounterHiRes();
+    const float inputPeak = measureBlockPeak(buffer);
+    lastInputPeak.store(inputPeak, std::memory_order_relaxed);
 
     // Apply queued topology/state changes at a block boundary on the audio thread.
     flushPendingGraphCommands(false);
@@ -775,6 +959,35 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
 
     // 6) Safety net + auto-heal
     const bool hadCorruption = sanitizeAudioBuffer(buffer);
+    const float outputPeak = measureBlockPeak(buffer);
+    lastOutputPeak.store(outputPeak, std::memory_order_relaxed);
+
+    if (isEngineOn.load() && !tunerEnabled.load() && startupCounter == 0 && currentGlobalMix.load() > 0.01f)
+    {
+        constexpr float kInputActiveThreshold = 0.003f;
+        constexpr float kOutputSilentThreshold = 0.00008f;
+        const bool suspiciousSilence = (inputPeak >= kInputActiveThreshold && outputPeak <= kOutputSilentThreshold);
+
+        if (suspiciousSilence)
+        {
+            const int blocks = silentOutputBlockCounter.fetch_add(1, std::memory_order_relaxed) + 1;
+            const int triggerBlocks = juce::jmax(8, juce::roundToInt((currentRate / juce::jmax(1, currentBlockSize)) * 0.75));
+
+            if (blocks >= triggerBlocks && !silentOutputIncidentActive.exchange(true, std::memory_order_relaxed))
+                pendingSilentOutputLog.store(true, std::memory_order_release);
+        }
+        else
+        {
+            silentOutputBlockCounter.store(0, std::memory_order_relaxed);
+
+            if (silentOutputIncidentActive.exchange(false, std::memory_order_relaxed))
+                pendingSilentOutputRecoveryLog.store(true, std::memory_order_release);
+        }
+    }
+    else
+    {
+        silentOutputBlockCounter.store(0, std::memory_order_relaxed);
+    }
 
     if (hadCorruption)
         ++consecutiveCorruptBlocks;
@@ -792,6 +1005,7 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
             vectorLock.exit();
             startupCounter = juce::jmax(startupCounter, 8);
             recoveryCooldownBlocks = 256;
+            pendingAutoHealLog.store(true, std::memory_order_release);
         }
         else
         {
@@ -826,6 +1040,33 @@ void AudioEngine::run()
 {
     while (!threadShouldExit())
     {
+        if (graphCommandsPending.load(std::memory_order_acquire)
+            || globalParamsRevision.load(std::memory_order_acquire) != appliedGlobalParamsRevision.load(std::memory_order_relaxed))
+        {
+            synchronizeProcessingState();
+        }
+
+        if (pendingSilentOutputLog.exchange(false, std::memory_order_acq_rel))
+        {
+            NovaDiagnostics::SessionLogger::logEvent("engine.warning",
+                "Detected sustained input-active/output-near-silent condition."
+                + juce::newLine + buildDiagnosticReport());
+        }
+
+        if (pendingSilentOutputRecoveryLog.exchange(false, std::memory_order_acq_rel))
+        {
+            NovaDiagnostics::SessionLogger::logEvent("engine.info",
+                "Recovered from input-active/output-near-silent condition."
+                + juce::newLine + buildDiagnosticReport());
+        }
+
+        if (pendingAutoHealLog.exchange(false, std::memory_order_acq_rel))
+        {
+            NovaDiagnostics::SessionLogger::logEvent("engine.autorecover",
+                "Sanitizer triggered graph reset after corrupt audio detection."
+                + juce::newLine + buildDiagnosticReport());
+        }
+
         if (tunerEnabled)
         {
             tunerService.process();

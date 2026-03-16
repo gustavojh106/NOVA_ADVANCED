@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <atomic>
 #include <vector>
 #include "PluginProcessor.h"
 #include "Constants.h"
@@ -19,6 +20,7 @@ class PedalSlotComponent;
 // ==============================================================================
 class NOVAAudioProcessorEditor : public juce::AudioProcessorEditor,
     public juce::ValueTree::Listener,
+    public juce::AsyncUpdater,
     public juce::DragAndDropContainer
 {
 public:
@@ -37,11 +39,13 @@ private:
     // Helpers visuales
     void setupKnob(juce::Slider& slider, const juce::String& name, float min, float max, float def);
     void drawChannelStrip(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title);
+    void requestUiRefresh();
+    void handleAsyncUpdate() override;
 
     // Callbacks de ValueTree (Sincronización de Datos)
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override;
-    void valueTreeChildAdded(juce::ValueTree&, juce::ValueTree&) override { updatePedalGui(); }
-    void valueTreeChildRemoved(juce::ValueTree&, juce::ValueTree&, int) override { updatePedalGui(); }
+    void valueTreeChildAdded(juce::ValueTree&, juce::ValueTree&) override { requestUiRefresh(); }
+    void valueTreeChildRemoved(juce::ValueTree&, juce::ValueTree&, int) override { requestUiRefresh(); }
 
     void updatePedalGui();
     void updateSwitcherState();
@@ -150,10 +154,10 @@ private:
         {
             parent.updateStats();
             parent.updateSwitcherState();
-            parent.updatePedalGui();
         }
     };
     std::unique_ptr<StatsTimer> statsTimer;
+    std::atomic<bool> uiRefreshPending{ false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NOVAAudioProcessorEditor)
 };

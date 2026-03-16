@@ -1,6 +1,8 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "OfflineQADiagnostics.h"
 #include "PedalRegistry.h"
+#include "SessionLogger.h"
 
 #include <cmath>
 
@@ -20,11 +22,65 @@ void maybeRunAudioValidationTestsOnce()
 
     // Run the NOVA audio-engine validation suite on demand without affecting normal debug startup.
     hasRun = true;
+    NovaDiagnostics::SessionLogger::logEvent("tests", "Running NOVA validation suite from NOVA_RUN_AUDIO_TESTS=1");
     juce::UnitTestRunner runner;
     runner.setAssertOnFailure(false);
     runner.runTestsInCategory("NOVA");
+    NovaDiagnostics::SessionLogger::logEvent("tests", "Finished NOVA validation suite");
 }
 #endif
+
+#if JUCE_DEBUG
+void maybeRunOfflineQADiagnosticsOnce()
+{
+    static bool hasRun = false;
+
+    if (hasRun)
+        return;
+
+    const auto envValue = juce::SystemStats::getEnvironmentVariable("NOVA_RUN_AUDIO_QA", {});
+    if (envValue != "1")
+        return;
+
+    hasRun = true;
+    NovaDiagnostics::SessionLogger::logEvent("qa.offline", "Running offline QA diagnostics from NOVA_RUN_AUDIO_QA=1");
+    NovaDiagnostics::OfflineQADiagnostics::runAndWriteReport();
+    NovaDiagnostics::SessionLogger::logEvent("qa.offline", "Finished offline QA diagnostics");
+}
+#endif
+
+juce::String boolToText(bool value)
+{
+    return value ? "true" : "false";
+}
+
+juce::String chainToText(Nova::ChainID chain)
+{
+    return chain == Nova::ChainID::LineA ? "LineA" : "LineB";
+}
+
+juce::String zoneToText(Nova::ZoneID zone)
+{
+    switch (zone)
+    {
+        case Nova::ZoneID::Pre:     return "Pre";
+        case Nova::ZoneID::Amp:     return "Amp";
+        case Nova::ZoneID::FX:      return "FX";
+        case Nova::ZoneID::Cabinet: return "Cabinet";
+        default:                    return "Unknown";
+    }
+}
+
+juce::String switchModeToText(int mode)
+{
+    switch (static_cast<Nova::SwitcherMode>(mode))
+    {
+        case Nova::SwitcherMode::LineA_Only: return "LineA_Only";
+        case Nova::SwitcherMode::LineB_Only: return "LineB_Only";
+        case Nova::SwitcherMode::Dual_Parallel: return "Dual_Parallel";
+        default: return "Unknown";
+    }
+}
 
 juce::File getStartupPresetPointerFile()
 {
@@ -78,6 +134,21 @@ bool runtimeParamsDiffer(const AudioEngine::RuntimeGlobalParams& lhs,
         || different(lhs.panB, rhs.panB)
         || different(lhs.widthB, rhs.widthB);
 }
+
+int getStateSchemaVersion(const juce::ValueTree& state) noexcept
+{
+    return state.isValid()
+        ? static_cast<int>(state.getProperty(Nova::IDs::STATE_SCHEMA_VERSION, 0))
+        : 0;
+}
+
+void stampStateSchema(juce::ValueTree state)
+{
+    if (!state.isValid())
+        return;
+
+    state.setProperty(Nova::IDs::STATE_SCHEMA_VERSION, Nova::Config::STATE_SCHEMA_VERSION, nullptr);
+}
 }
 
 // ==============================================================================
@@ -90,8 +161,10 @@ NOVAAudioProcessor::NOVAAudioProcessor()
         .withOutput("Out", juce::AudioChannelSet::stereo()))
     , pluginState(Nova::IDs::MAIN_STATE)
 {
+    NovaDiagnostics::SessionLogger::attachOwner("NOVAAudioProcessor");
 #if JUCE_DEBUG
     maybeRunAudioValidationTestsOnce();
+    maybeRunOfflineQADiagnosticsOnce();
 #endif
 
     createGlobalParameters();
@@ -100,11 +173,14 @@ NOVAAudioProcessor::NOVAAudioProcessor()
     clearSessionAndForgetStartupPreset();
 
     pluginState.addListener(this);
+    logStateSnapshot("processor.constructed");
 }
 
 NOVAAudioProcessor::~NOVAAudioProcessor()
 {
+    logStateSnapshot("processor.destroying");
     pluginState.removeListener(this);
+    NovaDiagnostics::SessionLogger::detachOwner("NOVAAudioProcessor");
 }
 
 void NOVAAudioProcessor::createGlobalParameters()
@@ -294,6 +370,7 @@ void NOVAAudioProcessor::refreshEngineGlobalParamsIfNeeded(bool force)
     audioEngine.updateGlobalParams(current);
     lastRuntimeGlobalParams = current;
     hasPushedRuntimeGlobals = true;
+    logRuntimeSnapshot(force ? "runtime.push.forced" : "runtime.push", current);
 }
 
 void NOVAAudioProcessor::refreshEngineEnabledIfNeeded()
@@ -305,6 +382,8 @@ void NOVAAudioProcessor::refreshEngineEnabledIfNeeded()
     audioEngine.setEngineEnabled(current);
     lastEngineEnabled = current;
     hasPushedEngineEnabled = true;
+    NovaDiagnostics::SessionLogger::logEvent("engine.toggle",
+        "Engine state pushed to engineOn=" + boolToText(current));
 }
 
 // ==============================================================================
@@ -313,6 +392,11 @@ void NOVAAudioProcessor::refreshEngineEnabledIfNeeded()
 
 void NOVAAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
+    NovaDiagnostics::SessionLogger::logEvent("processor.prepare",
+        "prepareToPlay sampleRate=" + juce::String(sampleRate)
+        + ", blockSize=" + juce::String(samplesPerBlock)
+        + ", inputs=" + juce::String(getTotalNumInputChannels())
+        + ", outputs=" + juce::String(getTotalNumOutputChannels()));
     audioEngine.prepare(sampleRate,
         samplesPerBlock,
         getTotalNumInputChannels(),
@@ -320,10 +404,12 @@ void NOVAAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
     refreshEngineEnabledIfNeeded();
     refreshEngineGlobalParamsIfNeeded(true);
+    logStateSnapshot("processor.prepared");
 }
 
 void NOVAAudioProcessor::releaseResources()
 {
+    NovaDiagnostics::SessionLogger::logEvent("processor.release", "releaseResources called");
 }
 
 void NOVAAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -357,9 +443,12 @@ void NOVAAudioProcessor::setCurrentProgram(int) {}
 const juce::String NOVAAudioProcessor::getProgramName(int) { return {}; }
 void NOVAAudioProcessor::changeProgramName(int, const juce::String&) {}
 
-bool NOVAAudioProcessor::isBusesLayoutSupported(const BusesLayout&) const
+bool NOVAAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
-    return true;
+    const auto& mainInput = layouts.getMainInputChannelSet();
+    const auto& mainOutput = layouts.getMainOutputChannelSet();
+    return mainInput == juce::AudioChannelSet::stereo()
+        && mainOutput == juce::AudioChannelSet::stereo();
 }
 
 // ==============================================================================
@@ -374,24 +463,33 @@ void NOVAAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 
     juce::MemoryOutputStream stream(destData, true);
     pluginState.writeToStream(stream);
+    NovaDiagnostics::SessionLogger::logEvent("state.serialize",
+        "Serialized plugin state. bytes=" + juce::String((int)destData.getSize()));
 }
 
 void NOVAAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
+    NovaDiagnostics::SessionLogger::logEvent("state.restore",
+        "Attempting state restore. bytes=" + juce::String(sizeInBytes));
     auto loaded = juce::ValueTree::readFromData(data, sizeInBytes);
     if (!loaded.isValid() || !loaded.hasType(Nova::IDs::MAIN_STATE))
     {
+        NovaDiagnostics::SessionLogger::logEvent("state.restore", "Invalid state payload; resetting to clean state");
         clearSessionAndForgetStartupPreset();
         return;
     }
 
     if (!applyStateTree(loaded, nullptr))
+    {
+        NovaDiagnostics::SessionLogger::logEvent("state.restore", "State restore failed; resetting to clean state");
         clearSessionAndForgetStartupPreset();
+    }
 }
 
 bool NOVAAudioProcessor::savePresetToFile(const juce::File& file)
 {
     auto stateToSave = pluginState.createCopy();
+    stampStateSchema(stateToSave);
     sanitizeLine(stateToSave.getChildWithName(Nova::IDs::LINE_A));
     sanitizeLine(stateToSave.getChildWithName(Nova::IDs::LINE_B));
     writeParameterStateToTree(stateToSave.getChildWithName(Nova::IDs::SETTINGS),
@@ -449,11 +547,17 @@ bool NOVAAudioProcessor::savePresetToFile(const juce::File& file)
     if (ok)
         writeStartupPresetFile(target);
 
+    NovaDiagnostics::SessionLogger::logEvent("preset.save",
+        juce::String(ok ? "Saved" : "Failed to save")
+        + " preset: " + target.getFullPathName());
+
     return ok;
 }
 
 bool NOVAAudioProcessor::loadPresetFromFile(const juce::File& file)
 {
+    NovaDiagnostics::SessionLogger::logEvent("preset.load",
+        "Loading preset: " + file.getFullPathName());
     juce::MemoryBlock data;
     if (!file.existsAsFile() || !file.loadFileAsData(data))
         return false;
@@ -468,6 +572,8 @@ bool NOVAAudioProcessor::loadPresetFromFile(const juce::File& file)
 bool NOVAAudioProcessor::applyStateTree(const juce::ValueTree& loadedState, const juce::File* presetFile)
 {
     auto loaded = loadedState.createCopy();
+    const auto incomingSchemaVersion = getStateSchemaVersion(loaded);
+    stampStateSchema(loaded);
     sanitizeLine(loaded.getChildWithName(Nova::IDs::LINE_A));
     sanitizeLine(loaded.getChildWithName(Nova::IDs::LINE_B));
 
@@ -483,6 +589,7 @@ bool NOVAAudioProcessor::applyStateTree(const juce::ValueTree& loadedState, cons
         getLineTree(Nova::ChainID::LineB));
 
     audioEngine.clearAll();
+    synchronizeEngineNow();
 
     auto rebuildLine = [this](Nova::ChainID chain)
         {
@@ -510,6 +617,7 @@ bool NOVAAudioProcessor::applyStateTree(const juce::ValueTree& loadedState, cons
 
     rebuildLine(Nova::ChainID::LineA);
     rebuildLine(Nova::ChainID::LineB);
+    synchronizeEngineNow();
 
     auto restorePedalStates = [this](Nova::ChainID chain)
         {
@@ -541,15 +649,25 @@ bool NOVAAudioProcessor::applyStateTree(const juce::ValueTree& loadedState, cons
 
     refreshEngineEnabledIfNeeded();
     refreshEngineGlobalParamsIfNeeded(true);
+    synchronizeEngineNow();
     if (presetFile != nullptr)
         writeStartupPresetFile(*presetFile);
+
+    NovaDiagnostics::SessionLogger::logEvent("state.apply",
+        juce::String("Applied state tree")
+        + ", incomingSchemaVersion=" + juce::String(incomingSchemaVersion)
+        + ", storedSchemaVersion=" + juce::String(Nova::Config::STATE_SCHEMA_VERSION)
+        + juce::String(presetFile != nullptr ? " from preset: " + presetFile->getFullPathName() : " from host state"));
+    logStateSnapshot("state.applied");
 
     return true;
 }
 
 void NOVAAudioProcessor::clearSessionAndForgetStartupPreset()
 {
+    NovaDiagnostics::SessionLogger::logEvent("session.reset", "Clearing session and forgetting startup preset");
     resetToCleanState();
+    synchronizeEngineNow();
 
     auto pointerFile = getStartupPresetPointerFile();
     if (pointerFile.existsAsFile())
@@ -593,7 +711,11 @@ void NOVAAudioProcessor::requestAddPedal(const juce::String& type, Nova::ChainID
 {
     const auto canonicalType = PedalRegistry::canonicalType(type);
     if (!PedalRegistry::isTypeSupported(canonicalType))
+    {
+        NovaDiagnostics::SessionLogger::logEvent("pedal.add",
+            "Rejected unsupported pedal type: " + type);
         return;
+    }
 
     const auto finalZone = Nova::PedalCatalog::enforceZone(canonicalType, zone);
 
@@ -643,11 +765,24 @@ void NOVAAudioProcessor::requestAddPedal(const juce::String& type, Nova::ChainID
     }
 
     list.addChild(newPedal, insertIndex, nullptr);
+    synchronizeEngineNow();
+    NovaDiagnostics::SessionLogger::logEvent("pedal.add",
+        "Added pedal type=" + canonicalType
+        + ", chain=" + chainToText(chain)
+        + ", zone=" + zoneToText(finalZone)
+        + ", insertIndex=" + juce::String(insertIndex)
+        + ", pedalID=" + newPedal.getProperty(Nova::IDs::PEDAL_ID).toString());
+    logStateSnapshot("pedal.add");
 }
 
 void NOVAAudioProcessor::requestRemovePedal(Nova::ChainID chain, int index)
 {
+    NovaDiagnostics::SessionLogger::logEvent("pedal.remove",
+        "Removing pedal chain=" + chainToText(chain)
+        + ", index=" + juce::String(index));
     getLineTree(chain).removeChild(index, nullptr);
+    synchronizeEngineNow();
+    logStateSnapshot("pedal.remove");
 }
 
 void NOVAAudioProcessor::requestBypassPedal(Nova::ChainID chain, int index, bool bypassed)
@@ -661,6 +796,11 @@ void NOVAAudioProcessor::requestBypassPedal(Nova::ChainID chain, int index, bool
         return;
 
     child.setProperty(Nova::IDs::PEDAL_ENABLED, !bypassed, nullptr);
+    synchronizeEngineNow();
+    NovaDiagnostics::SessionLogger::logEvent("pedal.bypass",
+        "Set pedal bypass chain=" + chainToText(chain)
+        + ", index=" + juce::String(index)
+        + ", bypassed=" + boolToText(bypassed));
 }
 
 void NOVAAudioProcessor::toggleEngine()
@@ -674,6 +814,8 @@ void NOVAAudioProcessor::toggleEngine()
         getLineTree(Nova::ChainID::LineA),
         getLineTree(Nova::ChainID::LineB));
     refreshEngineEnabledIfNeeded();
+    synchronizeEngineNow();
+    logStateSnapshot("engine.toggled");
 }
 
 void NOVAAudioProcessor::cycleSwitcher()
@@ -690,12 +832,17 @@ void NOVAAudioProcessor::cycleSwitcher()
         getLineTree(Nova::ChainID::LineA),
         getLineTree(Nova::ChainID::LineB));
     hasPushedRuntimeGlobals = false;
+    synchronizeEngineNow();
+    NovaDiagnostics::SessionLogger::logEvent("switcher",
+        "Cycled switcher to " + switchModeToText((int)getSwitcherMode()));
 }
 
 void NOVAAudioProcessor::toggleTuner()
 {
     const bool newState = !audioEngine.getTunerEnabled();
     audioEngine.setTunerEnabled(newState);
+    NovaDiagnostics::SessionLogger::logEvent("tuner",
+        "Tuner enabled=" + boolToText(newState));
 }
 
 // ==============================================================================
@@ -726,6 +873,11 @@ void NOVAAudioProcessor::valueTreeChildAdded(juce::ValueTree& parent, juce::Valu
 
     const bool enabled = (bool)child.getProperty(Nova::IDs::PEDAL_ENABLED, true);
     audioEngine.setPedalBypassed(chain, index, !enabled);
+    NovaDiagnostics::SessionLogger::logEvent("state.child.added",
+        "ValueTree child added chain=" + chainToText(chain)
+        + ", index=" + juce::String(index)
+        + ", type=" + child.getProperty(Nova::IDs::PEDAL_TYPE).toString()
+        + ", pedalID=" + child.getProperty(Nova::IDs::PEDAL_ID).toString());
 }
 
 void NOVAAudioProcessor::valueTreeChildRemoved(juce::ValueTree& parent, juce::ValueTree&, int index)
@@ -737,6 +889,10 @@ void NOVAAudioProcessor::valueTreeChildRemoved(juce::ValueTree& parent, juce::Va
         audioEngine.removePedal(Nova::ChainID::LineA, index);
     else if (parent.hasType(Nova::IDs::LINE_B))
         audioEngine.removePedal(Nova::ChainID::LineB, index);
+
+    NovaDiagnostics::SessionLogger::logEvent("state.child.removed",
+        "ValueTree child removed index=" + juce::String(index)
+        + ", parent=" + parent.getType().toString());
 }
 
 void NOVAAudioProcessor::valueTreePropertyChanged(juce::ValueTree& tree, const juce::Identifier& property)
@@ -758,10 +914,16 @@ void NOVAAudioProcessor::valueTreePropertyChanged(juce::ValueTree& tree, const j
         const int index = parent.indexOf(tree);
         const bool enabled = (bool)tree.getProperty(Nova::IDs::PEDAL_ENABLED, true);
         audioEngine.setPedalBypassed(chain, index, !enabled);
+        NovaDiagnostics::SessionLogger::logEvent("state.property",
+            "PEDAL_ENABLED changed chain=" + chainToText(chain)
+            + ", index=" + juce::String(index)
+            + ", enabled=" + boolToText(enabled));
         return;
     }
 
-    juce::ignoreUnused(tree, property);
+    NovaDiagnostics::SessionLogger::logEvent("state.property",
+        "Property changed tree=" + tree.getType().toString()
+        + ", property=" + property.toString());
 }
 
 // ==============================================================================
@@ -784,28 +946,50 @@ void NOVAAudioProcessor::sanitizeLine(juce::ValueTree line)
     if (!line.isValid())
         return;
 
-    for (int i = line.getNumChildren(); --i >= 0;)
+    struct SanitizedPedal
+    {
+        juce::ValueTree state;
+        int originalIndex = 0;
+        Nova::ZoneID zone = Nova::ZoneID::Pre;
+    };
+
+    std::vector<SanitizedPedal> sanitized;
+    sanitized.reserve((size_t) line.getNumChildren());
+    bool sawAmp = false;
+    bool sawCabinet = false;
+
+    for (int i = 0; i < line.getNumChildren(); ++i)
     {
         auto child = line.getChild(i);
         if (!child.hasType(Nova::IDs::PEDAL))
-        {
-            line.removeChild(i, nullptr);
             continue;
-        }
 
         const auto canonicalType = PedalRegistry::canonicalType(
             child.getProperty(Nova::IDs::PEDAL_TYPE).toString());
 
         if (!PedalRegistry::isTypeSupported(canonicalType))
-        {
-            line.removeChild(i, nullptr);
             continue;
-        }
 
         const auto zone = static_cast<Nova::ZoneID>(
             (int)child.getProperty(Nova::IDs::PEDAL_ZONE, (int)Nova::ZoneID::Pre));
 
         const auto finalZone = Nova::PedalCatalog::enforceZone(canonicalType, zone);
+
+        if (finalZone == Nova::ZoneID::Amp)
+        {
+            if (sawAmp)
+                continue;
+
+            sawAmp = true;
+        }
+
+        if (finalZone == Nova::ZoneID::Cabinet)
+        {
+            if (sawCabinet)
+                continue;
+
+            sawCabinet = true;
+        }
 
         child.setProperty(Nova::IDs::PEDAL_TYPE, canonicalType, nullptr);
         child.setProperty(Nova::IDs::PEDAL_ZONE, static_cast<int>(finalZone), nullptr);
@@ -813,13 +997,32 @@ void NOVAAudioProcessor::sanitizeLine(juce::ValueTree line)
             child.setProperty(Nova::IDs::PEDAL_ENABLED, true, nullptr);
         if (!child.hasProperty(Nova::IDs::PEDAL_ID))
             child.setProperty(Nova::IDs::PEDAL_ID, juce::Uuid().toString(), nullptr);
+
+        sanitized.push_back({ child.createCopy(), i, finalZone });
     }
+
+    std::stable_sort(sanitized.begin(), sanitized.end(),
+        [](const SanitizedPedal& lhs, const SanitizedPedal& rhs)
+        {
+            const auto leftRank = zoneSortRank(lhs.zone);
+            const auto rightRank = zoneSortRank(rhs.zone);
+            if (leftRank != rightRank)
+                return leftRank < rightRank;
+
+            return lhs.originalIndex < rhs.originalIndex;
+        });
+
+    line.removeAllChildren(nullptr);
+
+    for (auto& pedal : sanitized)
+        line.appendChild(pedal.state, nullptr);
 }
 
 void NOVAAudioProcessor::resetToCleanState()
 {
     const juce::ScopedValueSetter<bool> sv(suppressStateCallbacks, true);
 
+    stampStateSchema(pluginState);
     pluginState.removeAllChildren(nullptr);
     ensureStateStructure();
 
@@ -864,10 +1067,14 @@ void NOVAAudioProcessor::resetToCleanState()
     hasPushedEngineEnabled = false;
     refreshEngineEnabledIfNeeded();
     refreshEngineGlobalParamsIfNeeded(true);
+    synchronizeEngineNow();
+    logStateSnapshot("state.clean");
 }
 
 void NOVAAudioProcessor::ensureStateStructure()
 {
+    stampStateSchema(pluginState);
+
     if (!pluginState.getChildWithName(Nova::IDs::SETTINGS).isValid())
         pluginState.appendChild(juce::ValueTree(Nova::IDs::SETTINGS), nullptr);
 
@@ -932,12 +1139,49 @@ void NOVAAudioProcessor::updateGlobalParamsFromState()
         getLineTree(Nova::ChainID::LineA),
         getLineTree(Nova::ChainID::LineB));
     refreshEngineGlobalParamsIfNeeded(true);
+    logStateSnapshot("runtime.from.state");
 }
 
 void NOVAAudioProcessor::updateMixerFromState()
 {
     // Keep API for compatibility; mixer/global params are handled in one path.
     updateGlobalParamsFromState();
+}
+
+void NOVAAudioProcessor::logRuntimeSnapshot(const juce::String& context, const AudioEngine::RuntimeGlobalParams& snapshot) const
+{
+    juce::String message;
+    message << "context=" << context
+        << ", engineOn=" << boolToText(isEngineOn())
+        << ", switchMode=" << switchModeToText(snapshot.switchMode)
+        << ", inputGainDb=" << snapshot.inputGainDb
+        << ", gateThresholdDb=" << snapshot.gateThresholdDb
+        << ", forceMono=" << boolToText(snapshot.forceMono)
+        << ", inputTranspose=" << snapshot.inputTranspose
+        << ", gainA=" << snapshot.gainA
+        << ", panA=" << snapshot.panA
+        << ", widthA=" << snapshot.widthA
+        << ", gainB=" << snapshot.gainB
+        << ", panB=" << snapshot.panB
+        << ", widthB=" << snapshot.widthB
+        << ", outputVolumeDb=" << snapshot.outputVolumeDb
+        << ", outputLimiterDb=" << snapshot.outputLimiterDb
+        << ", outputMixRaw=" << snapshot.outputMixRaw;
+
+    NovaDiagnostics::SessionLogger::logEvent("runtime.snapshot", message);
+}
+
+void NOVAAudioProcessor::logStateSnapshot(const juce::String& context) const
+{
+    NovaDiagnostics::SessionLogger::logEvent("state.snapshot",
+        "context=" + context + juce::newLine + NovaDiagnostics::SessionLogger::dumpValueTree(pluginState));
+    NovaDiagnostics::SessionLogger::logEvent("engine.snapshot",
+        "context=" + context + juce::newLine + audioEngine.buildDiagnosticReport());
+}
+
+void NOVAAudioProcessor::synchronizeEngineNow()
+{
+    audioEngine.synchronizeProcessingState();
 }
 
 // ==============================================================================

@@ -100,11 +100,12 @@ void AssetItem::paint(juce::Graphics& g)
 }
 void AssetItem::mouseDrag(const juce::MouseEvent& e)
 {
+    juce::ignoreUnused(e);
     if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this))
     {
         juce::String prefix = "PEDAL";
 
-        // Detección a prueba de balas basada en el nombre o en variaciones comunes
+        // DetecciÃ³n a prueba de balas basada en el nombre o en variaciones comunes
         if (itemName.containsIgnoreCase("Amp") || itemType.containsIgnoreCase("Amp"))
             prefix = "AMP";
         else if (itemName.containsIgnoreCase("Cab") || itemType.containsIgnoreCase("Cab"))
@@ -112,7 +113,7 @@ void AssetItem::mouseDrag(const juce::MouseEvent& e)
 
         juce::String dragDescription = prefix + ":" + itemName;
 
-        // Mensaje de diagnóstico para asegurar que estamos mandando lo correcto
+        // Mensaje de diagnÃ³stico para asegurar que estamos mandando lo correcto
         DBG("DRAG INICIADO -> " + dragDescription);
 
         container->startDragging(dragDescription, this);

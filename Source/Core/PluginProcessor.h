@@ -82,6 +82,9 @@ private:
     bool applyStateTree(const juce::ValueTree& loadedState, const juce::File* presetFile);
     void updateGlobalParamsFromState();
     void updateMixerFromState();
+    void logRuntimeSnapshot(const juce::String& context, const AudioEngine::RuntimeGlobalParams& snapshot) const;
+    void logStateSnapshot(const juce::String& context) const;
+    void synchronizeEngineNow();
 
     AudioEngine audioEngine;
     bool suppressStateCallbacks = false;

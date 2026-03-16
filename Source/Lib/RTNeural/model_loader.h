@@ -22,11 +22,11 @@ namespace RTNEURAL_NAMESPACE
 namespace json_parser
 {
 #if RTNEURAL_NO_DEBUG
-    RTNEURAL_MAYBE_UNUSED static void debug_print(const std::string&, bool)
+    RTNEURAL_MAYBE_UNUSED inline void debug_print(const std::string&, bool)
     {
     }
 #else
-    RTNEURAL_MAYBE_UNUSED static void debug_print(const std::string& str, bool debug)
+    RTNEURAL_MAYBE_UNUSED inline void debug_print(const std::string& str, bool debug)
     {
         if(debug)
             std::cout << str << std::endl;

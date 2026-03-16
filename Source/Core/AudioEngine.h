@@ -66,6 +66,7 @@ public:
 
     double getCpuLoad() const;
     int getLatencyNumSamples() const;
+    juce::String buildDiagnosticReport() const;
 
     void setTunerEnabled(bool shouldEnable);
 
@@ -77,6 +78,7 @@ public:
     float getTunerRMS() const { return tunerService.getCurrentRMS(); }
 
     void setPedalBypassed(Nova::ChainID chain, int index, bool bypassed);
+    void synchronizeProcessingState();
 
     void run() override;
 
@@ -128,6 +130,8 @@ private:
     void resetGraphStateNow();
     bool sanitizeAudioBuffer(juce::AudioBuffer<float>& buffer);
     void updateDryWetLatencyCompensation();
+    static float measureBlockPeak(const juce::AudioBuffer<float>& buffer);
+    juce::String describeChainState(const std::vector<ChainNodeSlot>& chain) const;
 
     float calculateFrequency(const float* signal, int numSamples, double sampleRate);
     std::pair<float, float> calculateFrequencyWithClarity(const float* signal, int numSamples, double sampleRate);
@@ -169,7 +173,7 @@ private:
     std::deque<GraphCommand> pendingGraphCommands;
     std::atomic<bool> graphCommandsPending{ false };
 
-    juce::SpinLock globalParamsLock;
+    mutable juce::SpinLock globalParamsLock;
     RuntimeGlobalParams pendingGlobalParams;
     std::atomic<uint32_t> globalParamsRevision{ 0 };
     std::atomic<uint32_t> appliedGlobalParamsRevision{ 0 };
@@ -177,4 +181,12 @@ private:
     int consecutiveCorruptBlocks = 0;
     int recoveryCooldownBlocks = 0;
     juce::Thread::ThreadID audioThreadID = {};
+
+    std::atomic<float> lastInputPeak{ 0.0f };
+    std::atomic<float> lastOutputPeak{ 0.0f };
+    std::atomic<int> silentOutputBlockCounter{ 0 };
+    std::atomic<bool> silentOutputIncidentActive{ false };
+    std::atomic<bool> pendingSilentOutputLog{ false };
+    std::atomic<bool> pendingSilentOutputRecoveryLog{ false };
+    std::atomic<bool> pendingAutoHealLog{ false };
 };

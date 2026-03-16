@@ -49,7 +49,7 @@ public:
         g.setColour(juce::Colours::grey.withAlpha(0.5f));
         g.drawRoundedRectangle(getLocalBounds().toFloat(), 6.0f, 1.0f);
         g.setColour(juce::Colours::white);
-        g.setFont(12.0f);
+        g.setFont(juce::Font(juce::FontOptions(12.0f)));
         g.drawFittedText(helpText, getLocalBounds().reduced(8), juce::Justification::centred, 4);
     }
 private:
@@ -259,7 +259,7 @@ void DropZone::paint(juce::Graphics& g)
     else if (zone == Nova::ZoneID::Cabinet) title = "SPEAKER CABINET";
 
     g.setColour(isMouseOver(true) ? juce::Colours::white.withAlpha(0.9f) : juce::Colours::grey.withAlpha(0.6f));
-    g.setFont(juce::Font(13.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(13.0f, juce::Font::bold)));
 
     auto textArea = bounds.removeFromBottom(40.0f);
     g.drawFittedText(title, textArea.toNearestInt(), juce::Justification::centred, 1);
@@ -267,6 +267,6 @@ void DropZone::paint(juce::Graphics& g)
     // Icono (i)
     g.setColour(isHoveringInfo ? juce::Colours::white : juce::Colours::grey.withAlpha(0.6f));
     g.drawEllipse(infoIconBounds, 1.0f);
-    g.setFont(juce::Font(11.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     g.drawFittedText("i", infoIconBounds.toNearestInt(), juce::Justification::centred, 1);
 }

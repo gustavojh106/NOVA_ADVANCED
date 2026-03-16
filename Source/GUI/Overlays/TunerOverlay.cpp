@@ -261,11 +261,11 @@ void TunerOverlay::paint(juce::Graphics& g)
         if (resetButton.isVisible())
         {
             g.setColour(Nova::Colors::Text);
-            g.drawRect(resetButton.getBounds().expanded(2), 2.0f);
+            g.drawRect(resetButton.getBounds().expanded(2), 2);
         }
 
         g.setColour(Nova::Colors::Accent);
-        g.setFont(juce::Font(60.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(60.0f, juce::Font::bold)));
         g.drawText("GUITAR TUNED!", bounds.withHeight(bounds.getHeight() / 2), juce::Justification::centred);
         return;
     }
@@ -301,7 +301,7 @@ void TunerOverlay::paint(juce::Graphics& g)
             g.setColour(c);
             g.drawRoundedRectangle(rect.toFloat(), 4.0f, isSelected ? 2.0f : 1.0f);
 
-            g.setFont(juce::Font(22.0f, isSelected ? juce::Font::bold : juce::Font::plain));
+            g.setFont(juce::Font(juce::FontOptions(22.0f, isSelected ? juce::Font::bold : juce::Font::plain)));
             g.drawText(presets[currentPresetIndex].stringNames[i], rect, juce::Justification::centred);
         }
     }
@@ -316,7 +316,7 @@ void TunerOverlay::paint(juce::Graphics& g)
 
     // Giant note
     g.setColour(statusColor);
-    g.setFont(juce::Font(100.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(100.0f, juce::Font::bold)));
     g.drawText(presets[currentPresetIndex].stringNames[currentStringIndex],
         bounds.withHeight(bounds.getHeight() / 2),
         juce::Justification::centredBottom);

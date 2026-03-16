@@ -67,7 +67,7 @@ namespace UI
             const float tickOuterRadius = trackRadius + 5.0f;
             const float labelRadius = trackRadius + 13.0f;
             const float fontSize = juce::jlimit(6.0f, 10.0f, radius * 0.26f);
-            g.setFont(juce::Font(fontSize, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(fontSize, juce::Font::bold)));
 
             for (int i = 0; i <= scaleSteps; ++i)
             {

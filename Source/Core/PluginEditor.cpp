@@ -70,7 +70,7 @@ public:
         g.fillRoundedRectangle(header, 10.0f);
 
         g.setColour(enabled ? juce::Colours::white.withAlpha(0.72f) : juce::Colours::white.withAlpha(0.32f));
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText(getDisplayName().toUpperCase(),
             header.toNearestInt().reduced(8, 0).withTrimmedRight(64),
             juce::Justification::centredLeft);
@@ -90,7 +90,7 @@ public:
             g.drawLine(overlay.getRight() - 34.0f, midY + 7.0f, overlay.getRight() - 20.0f, midY, 2.0f);
 
             g.setColour(juce::Colours::white.withAlpha(0.52f));
-            g.setFont(juce::Font(12.0f, juce::Font::bold));
+            g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
             g.drawText("POWER OFF", overlay.toNearestInt().withTrimmedBottom(8), juce::Justification::centredBottom);
         }
     }
@@ -197,7 +197,7 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     addAndMakeVisible(lblStats);
     lblStats.setJustificationType(juce::Justification::centred);
     lblStats.setColour(juce::Label::textColourId, juce::Colours::grey);
-    lblStats.setFont(12.0f);
+    lblStats.setFont(juce::Font(juce::FontOptions(12.0f)));
     lblStats.setText("CPU: - | Latency: -", juce::dontSendNotification);
 
     addAndMakeVisible(btnTuner);
@@ -344,7 +344,7 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     addAndMakeVisible(lblCurrentPreset);
     lblCurrentPreset.setJustificationType(juce::Justification::centred);
     lblCurrentPreset.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
-    lblCurrentPreset.setFont(12.0f);
+    lblCurrentPreset.setFont(juce::Font(juce::FontOptions(12.0f)));
     setCurrentPreset("No Preset");
 
     addAndMakeVisible(presetSelector);
@@ -406,6 +406,7 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
 NOVAAudioProcessorEditor::~NOVAAudioProcessorEditor()
 {
     audioProcessor.pluginState.removeListener(this);
+    cancelPendingUpdate();
     activePedalEditors.clear();
 
     for (auto* knob : { &inputVolume, &inputGate, &inputTranspose,
@@ -612,7 +613,7 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawHorizontalLine(headerRect.getBottom(), 0, (float)getWidth());
 
     g.setColour(juce::Colours::white);
-    g.setFont(30.0f);
+    g.setFont(juce::Font(juce::FontOptions(30.0f)));
     g.drawText("NOVA", headerRect.removeFromLeft(150), juce::Justification::centred);
 
     // Footer
@@ -629,7 +630,7 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawVerticalLine(left1.getRight(), (float)left1.getY(), (float)left1.getBottom());
 
     g.setColour(juce::Colours::white);
-    g.setFont(14.0f);
+    g.setFont(juce::Font(juce::FontOptions(14.0f)));
     g.drawText("DRIVE", left1.getX(), left1.getY() + 60, left1.getWidth(), 20, juce::Justification::centred);
     g.drawText("SPACE FX", left1.getX(), left1.getY() + 180, left1.getWidth(), 20, juce::Justification::centred);
     g.drawText("AMPLIFIERS", left1.getX(), left1.getY() + 320, left1.getWidth(), 20, juce::Justification::centred);
@@ -778,11 +779,11 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
     drawCircuit(yA, bridgeYA, tapXA, aActive, Nova::Colors::CableOnA);
     drawCircuit(yB, bridgeYB, tapXB, bActive, Nova::Colors::CableOnB);
 
-    g.setFont(11.0f);
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.setColour(juce::Colours::grey);
     g.drawText("CIRCUIT LINK", circuitZone.withTrimmedTop(25), juce::Justification::centredTop);
 
-    g.setFont(10.0f);
+    g.setFont(juce::Font(juce::FontOptions(10.0f)));
     g.setColour(juce::Colours::grey);
 
     const int yLbl = mixerArea.getBottom() - 30;
@@ -808,10 +809,10 @@ void NOVAAudioProcessorEditor::drawChannelStrip(juce::Graphics& g, juce::Rectang
     auto contentArea = area;
 
     g.setColour(juce::Colours::white);
-    g.setFont(16.0f);
+    g.setFont(juce::Font(juce::FontOptions(16.0f)));
     g.drawText(title, contentArea.removeFromTop(40), juce::Justification::centred);
 
-    g.setFont(12.0f);
+    g.setFont(juce::Font(juce::FontOptions(12.0f)));
     g.setColour(juce::Colours::grey);
 
     auto drawLabelFor = [&](const juce::String& txt, const juce::Component& c)
@@ -1243,10 +1244,37 @@ void NOVAAudioProcessorEditor::updateSwitcherState()
     repaint();
 }
 
+void NOVAAudioProcessorEditor::requestUiRefresh()
+{
+    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
+    {
+        uiRefreshPending.store(false, std::memory_order_release);
+        handleAsyncUpdate();
+        return;
+    }
+
+    const bool wasPending = uiRefreshPending.exchange(true, std::memory_order_acq_rel);
+    if (!wasPending)
+        triggerAsyncUpdate();
+}
+
+void NOVAAudioProcessorEditor::handleAsyncUpdate()
+{
+    uiRefreshPending.store(false, std::memory_order_release);
+    updateSwitcherState();
+    updatePedalGui();
+}
+
 void NOVAAudioProcessorEditor::valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier& id)
 {
-    if (id == Nova::IDs::PEDAL_ENABLED || id == Nova::IDs::PEDAL_TYPE || id == Nova::IDs::PEDAL_ZONE)
-        updatePedalGui();
+    if (id == Nova::IDs::PEDAL_ENABLED
+        || id == Nova::IDs::PEDAL_TYPE
+        || id == Nova::IDs::PEDAL_ZONE
+        || id == Nova::IDs::ENGINE_ON
+        || id == Nova::IDs::SWITCH_MODE)
+    {
+        requestUiRefresh();
+    }
 }
 
 bool NOVAAudioProcessorEditor::keyPressed(const juce::KeyPress& key)

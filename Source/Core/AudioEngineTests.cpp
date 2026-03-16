@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "AudioEngine.h"
+#include "PluginProcessor.h"
 #include "DSP/Global/ChannelStrip.h"
 #include "DSP/Global/InputChain.h"
 #include "DSP/Global/OutputChain.h"
@@ -329,6 +330,134 @@ public:
 
             engine.process(buffer, midi);
             expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
+        }
+
+        beginTest("AudioEngine recovers cleanly across engine disable and re-enable");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize);
+
+            juce::AudioBuffer<float> buffer(2, 4);
+            juce::MidiBuffer midi;
+            const std::vector<float> left{ 0.22f, -0.11f, 0.33f, -0.44f };
+            const std::vector<float> right{ -0.15f, 0.25f, -0.35f, 0.45f };
+
+            buffer.copyFrom(0, 0, left.data(), (int)left.size());
+            buffer.copyFrom(1, 0, right.data(), (int)right.size());
+            engine.process(buffer, midi);
+            expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
+
+            engine.setEngineEnabled(false);
+            warmUpEngine(engine, kBlockSize, 4);
+            buffer.copyFrom(0, 0, left.data(), (int)left.size());
+            buffer.copyFrom(1, 0, right.data(), (int)right.size());
+            engine.process(buffer, midi);
+            expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
+
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 10);
+            buffer.copyFrom(0, 0, left.data(), (int)left.size());
+            buffer.copyFrom(1, 0, right.data(), (int)right.size());
+            engine.process(buffer, midi);
+            expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
+        }
+
+        beginTest("AudioEngine diagnostic report reflects queued topology");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.addPedal("Delay", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "qa-delay");
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 12);
+
+            const auto report = engine.buildDiagnosticReport();
+            expect(report.contains("processor=Delay"), "Diagnostic report should list the Delay pedal");
+            expect(report.contains("pedalID=qa-delay"), "Diagnostic report should list the queued pedal ID");
+            expect(report.contains("chainA:"), "Diagnostic report should include Line A topology");
+        }
+
+        beginTest("AudioEngine preserves synchronized topology created before prepare");
+        {
+            AudioEngine engine;
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "pre-prepare-overdrive");
+            engine.addPedal("Classic Amp", Nova::ChainID::LineA, 1, Nova::ZoneID::Amp, "pre-prepare-amp");
+            engine.setEngineEnabled(true);
+            engine.synchronizeProcessingState();
+
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.synchronizeProcessingState();
+
+            const auto report = engine.buildDiagnosticReport();
+            expect(report.contains("processor=Overdrive"), "Pre-prepare Overdrive should survive prepare()");
+            expect(report.contains("processor=Classic Amp"), "Pre-prepare amp should survive prepare()");
+            expect(report.contains("pedalID=pre-prepare-overdrive"), "Overdrive pedal ID should survive prepare()");
+            expect(report.contains("pedalID=pre-prepare-amp"), "Amp pedal ID should survive prepare()");
+            expect(report.contains("engineOn=true"), "Engine enable should be materialized without waiting for process()");
+        }
+
+        beginTest("Plugin state migration stamps schema and canonicalizes loaded topology");
+        {
+            NOVAAudioProcessor processor;
+
+            juce::ValueTree legacyState(Nova::IDs::MAIN_STATE);
+            auto settings = juce::ValueTree(Nova::IDs::SETTINGS);
+            settings.setProperty(Nova::IDs::ENGINE_ON, false, nullptr);
+            settings.setProperty(Nova::IDs::SWITCH_MODE, (int)Nova::SwitcherMode::LineA_Only, nullptr);
+            legacyState.appendChild(settings, nullptr);
+
+            auto lineA = juce::ValueTree(Nova::IDs::LINE_A);
+            lineA.setProperty(Nova::IDs::MIXER_GAIN_A, 1.0f, nullptr);
+            lineA.setProperty(Nova::IDs::MIXER_PAN_A, 0.0f, nullptr);
+            lineA.setProperty(Nova::IDs::MIXER_WIDTH_A, 1.0f, nullptr);
+
+            auto ampA = juce::ValueTree(Nova::IDs::PEDAL);
+            ampA.setProperty(Nova::IDs::PEDAL_TYPE, "Classic Amp", nullptr);
+            ampA.setProperty(Nova::IDs::PEDAL_ZONE, (int)Nova::ZoneID::Amp, nullptr);
+            ampA.setProperty(Nova::IDs::PEDAL_ENABLED, true, nullptr);
+            lineA.appendChild(ampA, nullptr);
+
+            auto pre = juce::ValueTree(Nova::IDs::PEDAL);
+            pre.setProperty(Nova::IDs::PEDAL_TYPE, "Overdrive", nullptr);
+            pre.setProperty(Nova::IDs::PEDAL_ZONE, (int)Nova::ZoneID::Pre, nullptr);
+            lineA.appendChild(pre, nullptr);
+
+            auto ampB = juce::ValueTree(Nova::IDs::PEDAL);
+            ampB.setProperty(Nova::IDs::PEDAL_TYPE, "Classic Amp", nullptr);
+            ampB.setProperty(Nova::IDs::PEDAL_ZONE, (int)Nova::ZoneID::Amp, nullptr);
+            lineA.appendChild(ampB, nullptr);
+
+            legacyState.appendChild(lineA, nullptr);
+            legacyState.appendChild(juce::ValueTree(Nova::IDs::LINE_B), nullptr);
+
+            juce::MemoryOutputStream inputStream;
+            legacyState.writeToStream(inputStream);
+            processor.setStateInformation(inputStream.getData(), (int)inputStream.getDataSize());
+
+            juce::MemoryBlock roundTripped;
+            processor.getStateInformation(roundTripped);
+            const auto migrated = juce::ValueTree::readFromData(roundTripped.getData(), (int)roundTripped.getSize());
+
+            expect(migrated.isValid(), "Migrated state should deserialize");
+            expectEquals((int)migrated.getProperty(Nova::IDs::STATE_SCHEMA_VERSION, -1), Nova::Config::STATE_SCHEMA_VERSION);
+
+            const auto migratedLineA = migrated.getChildWithName(Nova::IDs::LINE_A);
+            expectEquals(migratedLineA.getNumChildren(), 2);
+
+            const auto firstPedal = migratedLineA.getChild(0);
+            const auto secondPedal = migratedLineA.getChild(1);
+            expectEquals(firstPedal.getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Overdrive"));
+            expectEquals((int)firstPedal.getProperty(Nova::IDs::PEDAL_ZONE, -1), (int)Nova::ZoneID::Pre);
+            expectEquals(secondPedal.getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Classic Amp"));
+            expectEquals((int)secondPedal.getProperty(Nova::IDs::PEDAL_ZONE, -1), (int)Nova::ZoneID::Amp);
+            expect(firstPedal.hasProperty(Nova::IDs::PEDAL_ID), "Legacy pedal should receive a generated ID");
+            expect(secondPedal.hasProperty(Nova::IDs::PEDAL_ID), "Legacy pedal should receive a generated ID");
         }
     }
 };
