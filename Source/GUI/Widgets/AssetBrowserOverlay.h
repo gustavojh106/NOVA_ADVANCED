@@ -24,8 +24,7 @@ private:
     void layoutItems();
 
     juce::String getTitleForZone() const;
-    juce::String getTypeLabelForZone() const;
-    std::vector<juce::String> getAvailableTypeIDsForZone() const;
+    juce::String getZoneHint() const;
 
     Nova::ZoneID targetZone{};
     std::function<void(juce::String)> onSelect;

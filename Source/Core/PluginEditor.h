@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <array>
 #include <atomic>
 #include <vector>
 #include "PluginProcessor.h"
@@ -38,6 +39,8 @@ public:
 private:
     // Helpers visuales
     void setupKnob(juce::Slider& slider, const juce::String& name, float min, float max, float def);
+    void setupQuickAddButton(DraggableButton& button, const juce::String& typeID, const juce::String& itemType);
+    void applyBrowserFilter();
     void drawChannelStrip(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title);
     void requestUiRefresh();
     void handleAsyncUpdate() override;
@@ -67,18 +70,17 @@ private:
     juce::Label lblStats;
 
     juce::TextButton btnTuner{ "T" };
-    juce::TextButton btnMetronome{ "M" };
-    juce::TextButton btnSettings{ "Set" };
-    juce::TextButton btnProfile{ "Profile" };
 
     // --- 2. BROWSER (Izquierda) ---
     juce::TextEditor searchBarBrowser;
     // Usamos la clase importada DraggableButton
+    DraggableButton btnAddCompressor{ "Compressor" };
     DraggableButton btnAddOverdrive{ "Overdrive" };
+    DraggableButton btnAddChorus{ "Chorus" };
     DraggableButton btnAddDelay{ "Delay" };
     DraggableButton btnAddReverb{ "Reverb" };
     DraggableButton btnAddCabinet{ "Cabinet" };
-    DraggableButton btnAddNeural{ "Neural Amp" };
+    DraggableButton btnAddNeural{ "Classic Amp" };
 
     // --- 3. INPUT STRIP ---
     juce::SharedResourcePointer<UI::ModernKnobLnF> knobLnf;

@@ -3,7 +3,10 @@
 #include "../Pedals/Base/ProcessorBase.h"
 #include "../Pedals/Base/PremiumPedalUI.h"
 
+#include "../../../JuceLibraryCode/BinaryData.h"
 #include <juce_dsp/juce_dsp.h>
+#include <cmath>
+#include <limits>
 
 class CabinetPedal final : public ProcessorBase
 {
@@ -69,6 +72,9 @@ public:
             true);
 
         currentSampleRate = sampleRate;
+        cachedThump = std::numeric_limits<float>::quiet_NaN();
+        cachedAir = std::numeric_limits<float>::quiet_NaN();
+        cachedDistance = std::numeric_limits<float>::quiet_NaN();
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
         isPrepared = true;
@@ -150,23 +156,8 @@ private:
 
     void loadImpulseResponse()
     {
-        auto irFile = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
-            .getParentDirectory()
-            .getChildFile("demo.wav");
-
-        if (!irFile.existsAsFile())
-        {
-            irFile = juce::File(__FILE__)
-                .getParentDirectory()
-                .getParentDirectory()
-                .getParentDirectory()
-                .getChildFile("Assets/Audio/demo.wav");
-        }
-
-        if (!irFile.existsAsFile())
-            return;
-
-        convolution.loadImpulseResponse(irFile,
+        convolution.loadImpulseResponse(BinaryData::demo_wav,
+            (size_t)BinaryData::demo_wavSize,
             juce::dsp::Convolution::Stereo::yes,
             juce::dsp::Convolution::Trim::yes,
             0,
@@ -178,6 +169,16 @@ private:
         const float thump = thumpParam != nullptr ? *thumpParam : 1.5f;
         const float air = airParam != nullptr ? *airParam : 0.0f;
         const float distance = distanceParam != nullptr ? *distanceParam : 0.34f;
+
+        const bool thumpChanged = !std::isfinite(cachedThump) || std::abs(cachedThump - thump) > 1.0e-4f;
+        const bool airChanged = !std::isfinite(cachedAir) || std::abs(cachedAir - air) > 1.0e-4f;
+        const bool distanceChanged = !std::isfinite(cachedDistance) || std::abs(cachedDistance - distance) > 1.0e-4f;
+        if (!thumpChanged && !airChanged && !distanceChanged)
+            return;
+
+        cachedThump = thump;
+        cachedAir = air;
+        cachedDistance = distance;
 
         const float lowPass = juce::jmap(distance, 9800.0f, 3600.0f);
         const float highPass = juce::jmap(distance, 55.0f, 140.0f);
@@ -214,5 +215,8 @@ private:
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentSampleRate = 44100.0;
+    float cachedThump = std::numeric_limits<float>::quiet_NaN();
+    float cachedAir = std::numeric_limits<float>::quiet_NaN();
+    float cachedDistance = std::numeric_limits<float>::quiet_NaN();
     bool isPrepared = false;
 };

@@ -18,31 +18,47 @@ struct Entry
 {
     const char* typeID;
     const char* displayName;
+    const char* subtitle;
+    const char* searchTokens;
+    const char* accentHex;
     Kind kind;
+    bool quickAccess = true;
 };
 
-inline const std::array<Entry, 5>& entries() noexcept
+inline const std::array<Entry, 7>& entries() noexcept
 {
-    static constexpr std::array<Entry, 5> data{ {
-        { "Overdrive",  "Overdrive",  Kind::Pedal },
-        { "Delay",      "Delay",      Kind::Pedal },
-        { "Reverb",     "Reverb",     Kind::Pedal },
-        { "Classic Amp", "Classic Amp", Kind::Amplifier },
-        { "Cabinet",    "Cabinet",    Kind::Cabinet }
+    static constexpr std::array<Entry, 7> data{ {
+        { "Compressor", "Compressor", "Studio sustain", "compressor dynamics sustain punch clean leveler", "ff62d8b2", Kind::Pedal, true },
+        { "Overdrive", "Overdrive", "Articulate gain", "overdrive drive dirt boost crunch rhythm solo", "fff36f45", Kind::Pedal, true },
+        { "Chorus", "Chorus", "Stereo motion", "chorus modulation width shimmer dimension spread", "ff72c1ff", Kind::Pedal, true },
+        { "Delay", "Delay", "Spatial repeats", "delay echoes ambient repeats slapback space", "ff7cb8ff", Kind::Pedal, true },
+        { "Reverb", "Reverb", "Lush ambience", "reverb room hall plate ambient trail wash", "ff98d9d1", Kind::Pedal, true },
+        { "Classic Amp", "Classic Amp", "British head", "amp amplifier head crunch lead stack", "fff4b942", Kind::Amplifier, true },
+        { "Cabinet", "Cabinet", "Atlas 4x12", "cabinet speaker mic room 4x12 resonance", "ff6bd1ff", Kind::Cabinet, true }
     } };
 
     return data;
 }
 
-inline Kind kindFromType(const juce::String& requestedType)
+inline const Entry* findEntry(const juce::String& requestedType) noexcept
 {
     const auto cleaned = requestedType.trim();
 
     for (const auto& e : entries())
     {
         if (cleaned.equalsIgnoreCase(e.typeID) || cleaned.equalsIgnoreCase(e.displayName))
-            return e.kind;
+            return &e;
     }
+
+    return nullptr;
+}
+
+inline Kind kindFromType(const juce::String& requestedType)
+{
+    if (const auto* entry = findEntry(requestedType))
+        return entry->kind;
+
+    const auto cleaned = requestedType.trim();
 
     if (cleaned.containsIgnoreCase("amp"))
         return Kind::Amplifier;
@@ -54,26 +70,57 @@ inline Kind kindFromType(const juce::String& requestedType)
 
 inline juce::String canonicalType(const juce::String& requestedType)
 {
-    const auto cleaned = requestedType.trim();
+    if (const auto* entry = findEntry(requestedType))
+        return juce::String(entry->typeID);
 
-    for (const auto& e : entries())
-    {
-        if (cleaned.equalsIgnoreCase(e.typeID) || cleaned.equalsIgnoreCase(e.displayName))
-            return juce::String(e.typeID);
-    }
-
-    return cleaned;
+    return requestedType.trim();
 }
 
 inline bool isKnownType(const juce::String& requestedType)
 {
-    const auto canonical = canonicalType(requestedType);
+    return findEntry(requestedType) != nullptr;
+}
 
-    for (const auto& e : entries())
-        if (canonical.equalsIgnoreCase(e.typeID))
-            return true;
+inline juce::Colour accentForType(const juce::String& requestedType)
+{
+    if (const auto* entry = findEntry(requestedType))
+        return juce::Colour::fromString(entry->accentHex);
 
-    return false;
+    return juce::Colour::fromString("ff6bd1ff");
+}
+
+inline juce::String subtitleForType(const juce::String& requestedType)
+{
+    if (const auto* entry = findEntry(requestedType))
+        return juce::String(entry->subtitle);
+
+    return {};
+}
+
+inline bool matchesFilter(const Entry& entry, const juce::String& filter)
+{
+    const auto trimmed = filter.trim();
+    if (trimmed.isEmpty())
+        return true;
+
+    juce::String haystack;
+    haystack << entry.typeID << " "
+        << entry.displayName << " "
+        << entry.subtitle << " "
+        << entry.searchTokens;
+
+    return haystack.containsIgnoreCase(trimmed);
+}
+
+inline juce::String badgeForKind(Kind kind)
+{
+    switch (kind)
+    {
+        case Kind::Amplifier: return "Amp";
+        case Kind::Cabinet:   return "Cab";
+        case Kind::Pedal:
+        default:              return "Pedal";
+    }
 }
 
 inline ZoneID enforceZone(const juce::String& requestedType, ZoneID requestedZone)

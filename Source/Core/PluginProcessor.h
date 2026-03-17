@@ -56,6 +56,8 @@ public:
 
     AudioEngine& getAudioEngine() { return audioEngine; }
     double getCpuUsage() const;
+    float getInputPeak() const;
+    float getOutputPeak() const;
     juce::RangedAudioParameter* getGlobalParameter(const juce::String& paramID) const;
     bool isEngineOn() const;
     Nova::SwitcherMode getSwitcherMode() const;
@@ -66,25 +68,21 @@ private:
     void valueTreeChildRemoved(juce::ValueTree& parent, juce::ValueTree& child, int index) override;
     void valueTreePropertyChanged(juce::ValueTree& tree, const juce::Identifier& property) override;
 
-    // Helpers internos (legibilidad, NO cambian funcionalidad)
-    juce::ValueTree getSettingsTree() const;
-    juce::ValueTree getLineTree(Nova::ChainID chain) const;
-    static void sanitizeLine(juce::ValueTree line);
+    // Host bridge helpers.
     void createGlobalParameters();
     AudioEngine::RuntimeGlobalParams makeRuntimeGlobalParams() const;
     void writeParameterStateToTree(juce::ValueTree settings, juce::ValueTree lineA, juce::ValueTree lineB) const;
     void applyTreeStateToParameters(juce::ValueTree settings, juce::ValueTree lineA, juce::ValueTree lineB);
     void refreshEngineEnabledIfNeeded();
     void refreshEngineGlobalParamsIfNeeded(bool force);
-    void resetToCleanState();
-    void ensureStateStructure();
-    void applyDefaultStateIfNeeded();
     bool applyStateTree(const juce::ValueTree& loadedState, const juce::File* presetFile);
     void updateGlobalParamsFromState();
     void updateMixerFromState();
     void logRuntimeSnapshot(const juce::String& context, const AudioEngine::RuntimeGlobalParams& snapshot) const;
     void logStateSnapshot(const juce::String& context) const;
     void synchronizeEngineNow();
+    void resetSessionState(bool forgetStartupPreset);
+    bool restoreStartupPresetIfAvailable();
 
     AudioEngine audioEngine;
     bool suppressStateCallbacks = false;

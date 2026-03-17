@@ -66,6 +66,8 @@ public:
 
     double getCpuLoad() const;
     int getLatencyNumSamples() const;
+    float getLastInputPeak() const { return lastInputPeak.load(); }
+    float getLastOutputPeak() const { return lastOutputPeak.load(); }
     juce::String buildDiagnosticReport() const;
 
     void setTunerEnabled(bool shouldEnable);

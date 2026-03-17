@@ -9,7 +9,9 @@
 #include "PedalCatalog.h"
 
 // Registered pedals
+#include "../Effects/Pedals/CompressorPedal.h"
 #include "../Effects/Pedals/Overdrive/OverdrivePedal.h"
+#include "../Effects/Pedals/ChorusPedal.h"
 #include "../Effects/Pedals/Delay/DelayPedal.h"
 #include "../Effects/Pedals/Reverb/ReverbPedal.h"
 #include "../Effects/Cabinets/CabinetPedal.h"
@@ -66,7 +68,9 @@ private:
     static const std::map<juce::String, PedalCreator>& getFactory()
     {
         static const std::map<juce::String, PedalCreator> factory{
+            { "Compressor",  [] { return std::make_unique<CompressorPedal>(); } },
             { "Overdrive",   [] { return std::make_unique<OverdrivePedal>(); } },
+            { "Chorus",      [] { return std::make_unique<ChorusPedal>(); } },
             { "Delay",       [] { return std::make_unique<DelayPedal>(); } },
             { "Reverb",      [] { return std::make_unique<ReverbPedal>(); } },
             { "Cabinet",     [] { return std::make_unique<CabinetPedal>(); } },

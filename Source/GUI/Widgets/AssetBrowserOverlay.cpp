@@ -1,42 +1,45 @@
 #include "AssetBrowserOverlay.h"
+
 #include "../../Core/PedalRegistry.h"
 
 namespace
 {
-    constexpr float kBackdropAlpha = 0.85f;
+constexpr float kBackdropAlpha = 0.88f;
 
-    constexpr int kOuterPadX = 100;
-    constexpr int kOuterPadY = 50;
+constexpr int kOuterPadX = 96;
+constexpr int kOuterPadY = 48;
 
-    constexpr int kHeaderHeight = 60;
-    constexpr int kSearchHeight = 40;
-    constexpr int kSearchPadX = 100;
-    constexpr int kBetweenSearchAndList = 20;
+constexpr int kHeaderHeight = 92;
+constexpr int kSearchHeight = 42;
+constexpr int kSearchPadX = 110;
+constexpr int kBetweenSearchAndList = 20;
 
-    constexpr int kCloseBtnSize = 30;
-    constexpr int kCloseBtnInset = 10;
+constexpr int kCloseBtnSize = 34;
+constexpr int kCloseBtnInset = 12;
 
-    constexpr int kViewportPad = 20;
+constexpr int kViewportPad = 20;
 
-    constexpr int kItemSize = 140;
-    constexpr int kItemGap = 20;
+constexpr int kItemWidth = 190;
+constexpr int kItemHeight = 182;
+constexpr int kItemGap = 18;
 
-    constexpr float kPanelCorner = 12.0f;
-    constexpr float kOutlineAlpha = 0.1f;
+constexpr float kPanelCorner = 18.0f;
+constexpr float kOutlineAlpha = 0.12f;
 }
 
 AssetBrowserOverlay::AssetBrowserOverlay(Nova::ZoneID zone,
     std::function<void(juce::String)> onAssetSelected,
     std::function<void()> onCloseFn)
     : targetZone(zone),
-    onSelect(std::move(onAssetSelected)),
-    onClose(std::move(onCloseFn))
+      onSelect(std::move(onAssetSelected)),
+      onClose(std::move(onCloseFn))
 {
     addAndMakeVisible(searchBar);
     searchBar.setMultiLine(false);
-    searchBar.setTextToShowWhenEmpty("Search asset...", juce::Colours::grey);
-    searchBar.setColour(juce::TextEditor::backgroundColourId, juce::Colour::fromString("ff151515"));
-    searchBar.setColour(juce::TextEditor::outlineColourId, juce::Colours::white.withAlpha(0.2f));
+    searchBar.setTextToShowWhenEmpty("Search modules, tones or use cases...", juce::Colours::grey);
+    searchBar.setColour(juce::TextEditor::backgroundColourId, juce::Colour::fromString("ff151b22"));
+    searchBar.setColour(juce::TextEditor::outlineColourId, juce::Colours::white.withAlpha(0.18f));
+    searchBar.setColour(juce::TextEditor::textColourId, juce::Colours::white.withAlpha(0.86f));
     searchBar.addListener(this);
 
     addAndMakeVisible(viewport);
@@ -46,7 +49,8 @@ AssetBrowserOverlay::AssetBrowserOverlay(Nova::ZoneID zone,
 
     addAndMakeVisible(closeBtn);
     closeBtn.setButtonText("X");
-    closeBtn.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    closeBtn.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff1e2630"));
+    closeBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.72f));
     closeBtn.onClick = [this]
         {
             if (onClose)
@@ -60,29 +64,24 @@ juce::String AssetBrowserOverlay::getTitleForZone() const
 {
     switch (targetZone)
     {
-        case Nova::ZoneID::Pre:     return "SELECT PRE EFFECT";
-        case Nova::ZoneID::Amp:     return "SELECT AMPLIFIER";
-        case Nova::ZoneID::FX:      return "SELECT POST EFFECT";
-        case Nova::ZoneID::Cabinet: return "SELECT CABINET";
-        default:                    return "SELECT ASSET";
+        case Nova::ZoneID::Pre:     return "Build The Front End";
+        case Nova::ZoneID::Amp:     return "Choose The Amp Voice";
+        case Nova::ZoneID::FX:      return "Shape The Space";
+        case Nova::ZoneID::Cabinet: return "Finish With The Cabinet";
+        default:                    return "Choose A Module";
     }
 }
 
-juce::String AssetBrowserOverlay::getTypeLabelForZone() const
+juce::String AssetBrowserOverlay::getZoneHint() const
 {
     switch (targetZone)
     {
-        case Nova::ZoneID::Amp:     return "Amp";
-        case Nova::ZoneID::Cabinet: return "Cab";
-        case Nova::ZoneID::FX:      return "Space";
-        case Nova::ZoneID::Pre:
-        default:                    return "Pedal";
+        case Nova::ZoneID::Pre:     return "Dynamics, gain and texture before the amp.";
+        case Nova::ZoneID::Amp:     return "One amp head per lane for clear routing and recall.";
+        case Nova::ZoneID::FX:      return "Modulation and ambience after the amp stage.";
+        case Nova::ZoneID::Cabinet: return "One cabinet per lane to lock the final speaker tone.";
+        default:                    return {};
     }
-}
-
-std::vector<juce::String> AssetBrowserOverlay::getAvailableTypeIDsForZone() const
-{
-    return PedalRegistry::getPedalTypesForZone(targetZone);
 }
 
 void AssetBrowserOverlay::paint(juce::Graphics& g)
@@ -91,18 +90,27 @@ void AssetBrowserOverlay::paint(juce::Graphics& g)
 
     const auto panelArea = getLocalBounds().reduced(kOuterPadX, kOuterPadY);
 
-    g.setColour(Nova::Colors::MixerPanel);
+    juce::ColourGradient panelFill(juce::Colour::fromString("ff11171d"),
+        (float)panelArea.getCentreX(),
+        (float)panelArea.getY(),
+        juce::Colour::fromString("ff0b0f13"),
+        (float)panelArea.getCentreX(),
+        (float)panelArea.getBottom(),
+        false);
+    g.setGradientFill(panelFill);
     g.fillRoundedRectangle(panelArea.toFloat(), kPanelCorner);
 
     g.setColour(juce::Colours::white.withAlpha(kOutlineAlpha));
     g.drawRoundedRectangle(panelArea.toFloat(), kPanelCorner, 1.0f);
 
+    auto header = panelArea.reduced(24, 18).removeFromTop(kHeaderHeight);
     g.setColour(Nova::Colors::Text);
-    g.setFont(24.0f);
+    g.setFont(juce::Font(juce::FontOptions(26.0f, juce::Font::bold)));
+    g.drawText(getTitleForZone(), header.removeFromTop(38), juce::Justification::centredLeft);
 
-    auto header = panelArea;
-    header.removeFromBottom(panelArea.getHeight() - kHeaderHeight);
-    g.drawText(getTitleForZone(), header, juce::Justification::centred);
+    g.setColour(juce::Colours::white.withAlpha(0.62f));
+    g.setFont(juce::Font(juce::FontOptions(12.5f)));
+    g.drawFittedText(getZoneHint(), header.removeFromTop(24), juce::Justification::centredLeft, 2);
 }
 
 void AssetBrowserOverlay::resized()
@@ -120,7 +128,6 @@ void AssetBrowserOverlay::resized()
     area.removeFromTop(kBetweenSearchAndList);
 
     viewport.setBounds(area.reduced(kViewportPad));
-
     layoutItems();
 }
 
@@ -134,15 +141,18 @@ void AssetBrowserOverlay::populateList(const juce::String& filter)
     container->removeAllChildren();
     items.clear();
 
-    const auto typeIDs = getAvailableTypeIDsForZone();
-    const auto typeLabel = getTypeLabelForZone();
-
-    for (const auto& typeID : typeIDs)
+    for (const auto& entry : Nova::PedalCatalog::entries())
     {
-        if (filter.isNotEmpty() && !typeID.containsIgnoreCase(filter))
+        if (!PedalRegistry::isTypeSupported(entry.typeID))
             continue;
 
-        auto* item = new AssetItem(typeID, typeLabel, [this, typeID]
+        if (!Nova::PedalCatalog::canLiveInZone(entry.typeID, targetZone))
+            continue;
+
+        if (!Nova::PedalCatalog::matchesFilter(entry, filter))
+            continue;
+
+        auto* item = new AssetItem(entry, [this, typeID = juce::String(entry.typeID)]
             {
                 if (onSelect)
                     onSelect(typeID);
@@ -164,27 +174,28 @@ void AssetBrowserOverlay::layoutItems()
     if (w <= 0)
         return;
 
-    const int cols = juce::jmax(1, w / (kItemSize + kItemGap));
+    const int cols = juce::jmax(1, (w + kItemGap) / (kItemWidth + kItemGap));
+    const int rowWidth = cols * kItemWidth + juce::jmax(0, cols - 1) * kItemGap;
 
-    int x = 0;
+    int x = juce::jmax(0, (w - rowWidth) / 2);
     int y = 0;
     int col = 0;
 
     for (auto* item : items)
     {
-        item->setBounds(x, y, kItemSize, kItemSize);
+        item->setBounds(x, y, kItemWidth, kItemHeight);
 
         if (++col >= cols)
         {
             col = 0;
-            x = 0;
-            y += kItemSize + kItemGap;
+            x = juce::jmax(0, (w - rowWidth) / 2);
+            y += kItemHeight + kItemGap;
         }
         else
         {
-            x += kItemSize + kItemGap;
+            x += kItemWidth + kItemGap;
         }
     }
 
-    container->setSize(w, y + kItemSize + kItemGap);
+    container->setSize(w, y + (items.isEmpty() ? 0 : kItemHeight + kItemGap));
 }

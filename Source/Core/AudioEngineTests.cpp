@@ -4,6 +4,8 @@
 
 #include "AudioEngine.h"
 #include "PluginProcessor.h"
+#include "PluginStateModel.h"
+#include "PedalRegistry.h"
 #include "DSP/Global/ChannelStrip.h"
 #include "DSP/Global/InputChain.h"
 #include "DSP/Global/OutputChain.h"
@@ -458,6 +460,85 @@ public:
             expectEquals((int)secondPedal.getProperty(Nova::IDs::PEDAL_ZONE, -1), (int)Nova::ZoneID::Amp);
             expect(firstPedal.hasProperty(Nova::IDs::PEDAL_ID), "Legacy pedal should receive a generated ID");
             expect(secondPedal.hasProperty(Nova::IDs::PEDAL_ID), "Legacy pedal should receive a generated ID");
+        }
+
+        beginTest("PluginStateModel reset produces a canonical clean session");
+        {
+            juce::ValueTree state(Nova::IDs::MAIN_STATE);
+            Nova::PluginStateModel::resetToCleanState(state);
+
+            expectEquals(Nova::PluginStateModel::getStateSchemaVersion(state), Nova::Config::STATE_SCHEMA_VERSION);
+
+            const auto settings = Nova::PluginStateModel::getSettingsTree(state);
+            const auto lineA = Nova::PluginStateModel::getLineTree(state, Nova::ChainID::LineA);
+            const auto lineB = Nova::PluginStateModel::getLineTree(state, Nova::ChainID::LineB);
+
+            expect(settings.isValid(), "Reset state should create settings");
+            expect(lineA.isValid(), "Reset state should create line A");
+            expect(lineB.isValid(), "Reset state should create line B");
+            expectEquals(lineA.getNumChildren(), 0);
+            expectEquals(lineB.getNumChildren(), 0);
+            expect((bool) settings.getProperty(Nova::IDs::ENGINE_ON, true) == false,
+                "Reset state should disable the engine");
+            expectEquals((int) settings.getProperty(Nova::IDs::SWITCH_MODE, -1), (int) Nova::SwitcherMode::LineA_Only);
+            expectEquals((float) lineA.getProperty(Nova::IDs::MIXER_GAIN_A, 0.0f), 1.0f);
+            expectEquals((float) lineB.getProperty(Nova::IDs::MIXER_GAIN_B, 0.0f), 1.0f);
+        }
+
+        beginTest("PluginStateModel insertPedal keeps canonical order and single amp");
+        {
+            juce::ValueTree state(Nova::IDs::MAIN_STATE);
+            Nova::PluginStateModel::resetToCleanState(state);
+
+            const auto amp1 = Nova::PluginStateModel::insertPedal(state, "Classic Amp", Nova::ChainID::LineA, Nova::ZoneID::Amp);
+            const auto pre = Nova::PluginStateModel::insertPedal(state, "Overdrive", Nova::ChainID::LineA, Nova::ZoneID::Pre);
+            const auto fx = Nova::PluginStateModel::insertPedal(state, "Reverb", Nova::ChainID::LineA, Nova::ZoneID::FX);
+            const auto amp2 = Nova::PluginStateModel::insertPedal(state, "Classic Amp", Nova::ChainID::LineA, Nova::ZoneID::Amp);
+
+            expect(amp1.inserted, "First amp insert should succeed");
+            expect(pre.inserted, "Pre insert should succeed");
+            expect(fx.inserted, "FX insert should succeed");
+            expect(amp2.inserted, "Second amp insert should replace previous amp");
+
+            const auto lineA = Nova::PluginStateModel::getLineTree(state, Nova::ChainID::LineA);
+            expectEquals(lineA.getNumChildren(), 3);
+            expectEquals(lineA.getChild(0).getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Overdrive"));
+            expectEquals((int) lineA.getChild(0).getProperty(Nova::IDs::PEDAL_ZONE, -1), (int) Nova::ZoneID::Pre);
+            expectEquals(lineA.getChild(1).getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Classic Amp"));
+            expectEquals((int) lineA.getChild(1).getProperty(Nova::IDs::PEDAL_ZONE, -1), (int) Nova::ZoneID::Amp);
+            expectEquals(lineA.getChild(2).getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Reverb"));
+            expectEquals((int) lineA.getChild(2).getProperty(Nova::IDs::PEDAL_ZONE, -1), (int) Nova::ZoneID::FX);
+            expectEquals(lineA.getChild(1).getProperty(Nova::IDs::PEDAL_ID).toString(), amp2.pedalID);
+        }
+
+        beginTest("PedalRegistry exposes the expanded commercial pedal catalog");
+        {
+            expect(PedalRegistry::isTypeSupported("Compressor"), "Compressor should be registered");
+            expect(PedalRegistry::isTypeSupported("Chorus"), "Chorus should be registered");
+
+            const auto preTypes = PedalRegistry::getPedalTypesForZone(Nova::ZoneID::Pre);
+            const auto fxTypes = PedalRegistry::getPedalTypesForZone(Nova::ZoneID::FX);
+
+            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Compressor")) != preTypes.end(),
+                "Compressor should be available in the pre zone");
+            expect(std::find(fxTypes.begin(), fxTypes.end(), juce::String("Chorus")) != fxTypes.end(),
+                "Chorus should be available in the FX zone");
+        }
+
+        beginTest("Processor switcher cycles through all three routing modes");
+        {
+            NOVAAudioProcessor processor;
+
+            expectEquals((int)processor.getSwitcherMode(), (int)Nova::SwitcherMode::LineA_Only);
+
+            processor.cycleSwitcher();
+            expectEquals((int)processor.getSwitcherMode(), (int)Nova::SwitcherMode::Dual_Parallel);
+
+            processor.cycleSwitcher();
+            expectEquals((int)processor.getSwitcherMode(), (int)Nova::SwitcherMode::LineB_Only);
+
+            processor.cycleSwitcher();
+            expectEquals((int)processor.getSwitcherMode(), (int)Nova::SwitcherMode::LineA_Only);
         }
     }
 };

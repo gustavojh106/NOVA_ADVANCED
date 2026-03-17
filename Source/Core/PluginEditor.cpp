@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 
+#include "PedalCatalog.h"
 #include "../GUI/Widgets/ChainLane.h"
 #include "../GUI/Widgets/AssetBrowserOverlay.h"
 #include <algorithm>
@@ -201,41 +202,35 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     lblStats.setText("CPU: - | Latency: -", juce::dontSendNotification);
 
     addAndMakeVisible(btnTuner);
-    addAndMakeVisible(btnMetronome);
-    addAndMakeVisible(btnSettings);
-    addAndMakeVisible(btnProfile);
 
     // IMPORTANTE: esto estaba en resized() (redundante). Aquí queda 1 vez y ya.
     btnTuner.onClick = [this] { toggleTuner(); };
+    btnTuner.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff1b2d1f"));
+    btnTuner.setColour(juce::TextButton::textColourOffId, juce::Colour::fromString("ffb4ffd0"));
+    btnTuner.setTooltip("Mute the output and open the tuner overlay");
+
+    btnStartStop.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff2a1013"));
+    btnStartStop.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.85f));
 
     // -----------------------
     // BROWSER
     // -----------------------
     addAndMakeVisible(searchBarBrowser);
-    searchBarBrowser.setTextToShowWhenEmpty("Search...", juce::Colours::grey);
+    searchBarBrowser.setTextToShowWhenEmpty("Filter quick-add modules...", juce::Colours::grey);
+    searchBarBrowser.onTextChange = [this] { applyBrowserFilter(); };
 
-    // 1. Configurar Overdrive
-    addAndMakeVisible(btnAddOverdrive);
-    btnAddOverdrive.setButtonText("Overdrive");
-    btnAddOverdrive.setItemType("PEDAL"); // Opcional, ya es PEDAL por defecto
+    // Curated quick-add modules
+    setupQuickAddButton(btnAddCompressor, "Compressor", "PEDAL");
+    setupQuickAddButton(btnAddOverdrive, "Overdrive", "PEDAL");
 
-    addAndMakeVisible(btnAddDelay);
-    btnAddDelay.setButtonText("Delay");
-    btnAddDelay.setItemType("PEDAL");
+    setupQuickAddButton(btnAddChorus, "Chorus", "PEDAL");
+    setupQuickAddButton(btnAddDelay, "Delay", "PEDAL");
 
-    addAndMakeVisible(btnAddReverb);
-    btnAddReverb.setButtonText("Reverb");
-    btnAddReverb.setItemType("PEDAL");
+    setupQuickAddButton(btnAddReverb, "Reverb", "PEDAL");
 
-    // 2. Configurar el Amplificador
-    addAndMakeVisible(btnAddNeural);
-    btnAddNeural.setButtonText("Classic Amp"); // Cambio de nombre
-    btnAddNeural.setItemType("AMP");           // Aseguramos que sea tipo AMP
+    setupQuickAddButton(btnAddNeural, "Classic Amp", "AMP");
 
-    // 3. Configurar el Gabinete
-    addAndMakeVisible(btnAddCabinet);
-    btnAddCabinet.setButtonText("Cabinet");
-    btnAddCabinet.setItemType("CAB");     // <--- ¡AQUÍ ESTÁ LA MAGIA!
+    setupQuickAddButton(btnAddCabinet, "Cabinet", "CAB");
     // -----------------------
     // INPUT STRIP
     // -----------------------
@@ -396,6 +391,7 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     }
 
     refreshPresetList();
+    applyBrowserFilter();
 
     updateSwitcherState();
     updatePedalGui();
@@ -436,6 +432,48 @@ void NOVAAudioProcessorEditor::setupKnob(juce::Slider& slider,
     slider.setRange(min, max, 0.01);
     slider.setValue(def, juce::dontSendNotification);
     slider.setTooltip(name);
+}
+
+void NOVAAudioProcessorEditor::setupQuickAddButton(DraggableButton& button,
+    const juce::String& typeID,
+    const juce::String& itemType)
+{
+    addAndMakeVisible(button);
+    button.setButtonText(typeID);
+    button.setItemType(itemType);
+    button.setColour(juce::TextButton::buttonColourId,
+        Nova::PedalCatalog::accentForType(typeID).withAlpha(0.18f));
+    button.setColour(juce::TextButton::buttonOnColourId,
+        Nova::PedalCatalog::accentForType(typeID).withAlpha(0.35f));
+    button.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.86f));
+    button.setTooltip(Nova::PedalCatalog::subtitleForType(typeID));
+}
+
+void NOVAAudioProcessorEditor::applyBrowserFilter()
+{
+    const auto filter = searchBarBrowser.getText().trim();
+    const std::array<DraggableButton*, 7> quickButtons{
+        &btnAddCompressor,
+        &btnAddOverdrive,
+        &btnAddChorus,
+        &btnAddDelay,
+        &btnAddReverb,
+        &btnAddNeural,
+        &btnAddCabinet
+    };
+
+    for (auto* button : quickButtons)
+    {
+        const bool matches = filter.isEmpty()
+            || button->getButtonText().containsIgnoreCase(filter)
+            || button->getTooltip().containsIgnoreCase(filter);
+
+        button->setVisible(matches);
+        button->setEnabled(matches);
+    }
+
+    resized();
+    repaint();
 }
 
 juce::File NOVAAudioProcessorEditor::getPresetDirectory() const
@@ -615,6 +653,9 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
     g.setColour(juce::Colours::white);
     g.setFont(juce::Font(juce::FontOptions(30.0f)));
     g.drawText("NOVA", headerRect.removeFromLeft(150), juce::Justification::centred);
+    g.setColour(juce::Colours::white.withAlpha(0.55f));
+    g.setFont(juce::Font(juce::FontOptions(12.0f)));
+    g.drawText("Commercial guitar rig designer", headerRect.removeFromLeft(260), juce::Justification::centredLeft);
 
     // Footer
     auto footerRect = area.removeFromBottom(100);
@@ -622,7 +663,7 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawHorizontalLine(footerRect.getY(), 0, (float)getWidth());
 
     // Left browser column
-    auto left1 = area.removeFromLeft(150);
+    auto left1 = area.removeFromLeft(176);
     g.setColour(Nova::Colors::Panel);
     g.fillRect(left1);
 
@@ -630,18 +671,21 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
     g.drawVerticalLine(left1.getRight(), (float)left1.getY(), (float)left1.getBottom());
 
     g.setColour(juce::Colours::white);
-    g.setFont(juce::Font(juce::FontOptions(14.0f)));
-    g.drawText("DRIVE", left1.getX(), left1.getY() + 60, left1.getWidth(), 20, juce::Justification::centred);
-    g.drawText("SPACE FX", left1.getX(), left1.getY() + 180, left1.getWidth(), 20, juce::Justification::centred);
-    g.drawText("AMPLIFIERS", left1.getX(), left1.getY() + 320, left1.getWidth(), 20, juce::Justification::centred);
-    g.drawText("CABINETS", left1.getX(), left1.getY() + 470, left1.getWidth(), 20, juce::Justification::centred);
+    g.setFont(juce::Font(juce::FontOptions(15.0f, juce::Font::bold)));
+    g.drawText("QUICK ADD", left1.getX(), left1.getY() + 54, left1.getWidth(), 20, juce::Justification::centred);
+    g.setColour(juce::Colours::white.withAlpha(0.58f));
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
+    g.drawFittedText("Drag a module into a lane or click any zone to open the full browser.",
+        juce::Rectangle<int>(left1.getX() + 10, left1.getY() + 82, left1.getWidth() - 20, 54),
+        juce::Justification::centred,
+        3);
 
     // Input strip
     auto left2 = area.removeFromLeft(120);
     drawChannelStrip(g, left2, "INPUT");
 
     // Presets column
-    auto right2 = area.removeFromRight(150);
+    auto right2 = area.removeFromRight(160);
     g.setColour(Nova::Colors::Panel);
     g.fillRect(right2);
 
@@ -815,6 +859,45 @@ void NOVAAudioProcessorEditor::drawChannelStrip(juce::Graphics& g, juce::Rectang
     g.setFont(juce::Font(juce::FontOptions(12.0f)));
     g.setColour(juce::Colours::grey);
 
+    const float peak = (title == "INPUT") ? audioProcessor.getInputPeak() : audioProcessor.getOutputPeak();
+    const float peakDb = juce::Decibels::gainToDecibels(juce::jmax(peak, 0.000001f), -60.0f);
+    const float meterNorm = juce::jlimit(0.0f, 1.0f, (peakDb + 60.0f) / 60.0f);
+    auto meterArea = juce::Rectangle<float>((float)area.getRight() - 18.0f,
+        (float)area.getCentreY() - 110.0f,
+        8.0f,
+        220.0f);
+
+    g.setColour(juce::Colour::fromString("ff121820"));
+    g.fillRoundedRectangle(meterArea, 4.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.08f));
+    g.drawRoundedRectangle(meterArea, 4.0f, 1.0f);
+
+    for (float step : { 0.25f, 0.5f, 0.75f })
+    {
+        const float y = meterArea.getBottom() - meterArea.getHeight() * step;
+        g.setColour(juce::Colours::white.withAlpha(0.08f));
+        g.drawHorizontalLine((int)y, meterArea.getX(), meterArea.getRight());
+    }
+
+    if (meterNorm > 0.0f)
+    {
+        auto fill = meterArea.withY(meterArea.getBottom() - meterArea.getHeight() * meterNorm);
+        fill.setHeight(meterArea.getHeight() * meterNorm);
+
+        juce::ColourGradient meterGradient(juce::Colour::fromString("ff2dd4bf"),
+            fill.getCentreX(),
+            fill.getBottom(),
+            juce::Colour::fromString("fff97316"),
+            fill.getCentreX(),
+            fill.getY(),
+            false);
+        if (peak > 0.97f)
+            meterGradient.addColour(0.0, juce::Colour::fromString("ffef4444"));
+
+        g.setGradientFill(meterGradient);
+        g.fillRoundedRectangle(fill, 4.0f);
+    }
+
     auto drawLabelFor = [&](const juce::String& txt, const juce::Component& c)
         {
             const auto b = c.getBounds();
@@ -850,9 +933,9 @@ void NOVAAudioProcessorEditor::resized()
     constexpr int headerH = 80;
     constexpr int footerH = 100;
 
-    constexpr int leftBrowserW = 150;
+    constexpr int leftBrowserW = 176;
     constexpr int stripW = 120;
-    constexpr int rightPresetsW = 150;
+    constexpr int rightPresetsW = 160;
 
     constexpr int mixerH = 150;
     constexpr int knobSz = 60;
@@ -862,14 +945,9 @@ void NOVAAudioProcessorEditor::resized()
     auto header = area.removeFromTop(headerH);
     const int cx = header.getCentreX();
 
-    btnStartStop.setBounds(cx - 60, header.getCentreY() - 10, 120, 40);
+    btnStartStop.setBounds(cx - 64, header.getCentreY() - 10, 128, 40);
     lblStats.setBounds(cx - 100, header.getCentreY() - 35, 200, 20);
-
-    btnMetronome.setBounds(cx - 200, header.getCentreY() - 15, 30, 30);
-    btnTuner.setBounds(cx - 240, header.getCentreY() - 15, 30, 30);
-
-    btnSettings.setBounds(cx + 160, header.getCentreY() - 15, 40, 40);
-    btnProfile.setBounds(cx + 210, header.getCentreY() - 15, 60, 40);
+    btnTuner.setBounds(cx - 238, header.getCentreY() - 15, 40, 30);
 
     // Footer
     auto footer = area.removeFromBottom(footerH);
@@ -877,12 +955,28 @@ void NOVAAudioProcessorEditor::resized()
 
     // Left browser column
     auto left1 = area.removeFromLeft(leftBrowserW);
-    searchBarBrowser.setBounds(left1.removeFromTop(40).reduced(10, 5));
-    btnAddOverdrive.setBounds(left1.getX() + 10, left1.getY() + 50, 130, 50);
-    btnAddDelay.setBounds(left1.getX() + 10, left1.getY() + 170, 130, 50);
-    btnAddReverb.setBounds(left1.getX() + 10, left1.getY() + 230, 130, 50);
-    btnAddNeural.setBounds(left1.getX() + 10, left1.getY() + 320, 130, 50);
-    btnAddCabinet.setBounds(left1.getX() + 10, left1.getY() + 470, 130, 50);
+    searchBarBrowser.setBounds(left1.removeFromTop(42).reduced(10, 6));
+    left1.removeFromTop(96);
+
+    const std::array<DraggableButton*, 7> quickButtons{
+        &btnAddCompressor,
+        &btnAddOverdrive,
+        &btnAddChorus,
+        &btnAddDelay,
+        &btnAddReverb,
+        &btnAddNeural,
+        &btnAddCabinet
+    };
+
+    int buttonY = left1.getY();
+    for (auto* button : quickButtons)
+    {
+        if (!button->isVisible())
+            continue;
+
+        button->setBounds(left1.getX() + 10, buttonY, left1.getWidth() - 20, 42);
+        buttonY += 50;
+    }
 
     // Input strip
     auto left2 = area.removeFromLeft(stripW);
@@ -969,13 +1063,11 @@ void NOVAAudioProcessorEditor::resized()
 
 void NOVAAudioProcessorEditor::toggleTuner()
 {
-    const bool currentState = audioProcessor.getAudioEngine().isTunerEnabled();
-    const bool newState = !currentState;
-
-    audioProcessor.getAudioEngine().setTunerEnabled(newState);
+    audioProcessor.toggleTuner();
+    const bool newState = audioProcessor.getAudioEngine().isTunerEnabled();
 
     btnTuner.setColour(juce::TextButton::buttonColourId,
-        newState ? juce::Colours::green : juce::Colours::transparentBlack);
+        newState ? juce::Colour::fromString("ff1f5f36") : juce::Colour::fromString("ff1b2d1f"));
 
     if (newState)
     {
@@ -1225,17 +1317,39 @@ void NOVAAudioProcessorEditor::updateSwitcherState()
     const int mode = (int)audioProcessor.getSwitcherMode();
 
     btnStartStop.setButtonText(on ? "POWER ON" : "POWER OFF");
-    btnStartStop.setColour(juce::TextButton::buttonOnColourId, on ? juce::Colours::green : juce::Colours::red);
+    btnStartStop.setColour(juce::TextButton::buttonColourId,
+        on ? juce::Colour::fromString("ff153722") : juce::Colour::fromString("ff351417"));
+    btnStartStop.setColour(juce::TextButton::buttonOnColourId,
+        on ? juce::Colour::fromString("ff153722") : juce::Colour::fromString("ff351417"));
     btnStartStop.setToggleState(on, juce::dontSendNotification);
 
     juce::String txt;
     bool aActive = false, bActive = false;
+    juce::Colour switcherColour = juce::Colour::fromString("ff1f2933");
 
-    if (mode == 0) { txt = "ROUTING: LINE A"; aActive = true; }
-    else if (mode == 1) { txt = "ROUTING: LINE B"; bActive = true; }
-    else { txt = "ROUTING: LEGACY PARALLEL"; aActive = true; bActive = true; }
+    if (mode == (int)Nova::SwitcherMode::LineA_Only)
+    {
+        txt = "ROUTING: LINE A";
+        aActive = true;
+        switcherColour = Nova::Colors::CableOnA.withAlpha(0.28f);
+    }
+    else if (mode == (int)Nova::SwitcherMode::LineB_Only)
+    {
+        txt = "ROUTING: LINE B";
+        bActive = true;
+        switcherColour = Nova::Colors::CableOnB.withAlpha(0.28f);
+    }
+    else
+    {
+        txt = "ROUTING: DUAL PARALLEL";
+        aActive = true;
+        bActive = true;
+        switcherColour = juce::Colour::fromString("ff1f4850");
+    }
 
     btnSwitcher.setButtonText(txt);
+    btnSwitcher.setColour(juce::TextButton::buttonColourId, on ? switcherColour : juce::Colour::fromString("ff15181d"));
+    btnSwitcher.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(on ? 0.92f : 0.5f));
 
     if (laneA) laneA->setActive(aActive && on);
     if (laneB) laneB->setActive(bActive && on);
