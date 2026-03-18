@@ -267,7 +267,8 @@ inline void resetToCleanState(juce::ValueTree state)
 inline PedalInsertResult insertPedal(juce::ValueTree state,
     const juce::String& type,
     ChainID chain,
-    ZoneID requestedZone)
+    ZoneID requestedZone,
+    int requestedInsertIndex = -1)
 {
     PedalInsertResult result;
     result.canonicalType = PedalRegistry::canonicalType(type);
@@ -295,8 +296,10 @@ inline PedalInsertResult insertPedal(juce::ValueTree state,
         }
     }
 
-    result.index = line.getNumChildren();
     const auto targetRank = zoneSortRank(result.zone);
+    int zoneStart = line.getNumChildren();
+    int zoneEnd = line.getNumChildren();
+    bool foundZoneStart = false;
 
     for (int i = 0; i < line.getNumChildren(); ++i)
     {
@@ -306,12 +309,36 @@ inline PedalInsertResult insertPedal(juce::ValueTree state,
 
         const auto childZone = static_cast<ZoneID>(
             (int) child.getProperty(IDs::PEDAL_ZONE, (int) ZoneID::Pre));
+        const auto childRank = zoneSortRank(childZone);
 
-        if (zoneSortRank(childZone) > targetRank)
+        if (!foundZoneStart && childRank >= targetRank)
         {
-            result.index = i;
+            zoneStart = i;
+            foundZoneStart = true;
+        }
+
+        if (childRank > targetRank)
+        {
+            zoneEnd = i;
             break;
         }
+    }
+
+    if (!foundZoneStart)
+        zoneStart = line.getNumChildren();
+
+    result.index = requestedInsertIndex >= 0
+        ? juce::jlimit(zoneStart, zoneEnd, requestedInsertIndex)
+        : zoneEnd;
+
+    if (result.zone == ZoneID::Amp || result.zone == ZoneID::Cabinet)
+        result.index = zoneStart;
+
+    result.index = juce::jlimit(0, line.getNumChildren(), result.index);
+
+    if (result.zone == ZoneID::Amp || result.zone == ZoneID::Cabinet)
+    {
+        result.index = juce::jlimit(0, line.getNumChildren(), zoneStart);
     }
 
     juce::ValueTree newPedal(IDs::PEDAL);
@@ -324,6 +351,80 @@ inline PedalInsertResult insertPedal(juce::ValueTree state,
 
     result.inserted = true;
     return result;
+}
+
+inline bool movePedal(juce::ValueTree state,
+    ChainID chain,
+    int fromIndex,
+    int toIndex,
+    ZoneID targetZone);
+
+inline bool movePedal(juce::ValueTree state, ChainID chain, int fromIndex, int toIndex)
+{
+    auto line = getLineTree(state, chain);
+    if (!line.isValid())
+        return false;
+
+    if (!juce::isPositiveAndBelow(fromIndex, line.getNumChildren()))
+        return false;
+
+    auto movedChild = line.getChild(fromIndex);
+    if (!movedChild.hasType(IDs::PEDAL))
+        return false;
+
+    const auto movedZone = static_cast<ZoneID>(
+        (int)movedChild.getProperty(IDs::PEDAL_ZONE, (int)ZoneID::Pre));
+
+    return movePedal(state, chain, fromIndex, toIndex, movedZone);
+}
+
+inline bool movePedal(juce::ValueTree state,
+    ChainID chain,
+    int fromIndex,
+    int toIndex,
+    ZoneID targetZone)
+{
+    auto line = getLineTree(state, chain);
+    if (!line.isValid())
+        return false;
+
+    const int count = line.getNumChildren();
+    if (!juce::isPositiveAndBelow(fromIndex, count) || toIndex < 0 || toIndex > count)
+        return false;
+
+    auto movedChild = line.getChild(fromIndex);
+    if (!movedChild.hasType(IDs::PEDAL))
+        return false;
+
+    const auto movedType = PedalRegistry::canonicalType(
+        movedChild.getProperty(IDs::PEDAL_TYPE).toString());
+    if (!PedalRegistry::isTypeSupported(movedType))
+        return false;
+
+    const auto finalZone = PedalCatalog::enforceZone(movedType, targetZone);
+    if (!PedalCatalog::canLiveInZone(movedType, finalZone))
+        return false;
+
+    const auto movedZone = static_cast<ZoneID>(
+        (int)movedChild.getProperty(IDs::PEDAL_ZONE, (int)ZoneID::Pre));
+
+    int adjustedTarget = toIndex;
+    if (fromIndex < toIndex)
+        adjustedTarget--;
+
+    adjustedTarget = juce::jlimit(0, line.getNumChildren() - 1, adjustedTarget);
+
+    if (movedZone == finalZone && adjustedTarget == fromIndex)
+        return false;
+
+    auto copy = movedChild.createCopy();
+    line.removeChild(fromIndex, nullptr);
+
+    adjustedTarget = juce::jlimit(0, line.getNumChildren(), adjustedTarget);
+    copy.setProperty(IDs::PEDAL_ZONE, static_cast<int>(finalZone), nullptr);
+    line.addChild(copy, adjustedTarget, nullptr);
+
+    return true;
 }
 
 inline bool removePedal(juce::ValueTree state, ChainID chain, int index)

@@ -52,7 +52,7 @@ void AssetItem::drawIcon(juce::Graphics& g, juce::Rectangle<float> area) const
     if (itemKind == Nova::PedalCatalog::Kind::Amplifier)
     {
         const auto ampFace = area.reduced(area.getWidth() * 0.12f, area.getHeight() * 0.2f);
-        g.setColour(juce::Colour::fromString("ff101419"));
+        g.setColour(juce::Colour::fromString("ff0D1520"));
         g.fillRoundedRectangle(ampFace, 10.0f);
         g.setColour(accentColour.withAlpha(0.7f));
         g.drawRoundedRectangle(ampFace, 10.0f, 1.2f);
@@ -71,7 +71,7 @@ void AssetItem::drawIcon(juce::Graphics& g, juce::Rectangle<float> area) const
     if (itemKind == Nova::PedalCatalog::Kind::Cabinet)
     {
         const auto cabArea = area.reduced(area.getWidth() * 0.16f, area.getHeight() * 0.12f);
-        g.setColour(juce::Colour::fromString("ff101419"));
+        g.setColour(juce::Colour::fromString("ff0D1520"));
         g.fillRoundedRectangle(cabArea, 12.0f);
         g.setColour(accentColour.withAlpha(0.75f));
         g.drawRoundedRectangle(cabArea, 12.0f, 1.2f);
@@ -155,10 +155,10 @@ void AssetItem::paint(juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
 
-    juce::ColourGradient body(juce::Colour::fromString("ff121820"),
+    juce::ColourGradient body(juce::Colour::fromString("ff111827"),
         bounds.getCentreX(),
         bounds.getY(),
-        juce::Colour::fromString("ff0d1015"),
+        juce::Colour::fromString("ff0B0E14"),
         bounds.getCentreX(),
         bounds.getBottom(),
         false);

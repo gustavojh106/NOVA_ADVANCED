@@ -60,23 +60,31 @@ namespace Nova
 
     namespace Colors
     {
-        const juce::Colour Background = juce::Colour::fromString("ff111111");
-        const juce::Colour Panel = juce::Colour::fromString("ff1a1a1a");
-        const juce::Colour MixerPanel = juce::Colour::fromString("ff1e1e1e");
+        // ---- Base surfaces (deep space navy, warm dark blue) ----
+        const juce::Colour Background = juce::Colour::fromString("ff0B0E14");
+        const juce::Colour Panel      = juce::Colour::fromString("ff111827");
+        const juce::Colour MixerPanel  = juce::Colour::fromString("ff1A2332");
+        const juce::Colour Surface     = juce::Colour::fromString("ff1A2332");
 
-        const juce::Colour Border = juce::Colour::fromString("ff444444");
-        const juce::Colour GridLine = juce::Colour::fromString("ff333333");
-        const juce::Colour ZoneOutline = juce::Colour::fromString("ff555555");
+        // ---- Borders & grid ----
+        const juce::Colour Border      = juce::Colour::fromString("ff2A3548");
+        const juce::Colour GridLine    = juce::Colour::fromString("ff1E2A3A");
+        const juce::Colour ZoneOutline = juce::Colour::fromString("ff3A4A5C");
 
-        const juce::Colour Text = juce::Colours::white;
-        const juce::Colour TextDim = juce::Colours::grey;
+        // ---- Typography ----
+        const juce::Colour Text    = juce::Colour::fromString("ffF0EDE8");
+        const juce::Colour TextDim = juce::Colour::fromString("ff7B8BA0");
 
-        const juce::Colour Accent = juce::Colour::fromString("ff00ff00");
-        const juce::Colour Error = juce::Colour::fromString("ffea2e2e");
+        // ---- Accent & semantics ----
+        const juce::Colour Accent    = juce::Colour::fromString("ffF0A030");  // warm amber/gold
+        const juce::Colour AccentAlt = juce::Colour::fromString("ffE8853A");  // warm orange
+        const juce::Colour Success   = juce::Colour::fromString("ff34D399");  // emerald green
+        const juce::Colour Error     = juce::Colour::fromString("ffEF4444");  // rose red
 
-        const juce::Colour CableOff = juce::Colour::fromString("ff333333");
-        const juce::Colour CableOnA = juce::Colour::fromString("ff00aaff");
-        const juce::Colour CableOnB = juce::Colour::fromString("ffffaa00");
+        // ---- Signal cables ----
+        const juce::Colour CableOff = juce::Colour::fromString("ff2D3748");
+        const juce::Colour CableOnA = juce::Colour::fromString("ff60A5FA");
+        const juce::Colour CableOnB = juce::Colour::fromString("ffF59E0B");
     }
 
     namespace Config
@@ -88,5 +96,33 @@ namespace Nova
 
         static constexpr int HEADER_HEIGHT = 80;
         static constexpr int FOOTER_HEIGHT = 100;
+
+        // ---- Audio Engine startup / recovery ----
+        static constexpr int    STARTUP_COUNTER_INIT          = 5;      // blocks to skip at cold prepare
+        static constexpr int    STARTUP_COUNTER_GRAPH_CHANGE  = 6;      // blocks to skip after topology rebuild
+        static constexpr int    STARTUP_COUNTER_AUTO_HEAL     = 8;      // blocks to skip after auto-heal reset
+        static constexpr int    RECOVERY_COOLDOWN_BLOCKS      = 256;    // cooldown after successful auto-heal
+        static constexpr int    RECOVERY_COOLDOWN_SHORT       = 32;     // cooldown when lock was unavailable
+        static constexpr int    CORRUPT_BLOCKS_BEFORE_HEAL    = 2;      // consecutive corrupt blocks before heal
+
+        // ---- Audio safety limits ----
+        static constexpr float  HARD_ABS_LIMIT_LINEAR         = 24.0f;  // hard clip ceiling (≈ +27.6 dBFS)
+        static constexpr float  INPUT_ACTIVE_THRESHOLD        = 0.003f; // peak threshold for "input is live"
+        static constexpr float  OUTPUT_SILENT_THRESHOLD       = 0.00008f; // peak threshold for "output is silent"
+        static constexpr float  SILENT_OUTPUT_TRIGGER_SECONDS = 0.75f;  // sustained silence before incident
+
+        // ---- CPU metering ----
+        static constexpr double CPU_METER_SLOW_COEFF = 0.9; // slow-path weight (exponential moving avg)
+        static constexpr double CPU_METER_FAST_COEFF = 0.1; // fast-path weight
+
+        // ---- Parameter smoothing (seconds) ----
+        static constexpr double SMOOTH_DEFAULT_SECONDS = 0.02;  // general-purpose control ramp time
+        static constexpr double SMOOTH_DRIVE_SECONDS   = 0.012; // gain/drive stage ramp time
+        static constexpr double SMOOTH_BYPASS_SECONDS  = 0.01;  // bypass crossfade ramp time
+
+        // ---- Drive stage internal ----
+        static constexpr float DC_OFFSET_DECAY  = 0.9993f; // per-sample DC tracking pole (Overdrive)
+        static constexpr float DC_OFFSET_ATTACK = 0.0007f; // per-sample DC tracking zero (Overdrive)
+        static constexpr float AMP_SAG_DECAY    = 0.9992f; // per-sample sag envelope decay (ClassicAmp power-supply sim)
     }
 }

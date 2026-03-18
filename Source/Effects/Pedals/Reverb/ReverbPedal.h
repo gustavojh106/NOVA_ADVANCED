@@ -30,7 +30,7 @@ public:
         return new PremiumPedalEditor(*this,
             "Reverb",
             "Nimbus",
-            juce::Colour::fromString("ff98d9d1"),
+            juce::Colour::fromString("ff2DD4BF"),
             {
                 { "Size", sizeParam, [](float value) { return formatPercent(value); } },
                 { "Damping", dampingParam, [](float value) { return formatPercent(value); } },

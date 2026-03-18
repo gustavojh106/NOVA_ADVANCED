@@ -30,7 +30,7 @@ public:
         return new PremiumPedalEditor(*this,
             "Delay",
             "Orbit",
-            juce::Colour::fromString("ff7cb8ff"),
+            juce::Colour::fromString("ff60A5FA"),
             {
                 { "Time", timeParam, [](float value) { return formatMilliseconds(value); } },
                 { "Feedback", feedbackParam, [](float value) { return formatPercent(value); } },

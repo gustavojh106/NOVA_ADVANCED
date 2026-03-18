@@ -23,22 +23,14 @@ public:
     const juce::String getName() const override { return "Overdrive"; }
 
     bool hasEditor() const override { return true; }
-    juce::AudioProcessorEditor* createEditor() override
-    {
-        using namespace Nova::PedalUI;
+    juce::AudioProcessorEditor* createEditor() override;
 
-        return new PremiumPedalEditor(*this,
-            "Drive",
-            "Aurora",
-            juce::Colour::fromString("fff36f45"),
-            {
-                { "Drive", driveParam, [](float value) { return formatPercentFromHundred(value); } },
-                { "Tone", toneParam, [](float value) { return formatPercent(value); } },
-                { "Texture", textureParam, [](float value) { return formatPercent(value); } },
-                { "Mix", mixParam, [](float value) { return formatPercent(value); } },
-                { "Level", levelParam, [](float value) { return formatPercent(value); } }
-            });
-    }
+    // Expose parameters for the custom editor
+    juce::AudioParameterFloat* getDriveParam() const { return driveParam; }
+    juce::AudioParameterFloat* getToneParam() const { return toneParam; }
+    juce::AudioParameterFloat* getTextureParam() const { return textureParam; }
+    juce::AudioParameterFloat* getMixParam() const { return mixParam; }
+    juce::AudioParameterFloat* getLevelParam() const { return levelParam; }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
     {
@@ -61,8 +53,8 @@ public:
         postLowPass.prepare(innerSpec);
         dcBlock.prepare(innerSpec);
 
-        mixSmooth.reset(sampleRate, 0.02);
-        levelSmooth.reset(sampleRate, 0.02);
+        mixSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
+        levelSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
         mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
         levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelFromControl(*levelParam) : 1.0f);
 
@@ -76,7 +68,7 @@ public:
         cachedTone = std::numeric_limits<float>::quiet_NaN();
         cachedTexture = std::numeric_limits<float>::quiet_NaN();
 
-        setLatencySamples((int)oversampler.getLatencyInSamples());
+        setProcessingLatency((int)oversampler.getLatencyInSamples());
         prepareBypassSmoother(sampleRate, samplesPerBlock);
 
         reset();
@@ -168,8 +160,8 @@ private:
         void prepare(const juce::dsp::ProcessSpec& spec)
         {
             sampleRate = spec.sampleRate;
-            driveSmooth.reset(sampleRate, 0.012);
-            textureSmooth.reset(sampleRate, 0.02);
+            driveSmooth.reset(sampleRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
+            textureSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
             reset();
         }
 
@@ -209,7 +201,7 @@ private:
                     const float focused = std::atan(density * x) * (2.0f / juce::MathConstants<float>::pi);
                     float y = juce::jmap(texture, rounded, (rounded * (1.0f - sparkle)) + (focused * sparkle));
 
-                    dcOffset = (dcOffset * 0.9993f) + (y * 0.0007f);
+                    dcOffset = (dcOffset * Nova::Config::DC_OFFSET_DECAY) + (y * Nova::Config::DC_OFFSET_ATTACK);
                     data[sample] = y - dcOffset;
                 }
             }
@@ -284,3 +276,6 @@ private:
     float cachedTexture = std::numeric_limits<float>::quiet_NaN();
     bool isPrepared = false;
 };
+
+// Include after class definition to resolve circular dependency
+#include "OverdriveEditor.h"

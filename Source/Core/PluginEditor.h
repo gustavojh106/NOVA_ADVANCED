@@ -35,6 +35,7 @@ public:
     // Métodos públicos para interacción con hijos (DropZones)
     void showOverlay(Nova::ZoneID zone, Nova::ChainID chain);
     void toggleTuner();
+    std::vector<juce::Rectangle<int>> getPedalBoundsForZone(Nova::ChainID chain, Nova::ZoneID zone) const;
 
 private:
     // Helpers visuales
@@ -42,6 +43,9 @@ private:
     void setupQuickAddButton(DraggableButton& button, const juce::String& typeID, const juce::String& itemType);
     void applyBrowserFilter();
     void drawChannelStrip(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title);
+    juce::Rectangle<int> getInputStripBounds() const;
+    juce::Rectangle<int> getOutputStripBounds() const;
+    void updateMeterState();
     void requestUiRefresh();
     void handleAsyncUpdate() override;
 
@@ -84,6 +88,7 @@ private:
 
     // --- 3. INPUT STRIP ---
     juce::SharedResourcePointer<UI::ModernKnobLnF> knobLnf;
+    juce::SharedResourcePointer<UI::StudioTrimKnobLnF> studioTrimLnf;
     juce::Slider inputVolume;
     juce::Slider inputGate;
     juce::Slider inputTranspose;
@@ -151,15 +156,23 @@ private:
     class StatsTimer : public juce::Timer {
         NOVAAudioProcessorEditor& parent;
     public:
-        StatsTimer(NOVAAudioProcessorEditor& p) : parent(p) { startTimerHz(15); }
+        StatsTimer(NOVAAudioProcessorEditor& p) : parent(p) { startTimerHz(30); }
         void timerCallback() override
         {
+            parent.updateMeterState();
             parent.updateStats();
             parent.updateSwitcherState();
         }
     };
     std::unique_ptr<StatsTimer> statsTimer;
     std::atomic<bool> uiRefreshPending{ false };
+    float inputMeterDisplay = 0.0f;
+    float outputMeterDisplay = 0.0f;
+    float inputMeterHold = 0.0f;
+    float outputMeterHold = 0.0f;
+
+    int lastKnownAutoHealCount = 0;
+    int autoHealFlashFrames    = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NOVAAudioProcessorEditor)
 };

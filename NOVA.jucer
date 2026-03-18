@@ -863,10 +863,14 @@
       <GROUP id="{8CDF61A3-C1E7-E8D4-DE29-D0CE71BCBA32}" name="Effects">
         <GROUP id="{EFA4BDEE-3990-DED3-B823-E50E87812715}" name="Amplifiers">
           <FILE id="VfEdHh" name="ClassicAmp.h" compile="0" resource="0" file="Source/Effects/Amplifiers/ClassicAmp.h"/>
+          <FILE id="HgAm01" name="HighGainAmp.h" compile="0" resource="0" file="Source/Effects/Amplifiers/HighGainAmp.h"/>
+          <FILE id="ClAm01" name="CleanAmp.h" compile="0" resource="0" file="Source/Effects/Amplifiers/CleanAmp.h"/>
         </GROUP>
         <GROUP id="{BD879881-2EBA-7DB7-0691-1F30F2D80A5F}" name="Cabinets">
           <FILE id="zgcSAe" name="CabinetEditor.h" compile="0" resource="0" file="Source/Effects/Cabinets/CabinetEditor.h"/>
           <FILE id="Rwzsje" name="CabinetPedal.h" compile="0" resource="0" file="Source/Effects/Cabinets/CabinetPedal.h"/>
+          <FILE id="V2x12C" name="Vintage2x12Cabinet.h" compile="0" resource="0" file="Source/Effects/Cabinets/Vintage2x12Cabinet.h"/>
+          <FILE id="M4x12C" name="Modern4x12Cabinet.h" compile="0" resource="0" file="Source/Effects/Cabinets/Modern4x12Cabinet.h"/>
         </GROUP>
         <GROUP id="{82BF1815-873B-35C3-5837-8195A6E76E04}" name="Pedals">
           <GROUP id="{C47D22B2-285B-64CA-E243-91AFC36683FE}" name="Neural">
@@ -881,6 +885,38 @@
                   file="Source/Effects/Pedals/Overdrive/OverdriveEditor.h"/>
             <FILE id="AiOdag" name="OverdrivePedal.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/Overdrive/OverdrivePedal.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-444455556666}" name="Distortion">
+            <FILE id="DsP001" name="DistortionPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Distortion/DistortionPedal.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-444455557777}" name="Fuzz">
+            <FILE id="FzP001" name="FuzzPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Fuzz/FuzzPedal.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-444455558888}" name="Gate">
+            <FILE id="NgP001" name="NoiseGatePedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Gate/NoiseGatePedal.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-444455559999}" name="EQ">
+            <FILE id="EqP001" name="EQPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/EQ/EQPedal.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-44445555AAAA}" name="Wah">
+            <FILE id="WaP001" name="AutoWahPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Wah/AutoWahPedal.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-44445555BBBB}" name="Phaser">
+            <FILE id="PhP001" name="PhaserPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Phaser/PhaserPedal.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-44445555CCCC}" name="Flanger">
+            <FILE id="FlP001" name="FlangerPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Flanger/FlangerPedal.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-44445555DDDD}" name="Tremolo">
+            <FILE id="TrP001" name="TremoloPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Tremolo/TremoloPedal.h"/>
           </GROUP>
           <GROUP id="{0E192CAD-6D43-B7C6-752D-80CA62732F34}" name="Base">
             <FILE id="chEeeJ" name="ProcessorBase.h" compile="0" resource="0" file="Source/Effects/Pedals/Base/ProcessorBase.h"/>

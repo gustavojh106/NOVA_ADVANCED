@@ -8,21 +8,21 @@
 #include <cmath>
 #include <limits>
 
-class CabinetPedal final : public ProcessorBase
+class Vintage2x12Cabinet final : public ProcessorBase
 {
 public:
-    CabinetPedal()
+    Vintage2x12Cabinet()
     {
-        addParameter(thumpParam = new juce::AudioParameterFloat("cabThump", "Thump", -12.0f, 12.0f, 1.5f));
-        addParameter(airParam = new juce::AudioParameterFloat("cabAir", "Air", -12.0f, 12.0f, 0.0f));
-        addParameter(distanceParam = new juce::AudioParameterFloat("cabDistance", "Distance", 0.0f, 1.0f, 0.34f));
-        addParameter(mixParam = new juce::AudioParameterFloat("cabMix", "Mix", 0.0f, 1.0f, 1.0f));
-        addParameter(levelParam = new juce::AudioParameterFloat("cabLevel", "Level", 0.0f, 2.0f, 1.0f));
+        addParameter(warmthParam = new juce::AudioParameterFloat("v2x12Warmth", "Warmth", -12.0f, 12.0f, 3.0f));
+        addParameter(sparkleParam = new juce::AudioParameterFloat("v2x12Sparkle", "Sparkle", -12.0f, 12.0f, 1.5f));
+        addParameter(distanceParam = new juce::AudioParameterFloat("v2x12Distance", "Distance", 0.0f, 1.0f, 0.28f));
+        addParameter(mixParam = new juce::AudioParameterFloat("v2x12Mix", "Mix", 0.0f, 1.0f, 1.0f));
+        addParameter(levelParam = new juce::AudioParameterFloat("v2x12Level", "Level", 0.0f, 2.0f, 1.0f));
 
         loadImpulseResponse();
     }
 
-    const juce::String getName() const override { return "Cabinet"; }
+    const juce::String getName() const override { return "Vintage 2x12"; }
 
     bool hasEditor() const override { return true; }
     juce::AudioProcessorEditor* createEditor() override
@@ -31,11 +31,11 @@ public:
 
         return new PremiumPedalEditor(*this,
             "Cabinet",
-            "Atlas 4x12",
-            juce::Colour::fromString("ffA78BFA"),
+            "Vintage 2x12",
+            juce::Colour::fromString("ffD97706"),
             {
-                { "Thump", thumpParam, [](float value) { return formatDecibels(value); } },
-                { "Air", airParam, [](float value) { return formatDecibels(value); } },
+                { "Warmth", warmthParam, [](float value) { return formatDecibels(value); } },
+                { "Sparkle", sparkleParam, [](float value) { return formatDecibels(value); } },
                 { "Distance", distanceParam, [](float value) { return formatPercent(value); } },
                 { "Mix", mixParam, [](float value) { return formatPercent(value); } },
                 { "Level", levelParam, [](float value) { return formatGain(value); } }
@@ -57,8 +57,8 @@ public:
         convolution.prepare(spec);
         lowShelf.prepare(spec);
         highShelf.prepare(spec);
-        contourLowPass.prepare(spec);
-        contourHighPass.prepare(spec);
+        contourLP.prepare(spec);
+        contourHP.prepare(spec);
 
         mixSmooth.reset(sampleRate, 0.02);
         levelSmooth.reset(sampleRate, 0.02);
@@ -66,15 +66,13 @@ public:
         levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
 
         scratchBuffer.setSize(juce::jmax(2, getTotalNumOutputChannels()),
-            juce::jmax(1, samplesPerBlock),
-            false,
-            false,
-            true);
+            juce::jmax(1, samplesPerBlock), false, false, true);
 
         currentSampleRate = sampleRate;
-        cachedThump = std::numeric_limits<float>::quiet_NaN();
-        cachedAir = std::numeric_limits<float>::quiet_NaN();
+        cachedWarmth = std::numeric_limits<float>::quiet_NaN();
+        cachedSparkle = std::numeric_limits<float>::quiet_NaN();
         cachedDistance = std::numeric_limits<float>::quiet_NaN();
+
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
         isPrepared = true;
@@ -90,12 +88,11 @@ public:
         convolution.reset();
         lowShelf.reset();
         highShelf.reset();
-        contourLowPass.reset();
-        contourHighPass.reset();
+        contourLP.reset();
+        contourHP.reset();
 
         if (mixParam != nullptr)
             mixSmooth.setCurrentAndTargetValue(*mixParam);
-
         if (levelParam != nullptr)
             levelSmooth.setCurrentAndTargetValue(*levelParam);
     }
@@ -108,17 +105,14 @@ public:
         if (scratchBuffer.getNumChannels() < buffer.getNumChannels()
             || scratchBuffer.getNumSamples() < buffer.getNumSamples())
         {
-            scratchBuffer.setSize(buffer.getNumChannels(),
-                buffer.getNumSamples(),
-                false,
-                false,
-                true);
+            scratchBuffer.setSize(buffer.getNumChannels(), buffer.getNumSamples(), false, false, true);
         }
 
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch), buffer.getReadPointer(ch), buffer.getNumSamples());
+            juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch),
+                buffer.getReadPointer(ch), buffer.getNumSamples());
 
-        updateCabinetVoicing();
+        updateVoicing();
         mixSmooth.setTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
         levelSmooth.setTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
 
@@ -130,8 +124,8 @@ public:
 
         lowShelf.process(context);
         highShelf.process(context);
-        contourLowPass.process(context);
-        contourHighPass.process(context);
+        contourLP.process(context);
+        contourHP.process(context);
 
         for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
         {
@@ -164,59 +158,52 @@ private:
             juce::dsp::Convolution::Normalise::yes);
     }
 
-    void updateCabinetVoicing()
+    void updateVoicing()
     {
-        const float thump = thumpParam != nullptr ? *thumpParam : 1.5f;
-        const float air = airParam != nullptr ? *airParam : 0.0f;
-        const float distance = distanceParam != nullptr ? *distanceParam : 0.34f;
+        const float warmth = warmthParam != nullptr ? *warmthParam : 3.0f;
+        const float sparkle = sparkleParam != nullptr ? *sparkleParam : 1.5f;
+        const float distance = distanceParam != nullptr ? *distanceParam : 0.28f;
 
-        const bool thumpChanged = !std::isfinite(cachedThump) || std::abs(cachedThump - thump) > 1.0e-4f;
-        const bool airChanged = !std::isfinite(cachedAir) || std::abs(cachedAir - air) > 1.0e-4f;
+        const bool warmthChanged = !std::isfinite(cachedWarmth) || std::abs(cachedWarmth - warmth) > 1.0e-4f;
+        const bool sparkleChanged = !std::isfinite(cachedSparkle) || std::abs(cachedSparkle - sparkle) > 1.0e-4f;
         const bool distanceChanged = !std::isfinite(cachedDistance) || std::abs(cachedDistance - distance) > 1.0e-4f;
-        if (!thumpChanged && !airChanged && !distanceChanged)
+        if (!warmthChanged && !sparkleChanged && !distanceChanged)
             return;
 
-        cachedThump = thump;
-        cachedAir = air;
+        cachedWarmth = warmth;
+        cachedSparkle = sparkle;
         cachedDistance = distance;
 
-        const float lowPass = juce::jmap(distance, 9800.0f, 3600.0f);
-        const float highPass = juce::jmap(distance, 55.0f, 140.0f);
+        // Vintage 2x12 voicing: warmer, less aggressive high end, tighter bass
+        const float lpFreq = juce::jmap(distance, 7200.0f, 3000.0f);
+        const float hpFreq = juce::jmap(distance, 70.0f, 160.0f);
 
         *lowShelf.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentSampleRate,
-            130.0f,
-            0.8f,
-            juce::Decibels::decibelsToGain(thump));
+            180.0f, 0.75f, juce::Decibels::decibelsToGain(warmth));
         *highShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(currentSampleRate,
-            3400.0f,
-            0.72f,
-            juce::Decibels::decibelsToGain(air));
-        *contourLowPass.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(currentSampleRate,
-            lowPass,
-            0.68f);
-        *contourHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentSampleRate,
-            highPass,
-            0.7f);
+            4200.0f, 0.65f, juce::Decibels::decibelsToGain(sparkle));
+        *contourLP.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(currentSampleRate, lpFreq, 0.62f);
+        *contourHP.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentSampleRate, hpFreq, 0.65f);
     }
 
     juce::dsp::Convolution convolution;
     Filter lowShelf;
     Filter highShelf;
-    Filter contourLowPass;
-    Filter contourHighPass;
+    Filter contourLP;
+    Filter contourHP;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> levelSmooth;
     juce::AudioBuffer<float> scratchBuffer;
 
-    juce::AudioParameterFloat* thumpParam = nullptr;
-    juce::AudioParameterFloat* airParam = nullptr;
+    juce::AudioParameterFloat* warmthParam = nullptr;
+    juce::AudioParameterFloat* sparkleParam = nullptr;
     juce::AudioParameterFloat* distanceParam = nullptr;
     juce::AudioParameterFloat* mixParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentSampleRate = 44100.0;
-    float cachedThump = std::numeric_limits<float>::quiet_NaN();
-    float cachedAir = std::numeric_limits<float>::quiet_NaN();
+    float cachedWarmth = std::numeric_limits<float>::quiet_NaN();
+    float cachedSparkle = std::numeric_limits<float>::quiet_NaN();
     float cachedDistance = std::numeric_limits<float>::quiet_NaN();
     bool isPrepared = false;
 };

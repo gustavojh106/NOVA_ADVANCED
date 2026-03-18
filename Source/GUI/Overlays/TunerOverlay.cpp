@@ -35,7 +35,7 @@ TunerOverlay::TunerOverlay(NOVAAudioProcessor& p)
     // Tuning preset selector
     addAndMakeVisible(tuningSelector);
     tuningSelector.setJustificationType(juce::Justification::centred);
-    tuningSelector.setColour(juce::ComboBox::backgroundColourId, juce::Colour::fromString("ff202020"));
+    tuningSelector.setColour(juce::ComboBox::backgroundColourId, juce::Colour::fromString("ff111827"));
     tuningSelector.setColour(juce::ComboBox::outlineColourId, juce::Colours::white.withAlpha(0.2f));
 
     for (int i = 0; i < (int)presets.size(); ++i)
@@ -64,7 +64,7 @@ TunerOverlay::TunerOverlay(NOVAAudioProcessor& p)
 
     addAndMakeVisible(startPlayingButton);
     startPlayingButton.setButtonText("START PLAYING");
-    startPlayingButton.setColour(juce::TextButton::buttonColourId, juce::Colours::green);
+    startPlayingButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff154a28"));
     startPlayingButton.onClick = [this] { closeOverlayAndDisableTuner(); };
     startPlayingButton.setVisible(false);
 
@@ -264,7 +264,7 @@ void TunerOverlay::paint(juce::Graphics& g)
             g.drawRect(resetButton.getBounds().expanded(2), 2);
         }
 
-        g.setColour(Nova::Colors::Accent);
+        g.setColour(Nova::Colors::Success);
         g.setFont(juce::Font(juce::FontOptions(60.0f, juce::Font::bold)));
         g.drawText("GUITAR TUNED!", bounds.withHeight(bounds.getHeight() / 2), juce::Justification::centred);
         return;
@@ -288,14 +288,14 @@ void TunerOverlay::paint(juce::Graphics& g)
 
             if (isSelected && tuningProgress > 0.0f)
             {
-                g.setColour(Nova::Colors::Accent.withAlpha(0.3f));
+                g.setColour(Nova::Colors::Success.withAlpha(0.3f));
                 g.fillRoundedRectangle((float)rect.getX(), (float)rect.getY(),
                     (float)rect.getWidth() * (tuningProgress / 100.0f),
                     (float)rect.getHeight(), 4.0f);
             }
 
             const juce::Colour c = stringIsTuned[i]
-                ? Nova::Colors::Accent
+                ? Nova::Colors::Success
                 : (isSelected ? Nova::Colors::Text : Nova::Colors::TextDim.withAlpha(0.5f));
 
             g.setColour(c);
@@ -310,8 +310,8 @@ void TunerOverlay::paint(juce::Graphics& g)
     const bool hasSignal = (smoothedRMS > 0.002f);
 
     juce::Colour statusColor = Nova::Colors::Error;
-    if (std::abs(currentDisplayCents) < 15.0f) statusColor = juce::Colours::orange;
-    if (std::abs(currentDisplayCents) <= 6.0f) statusColor = Nova::Colors::Accent;
+    if (std::abs(currentDisplayCents) < 15.0f) statusColor = Nova::Colors::Accent;
+    if (std::abs(currentDisplayCents) <= 6.0f) statusColor = Nova::Colors::Success;
     if (!hasSignal) statusColor = Nova::Colors::TextDim;
 
     // Giant note

@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include <atomic>
+#include "../../../Core/Constants.h"
 
 class ProcessorBase : public juce::AudioProcessor
 {
@@ -24,9 +25,20 @@ public:
 
         isBypassed = shouldBypass;
         bypassChanged = true;
+        // Report 0 latency when bypassed so the graph's dry-path compensation
+        // stays accurate. The active latency is restored when bypass is lifted.
+        setLatencySamples(shouldBypass ? 0 : activeLatency);
     }
 
     bool getBypassed() const { return isBypassed.load(); }
+
+    // Call this instead of setLatencySamples() from prepareToPlay() in derived
+    // classes. It stores the value and respects the current bypass state.
+    void setProcessingLatency(int latencySamples)
+    {
+        activeLatency = latencySamples;
+        setLatencySamples(isBypassed.load() ? 0 : activeLatency);
+    }
 
     // -----------------------------------------------------------------------------
     // Layout support
@@ -116,7 +128,7 @@ protected:
         const double sr = sampleRate > 0.0 ? sampleRate : 44100.0;
         const int maxSamplesPerBlock = juce::jmax(1, maxBlockSize);
 
-        wetMix.reset(sr, 0.01);
+        wetMix.reset(sr, Nova::Config::SMOOTH_BYPASS_SECONDS);
         const float initialWet = isBypassed.load() ? 0.0f : 1.0f;
         wetMix.setCurrentAndTargetValue(initialWet);
         transitionActive = false;
@@ -212,6 +224,7 @@ protected:
 private:
     std::atomic<bool> isBypassed{ false };
     std::atomic<bool> bypassChanged{ false };
+    int activeLatency = 0;
     bool bypassPrepared = false;
     bool transitionActive = false;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> wetMix;

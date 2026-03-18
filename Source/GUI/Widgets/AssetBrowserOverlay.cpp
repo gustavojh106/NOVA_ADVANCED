@@ -37,7 +37,7 @@ AssetBrowserOverlay::AssetBrowserOverlay(Nova::ZoneID zone,
     addAndMakeVisible(searchBar);
     searchBar.setMultiLine(false);
     searchBar.setTextToShowWhenEmpty("Search modules, tones or use cases...", juce::Colours::grey);
-    searchBar.setColour(juce::TextEditor::backgroundColourId, juce::Colour::fromString("ff151b22"));
+    searchBar.setColour(juce::TextEditor::backgroundColourId, juce::Colour::fromString("ff111827"));
     searchBar.setColour(juce::TextEditor::outlineColourId, juce::Colours::white.withAlpha(0.18f));
     searchBar.setColour(juce::TextEditor::textColourId, juce::Colours::white.withAlpha(0.86f));
     searchBar.addListener(this);
@@ -49,7 +49,7 @@ AssetBrowserOverlay::AssetBrowserOverlay(Nova::ZoneID zone,
 
     addAndMakeVisible(closeBtn);
     closeBtn.setButtonText("X");
-    closeBtn.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff1e2630"));
+    closeBtn.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff1A2332"));
     closeBtn.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.72f));
     closeBtn.onClick = [this]
         {
@@ -90,10 +90,10 @@ void AssetBrowserOverlay::paint(juce::Graphics& g)
 
     const auto panelArea = getLocalBounds().reduced(kOuterPadX, kOuterPadY);
 
-    juce::ColourGradient panelFill(juce::Colour::fromString("ff11171d"),
+    juce::ColourGradient panelFill(juce::Colour::fromString("ff111827"),
         (float)panelArea.getCentreX(),
         (float)panelArea.getY(),
-        juce::Colour::fromString("ff0b0f13"),
+        juce::Colour::fromString("ff0B0E14"),
         (float)panelArea.getCentreX(),
         (float)panelArea.getBottom(),
         false);

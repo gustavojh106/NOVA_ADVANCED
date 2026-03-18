@@ -100,7 +100,7 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
 
     tunerService.setSampleRate(sampleRate);
     tunerService.reset();
-    startupCounter = 5;
+    startupCounter = Nova::Config::STARTUP_COUNTER_INIT;
     silentOutputBlockCounter.store(0, std::memory_order_relaxed);
     silentOutputIncidentActive.store(false, std::memory_order_relaxed);
     pendingSilentOutputLog.store(false, std::memory_order_relaxed);
@@ -120,7 +120,7 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
         dryWetSpec.numChannels = static_cast<juce::uint32>(juce::jmax(1, numOut));
         dryWetMixer.prepare(dryWetSpec);
         dryWetMixer.setWetMixProportion(currentGlobalMix.load());
-        wetMixSmooth.reset(sampleRate, 0.02);
+        wetMixSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
         wetMixSmooth.setCurrentAndTargetValue(currentGlobalMix.load());
 
         const bool missingNodes = (inputChainNode == nullptr ||
@@ -607,7 +607,7 @@ void AudioEngine::flushPendingGraphCommands(bool suspendGraph)
     if (topologyChanged || resetRequested)
     {
         resetGraphStateNow();
-        startupCounter = juce::jmax(startupCounter, 6);
+        startupCounter = juce::jmax(startupCounter, Nova::Config::STARTUP_COUNTER_GRAPH_CHANGE);
     }
 
     if (suspendGraph && mainGraph)
@@ -660,6 +660,29 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
                     mainGraph->removeNode(node->nodeID);
 
                 chain.erase(chain.begin() + cmd.index);
+                topologyChanged = true;
+            }
+            break;
+        }
+
+        case GraphCommandType::MovePedal:
+        {
+            const int from = cmd.index;
+            const int to = cmd.toIndex;
+
+            if (from >= 0 && from < (int)chain.size()
+                && to >= 0 && to < (int)chain.size()
+                && from != to)
+            {
+                auto slot = std::move(chain[(size_t)from]);
+                chain.erase(chain.begin() + from);
+
+                int adjustedTo = to;
+                if (from < to)
+                    adjustedTo--;
+
+                adjustedTo = juce::jlimit(0, (int)chain.size(), adjustedTo);
+                chain.insert(chain.begin() + adjustedTo, std::move(slot));
                 topologyChanged = true;
             }
             break;
@@ -780,6 +803,16 @@ void AudioEngine::removePedal(Nova::ChainID chain, int index)
     enqueueGraphCommand(cmd, true);
 }
 
+void AudioEngine::movePedal(Nova::ChainID chain, int fromIndex, int toIndex)
+{
+    GraphCommand cmd;
+    cmd.type = GraphCommandType::MovePedal;
+    cmd.chain = chain;
+    cmd.index = fromIndex;
+    cmd.toIndex = toIndex;
+    enqueueGraphCommand(cmd, true);
+}
+
 void AudioEngine::clearAll()
 {
     GraphCommand cmd;
@@ -866,7 +899,7 @@ void AudioEngine::setTunerEnabled(bool shouldEnable)
 bool AudioEngine::sanitizeAudioBuffer(juce::AudioBuffer<float>& buffer)
 {
     bool hadInvalid = false;
-    constexpr float kHardAbsLimit = 24.0f;
+    constexpr float kHardAbsLimit = Nova::Config::HARD_ABS_LIMIT_LINEAR;
 
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
     {
@@ -964,14 +997,14 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
 
     if (isEngineOn.load() && !tunerEnabled.load() && startupCounter == 0 && currentGlobalMix.load() > 0.01f)
     {
-        constexpr float kInputActiveThreshold = 0.003f;
-        constexpr float kOutputSilentThreshold = 0.00008f;
-        const bool suspiciousSilence = (inputPeak >= kInputActiveThreshold && outputPeak <= kOutputSilentThreshold);
+        const bool suspiciousSilence = (inputPeak >= Nova::Config::INPUT_ACTIVE_THRESHOLD
+                                        && outputPeak <= Nova::Config::OUTPUT_SILENT_THRESHOLD);
 
         if (suspiciousSilence)
         {
             const int blocks = silentOutputBlockCounter.fetch_add(1, std::memory_order_relaxed) + 1;
-            const int triggerBlocks = juce::jmax(8, juce::roundToInt((currentRate / juce::jmax(1, currentBlockSize)) * 0.75));
+            const int triggerBlocks = juce::jmax(8, juce::roundToInt(
+                (currentRate / juce::jmax(1, currentBlockSize)) * Nova::Config::SILENT_OUTPUT_TRIGGER_SECONDS));
 
             if (blocks >= triggerBlocks && !silentOutputIncidentActive.exchange(true, std::memory_order_relaxed))
                 pendingSilentOutputLog.store(true, std::memory_order_release);
@@ -997,19 +1030,20 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     if (recoveryCooldownBlocks > 0)
         --recoveryCooldownBlocks;
 
-    if (consecutiveCorruptBlocks >= 2 && recoveryCooldownBlocks == 0)
+    if (consecutiveCorruptBlocks >= Nova::Config::CORRUPT_BLOCKS_BEFORE_HEAL && recoveryCooldownBlocks == 0)
     {
         if (vectorLock.tryEnter())
         {
             resetGraphStateNow();
             vectorLock.exit();
-            startupCounter = juce::jmax(startupCounter, 8);
-            recoveryCooldownBlocks = 256;
+            startupCounter = juce::jmax(startupCounter, Nova::Config::STARTUP_COUNTER_AUTO_HEAL);
+            recoveryCooldownBlocks = Nova::Config::RECOVERY_COOLDOWN_BLOCKS;
+            autoHealCount.fetch_add(1, std::memory_order_relaxed);
             pendingAutoHealLog.store(true, std::memory_order_release);
         }
         else
         {
-            recoveryCooldownBlocks = 32;
+            recoveryCooldownBlocks = Nova::Config::RECOVERY_COOLDOWN_SHORT;
         }
 
         consecutiveCorruptBlocks = 0;
@@ -1026,8 +1060,8 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         const double blockDurationMs = (buffer.getNumSamples() / currentRate) * 1000.0;
         if (blockDurationMs > 0.0)
         {
-            cpuUsage = (cpuUsage.load() * 0.9) +
-                ((timeTakenMs / blockDurationMs) * 100.0 * 0.1);
+            cpuUsage = (cpuUsage.load() * Nova::Config::CPU_METER_SLOW_COEFF) +
+                ((timeTakenMs / blockDurationMs) * 100.0 * Nova::Config::CPU_METER_FAST_COEFF);
         }
     }
 }

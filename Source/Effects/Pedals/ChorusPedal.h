@@ -31,7 +31,7 @@ public:
         return new PremiumPedalEditor(*this,
             "Modulation",
             "Stereo Chorus",
-            juce::Colour::fromString("ff72c1ff"),
+            juce::Colour::fromString("ff818CF8"),
             {
                 { "Rate", rateParam, [](float value) { return juce::String(value, 2) + " Hz"; } },
                 { "Depth", depthParam, [](float value) { return formatPercent(value); } },

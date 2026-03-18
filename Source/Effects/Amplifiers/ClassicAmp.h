@@ -31,7 +31,7 @@ public:
         return new PremiumPedalEditor(*this,
             "Amplifier",
             "Classic",
-            juce::Colour::fromString("fff4b942"),
+            juce::Colour::fromString("ffF0A030"),
             {
                 { "Drive", driveParam, [](float value) { return formatGain(value); } },
                 { "Tone", toneParam, [](float value) { return formatPercent(value); } },
@@ -65,13 +65,13 @@ public:
         presenceShelf.prepare(innerSpec);
         dcBlock.prepare(innerSpec);
 
-        masterSmooth.reset(sampleRate, 0.02);
+        masterSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
         masterSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
         cachedTone = std::numeric_limits<float>::quiet_NaN();
         cachedPresence = std::numeric_limits<float>::quiet_NaN();
         cachedDepth = std::numeric_limits<float>::quiet_NaN();
 
-        setLatencySamples((int)oversampler.getLatencyInSamples());
+        setProcessingLatency((int)oversampler.getLatencyInSamples());
         prepareBypassSmoother(sampleRate, samplesPerBlock);
 
         reset();
@@ -137,7 +137,7 @@ private:
     public:
         void prepare(const juce::dsp::ProcessSpec& spec)
         {
-            driveSmooth.reset(spec.sampleRate, 0.012);
+            driveSmooth.reset(spec.sampleRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
             reset();
         }
 
@@ -169,7 +169,7 @@ private:
                     auto* data = block.getChannelPointer((size_t)ch);
                     const float x = data[sample];
 
-                    sagEnvelope[(size_t)ch] = juce::jmax(std::abs(x), sagEnvelope[(size_t)ch] * 0.9992f);
+                    sagEnvelope[(size_t)ch] = juce::jmax(std::abs(x), sagEnvelope[(size_t)ch] * Nova::Config::AMP_SAG_DECAY);
                     const float sag = 1.0f / (1.0f + sagEnvelope[(size_t)ch] * 0.55f);
 
                     const float biased = (x * drive * sag) + 0.045f;

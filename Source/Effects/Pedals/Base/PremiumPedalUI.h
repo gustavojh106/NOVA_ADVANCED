@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 
+#include "../../../Core/StyleSheet.h"
 #include "ProcessorBase.h"
 
 namespace Nova::PedalUI
@@ -24,7 +25,7 @@ public:
     {
         setColour(juce::Slider::textBoxTextColourId, juce::Colours::white);
         setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour::fromString("ff11151a"));
+        setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour::fromString("ff0D1520"));
         setColour(juce::Label::textColourId, juce::Colours::white);
     }
 
@@ -34,8 +35,8 @@ public:
         label->setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
         label->setJustificationType(juce::Justification::centred);
         label->setBorderSize(juce::BorderSize<int>(1, 4, 1, 4));
-        label->setColour(juce::Label::backgroundColourId, juce::Colour::fromString("ff12161b"));
-        label->setColour(juce::Label::outlineColourId, juce::Colour::fromString("ff2c3742"));
+        label->setColour(juce::Label::backgroundColourId, juce::Colour::fromString("ff0D1520"));
+        label->setColour(juce::Label::outlineColourId, juce::Colour::fromString("ff2A3548"));
         label->setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.88f));
         return label;
     }
@@ -43,9 +44,9 @@ public:
     void drawLabel(juce::Graphics& g, juce::Label& label) override
     {
         auto bounds = label.getLocalBounds().toFloat().reduced(0.5f, 1.0f);
-        g.setColour(juce::Colour::fromString("ff171c22"));
+        g.setColour(juce::Colour::fromString("ff111827"));
         g.fillRoundedRectangle(bounds, 4.0f);
-        g.setColour(juce::Colour::fromString("ff252d36"));
+        g.setColour(juce::Colour::fromString("ff2A3548"));
         g.drawRoundedRectangle(bounds, 4.0f, 1.0f);
         g.setColour(label.findColour(juce::Label::textColourId));
         g.setFont(label.getFont());
@@ -66,56 +67,48 @@ public:
         const auto bounds = juce::Rectangle<float>((float)x, (float)y, (float)width, (float)height).reduced(8.0f, 6.0f);
         const float radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f;
         const auto centre = bounds.getCentre();
-        const float angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+        const float angle = UI::KnobGeometry::upperArcAngle(rotaryStartAngle, rotaryEndAngle, sliderPos);
 
-        g.setColour(juce::Colour::fromString("ff171c22").withMultipliedAlpha(alpha));
+        // Knob body
+        g.setColour(juce::Colour::fromString("ff0D1520").withMultipliedAlpha(alpha));
         g.fillEllipse(bounds);
 
         const auto face = bounds.reduced(radius * 0.12f);
-        g.setColour(juce::Colour::fromString("ff242b33").withMultipliedAlpha(alpha));
+        g.setColour(juce::Colour::fromString("ff1A2332").withMultipliedAlpha(alpha));
         g.fillEllipse(face);
-        g.setColour(juce::Colour::fromString("ff303a45").withMultipliedAlpha(alpha));
+        g.setColour(juce::Colour::fromString("ff2A3548").withMultipliedAlpha(alpha));
         g.drawEllipse(face, 1.0f);
-        g.setColour(juce::Colour::fromString("ff0f1318").withMultipliedAlpha(alpha));
+        g.setColour(juce::Colour::fromString("ff0B0E14").withMultipliedAlpha(alpha));
         g.drawEllipse(bounds, 1.0f);
 
-        juce::Path track;
-        track.addCentredArc(centre.x,
-            centre.y,
-            radius + 2.5f,
-            radius + 2.5f,
-            0.0f,
-            rotaryStartAngle,
-            rotaryEndAngle,
-            true);
-
-        g.setColour(juce::Colour::fromString("ff2a3139").withMultipliedAlpha(alpha));
+        // Arc track
+        auto track = UI::KnobGeometry::createUpperArc(centre.x, centre.y, radius + 2.5f,
+            rotaryStartAngle, rotaryEndAngle);
+        g.setColour(juce::Colour::fromString("ff2A3548").withMultipliedAlpha(alpha));
         g.strokePath(track, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
-        juce::Path valueArc;
-        valueArc.addCentredArc(centre.x,
-            centre.y,
-            radius + 2.5f,
-            radius + 2.5f,
-            0.0f,
-            rotaryStartAngle,
-            angle,
-            true);
-
+        // Value arc
+        auto valueArc = UI::KnobGeometry::createUpperArc(centre.x, centre.y, radius + 2.5f,
+            rotaryStartAngle, angle);
         g.setColour(accent.withMultipliedAlpha(alpha));
         g.strokePath(valueArc, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
+        // Glow on value arc
+        g.setColour(accent.withAlpha(0.18f * alpha));
+        g.strokePath(valueArc, juce::PathStrokeType(9.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        // Pointer
         const float pointerLength = radius * 0.68f;
         const float pointerThickness = 2.0f;
-        juce::Path pointer;
-        pointer.addRoundedRectangle(-pointerThickness * 0.5f, -pointerLength * 0.84f, pointerThickness, pointerLength, 1.0f);
+        const auto innerPoint = UI::KnobGeometry::pointOnUpperArc(centre.x, centre.y, radius * 0.16f, angle);
+        const auto outerPoint = UI::KnobGeometry::pointOnUpperArc(centre.x, centre.y, pointerLength, angle);
+        g.setColour(juce::Colours::white.withAlpha(0.92f * alpha));
+        g.drawLine({ innerPoint, outerPoint }, pointerThickness);
 
-        g.setColour(juce::Colours::white.withAlpha(0.95f * alpha));
-        g.fillPath(pointer, juce::AffineTransform::rotation(angle).translated(centre.x, centre.y));
-
-        g.setColour(juce::Colour::fromString("ff0f1318").withMultipliedAlpha(alpha));
+        // Center dot
+        g.setColour(juce::Colour::fromString("ff0B0E14").withMultipliedAlpha(alpha));
         g.fillEllipse(centre.x - 3.0f, centre.y - 3.0f, 6.0f, 6.0f);
-        g.setColour(accent.withAlpha(0.9f * alpha));
+        g.setColour(accent.withAlpha(0.85f * alpha));
         g.drawEllipse(centre.x - 3.0f, centre.y - 3.0f, 6.0f, 6.0f, 1.0f);
     }
 
@@ -161,22 +154,27 @@ public:
         const auto bounds = getLocalBounds().toFloat();
         const bool bypassed = isBypassed();
 
-        g.setColour(bypassed ? juce::Colour::fromString("ff0c0f12") : juce::Colour::fromString("ff11161b"));
+        // Body fill
+        g.setColour(bypassed ? juce::Colour::fromString("ff080A0E") : juce::Colour::fromString("ff0D1520"));
         g.fillRoundedRectangle(bounds, 10.0f);
-        g.setColour(bypassed ? juce::Colour::fromString("ff1a1f24") : juce::Colour::fromString("ff29323b"));
+
+        // Border with accent tint when active
+        g.setColour(bypassed ? juce::Colour::fromString("ff1A2332") : accent.withAlpha(0.22f));
         g.drawRoundedRectangle(bounds.reduced(0.5f), 10.0f, 1.0f);
 
+        // Badge header
         auto badge = juce::Rectangle<float>(10.0f, 10.0f, bounds.getWidth() - 20.0f, 24.0f);
-        g.setColour(bypassed ? juce::Colour::fromString("ff12161a") : juce::Colour::fromString("ff151c22"));
+        g.setColour(bypassed ? juce::Colour::fromString("ff0B0E14") : juce::Colour::fromString("ff111827"));
         g.fillRoundedRectangle(badge, 6.0f);
-        g.setColour(bypassed ? juce::Colour::fromString("ff1d2328") : accent.withAlpha(0.30f));
+        g.setColour(bypassed ? juce::Colour::fromString("ff1A2332") : accent.withAlpha(0.30f));
         g.drawRoundedRectangle(badge, 6.0f, 1.0f);
 
         g.setColour(juce::Colours::white.withAlpha(0.66f));
         g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
         g.drawText((category + "  " + title).toUpperCase(), badge.toNearestInt().reduced(8, 0), juce::Justification::centredLeft);
 
-        g.setColour(bypassed ? juce::Colour::fromString("ff6f3b3b") : accent);
+        // Status indicator pill
+        g.setColour(bypassed ? Nova::Colors::Error.withAlpha(0.5f) : accent);
         g.fillRoundedRectangle(badge.removeFromRight(8.0f).reduced(1.0f, 5.0f), 2.0f);
     }
 
@@ -228,8 +226,8 @@ private:
         auto control = std::make_unique<Control>();
         control->slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
         control->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 46, 14);
-        control->slider.setRotaryParameters(juce::degreesToRadians(210.0f),
-            juce::degreesToRadians(510.0f),
+        control->slider.setRotaryParameters(UI::KnobGeometry::knobStartAngleRadians(),
+            UI::KnobGeometry::knobEndAngleRadians(),
             true);
         control->slider.setDoubleClickReturnValue(true,
             binding.parameter->convertFrom0to1(binding.parameter->getDefaultValue()));

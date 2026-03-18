@@ -56,6 +56,7 @@ public:
         Nova::ZoneID zone = Nova::ZoneID::Pre,
         juce::String pedalID = {});
     void removePedal(Nova::ChainID chain, int index);
+    void movePedal(Nova::ChainID chain, int fromIndex, int toIndex);
     void clearAll();
 
     void setEngineEnabled(bool enabled);
@@ -68,6 +69,7 @@ public:
     int getLatencyNumSamples() const;
     float getLastInputPeak() const { return lastInputPeak.load(); }
     float getLastOutputPeak() const { return lastOutputPeak.load(); }
+    int getAutoHealCount() const { return autoHealCount.load(); }
     juce::String buildDiagnosticReport() const;
 
     void setTunerEnabled(bool shouldEnable);
@@ -104,6 +106,7 @@ private:
     {
         AddPedal,
         RemovePedal,
+        MovePedal,
         ClearAll,
         SetPedalBypass,
         SetEngineEnabled
@@ -117,6 +120,7 @@ private:
         Nova::ChainID chain = Nova::ChainID::LineA;
         Nova::ZoneID zone = Nova::ZoneID::Pre;
         int index = -1;
+        int toIndex = -1;
         bool flag = false;
     };
 
@@ -191,4 +195,5 @@ private:
     std::atomic<bool> pendingSilentOutputLog{ false };
     std::atomic<bool> pendingSilentOutputRecoveryLog{ false };
     std::atomic<bool> pendingAutoHealLog{ false };
+    std::atomic<int>  autoHealCount{ 0 };
 };

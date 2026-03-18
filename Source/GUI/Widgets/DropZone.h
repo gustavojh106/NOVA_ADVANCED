@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <optional>
 #include "../../Core/PluginProcessor.h"
 #include "../../Core/Constants.h"
 
@@ -19,6 +20,7 @@ public:
     bool isInterestedInDragSource(const SourceDetails&) override;
     void itemDropped(const SourceDetails& d) override;
     void itemDragEnter(const SourceDetails&) override;
+    void itemDragMove(const SourceDetails&) override;
     void itemDragExit(const SourceDetails&) override;
 
     // Mouse
@@ -27,9 +29,26 @@ public:
     void mouseExit(const juce::MouseEvent& e) override;
 
 private:
+    struct DropPreview
+    {
+        bool valid = false;
+        int insertIndex = -1;
+        int slotIndex = -1;
+        juce::Rectangle<float> markerBounds;
+    };
+
     bool isFixedSlot() const noexcept;
+    juce::Rectangle<float> getDropContentBounds() const;
     juce::String getHelpText() const;
+    juce::String getDraggedPedalType(const juce::String& dragInfo) const;
     bool isValidDragType(const juce::String& dragInfo) const;
+    bool isMoveDrag(const juce::String& dragInfo) const;
+    DropPreview calculateDropPreview(int dropX) const;
+    std::optional<int> getDraggedPedalIndex(const juce::String& dragInfo) const;
+    void updateDropPreview(const juce::String& dragInfo, juce::Point<int> localPos);
+    void clearDropPreview();
+    void handleMoveDrop(const juce::String& dragInfo, const DropPreview& preview);
+    void handleAddDrop(const juce::String& dragInfo, const DropPreview& preview);
 
     void triggerShake();
     void timerCallback() override;
@@ -43,6 +62,7 @@ private:
 
     enum class DragState { None, Valid, Invalid };
     DragState dragState = DragState::None;
+    DropPreview currentPreview;
 
     bool isHoveringInfo = false;
     juce::Rectangle<float> infoIconBounds;

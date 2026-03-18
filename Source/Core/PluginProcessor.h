@@ -42,8 +42,15 @@ public:
     void clearSessionAndForgetStartupPreset();
 
     // == COMANDOS PÚBLICOS PARA EL EDITOR ==
-    void requestAddPedal(const juce::String& type, Nova::ChainID chain, Nova::ZoneID zone);
+    void requestAddPedal(const juce::String& type,
+        Nova::ChainID chain,
+        Nova::ZoneID zone,
+        int insertIndex = -1);
     void requestRemovePedal(Nova::ChainID chain, int index);
+    void requestMovePedal(Nova::ChainID chain,
+        int fromIndex,
+        int toIndex,
+        Nova::ZoneID targetZone);
     void requestBypassPedal(Nova::ChainID chain, int index, bool bypassed);
 
     void toggleEngine();

@@ -1,6 +1,17 @@
 #include "DropZone.h"
 #include "../../Core/PluginEditor.h"
 #include "../../Core/PedalCatalog.h"
+#include "../../Core/PluginStateModel.h"
+
+#include <limits>
+
+namespace
+{
+Nova::ChainID chainFromToken(const juce::String& token)
+{
+    return token == "LineB" ? Nova::ChainID::LineB : Nova::ChainID::LineA;
+}
+}
 
 // ==============================================================================
 // CLASE TOOLTIP FLOTANTE (Se inyecta en el Editor Principal)
@@ -82,41 +93,308 @@ void DropZone::resized()
     infoIconBounds = bounds.removeFromTop(30.0f).removeFromRight(30.0f).withSizeKeepingCentre(16.0f, 16.0f);
 }
 
+juce::Rectangle<float> DropZone::getDropContentBounds() const
+{
+    auto bounds = getLocalBounds().toFloat().reduced(10.0f, 10.0f);
+    bounds.removeFromTop(18.0f);
+    bounds.removeFromBottom(42.0f);
+    return bounds;
+}
+
 // Validacion y Drag & Drop
+bool DropZone::isMoveDrag(const juce::String& dragInfo) const
+{
+    return dragInfo.startsWith("MOVE:");
+}
+
+std::optional<int> DropZone::getDraggedPedalIndex(const juce::String& dragInfo) const
+{
+    if (!isMoveDrag(dragInfo))
+        return std::nullopt;
+
+    auto parts = juce::StringArray::fromTokens(dragInfo, ":", "");
+    if (parts.size() < 3)
+        return std::nullopt;
+
+    return parts[2].getIntValue();
+}
+
+juce::String DropZone::getDraggedPedalType(const juce::String& dragInfo) const
+{
+    if (isMoveDrag(dragInfo))
+    {
+        auto parts = juce::StringArray::fromTokens(dragInfo, ":", "");
+        if (parts.size() < 3)
+            return {};
+
+        const auto dragChain = chainFromToken(parts[1]);
+        if (dragChain != chain)
+            return {};
+
+        const int fromIndex = parts[2].getIntValue();
+        const auto treeListID = (chain == Nova::ChainID::LineA) ? Nova::IDs::LINE_A : Nova::IDs::LINE_B;
+        auto treeList = proc.pluginState.getChildWithName(treeListID);
+        if (!treeList.isValid() || !juce::isPositiveAndBelow(fromIndex, treeList.getNumChildren()))
+            return {};
+
+        return treeList.getChild(fromIndex).getProperty(Nova::IDs::PEDAL_TYPE).toString();
+    }
+
+    if (!dragInfo.contains(":"))
+        return {};
+
+    return dragInfo.substring(dragInfo.indexOf(":") + 1).trim();
+}
+
 bool DropZone::isValidDragType(const juce::String& dragInfo) const
 {
-    if (!dragInfo.contains(":"))
+    const auto pedalType = getDraggedPedalType(dragInfo);
+    if (pedalType.isEmpty())
         return false;
 
-    const auto itemName = dragInfo.substring(dragInfo.indexOf(":") + 1);
-    return Nova::PedalCatalog::canLiveInZone(itemName, zone);
+    if (isMoveDrag(dragInfo))
+    {
+        auto parts = juce::StringArray::fromTokens(dragInfo, ":", "");
+        if (parts.size() < 3 || chainFromToken(parts[1]) != chain)
+            return false;
+    }
+
+    return Nova::PedalCatalog::canLiveInZone(pedalType, zone);
 }
+
+DropZone::DropPreview DropZone::calculateDropPreview(int dropX) const
+{
+    const auto treeListID = (chain == Nova::ChainID::LineA) ? Nova::IDs::LINE_A : Nova::IDs::LINE_B;
+    auto treeList = proc.pluginState.getChildWithName(treeListID);
+    if (!treeList.isValid())
+        return {};
+
+    std::vector<int> zoneIndices;
+    for (int i = 0; i < treeList.getNumChildren(); ++i)
+    {
+        auto child = treeList.getChild(i);
+        if (!child.hasType(Nova::IDs::PEDAL))
+            continue;
+        const auto pZone = static_cast<Nova::ZoneID>(
+            (int)child.getProperty(Nova::IDs::PEDAL_ZONE, (int)Nova::ZoneID::Pre));
+        if (pZone == zone)
+            zoneIndices.push_back(i);
+    }
+
+    DropPreview preview;
+    preview.valid = true;
+
+    const auto contentBounds = getDropContentBounds();
+    if (contentBounds.isEmpty())
+        return {};
+
+    if (isFixedSlot())
+    {
+        int zoneStart = treeList.getNumChildren();
+        const auto zoneRank = Nova::PluginStateModel::zoneSortRank(zone);
+
+        for (int i = 0; i < treeList.getNumChildren(); ++i)
+        {
+            auto child = treeList.getChild(i);
+            if (!child.hasType(Nova::IDs::PEDAL))
+                continue;
+
+            const auto childZone = static_cast<Nova::ZoneID>(
+                (int)child.getProperty(Nova::IDs::PEDAL_ZONE, (int)Nova::ZoneID::Pre));
+            if (Nova::PluginStateModel::zoneSortRank(childZone) >= zoneRank)
+            {
+                zoneStart = i;
+                break;
+            }
+        }
+
+        preview.insertIndex = juce::jlimit(0, treeList.getNumChildren(), zoneStart);
+        preview.slotIndex = 0;
+        preview.markerBounds = contentBounds.reduced(12.0f, 10.0f);
+        return preview;
+    }
+
+    auto slotBounds = std::vector<juce::Rectangle<int>>{};
+    if (auto* editor = findParentComponentOfClass<NOVAAudioProcessorEditor>())
+    {
+        slotBounds = editor->getPedalBoundsForZone(chain, zone);
+        for (auto& b : slotBounds)
+            b = getLocalArea(editor, b);
+    }
+
+    std::vector<float> slotXs;
+
+    if (!slotBounds.empty())
+    {
+        slotXs.reserve(slotBounds.size() + 1);
+
+        const float firstGap = juce::jmax(12.0f, (slotBounds.front().getX() - contentBounds.getX()) * 0.5f);
+        slotXs.push_back(juce::jlimit(contentBounds.getX(), contentBounds.getRight(),
+            (float)slotBounds.front().getX() - firstGap));
+
+        for (size_t i = 0; i + 1 < slotBounds.size(); ++i)
+        {
+            const auto left = (float)slotBounds[i].getRight();
+            const auto right = (float)slotBounds[i + 1].getX();
+            slotXs.push_back(juce::jlimit(contentBounds.getX(), contentBounds.getRight(), (left + right) * 0.5f));
+        }
+
+        const float lastGap = juce::jmax(12.0f, (contentBounds.getRight() - slotBounds.back().getRight()) * 0.5f);
+        slotXs.push_back(juce::jlimit(contentBounds.getX(), contentBounds.getRight(),
+            (float)slotBounds.back().getRight() + lastGap));
+    }
+    else
+    {
+        const int slotCount = juce::jmax(1, (int)zoneIndices.size() + 1);
+        slotXs.reserve((size_t)slotCount);
+
+        for (int i = 0; i < slotCount; ++i)
+        {
+            const float t = slotCount == 1 ? 0.5f : (float)i / (float)(slotCount - 1);
+            slotXs.push_back(contentBounds.getX() + contentBounds.getWidth() * t);
+        }
+    }
+
+    if (slotXs.empty())
+        slotXs.push_back(contentBounds.getCentreX());
+
+    float nearestDistance = std::numeric_limits<float>::max();
+    int nearestSlot = 0;
+
+    for (int i = 0; i < (int)slotXs.size(); ++i)
+    {
+        const float distance = std::abs((float)dropX - slotXs[(size_t)i]);
+        if (distance < nearestDistance)
+        {
+            nearestDistance = distance;
+            nearestSlot = i;
+        }
+    }
+
+    int insertIndex = 0;
+    if (zoneIndices.empty())
+    {
+        const auto zoneRank = Nova::PluginStateModel::zoneSortRank(zone);
+        insertIndex = treeList.getNumChildren();
+
+        for (int i = 0; i < treeList.getNumChildren(); ++i)
+        {
+            auto child = treeList.getChild(i);
+            if (!child.hasType(Nova::IDs::PEDAL))
+                continue;
+
+            const auto childZone = static_cast<Nova::ZoneID>(
+                (int)child.getProperty(Nova::IDs::PEDAL_ZONE, (int)Nova::ZoneID::Pre));
+            if (Nova::PluginStateModel::zoneSortRank(childZone) > zoneRank)
+            {
+                insertIndex = i;
+                break;
+            }
+        }
+    }
+    else if (nearestSlot <= 0)
+    {
+        insertIndex = zoneIndices.front();
+    }
+    else if (nearestSlot >= (int)zoneIndices.size())
+    {
+        insertIndex = zoneIndices.back() + 1;
+    }
+    else
+    {
+        insertIndex = zoneIndices[(size_t)nearestSlot];
+    }
+
+    preview.insertIndex = juce::jlimit(0, treeList.getNumChildren(), insertIndex);
+    preview.slotIndex = nearestSlot;
+    preview.markerBounds = juce::Rectangle<float>(slotXs[(size_t)nearestSlot] - 3.0f,
+        contentBounds.getY() + 6.0f,
+        6.0f,
+        juce::jmax(16.0f, contentBounds.getHeight() - 12.0f));
+
+    return preview;
+}
+
+void DropZone::clearDropPreview()
+{
+    currentPreview = {};
+}
+
+void DropZone::updateDropPreview(const juce::String& dragInfo, juce::Point<int> localPos)
+{
+    if (!isValidDragType(dragInfo))
+    {
+        clearDropPreview();
+        return;
+    }
+
+    currentPreview = calculateDropPreview(localPos.getX());
+}
+
+void DropZone::handleMoveDrop(const juce::String& dragInfo, const DropPreview& preview)
+{
+    auto parts = juce::StringArray::fromTokens(dragInfo, ":", "");
+    if (parts.size() < 3 || !preview.valid)
+        return;
+
+    const int fromIndex = parts[2].getIntValue();
+    proc.requestMovePedal(chain, fromIndex, preview.insertIndex, zone);
+}
+
+void DropZone::handleAddDrop(const juce::String& dragInfo, const DropPreview& preview)
+{
+    if (!preview.valid)
+        return;
+
+    const auto pedalName = getDraggedPedalType(dragInfo);
+    if (pedalName.isNotEmpty())
+        proc.requestAddPedal(pedalName, chain, zone, preview.insertIndex);
+}
+
 bool DropZone::isInterestedInDragSource(const SourceDetails& d) { return d.description.isString(); }
 
 void DropZone::itemDragEnter(const SourceDetails& d)
 {
     dragState = isValidDragType(d.description.toString()) ? DragState::Valid : DragState::Invalid;
+    updateDropPreview(d.description.toString(), d.localPosition);
+    repaint();
+}
+
+void DropZone::itemDragMove(const SourceDetails& d)
+{
+    dragState = isValidDragType(d.description.toString()) ? DragState::Valid : DragState::Invalid;
+    updateDropPreview(d.description.toString(), d.localPosition);
     repaint();
 }
 
 void DropZone::itemDragExit(const SourceDetails&)
 {
     dragState = DragState::None;
+    clearDropPreview();
     repaint();
 }
 
 void DropZone::itemDropped(const SourceDetails& details)
 {
     dragState = DragState::None;
-    juce::String dragSource = details.description.toString();
+    const juce::String dragSource = details.description.toString();
+    updateDropPreview(dragSource, details.localPosition);
+    const auto preview = currentPreview;
 
-    if (isValidDragType(dragSource))
+    if (isMoveDrag(dragSource) && preview.valid)
     {
-        juce::String pedalName = dragSource.contains(":") ? dragSource.substring(dragSource.indexOf(":") + 1) : dragSource;
-        proc.requestAddPedal(pedalName, chain, zone);
+        handleMoveDrop(dragSource, preview);
     }
-    else triggerShake();
+    else if (preview.valid)
+    {
+        handleAddDrop(dragSource, preview);
+    }
+    else
+    {
+        triggerShake();
+    }
 
+    clearDropPreview();
     repaint();
 }
 
@@ -228,13 +506,14 @@ void DropZone::paint(juce::Graphics& g)
     if (!isFixedSlot()) drawTechGrid(g);
 
     // Estados Visuales
+    const auto validDragColour = (chain == Nova::ChainID::LineA) ? Nova::Colors::CableOnA : Nova::Colors::CableOnB;
     juce::Colour borderColor = juce::Colours::grey.withAlpha(0.3f);
     juce::Colour bgColor = juce::Colours::transparentBlack;
 
     if (dragState == DragState::Valid)
     {
-        borderColor = Nova::Colors::CableOnA;
-        bgColor = Nova::Colors::CableOnA.withAlpha(0.15f);
+        borderColor = validDragColour;
+        bgColor = validDragColour.withAlpha(0.15f);
     }
     else if (dragState == DragState::Invalid)
     {
@@ -250,6 +529,25 @@ void DropZone::paint(juce::Graphics& g)
     g.setColour(bgColor);
     g.fillRoundedRectangle(bounds, 6.0f);
     drawDashedOutline(g, borderColor, bounds);
+
+    if (dragState == DragState::Valid && currentPreview.valid)
+    {
+        if (isFixedSlot())
+        {
+            g.setColour(borderColor.withAlpha(0.12f));
+            g.fillRoundedRectangle(currentPreview.markerBounds, 10.0f);
+            g.setColour(borderColor.withAlpha(0.35f));
+            g.drawRoundedRectangle(currentPreview.markerBounds, 10.0f, 1.5f);
+        }
+        else
+        {
+            auto glowBounds = currentPreview.markerBounds.expanded(7.0f, 4.0f);
+            g.setColour(borderColor.withAlpha(0.15f));
+            g.fillRoundedRectangle(glowBounds, 10.0f);
+            g.setColour(borderColor.withAlpha(0.92f));
+            g.fillRoundedRectangle(currentPreview.markerBounds, 4.0f);
+        }
+    }
 
     // Textos
     juce::String title;

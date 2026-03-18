@@ -737,7 +737,10 @@ Nova::SwitcherMode NOVAAudioProcessor::getSwitcherMode() const
     return static_cast<Nova::SwitcherMode>(juce::jlimit(0, 2, mode));
 }
 
-void NOVAAudioProcessor::requestAddPedal(const juce::String& type, Nova::ChainID chain, Nova::ZoneID zone)
+void NOVAAudioProcessor::requestAddPedal(const juce::String& type,
+    Nova::ChainID chain,
+    Nova::ZoneID zone,
+    int insertIndex)
 {
     const auto canonicalType = PedalRegistry::canonicalType(type);
     if (!PedalRegistry::isTypeSupported(canonicalType))
@@ -747,7 +750,7 @@ void NOVAAudioProcessor::requestAddPedal(const juce::String& type, Nova::ChainID
         return;
     }
 
-    const auto insert = PluginState::insertPedal(pluginState, type, chain, zone);
+    const auto insert = PluginState::insertPedal(pluginState, type, chain, zone, insertIndex);
     if (!insert.inserted)
         return;
 
@@ -769,6 +772,23 @@ void NOVAAudioProcessor::requestRemovePedal(Nova::ChainID chain, int index)
     PluginState::removePedal(pluginState, chain, index);
     synchronizeEngineNow();
     logStateSnapshot("pedal.remove");
+}
+
+void NOVAAudioProcessor::requestMovePedal(Nova::ChainID chain,
+    int fromIndex,
+    int toIndex,
+    Nova::ZoneID targetZone)
+{
+    if (!PluginState::movePedal(pluginState, chain, fromIndex, toIndex, targetZone))
+        return;
+
+    synchronizeEngineNow();
+    NovaDiagnostics::SessionLogger::logEvent("pedal.move",
+        "Moved pedal chain=" + chainToText(chain)
+        + ", from=" + juce::String(fromIndex)
+        + ", to=" + juce::String(toIndex)
+        + ", zone=" + zoneToText(targetZone));
+    logStateSnapshot("pedal.move");
 }
 
 void NOVAAudioProcessor::requestBypassPedal(Nova::ChainID chain, int index, bool bypassed)

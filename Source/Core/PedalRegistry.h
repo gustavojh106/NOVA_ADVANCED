@@ -10,12 +10,24 @@
 
 // Registered pedals
 #include "../Effects/Pedals/CompressorPedal.h"
+#include "../Effects/Pedals/Gate/NoiseGatePedal.h"
+#include "../Effects/Pedals/EQ/EQPedal.h"
 #include "../Effects/Pedals/Overdrive/OverdrivePedal.h"
+#include "../Effects/Pedals/Distortion/DistortionPedal.h"
+#include "../Effects/Pedals/Fuzz/FuzzPedal.h"
+#include "../Effects/Pedals/Wah/AutoWahPedal.h"
 #include "../Effects/Pedals/ChorusPedal.h"
+#include "../Effects/Pedals/Phaser/PhaserPedal.h"
+#include "../Effects/Pedals/Flanger/FlangerPedal.h"
+#include "../Effects/Pedals/Tremolo/TremoloPedal.h"
 #include "../Effects/Pedals/Delay/DelayPedal.h"
 #include "../Effects/Pedals/Reverb/ReverbPedal.h"
 #include "../Effects/Cabinets/CabinetPedal.h"
+#include "../Effects/Cabinets/Vintage2x12Cabinet.h"
+#include "../Effects/Cabinets/Modern4x12Cabinet.h"
 #include "../Effects/Amplifiers/ClassicAmp.h"
+#include "../Effects/Amplifiers/HighGainAmp.h"
+#include "../Effects/Amplifiers/CleanAmp.h"
 
 class PedalRegistry final
 {
@@ -68,13 +80,28 @@ private:
     static const std::map<juce::String, PedalCreator>& getFactory()
     {
         static const std::map<juce::String, PedalCreator> factory{
-            { "Compressor",  [] { return std::make_unique<CompressorPedal>(); } },
-            { "Overdrive",   [] { return std::make_unique<OverdrivePedal>(); } },
-            { "Chorus",      [] { return std::make_unique<ChorusPedal>(); } },
-            { "Delay",       [] { return std::make_unique<DelayPedal>(); } },
-            { "Reverb",      [] { return std::make_unique<ReverbPedal>(); } },
-            { "Cabinet",     [] { return std::make_unique<CabinetPedal>(); } },
-            { "Classic Amp", [] { return std::make_unique<ClassicAmp>(); } }
+            // Pedals
+            { "Compressor",    [] { return std::make_unique<CompressorPedal>(); } },
+            { "Noise Gate",    [] { return std::make_unique<NoiseGatePedal>(); } },
+            { "EQ",            [] { return std::make_unique<EQPedal>(); } },
+            { "Overdrive",     [] { return std::make_unique<OverdrivePedal>(); } },
+            { "Distortion",    [] { return std::make_unique<DistortionPedal>(); } },
+            { "Fuzz",          [] { return std::make_unique<FuzzPedal>(); } },
+            { "Auto Wah",      [] { return std::make_unique<AutoWahPedal>(); } },
+            { "Chorus",        [] { return std::make_unique<ChorusPedal>(); } },
+            { "Phaser",        [] { return std::make_unique<PhaserPedal>(); } },
+            { "Flanger",       [] { return std::make_unique<FlangerPedal>(); } },
+            { "Tremolo",       [] { return std::make_unique<TremoloPedal>(); } },
+            { "Delay",         [] { return std::make_unique<DelayPedal>(); } },
+            { "Reverb",        [] { return std::make_unique<ReverbPedal>(); } },
+            // Amplifiers
+            { "Classic Amp",   [] { return std::make_unique<ClassicAmp>(); } },
+            { "High Gain Amp", [] { return std::make_unique<HighGainAmp>(); } },
+            { "Clean Amp",     [] { return std::make_unique<CleanAmp>(); } },
+            // Cabinets
+            { "Cabinet",       [] { return std::make_unique<CabinetPedal>(); } },
+            { "Vintage 2x12",  [] { return std::make_unique<Vintage2x12Cabinet>(); } },
+            { "Modern 4x12",   [] { return std::make_unique<Modern4x12Cabinet>(); } }
         };
 
         return factory;

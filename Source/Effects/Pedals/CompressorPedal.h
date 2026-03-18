@@ -30,7 +30,7 @@ public:
         return new PremiumPedalEditor(*this,
             "Dynamics",
             "Studio Comp",
-            juce::Colour::fromString("ff62d8b2"),
+            juce::Colour::fromString("ff34D399"),
             {
                 { "Thresh", thresholdParam, [](float value) { return formatDecibels(value); } },
                 { "Ratio", ratioParam, [](float value) { return juce::String(value, 1) + ":1"; } },

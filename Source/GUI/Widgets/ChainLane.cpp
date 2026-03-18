@@ -9,7 +9,7 @@ namespace
     constexpr float kCableSignalOff = 1.0f;
     constexpr float kCableGlowThickness = 8.0f;
 
-    const juce::Colour kCableBodyColour = juce::Colour::fromString("ff151515");
+    const juce::Colour kCableBodyColour = juce::Colour::fromString("ff111827");
 }
 
 ChainLane::ChainLane(NOVAAudioProcessor& p, Nova::ChainID c)
@@ -50,7 +50,7 @@ juce::Colour ChainLane::getCableGlowColour() const noexcept
 
 void ChainLane::resized()
 {
-    // 1. Reducimos el área general para dar un margen de 4px
+    // 1. Reducimos el ï¿½rea general para dar un margen de 4px
     auto area = getLocalBounds().reduced(4);
     const int gap = 8; // ESTE ES EL ESPACIO ENTRE ZONAS
 
@@ -59,7 +59,7 @@ void ChainLane::resized()
     const int fixedTotal = kFixedZoneWidth * 2;
     const int flexZoneW = juce::jmax(0, totalW - fixedTotal) / 2;
 
-    // 3. Vamos asignando las áreas y "saltando" el gap
+    // 3. Vamos asignando las ï¿½reas y "saltando" el gap
     auto rPre = area.removeFromLeft(flexZoneW);
     area.removeFromLeft(gap); // Dejamos hueco
 
@@ -97,11 +97,11 @@ void ChainLane::paint(juce::Graphics& g)
     g.setColour(kCableBodyColour);
     g.strokePath(cable, juce::PathStrokeType(kCableBodyThickness));
 
-    // Señal
+    // Seï¿½al
     g.setColour(glow);
     g.strokePath(cable, juce::PathStrokeType(isLaneActive ? kCableSignalOn : kCableSignalOff));
 
-    // Glow externo cuando está activo
+    // Glow externo cuando estï¿½ activo
     if (isLaneActive)
     {
         g.setColour(glow.withAlpha(0.4f));
