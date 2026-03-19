@@ -12,7 +12,8 @@
 #include "DSP/Global/ChannelStrip.h"
 #include "DSP/Services/TunerService.h"
 
-class AudioEngine : public juce::Thread
+class AudioEngine : public juce::Thread,
+                    private juce::AsyncUpdater
 {
 public:
     struct ChainNodeView
@@ -67,27 +68,27 @@ public:
 
     double getCpuLoad() const;
     int getLatencyNumSamples() const;
-    float getLastInputPeak() const { return lastInputPeak.load(); }
-    float getLastOutputPeak() const { return lastOutputPeak.load(); }
-    int getAutoHealCount() const { return autoHealCount.load(); }
+    float getLastInputPeak() const { return audioPlane.lastInputPeak.load(); }
+    float getLastOutputPeak() const { return audioPlane.lastOutputPeak.load(); }
+    int getAutoHealCount() const { return audioPlane.autoHealCount.load(); }
     juce::String buildDiagnosticReport() const;
 
     void setTunerEnabled(bool shouldEnable);
 
-    bool isTunerEnabled() const { return tunerEnabled.load(); }
-    bool getTunerEnabled() const { return tunerEnabled.load(); }
+    bool isTunerEnabled() const { return audioPlane.tunerEnabled.load(); }
+    bool getTunerEnabled() const { return audioPlane.tunerEnabled.load(); }
 
-    float getTunerPitch() const { return tunerService.getCurrentPitch(); }
-    float getTunerClarity() const { return tunerService.getCurrentClarity(); }
-    float getTunerRMS() const { return tunerService.getCurrentRMS(); }
+    float getTunerPitch() const { return audioPlane.tunerService.getCurrentPitch(); }
+    float getTunerClarity() const { return audioPlane.tunerService.getCurrentClarity(); }
+    float getTunerRMS() const { return audioPlane.tunerService.getCurrentRMS(); }
 
     void setPedalBypassed(Nova::ChainID chain, int index, bool bypassed);
     void synchronizeProcessingState();
 
     void run() override;
 
-    void setTuningOffset(int semitones) { tuningOffset = semitones; }
-    int  getTuningOffset() const { return tuningOffset.load(); }
+    void setTuningOffset(int semitones) { audioPlane.tuningOffset = semitones; }
+    int  getTuningOffset() const { return audioPlane.tuningOffset.load(); }
 
     void updateGlobalParams(const RuntimeGlobalParams& snapshot);
     void updateGlobalParams(const juce::ValueTree& settings,
@@ -124,13 +125,62 @@ private:
         bool flag = false;
     };
 
+    struct ControlPlane
+    {
+        juce::CriticalSection graphCommandLock;
+        std::deque<GraphCommand> pendingGraphCommands;
+        std::atomic<bool> graphCommandsPending{ false };
+
+        mutable juce::SpinLock globalParamsLock;
+        RuntimeGlobalParams pendingGlobalParams;
+        std::atomic<uint32_t> globalParamsRevision{ 0 };
+        std::atomic<uint32_t> appliedGlobalParamsRevision{ 0 };
+    };
+
+    struct AudioPlane
+    {
+        double currentSampleRate = 44100.0;
+        int currentBlockSize = 512;
+        int numInputChannels = 2;
+
+        std::atomic<bool> isEngineOn{ false };
+        std::atomic<double> cpuUsage{ 0.0 };
+
+        double currentRate = 0.0;
+        int startupCounter = 0;
+
+        std::atomic<float> currentGlobalMix{ 1.0f };
+        juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> wetMixSmooth;
+        juce::dsp::DryWetMixer<float> dryWetMixer{ Nova::Config::MAX_GRAPH_LATENCY_SAMPLES };
+
+        TunerService tunerService;
+        std::atomic<bool> tunerEnabled{ false };
+        std::atomic<int> tuningOffset{ 0 };
+
+        int consecutiveCorruptBlocks = 0;
+        int recoveryCooldownBlocks = 0;
+        juce::Thread::ThreadID audioThreadID = {};
+
+        std::atomic<float> lastInputPeak{ 0.0f };
+        std::atomic<float> lastOutputPeak{ 0.0f };
+        std::atomic<int> silentOutputBlockCounter{ 0 };
+        std::atomic<bool> silentOutputIncidentActive{ false };
+        std::atomic<bool> pendingSilentOutputLog{ false };
+        std::atomic<bool> pendingSilentOutputRecoveryLog{ false };
+        std::atomic<bool> pendingAutoHealLog{ false };
+        std::atomic<int> autoHealCount{ 0 };
+    };
+
     void rebuildGraph();
     void connectChainToGain(const std::vector<ChainNodeSlot>& nodes,
         juce::AudioProcessorGraph::NodeID targetStripID);
 
     void enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe);
     void flushPendingGraphCommands(bool suspendGraph);
-    void applyGraphCommandNow(const GraphCommand& cmd, bool& topologyChanged, bool& resetRequested);
+    void applyGraphCommandNow(const GraphCommand& cmd,
+        bool& topologyChanged,
+        bool& renderSequenceInvalidated,
+        bool& resetRequested);
     void applyPendingGlobalParams();
     void applyGlobalParamsNow(const RuntimeGlobalParams& snapshot);
     void resetGraphStateNow();
@@ -141,6 +191,7 @@ private:
 
     float calculateFrequency(const float* signal, int numSamples, double sampleRate);
     std::pair<float, float> calculateFrequencyWithClarity(const float* signal, int numSamples, double sampleRate);
+    void handleAsyncUpdate() override;
 
 private:
     std::unique_ptr<juce::AudioProcessorGraph> mainGraph;
@@ -157,43 +208,6 @@ private:
     juce::AudioProcessorGraph::Node::Ptr stripNodeB;
     juce::AudioProcessorGraph::Node::Ptr outputChainNode;
 
-    double currentSampleRate = 44100.0;
-    int    currentBlockSize = 512;
-    int    numInputChannels = 2;
-
-    std::atomic<bool>   isEngineOn{ false };
-    std::atomic<double> cpuUsage{ 0.0 };
-
-    double currentRate = 0.0;
-    int startupCounter = 0;
-
-    std::atomic<float> currentGlobalMix{ 1.0f };
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> wetMixSmooth;
-    juce::dsp::DryWetMixer<float> dryWetMixer{ Nova::Config::MAX_GRAPH_LATENCY_SAMPLES };
-
-    TunerService tunerService;
-    std::atomic<bool> tunerEnabled{ false };
-    std::atomic<int>  tuningOffset{ 0 };
-
-    juce::CriticalSection graphCommandLock;
-    std::deque<GraphCommand> pendingGraphCommands;
-    std::atomic<bool> graphCommandsPending{ false };
-
-    mutable juce::SpinLock globalParamsLock;
-    RuntimeGlobalParams pendingGlobalParams;
-    std::atomic<uint32_t> globalParamsRevision{ 0 };
-    std::atomic<uint32_t> appliedGlobalParamsRevision{ 0 };
-
-    int consecutiveCorruptBlocks = 0;
-    int recoveryCooldownBlocks = 0;
-    juce::Thread::ThreadID audioThreadID = {};
-
-    std::atomic<float> lastInputPeak{ 0.0f };
-    std::atomic<float> lastOutputPeak{ 0.0f };
-    std::atomic<int> silentOutputBlockCounter{ 0 };
-    std::atomic<bool> silentOutputIncidentActive{ false };
-    std::atomic<bool> pendingSilentOutputLog{ false };
-    std::atomic<bool> pendingSilentOutputRecoveryLog{ false };
-    std::atomic<bool> pendingAutoHealLog{ false };
-    std::atomic<int>  autoHealCount{ 0 };
+    ControlPlane controlPlane;
+    AudioPlane audioPlane;
 };

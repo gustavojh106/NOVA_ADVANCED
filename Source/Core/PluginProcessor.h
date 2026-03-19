@@ -3,11 +3,12 @@
 #include <JuceHeader.h>
 
 #include "AudioEngine.h"
+#include "SessionCoordinator.h"
 #include "Visualizer.h"
 #include "Constants.h"
 
 class NOVAAudioProcessor final : public juce::AudioProcessor,
-    public juce::ValueTree::Listener
+    public juce::AudioProcessorParameter::Listener
 {
 public:
     NOVAAudioProcessor();
@@ -57,8 +58,13 @@ public:
     void cycleSwitcher();
     void toggleTuner();
 
+private:
+    SessionCoordinator sessionCoordinator;
+
+public:
+
     // == DATOS PÚBLICOS ==
-    juce::ValueTree pluginState;
+    juce::ValueTree& pluginState;
     SimpleOscilloscope audioVisualizer;
 
     AudioEngine& getAudioEngine() { return audioEngine; }
@@ -70,21 +76,14 @@ public:
     Nova::SwitcherMode getSwitcherMode() const;
 
 private:
-    // ValueTree Listener
-    void valueTreeChildAdded(juce::ValueTree& parent, juce::ValueTree& child) override;
-    void valueTreeChildRemoved(juce::ValueTree& parent, juce::ValueTree& child, int index) override;
-    void valueTreePropertyChanged(juce::ValueTree& tree, const juce::Identifier& property) override;
+    // AudioProcessorParameter::Listener
+    void parameterValueChanged(int parameterIndex, float newValue) override;
+    void parameterGestureChanged(int, bool) override {}
 
     // Host bridge helpers.
     void createGlobalParameters();
-    AudioEngine::RuntimeGlobalParams makeRuntimeGlobalParams() const;
-    void writeParameterStateToTree(juce::ValueTree settings, juce::ValueTree lineA, juce::ValueTree lineB) const;
-    void applyTreeStateToParameters(juce::ValueTree settings, juce::ValueTree lineA, juce::ValueTree lineB);
     void refreshEngineEnabledIfNeeded();
     void refreshEngineGlobalParamsIfNeeded(bool force);
-    bool applyStateTree(const juce::ValueTree& loadedState, const juce::File* presetFile);
-    void updateGlobalParamsFromState();
-    void updateMixerFromState();
     void logRuntimeSnapshot(const juce::String& context, const AudioEngine::RuntimeGlobalParams& snapshot) const;
     void logStateSnapshot(const juce::String& context) const;
     void synchronizeEngineNow();
@@ -92,8 +91,6 @@ private:
     bool restoreStartupPresetIfAvailable();
 
     AudioEngine audioEngine;
-    bool suppressStateCallbacks = false;
-    bool suppressParamSync = false;
     bool hasPushedRuntimeGlobals = false;
     bool hasPushedEngineEnabled = false;
     bool lastEngineEnabled = false;

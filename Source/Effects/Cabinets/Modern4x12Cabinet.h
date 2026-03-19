@@ -2,8 +2,8 @@
 
 #include "../Pedals/Base/ProcessorBase.h"
 #include "../Pedals/Base/PremiumPedalUI.h"
+#include "SyntheticIR.h"
 
-#include "../../../JuceLibraryCode/BinaryData.h"
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
 #include <limits>
@@ -18,8 +18,6 @@ public:
         addParameter(distanceParam = new juce::AudioParameterFloat("m4x12Distance", "Distance", 0.0f, 1.0f, 0.22f));
         addParameter(mixParam = new juce::AudioParameterFloat("m4x12Mix", "Mix", 0.0f, 1.0f, 1.0f));
         addParameter(levelParam = new juce::AudioParameterFloat("m4x12Level", "Level", 0.0f, 2.0f, 1.0f));
-
-        loadImpulseResponse();
     }
 
     const juce::String getName() const override { return "Modern 4x12"; }
@@ -55,6 +53,7 @@ public:
         spec.numChannels = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
 
         convolution.prepare(spec);
+        loadSyntheticIR(sampleRate);
         lowShelf.prepare(spec);
         highShelf.prepare(spec);
         contourLP.prepare(spec);
@@ -151,14 +150,11 @@ private:
     using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
         juce::dsp::IIR::Coefficients<float>>;
 
-    void loadImpulseResponse()
+    void loadSyntheticIR(double sampleRate)
     {
-        convolution.loadImpulseResponse(BinaryData::demo_wav,
-            (size_t)BinaryData::demo_wavSize,
-            juce::dsp::Convolution::Stereo::yes,
-            juce::dsp::Convolution::Trim::yes,
-            0,
-            juce::dsp::Convolution::Normalise::yes);
+        auto ir = Nova::CabinetIR::generateModern4x12(sampleRate);
+        convolution.loadImpulseResponse(std::move(ir), sampleRate, juce::dsp::Convolution::Stereo::no,
+            juce::dsp::Convolution::Trim::no, juce::dsp::Convolution::Normalise::no);
     }
 
     void updateVoicing()

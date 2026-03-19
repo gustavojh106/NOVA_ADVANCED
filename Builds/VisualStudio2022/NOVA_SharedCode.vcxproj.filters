@@ -233,6 +233,30 @@
     <Filter Include="NOVA\Source\Effects\Pedals\Overdrive">
       <UniqueIdentifier>{A50A3339-34E9-629C-0CCC-787B48778B6F}</UniqueIdentifier>
     </Filter>
+    <Filter Include="NOVA\Source\Effects\Pedals\Distortion">
+      <UniqueIdentifier>{C86C5AB0-672F-9144-753E-192165099380}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\Effects\Pedals\Fuzz">
+      <UniqueIdentifier>{5FAC032B-A02B-4BEC-2D15-93AEF8788467}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\Effects\Pedals\Gate">
+      <UniqueIdentifier>{A18DA792-2905-C6D0-81C9-A73A530170EA}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\Effects\Pedals\EQ">
+      <UniqueIdentifier>{613990B8-2998-00BC-3882-8A7D69EA993D}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\Effects\Pedals\Wah">
+      <UniqueIdentifier>{02192B55-00B5-82CA-9A5C-DDC7CB271365}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\Effects\Pedals\Phaser">
+      <UniqueIdentifier>{7917FBB5-E391-630D-78F8-36C331637E2C}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\Effects\Pedals\Flanger">
+      <UniqueIdentifier>{AE162D50-EE83-37B0-D4EC-A889BAC3D013}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\Effects\Pedals\Tremolo">
+      <UniqueIdentifier>{5F5D7C50-9280-1D31-F4EA-42A00E7B366D}</UniqueIdentifier>
+    </Filter>
     <Filter Include="NOVA\Source\Effects\Pedals\Base">
       <UniqueIdentifier>{1DDF8170-3765-2B7B-C3A7-294AA9A0A564}</UniqueIdentifier>
     </Filter>
@@ -250,6 +274,9 @@
     </Filter>
     <Filter Include="NOVA\Source\Assets\Audio">
       <UniqueIdentifier>{5298EBE7-B2B3-6F8D-A8A7-BF640795C137}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="NOVA\Source\Assets\Textures">
+      <UniqueIdentifier>{A3805A85-A75C-EF75-4BE9-1E8FB835102D}</UniqueIdentifier>
     </Filter>
     <Filter Include="NOVA\Source\Assets">
       <UniqueIdentifier>{54E19D94-BD67-F5D8-3ACD-7BE94FC52E7B}</UniqueIdentifier>
@@ -3979,6 +4006,12 @@
     <ClCompile Include="..\..\JuceLibraryCode\BinaryData.cpp">
       <Filter>JUCE Library Code</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\JuceLibraryCode\BinaryData2.cpp">
+      <Filter>JUCE Library Code</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\JuceLibraryCode\BinaryData3.cpp">
+      <Filter>JUCE Library Code</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\JuceLibraryCode\include_juce_audio_basics.cpp">
       <Filter>JUCE Library Code</Filter>
     </ClCompile>
@@ -5253,10 +5286,31 @@
     <ClInclude Include="..\..\Source\Effects\Amplifiers\ClassicAmp.h">
       <Filter>NOVA\Source\Effects\Amplifiers</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Amplifiers\HighGainAmp.h">
+      <Filter>NOVA\Source\Effects\Amplifiers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Amplifiers\CleanAmp.h">
+      <Filter>NOVA\Source\Effects\Amplifiers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Amplifiers\ChimeAmp.h">
+      <Filter>NOVA\Source\Effects\Amplifiers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Amplifiers\BoutiqueAmp.h">
+      <Filter>NOVA\Source\Effects\Amplifiers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Cabinets\SyntheticIR.h">
+      <Filter>NOVA\Source\Effects\Cabinets</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Source\Effects\Cabinets\CabinetEditor.h">
       <Filter>NOVA\Source\Effects\Cabinets</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\Effects\Cabinets\CabinetPedal.h">
+      <Filter>NOVA\Source\Effects\Cabinets</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Cabinets\Vintage2x12Cabinet.h">
+      <Filter>NOVA\Source\Effects\Cabinets</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Cabinets\Modern4x12Cabinet.h">
       <Filter>NOVA\Source\Effects\Cabinets</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\Effects\Pedals\Neural\NeuralEditor.h">
@@ -5271,7 +5325,40 @@
     <ClInclude Include="..\..\Source\Effects\Pedals\Overdrive\OverdrivePedal.h">
       <Filter>NOVA\Source\Effects\Pedals\Overdrive</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Overdrive\OverdriveThumbnail.h">
+      <Filter>NOVA\Source\Effects\Pedals\Overdrive</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Overdrive\OverdriveDashboard.h">
+      <Filter>NOVA\Source\Effects\Pedals\Overdrive</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Distortion\DistortionPedal.h">
+      <Filter>NOVA\Source\Effects\Pedals\Distortion</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Fuzz\FuzzPedal.h">
+      <Filter>NOVA\Source\Effects\Pedals\Fuzz</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Gate\NoiseGatePedal.h">
+      <Filter>NOVA\Source\Effects\Pedals\Gate</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\EQ\EQPedal.h">
+      <Filter>NOVA\Source\Effects\Pedals\EQ</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Wah\AutoWahPedal.h">
+      <Filter>NOVA\Source\Effects\Pedals\Wah</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Phaser\PhaserPedal.h">
+      <Filter>NOVA\Source\Effects\Pedals\Phaser</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Flanger\FlangerPedal.h">
+      <Filter>NOVA\Source\Effects\Pedals\Flanger</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Tremolo\TremoloPedal.h">
+      <Filter>NOVA\Source\Effects\Pedals\Tremolo</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Source\Effects\Pedals\Base\ProcessorBase.h">
+      <Filter>NOVA\Source\Effects\Pedals\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Effects\Pedals\Base\PedalUIFactory.h">
       <Filter>NOVA\Source\Effects\Pedals\Base</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\Core\AudioEngine.h">
@@ -9721,6 +9808,54 @@
     </None>
     <None Include="..\..\Source\Assets\Audio\demo.wav">
       <Filter>NOVA\Source\Assets\Audio</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\brushed_metal.jpg">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\carbon_fiber.png">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\dark_walnut.png">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\diamond_plate.jpg">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\gold_ridged_metal.jpg">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\light_maple.png">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\quilted_leather.png">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\rusted_orange_metal.jpg">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\dark_wall.jpg">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\green_fabric.jpg">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\knob_orange.png">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\knob_boss_silver.png">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\screw_phillips_silver.png">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\screw_torx.png">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\led_red_green.png">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
+    </None>
+    <None Include="..\..\Resources\Textures\switch_rocker.png">
+      <Filter>NOVA\Source\Assets\Textures</Filter>
     </None>
     <None Include="..\..\..\..\..\..\Downloads\juce-8.0.12-windows\JUCE\modules\juce_audio_devices\native\asio\LICENSE.txt">
       <Filter>JUCE Modules\juce_audio_devices\native\asio</Filter>

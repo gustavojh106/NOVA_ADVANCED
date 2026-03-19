@@ -129,7 +129,7 @@ public:
             preHighPass.process(ctx);
         }
 
-        // Distortion stage - hard clipping with asymmetric saturation
+        // Distortion stage - asymmetric saturation + smooth wave folding
         {
             const int channels = (int)upsampled.getNumChannels();
             const int samples = (int)upsampled.getNumSamples();
@@ -138,20 +138,25 @@ public:
             {
                 const float gainDb = gainSmooth.getNextValue();
                 const float drive = juce::Decibels::decibelsToGain(gainDb * 0.45f + 6.0f);
+                // Grit amount scales with gain — more folding at higher gain settings
+                const float gritAmount = juce::jmap(gainDb, 0.0f, 100.0f, 0.05f, 0.35f);
 
                 for (int ch = 0; ch < channels; ++ch)
                 {
                     auto* data = upsampled.getChannelPointer((size_t)ch);
                     float x = data[sample] * drive;
 
-                    // Hard clip with asymmetric soft clipping
+                    // Asymmetric soft clipping (positive clips harder than negative)
                     const float pos = std::tanh(x * 1.4f);
                     const float neg = std::tanh(x * 1.1f);
                     x = (x >= 0.0f) ? pos : neg;
 
-                    // Add grit via wave folding
-                    if (std::abs(x) > 0.7f)
-                        x = x - 0.3f * std::sin(x * 3.14159f);
+                    // Smooth wave folding — gradual transition, no hard threshold
+                    // Uses tanh-shaped fold: continuous, gain-dependent, no aliasing artifacts
+                    const float absX = std::abs(x);
+                    const float foldEnv = juce::jlimit(0.0f, 1.0f, (absX - 0.4f) * 2.0f);
+                    const float fold = std::sin(x * juce::MathConstants<float>::pi * 0.8f) * foldEnv;
+                    x = x - gritAmount * fold;
 
                     data[sample] = x;
                 }

@@ -65,9 +65,9 @@ AudioEngine::AudioEngine()
     : juce::Thread("AudioEngineThread")
 {
     mainGraph = std::make_unique<juce::AudioProcessorGraph>();
-    dryWetMixer.setMixingRule(juce::dsp::DryWetMixingRule::linear);
-    dryWetMixer.setWetMixProportion(1.0f);
-    isEngineOn = false;
+    audioPlane.dryWetMixer.setMixingRule(juce::dsp::DryWetMixingRule::linear);
+    audioPlane.dryWetMixer.setWetMixProportion(1.0f);
+    audioPlane.isEngineOn = false;
     NovaDiagnostics::SessionLogger::logEvent("engine.lifecycle", "AudioEngine constructed");
     startThread(juce::Thread::Priority::high);
 }
@@ -75,6 +75,7 @@ AudioEngine::AudioEngine()
 AudioEngine::~AudioEngine()
 {
     NovaDiagnostics::SessionLogger::logEvent("engine.lifecycle", "AudioEngine shutting down");
+    cancelPendingUpdate();
     stopThread(4000);
 
     if (mainGraph)
@@ -88,24 +89,24 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
 {
     stopThread(5000);
 
-    currentRate = sampleRate;
-    currentSampleRate = sampleRate;
-    currentBlockSize = samplesPerBlock;
-    numInputChannels = numIn;
+    audioPlane.currentRate = sampleRate;
+    audioPlane.currentSampleRate = sampleRate;
+    audioPlane.currentBlockSize = samplesPerBlock;
+    audioPlane.numInputChannels = numIn;
 
-    audioThreadID = {};
-    consecutiveCorruptBlocks = 0;
-    recoveryCooldownBlocks = 0;
-    appliedGlobalParamsRevision.store(0, std::memory_order_relaxed);
+    audioPlane.audioThreadID = {};
+    audioPlane.consecutiveCorruptBlocks = 0;
+    audioPlane.recoveryCooldownBlocks = 0;
+    controlPlane.appliedGlobalParamsRevision.store(0, std::memory_order_relaxed);
 
-    tunerService.setSampleRate(sampleRate);
-    tunerService.reset();
-    startupCounter = Nova::Config::STARTUP_COUNTER_INIT;
-    silentOutputBlockCounter.store(0, std::memory_order_relaxed);
-    silentOutputIncidentActive.store(false, std::memory_order_relaxed);
-    pendingSilentOutputLog.store(false, std::memory_order_relaxed);
-    pendingSilentOutputRecoveryLog.store(false, std::memory_order_relaxed);
-    pendingAutoHealLog.store(false, std::memory_order_relaxed);
+    audioPlane.tunerService.setSampleRate(sampleRate);
+    audioPlane.tunerService.reset();
+    audioPlane.startupCounter = Nova::Config::STARTUP_COUNTER_INIT;
+    audioPlane.silentOutputBlockCounter.store(0, std::memory_order_relaxed);
+    audioPlane.silentOutputIncidentActive.store(false, std::memory_order_relaxed);
+    audioPlane.pendingSilentOutputLog.store(false, std::memory_order_relaxed);
+    audioPlane.pendingSilentOutputRecoveryLog.store(false, std::memory_order_relaxed);
+    audioPlane.pendingAutoHealLog.store(false, std::memory_order_relaxed);
 
     {
         const juce::ScopedLock sl(vectorLock);
@@ -118,10 +119,10 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
         dryWetSpec.sampleRate = sampleRate;
         dryWetSpec.maximumBlockSize = static_cast<juce::uint32>(samplesPerBlock);
         dryWetSpec.numChannels = static_cast<juce::uint32>(juce::jmax(1, numOut));
-        dryWetMixer.prepare(dryWetSpec);
-        dryWetMixer.setWetMixProportion(currentGlobalMix.load());
-        wetMixSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
-        wetMixSmooth.setCurrentAndTargetValue(currentGlobalMix.load());
+        audioPlane.dryWetMixer.prepare(dryWetSpec);
+        audioPlane.dryWetMixer.setWetMixProportion(audioPlane.currentGlobalMix.load());
+        audioPlane.wetMixSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
+        audioPlane.wetMixSmooth.setCurrentAndTargetValue(audioPlane.currentGlobalMix.load());
 
         const bool missingNodes = (inputChainNode == nullptr ||
             stripNodeA == nullptr ||
@@ -345,11 +346,11 @@ void AudioEngine::updateGlobalParams(const juce::ValueTree& settings,
 void AudioEngine::updateGlobalParams(const RuntimeGlobalParams& snapshot)
 {
     {
-        const juce::SpinLock::ScopedLockType lock(globalParamsLock);
-        pendingGlobalParams = snapshot;
+        const juce::SpinLock::ScopedLockType lock(controlPlane.globalParamsLock);
+        controlPlane.pendingGlobalParams = snapshot;
     }
 
-    globalParamsRevision.fetch_add(1, std::memory_order_release);
+    controlPlane.globalParamsRevision.fetch_add(1, std::memory_order_release);
 }
 
 juce::String AudioEngine::describeChainState(const std::vector<ChainNodeSlot>& chain) const
@@ -391,28 +392,28 @@ juce::String AudioEngine::buildDiagnosticReport() const
 {
     RuntimeGlobalParams params;
     {
-        const juce::SpinLock::ScopedLockType lock(globalParamsLock);
-        params = pendingGlobalParams;
+        const juce::SpinLock::ScopedLockType lock(controlPlane.globalParamsLock);
+        params = controlPlane.pendingGlobalParams;
     }
 
     const juce::ScopedLock sl(vectorLock);
 
     juce::String report;
-    report << "engineOn=" << boolToText(isEngineOn.load())
-        << ", tunerEnabled=" << boolToText(tunerEnabled.load())
-        << ", sampleRate=" << currentSampleRate
-        << ", blockSize=" << currentBlockSize
-        << ", inputChannels=" << numInputChannels
-        << ", startupCounter=" << startupCounter
+    report << "engineOn=" << boolToText(audioPlane.isEngineOn.load())
+        << ", tunerEnabled=" << boolToText(audioPlane.tunerEnabled.load())
+        << ", sampleRate=" << audioPlane.currentSampleRate
+        << ", blockSize=" << audioPlane.currentBlockSize
+        << ", inputChannels=" << audioPlane.numInputChannels
+        << ", startupCounter=" << audioPlane.startupCounter
         << ", graphLatencySamples=" << getLatencyNumSamples()
-        << ", wetMix=" << currentGlobalMix.load()
-        << ", cpuLoad=" << cpuUsage.load()
-        << ", pendingGlobalRevision=" << (int)globalParamsRevision.load()
-        << ", appliedGlobalRevision=" << (int)appliedGlobalParamsRevision.load()
-        << ", consecutiveCorruptBlocks=" << consecutiveCorruptBlocks
-        << ", recoveryCooldownBlocks=" << recoveryCooldownBlocks
-        << ", lastInputPeak=" << lastInputPeak.load()
-        << ", lastOutputPeak=" << lastOutputPeak.load()
+        << ", wetMix=" << audioPlane.currentGlobalMix.load()
+        << ", cpuLoad=" << audioPlane.cpuUsage.load()
+        << ", pendingGlobalRevision=" << (int)controlPlane.globalParamsRevision.load()
+        << ", appliedGlobalRevision=" << (int)controlPlane.appliedGlobalParamsRevision.load()
+        << ", consecutiveCorruptBlocks=" << audioPlane.consecutiveCorruptBlocks
+        << ", recoveryCooldownBlocks=" << audioPlane.recoveryCooldownBlocks
+        << ", lastInputPeak=" << audioPlane.lastInputPeak.load()
+        << ", lastOutputPeak=" << audioPlane.lastOutputPeak.load()
         << juce::newLine
         << "runtimeParams: " << formatRuntimeParams(params) << juce::newLine
         << "chainA:" << juce::newLine << describeChainState(nodesChainA) << juce::newLine
@@ -423,33 +424,33 @@ juce::String AudioEngine::buildDiagnosticReport() const
 
 void AudioEngine::applyPendingGlobalParams()
 {
-    const auto pendingRevision = globalParamsRevision.load(std::memory_order_acquire);
-    if (pendingRevision == appliedGlobalParamsRevision.load(std::memory_order_relaxed))
+    const auto pendingRevision = controlPlane.globalParamsRevision.load(std::memory_order_acquire);
+    if (pendingRevision == controlPlane.appliedGlobalParamsRevision.load(std::memory_order_relaxed))
         return;
 
     RuntimeGlobalParams snapshot;
     uint32_t capturedRevision = pendingRevision;
-    const bool runningOnAudioThread = (audioThreadID != juce::Thread::ThreadID()
-        && juce::Thread::getCurrentThreadId() == audioThreadID);
+    const bool runningOnAudioThread = (audioPlane.audioThreadID != juce::Thread::ThreadID()
+        && juce::Thread::getCurrentThreadId() == audioPlane.audioThreadID);
 
     {
         if (runningOnAudioThread)
         {
-            if (!globalParamsLock.tryEnter())
+            if (!controlPlane.globalParamsLock.tryEnter())
                 return;
         }
         else
         {
-            globalParamsLock.enter();
+            controlPlane.globalParamsLock.enter();
         }
 
-        snapshot = pendingGlobalParams;
-        capturedRevision = globalParamsRevision.load(std::memory_order_relaxed);
-        globalParamsLock.exit();
+        snapshot = controlPlane.pendingGlobalParams;
+        capturedRevision = controlPlane.globalParamsRevision.load(std::memory_order_relaxed);
+        controlPlane.globalParamsLock.exit();
     }
 
     applyGlobalParamsNow(snapshot);
-    appliedGlobalParamsRevision.store(capturedRevision, std::memory_order_release);
+    controlPlane.appliedGlobalParamsRevision.store(capturedRevision, std::memory_order_release);
 }
 
 void AudioEngine::applyGlobalParamsNow(const RuntimeGlobalParams& snapshot)
@@ -482,8 +483,8 @@ void AudioEngine::applyGlobalParamsNow(const RuntimeGlobalParams& snapshot)
                 ? juce::jlimit(0.0f, 1.0f, mixRaw)
                 : juce::jlimit(0.0f, 100.0f, mixRaw) / 100.0f;
 
-            currentGlobalMix = mixNormalized;
-            wetMixSmooth.setTargetValue(mixNormalized);
+            audioPlane.currentGlobalMix = mixNormalized;
+            audioPlane.wetMixSmooth.setTargetValue(mixNormalized);
         }
     }
 
@@ -523,7 +524,7 @@ void AudioEngine::applyGlobalParamsNow(const RuntimeGlobalParams& snapshot)
 
 void AudioEngine::updateDryWetLatencyCompensation()
 {
-    dryWetMixer.setWetLatency(static_cast<float>(juce::jlimit(0,
+    audioPlane.dryWetMixer.setWetLatency(static_cast<float>(juce::jlimit(0,
         Nova::Config::MAX_GRAPH_LATENCY_SAMPLES,
         getLatencyNumSamples())));
 }
@@ -531,9 +532,9 @@ void AudioEngine::updateDryWetLatencyCompensation()
 void AudioEngine::enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe)
 {
     {
-        const juce::ScopedLock sl(graphCommandLock);
-        pendingGraphCommands.push_back(cmd);
-        graphCommandsPending.store(true, std::memory_order_release);
+        const juce::ScopedLock sl(controlPlane.graphCommandLock);
+        controlPlane.pendingGraphCommands.push_back(cmd);
+        controlPlane.graphCommandsPending.store(true, std::memory_order_release);
     }
 
     juce::String message;
@@ -547,45 +548,52 @@ void AudioEngine::enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe)
     NovaDiagnostics::SessionLogger::logEvent("engine.graph.enqueue", message);
 
     if (flushIfSafe)
-        notify();
+    {
+        auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
+
+        if (messageManager != nullptr && messageManager->isThisTheMessageThread())
+            flushPendingGraphCommands(true);
+        else
+            triggerAsyncUpdate();
+    }
 }
 
 void AudioEngine::flushPendingGraphCommands(bool suspendGraph)
 {
-    if (!graphCommandsPending.load(std::memory_order_acquire))
+    if (!controlPlane.graphCommandsPending.load(std::memory_order_acquire))
         return;
 
     const bool runningOnAudioThread = (!suspendGraph
-        && audioThreadID != juce::Thread::ThreadID()
-        && juce::Thread::getCurrentThreadId() == audioThreadID);
+        && audioPlane.audioThreadID != juce::Thread::ThreadID()
+        && juce::Thread::getCurrentThreadId() == audioPlane.audioThreadID);
 
     std::deque<GraphCommand> commands;
 
     {
-        const bool hasGraphLock = runningOnAudioThread ? graphCommandLock.tryEnter() : (graphCommandLock.enter(), true);
+        const bool hasGraphLock = runningOnAudioThread ? controlPlane.graphCommandLock.tryEnter() : (controlPlane.graphCommandLock.enter(), true);
         if (!hasGraphLock)
             return;
 
-        if (pendingGraphCommands.empty())
+        if (controlPlane.pendingGraphCommands.empty())
         {
-            graphCommandsPending.store(false, std::memory_order_release);
-            graphCommandLock.exit();
+            controlPlane.graphCommandsPending.store(false, std::memory_order_release);
+            controlPlane.graphCommandLock.exit();
             return;
         }
 
-        commands.swap(pendingGraphCommands);
-        graphCommandsPending.store(!pendingGraphCommands.empty(), std::memory_order_release);
-        graphCommandLock.exit();
+        commands.swap(controlPlane.pendingGraphCommands);
+        controlPlane.graphCommandsPending.store(!controlPlane.pendingGraphCommands.empty(), std::memory_order_release);
+        controlPlane.graphCommandLock.exit();
     }
 
     const bool hasVectorLock = runningOnAudioThread ? vectorLock.tryEnter() : (vectorLock.enter(), true);
     if (!hasVectorLock)
     {
-        const juce::ScopedLock sl(graphCommandLock);
+        const juce::ScopedLock sl(controlPlane.graphCommandLock);
         for (auto it = commands.rbegin(); it != commands.rend(); ++it)
-            pendingGraphCommands.push_front(std::move(*it));
+            controlPlane.pendingGraphCommands.push_front(std::move(*it));
 
-        graphCommandsPending.store(true, std::memory_order_release);
+        controlPlane.graphCommandsPending.store(true, std::memory_order_release);
         return;
     }
 
@@ -593,21 +601,25 @@ void AudioEngine::flushPendingGraphCommands(bool suspendGraph)
         mainGraph->suspendProcessing(true);
 
     bool topologyChanged = false;
+    bool renderSequenceInvalidated = false;
     bool resetRequested = false;
 
     for (const auto& cmd : commands)
-        applyGraphCommandNow(cmd, topologyChanged, resetRequested);
+        applyGraphCommandNow(cmd, topologyChanged, renderSequenceInvalidated, resetRequested);
 
     if (topologyChanged)
-    {
         rebuildGraph();
+
+    if (topologyChanged || renderSequenceInvalidated)
+    {
+        mainGraph->rebuild();
         updateDryWetLatencyCompensation();
     }
 
-    if (topologyChanged || resetRequested)
+    if (topologyChanged || renderSequenceInvalidated || resetRequested)
     {
         resetGraphStateNow();
-        startupCounter = juce::jmax(startupCounter, Nova::Config::STARTUP_COUNTER_GRAPH_CHANGE);
+        audioPlane.startupCounter = juce::jmax(audioPlane.startupCounter, Nova::Config::STARTUP_COUNTER_GRAPH_CHANGE);
     }
 
     if (suspendGraph && mainGraph)
@@ -616,7 +628,10 @@ void AudioEngine::flushPendingGraphCommands(bool suspendGraph)
     vectorLock.exit();
 }
 
-void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyChanged, bool& resetRequested)
+void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd,
+    bool& topologyChanged,
+    bool& renderSequenceInvalidated,
+    bool& resetRequested)
 {
     if (mainGraph == nullptr)
         return;
@@ -629,9 +644,6 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
         {
             if (auto pedal = PedalRegistry::createPedal(cmd.pedalType))
             {
-                pedal->setPlayConfigDetails(2, 2, currentSampleRate, currentBlockSize);
-                pedal->prepareToPlay(currentSampleRate, currentBlockSize);
-
                 auto node = mainGraph->addNode(std::move(pedal));
                 if (node != nullptr)
                 {
@@ -646,6 +658,7 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
                         chain.push_back(std::move(slot));
 
                     topologyChanged = true;
+                    renderSequenceInvalidated = true;
                 }
             }
             break;
@@ -661,6 +674,7 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
 
                 chain.erase(chain.begin() + cmd.index);
                 topologyChanged = true;
+                renderSequenceInvalidated = true;
             }
             break;
         }
@@ -684,6 +698,7 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
                 adjustedTo = juce::jlimit(0, (int)chain.size(), adjustedTo);
                 chain.insert(chain.begin() + adjustedTo, std::move(slot));
                 topologyChanged = true;
+                renderSequenceInvalidated = true;
             }
             break;
         }
@@ -704,6 +719,7 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
             removeChain(nodesChainA);
             removeChain(nodesChainB);
             topologyChanged = true;
+            renderSequenceInvalidated = true;
             break;
         }
 
@@ -720,6 +736,7 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
             if (auto* base = dynamic_cast<ProcessorBase*>(processor))
             {
                 base->setBypassed(cmd.flag);
+                renderSequenceInvalidated = true;
             }
             else
             {
@@ -732,12 +749,12 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd, bool& topologyCh
 
         case GraphCommandType::SetEngineEnabled:
         {
-            const bool previous = isEngineOn.exchange(cmd.flag);
+            const bool previous = audioPlane.isEngineOn.exchange(cmd.flag);
             if (cmd.flag && !previous)
                 resetRequested = true;
 
             if (!cmd.flag)
-                startupCounter = 0;
+                audioPlane.startupCounter = 0;
 
             break;
         }
@@ -766,9 +783,9 @@ void AudioEngine::resetGraphStateNow()
     for (auto& n : nodesChainB)
         resetNode(n.node);
 
-    dryWetMixer.reset();
+    audioPlane.dryWetMixer.reset();
 
-    tunerService.reset();
+    audioPlane.tunerService.reset();
 }
 
 // Legacy wrapper kept for compatibility.
@@ -832,10 +849,16 @@ void AudioEngine::setPedalBypassed(Nova::ChainID chain, int index, bool bypassed
 
 void AudioEngine::synchronizeProcessingState()
 {
-    const bool runningOnAudioThread = (audioThreadID != juce::Thread::ThreadID()
-        && juce::Thread::getCurrentThreadId() == audioThreadID);
+    if (controlPlane.graphCommandsPending.load(std::memory_order_acquire))
+    {
+        auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
 
-    flushPendingGraphCommands(!runningOnAudioThread);
+        if (messageManager == nullptr || messageManager->isThisTheMessageThread())
+            flushPendingGraphCommands(true);
+        else
+            triggerAsyncUpdate();
+    }
+
     applyPendingGlobalParams();
 }
 
@@ -881,15 +904,15 @@ void AudioEngine::setEngineEnabled(bool enabled)
         "Requested engineEnabled=" + boolToText(enabled));
 }
 
-double AudioEngine::getCpuLoad() const { return cpuUsage.load(); }
+double AudioEngine::getCpuLoad() const { return audioPlane.cpuUsage.load(); }
 int AudioEngine::getLatencyNumSamples() const { return mainGraph ? mainGraph->getLatencySamples() : 0; }
 
 void AudioEngine::setTunerEnabled(bool shouldEnable)
 {
-    tunerEnabled = shouldEnable;
+    audioPlane.tunerEnabled = shouldEnable;
 
     if (shouldEnable)
-        tunerService.reset();
+        audioPlane.tunerService.reset();
 }
 
 // ==========================================================
@@ -940,113 +963,113 @@ float AudioEngine::measureBlockPeak(const juce::AudioBuffer<float>& buffer)
 
 void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
-    if (audioThreadID == juce::Thread::ThreadID())
-        audioThreadID = juce::Thread::getCurrentThreadId();
+    if (audioPlane.audioThreadID == juce::Thread::ThreadID())
+        audioPlane.audioThreadID = juce::Thread::getCurrentThreadId();
 
     const auto startTime = juce::Time::getMillisecondCounterHiRes();
     const float inputPeak = measureBlockPeak(buffer);
-    lastInputPeak.store(inputPeak, std::memory_order_relaxed);
+    audioPlane.lastInputPeak.store(inputPeak, std::memory_order_relaxed);
 
-    // Apply queued topology/state changes at a block boundary on the audio thread.
-    flushPendingGraphCommands(false);
+    // Graph mutations are committed on the message thread so JUCE can rebuild the
+    // render sequence synchronously with latency/layout changes.
     applyPendingGlobalParams();
 
     // 1) Tuner mode: capture + mute
-    if (tunerEnabled)
+    if (audioPlane.tunerEnabled)
     {
-        tunerService.pushBuffer(buffer);
+        audioPlane.tunerService.pushBuffer(buffer);
         buffer.clear();
-        cpuUsage = 0.0;
+        audioPlane.cpuUsage = 0.0;
         return;
     }
 
     // 2) Engine off or warming up: keep a transparent dry path.
-    if (!isEngineOn || startupCounter > 0)
+    if (!audioPlane.isEngineOn || audioPlane.startupCounter > 0)
     {
-        if (startupCounter > 0)
-            --startupCounter;
+        if (audioPlane.startupCounter > 0)
+            --audioPlane.startupCounter;
 
-        cpuUsage = 0.0;
+        audioPlane.cpuUsage = 0.0;
         return;
     }
 
     if (mainGraph == nullptr)
     {
         buffer.clear();
-        cpuUsage = 0.0;
+        audioPlane.cpuUsage = 0.0;
         return;
     }
 
     // 3) Dry/Wet mix with latency compensation
-    dryWetMixer.setWetMixProportion(wetMixSmooth.getCurrentValue());
-    dryWetMixer.pushDrySamples(juce::dsp::AudioBlock<const float>(buffer));
+    audioPlane.dryWetMixer.setWetMixProportion(audioPlane.wetMixSmooth.getCurrentValue());
+    audioPlane.dryWetMixer.pushDrySamples(juce::dsp::AudioBlock<const float>(buffer));
 
     // 4) Process wet
     mainGraph->processBlock(buffer, midi);
 
     // 5) Mix final
-    dryWetMixer.mixWetSamples(juce::dsp::AudioBlock<float>(buffer));
+    audioPlane.dryWetMixer.mixWetSamples(juce::dsp::AudioBlock<float>(buffer));
 
-    if (wetMixSmooth.isSmoothing())
-        wetMixSmooth.skip(buffer.getNumSamples());
+    if (audioPlane.wetMixSmooth.isSmoothing())
+        audioPlane.wetMixSmooth.skip(buffer.getNumSamples());
 
     // 6) Safety net + auto-heal
     const bool hadCorruption = sanitizeAudioBuffer(buffer);
     const float outputPeak = measureBlockPeak(buffer);
-    lastOutputPeak.store(outputPeak, std::memory_order_relaxed);
+    audioPlane.lastOutputPeak.store(outputPeak, std::memory_order_relaxed);
 
-    if (isEngineOn.load() && !tunerEnabled.load() && startupCounter == 0 && currentGlobalMix.load() > 0.01f)
+    if (audioPlane.isEngineOn.load() && !audioPlane.tunerEnabled.load() && audioPlane.startupCounter == 0 && audioPlane.currentGlobalMix.load() > 0.01f)
     {
         const bool suspiciousSilence = (inputPeak >= Nova::Config::INPUT_ACTIVE_THRESHOLD
                                         && outputPeak <= Nova::Config::OUTPUT_SILENT_THRESHOLD);
 
         if (suspiciousSilence)
         {
-            const int blocks = silentOutputBlockCounter.fetch_add(1, std::memory_order_relaxed) + 1;
+            const int blocks = audioPlane.silentOutputBlockCounter.fetch_add(1, std::memory_order_relaxed) + 1;
             const int triggerBlocks = juce::jmax(8, juce::roundToInt(
-                (currentRate / juce::jmax(1, currentBlockSize)) * Nova::Config::SILENT_OUTPUT_TRIGGER_SECONDS));
+                (audioPlane.currentRate / juce::jmax(1, audioPlane.currentBlockSize)) * Nova::Config::SILENT_OUTPUT_TRIGGER_SECONDS));
 
-            if (blocks >= triggerBlocks && !silentOutputIncidentActive.exchange(true, std::memory_order_relaxed))
-                pendingSilentOutputLog.store(true, std::memory_order_release);
+            if (blocks >= triggerBlocks && !audioPlane.silentOutputIncidentActive.exchange(true, std::memory_order_relaxed))
+                audioPlane.pendingSilentOutputLog.store(true, std::memory_order_release);
         }
         else
         {
-            silentOutputBlockCounter.store(0, std::memory_order_relaxed);
+            audioPlane.silentOutputBlockCounter.store(0, std::memory_order_relaxed);
 
-            if (silentOutputIncidentActive.exchange(false, std::memory_order_relaxed))
-                pendingSilentOutputRecoveryLog.store(true, std::memory_order_release);
+            if (audioPlane.silentOutputIncidentActive.exchange(false, std::memory_order_relaxed))
+                audioPlane.pendingSilentOutputRecoveryLog.store(true, std::memory_order_release);
         }
     }
     else
     {
-        silentOutputBlockCounter.store(0, std::memory_order_relaxed);
+        audioPlane.silentOutputBlockCounter.store(0, std::memory_order_relaxed);
     }
 
     if (hadCorruption)
-        ++consecutiveCorruptBlocks;
+        ++audioPlane.consecutiveCorruptBlocks;
     else
-        consecutiveCorruptBlocks = 0;
+        audioPlane.consecutiveCorruptBlocks = 0;
 
-    if (recoveryCooldownBlocks > 0)
-        --recoveryCooldownBlocks;
+    if (audioPlane.recoveryCooldownBlocks > 0)
+        --audioPlane.recoveryCooldownBlocks;
 
-    if (consecutiveCorruptBlocks >= Nova::Config::CORRUPT_BLOCKS_BEFORE_HEAL && recoveryCooldownBlocks == 0)
+    if (audioPlane.consecutiveCorruptBlocks >= Nova::Config::CORRUPT_BLOCKS_BEFORE_HEAL && audioPlane.recoveryCooldownBlocks == 0)
     {
         if (vectorLock.tryEnter())
         {
             resetGraphStateNow();
             vectorLock.exit();
-            startupCounter = juce::jmax(startupCounter, Nova::Config::STARTUP_COUNTER_AUTO_HEAL);
-            recoveryCooldownBlocks = Nova::Config::RECOVERY_COOLDOWN_BLOCKS;
-            autoHealCount.fetch_add(1, std::memory_order_relaxed);
-            pendingAutoHealLog.store(true, std::memory_order_release);
+            audioPlane.startupCounter = juce::jmax(audioPlane.startupCounter, Nova::Config::STARTUP_COUNTER_AUTO_HEAL);
+            audioPlane.recoveryCooldownBlocks = Nova::Config::RECOVERY_COOLDOWN_BLOCKS;
+            audioPlane.autoHealCount.fetch_add(1, std::memory_order_relaxed);
+            audioPlane.pendingAutoHealLog.store(true, std::memory_order_release);
         }
         else
         {
-            recoveryCooldownBlocks = Nova::Config::RECOVERY_COOLDOWN_SHORT;
+            audioPlane.recoveryCooldownBlocks = Nova::Config::RECOVERY_COOLDOWN_SHORT;
         }
 
-        consecutiveCorruptBlocks = 0;
+        audioPlane.consecutiveCorruptBlocks = 0;
 
         buffer.clear();
     }
@@ -1055,15 +1078,20 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     const auto endTime = juce::Time::getMillisecondCounterHiRes();
     const double timeTakenMs = endTime - startTime;
 
-    if (currentRate > 0.0)
+    if (audioPlane.currentRate > 0.0)
     {
-        const double blockDurationMs = (buffer.getNumSamples() / currentRate) * 1000.0;
+        const double blockDurationMs = (buffer.getNumSamples() / audioPlane.currentRate) * 1000.0;
         if (blockDurationMs > 0.0)
         {
-            cpuUsage = (cpuUsage.load() * Nova::Config::CPU_METER_SLOW_COEFF) +
+            audioPlane.cpuUsage = (audioPlane.cpuUsage.load() * Nova::Config::CPU_METER_SLOW_COEFF) +
                 ((timeTakenMs / blockDurationMs) * 100.0 * Nova::Config::CPU_METER_FAST_COEFF);
         }
     }
+}
+
+void AudioEngine::handleAsyncUpdate()
+{
+    flushPendingGraphCommands(true);
 }
 
 // ==========================================================
@@ -1074,36 +1102,36 @@ void AudioEngine::run()
 {
     while (!threadShouldExit())
     {
-        if (graphCommandsPending.load(std::memory_order_acquire)
-            || globalParamsRevision.load(std::memory_order_acquire) != appliedGlobalParamsRevision.load(std::memory_order_relaxed))
+        if (controlPlane.graphCommandsPending.load(std::memory_order_acquire)
+            || controlPlane.globalParamsRevision.load(std::memory_order_acquire) != controlPlane.appliedGlobalParamsRevision.load(std::memory_order_relaxed))
         {
             synchronizeProcessingState();
         }
 
-        if (pendingSilentOutputLog.exchange(false, std::memory_order_acq_rel))
+        if (audioPlane.pendingSilentOutputLog.exchange(false, std::memory_order_acq_rel))
         {
             NovaDiagnostics::SessionLogger::logEvent("engine.warning",
                 "Detected sustained input-active/output-near-silent condition."
                 + juce::newLine + buildDiagnosticReport());
         }
 
-        if (pendingSilentOutputRecoveryLog.exchange(false, std::memory_order_acq_rel))
+        if (audioPlane.pendingSilentOutputRecoveryLog.exchange(false, std::memory_order_acq_rel))
         {
             NovaDiagnostics::SessionLogger::logEvent("engine.info",
                 "Recovered from input-active/output-near-silent condition."
                 + juce::newLine + buildDiagnosticReport());
         }
 
-        if (pendingAutoHealLog.exchange(false, std::memory_order_acq_rel))
+        if (audioPlane.pendingAutoHealLog.exchange(false, std::memory_order_acq_rel))
         {
             NovaDiagnostics::SessionLogger::logEvent("engine.autorecover",
                 "Sanitizer triggered graph reset after corrupt audio detection."
                 + juce::newLine + buildDiagnosticReport());
         }
 
-        if (tunerEnabled)
+        if (audioPlane.tunerEnabled)
         {
-            tunerService.process();
+            audioPlane.tunerService.process();
             wait(5);
         }
         else

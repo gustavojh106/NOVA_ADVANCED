@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(start chrome:*)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" NOVA.sln -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal -noLogo)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" NOVA.sln -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal -noLogo)",
+      "Bash(find C:/Users/gusta/OneDrive/Desktop/ULTIMATE/NOVA -path */juce_dsp* -name *onvol*)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" NOVA_SharedCode.vcxproj -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal -noLogo)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" Builds/VisualStudio2022/NOVA.sln -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal -noLogo)",
+      "Bash(find C:/Users/gusta/OneDrive/Desktop/ULTIMATE/NOVA/Source -iname *drop* -o -iname *drag* -o -iname *chain*)",
+      "Bash(xargs grep:*)"
+    ]
+  }
+}

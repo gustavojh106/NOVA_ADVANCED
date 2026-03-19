@@ -5,7 +5,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
-#include <limits>
+#include <vector>
 
 class OverdrivePedal final : public ProcessorBase
 {
@@ -25,7 +25,6 @@ public:
     bool hasEditor() const override { return true; }
     juce::AudioProcessorEditor* createEditor() override;
 
-    // Expose parameters for the custom editor
     juce::AudioParameterFloat* getDriveParam() const { return driveParam; }
     juce::AudioParameterFloat* getToneParam() const { return toneParam; }
     juce::AudioParameterFloat* getTextureParam() const { return textureParam; }
@@ -38,25 +37,38 @@ public:
             return;
 
         oversampler.reset();
-        oversampler.initProcessing((size_t)juce::jmax(1, samplesPerBlock));
+        oversampler.initProcessing((size_t) juce::jmax(1, samplesPerBlock));
 
-        const auto innerRate = sampleRate * 4.0;
-        juce::dsp::ProcessSpec innerSpec;
-        innerSpec.sampleRate = innerRate;
-        innerSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock * 4);
-        innerSpec.numChannels = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
+        currentInnerSampleRate = sampleRate * (double) oversamplingFactor();
+        const auto numChannels = (size_t) juce::jmax(1, getTotalNumOutputChannels());
 
-        preHighPass.prepare(innerSpec);
-        prePresence.prepare(innerSpec);
-        driveStage.prepare(innerSpec);
-        postBody.prepare(innerSpec);
-        postLowPass.prepare(innerSpec);
-        dcBlock.prepare(innerSpec);
+        inputTighten.prepare(currentInnerSampleRate, numChannels);
+        presenceSplit.prepare(currentInnerSampleRate, numChannels);
+        bodyFilter.prepare(currentInnerSampleRate, numChannels);
+        outputLowPassA.prepare(currentInnerSampleRate, numChannels);
+        outputLowPassB.prepare(currentInnerSampleRate, numChannels);
+        dcBlock.prepare(currentInnerSampleRate, numChannels);
+        driveStage.prepare(currentInnerSampleRate, numChannels);
 
+        driveControlSmooth.reset(sampleRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
+        toneControlSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
+        textureControlSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
         mixSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
         levelSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
-        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
-        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelFromControl(*levelParam) : 1.0f);
+        wetTrimSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
+
+        const float drive = driveParam != nullptr ? *driveParam : 30.0f;
+        const float tone = toneParam != nullptr ? *toneParam : 0.58f;
+        const float texture = textureParam != nullptr ? *textureParam : 0.42f;
+        const float mix = mixParam != nullptr ? *mixParam : 1.0f;
+        const float level = levelParam != nullptr ? levelFromControl(*levelParam) : 1.0f;
+
+        driveControlSmooth.setCurrentAndTargetValue(drive);
+        toneControlSmooth.setCurrentAndTargetValue(tone);
+        textureControlSmooth.setCurrentAndTargetValue(texture);
+        mixSmooth.setCurrentAndTargetValue(mix);
+        levelSmooth.setCurrentAndTargetValue(level);
+        wetTrimSmooth.setCurrentAndTargetValue(wetTrimFromControls(drive, texture));
 
         scratchBuffer.setSize(juce::jmax(2, getTotalNumOutputChannels()),
             juce::jmax(1, samplesPerBlock),
@@ -64,11 +76,9 @@ public:
             false,
             true);
 
-        currentInnerSampleRate = innerRate;
-        cachedTone = std::numeric_limits<float>::quiet_NaN();
-        cachedTexture = std::numeric_limits<float>::quiet_NaN();
+        updateToneModel(drive, tone, texture);
 
-        setProcessingLatency((int)oversampler.getLatencyInSamples());
+        setProcessingLatency((int) oversampler.getLatencyInSamples());
         prepareBypassSmoother(sampleRate, samplesPerBlock);
 
         reset();
@@ -83,21 +93,26 @@ public:
     void reset() override
     {
         oversampler.reset();
-        preHighPass.reset();
-        prePresence.reset();
-        postBody.reset();
-        postLowPass.reset();
+        inputTighten.reset();
+        presenceSplit.reset();
+        bodyFilter.reset();
+        outputLowPassA.reset();
+        outputLowPassB.reset();
         dcBlock.reset();
         driveStage.reset();
 
-        if (driveParam != nullptr && textureParam != nullptr)
-            driveStage.setTargets(*driveParam, *textureParam);
+        const float drive = driveParam != nullptr ? *driveParam : 30.0f;
+        const float tone = toneParam != nullptr ? *toneParam : 0.58f;
+        const float texture = textureParam != nullptr ? *textureParam : 0.42f;
 
-        if (mixParam != nullptr)
-            mixSmooth.setCurrentAndTargetValue(*mixParam);
+        driveControlSmooth.setCurrentAndTargetValue(drive);
+        toneControlSmooth.setCurrentAndTargetValue(tone);
+        textureControlSmooth.setCurrentAndTargetValue(texture);
+        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
+        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelFromControl(*levelParam) : 1.0f);
+        wetTrimSmooth.setCurrentAndTargetValue(wetTrimFromControls(drive, texture));
 
-        if (levelParam != nullptr)
-            levelSmooth.setCurrentAndTargetValue(levelFromControl(*levelParam));
+        updateToneModel(drive, tone, texture);
     }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
@@ -105,48 +120,99 @@ public:
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
-        if (scratchBuffer.getNumChannels() < buffer.getNumChannels()
-            || scratchBuffer.getNumSamples() < buffer.getNumSamples())
+        juce::ScopedNoDenormals noDenormals;
+
+        const int numChannels = buffer.getNumChannels();
+        const int numSamples = buffer.getNumSamples();
+
+        if (scratchBuffer.getNumChannels() < numChannels
+            || scratchBuffer.getNumSamples() < numSamples)
         {
-            scratchBuffer.setSize(buffer.getNumChannels(),
-                buffer.getNumSamples(),
+            scratchBuffer.setSize(numChannels,
+                numSamples,
                 false,
                 false,
                 true);
         }
 
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch), buffer.getReadPointer(ch), buffer.getNumSamples());
+        for (int ch = 0; ch < numChannels; ++ch)
+            juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch), buffer.getReadPointer(ch), numSamples);
 
-        updateFiltersIfNeeded();
-        driveStage.setTargets(driveParam != nullptr ? *driveParam : 30.0f,
-            textureParam != nullptr ? *textureParam : 0.42f);
+        const float targetDrive = driveParam != nullptr ? *driveParam : 30.0f;
+        const float targetTone = toneParam != nullptr ? *toneParam : 0.58f;
+        const float targetTexture = textureParam != nullptr ? *textureParam : 0.42f;
+        driveControlSmooth.setTargetValue(targetDrive);
+        toneControlSmooth.setTargetValue(targetTone);
+        textureControlSmooth.setTargetValue(targetTexture);
         mixSmooth.setTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
-        levelSmooth.setTargetValue(levelFromControl(levelParam != nullptr ? *levelParam : 0.74f));
+        levelSmooth.setTargetValue(levelParam != nullptr ? levelFromControl(*levelParam) : 1.0f);
+        wetTrimSmooth.setTargetValue(wetTrimFromControls(targetDrive, targetTexture));
 
         juce::dsp::AudioBlock<float> block(buffer);
         auto upsampled = oversampler.processSamplesUp(block);
-        juce::dsp::ProcessContextReplacing<float> innerContext(upsampled);
+        const int innerSamples = (int) upsampled.getNumSamples();
+        const int oversampleRatio = juce::jmax(1, innerSamples / juce::jmax(1, numSamples));
 
-        preHighPass.process(innerContext);
-        prePresence.process(innerContext);
-        driveStage.process(innerContext);
-        postBody.process(innerContext);
-        postLowPass.process(innerContext);
-        dcBlock.process(innerContext);
+        inputTighten.ensureChannels((size_t) upsampled.getNumChannels());
+        presenceSplit.ensureChannels((size_t) upsampled.getNumChannels());
+        bodyFilter.ensureChannels((size_t) upsampled.getNumChannels());
+        outputLowPassA.ensureChannels((size_t) upsampled.getNumChannels());
+        outputLowPassB.ensureChannels((size_t) upsampled.getNumChannels());
+        dcBlock.ensureChannels((size_t) upsampled.getNumChannels());
+        driveStage.ensureChannels((size_t) upsampled.getNumChannels());
+
+        float currentDrive = driveControlSmooth.getCurrentValue();
+        float currentTone = toneControlSmooth.getCurrentValue();
+        float currentTexture = textureControlSmooth.getCurrentValue();
+        updateToneModel(currentDrive, currentTone, currentTexture);
+
+        for (int sample = 0; sample < innerSamples; ++sample)
+        {
+            if ((sample % oversampleRatio) == 0)
+            {
+                currentDrive = driveControlSmooth.getNextValue();
+                currentTone = toneControlSmooth.getNextValue();
+                currentTexture = textureControlSmooth.getNextValue();
+                updateToneModel(currentDrive, currentTone, currentTexture);
+            }
+
+            for (int ch = 0; ch < (int) upsampled.getNumChannels(); ++ch)
+            {
+                auto* data = upsampled.getChannelPointer((size_t) ch);
+
+                float x = data[sample];
+                x = inputTighten.processHighPass(ch, x);
+
+                const float lowPresence = presenceSplit.processLowPass(ch, x);
+                x += (x - lowPresence) * toneModel.presenceAmount;
+
+                x = driveStage.processSample(ch, x, currentDrive, currentTexture);
+
+                const float body = bodyFilter.processLowPass(ch, x);
+                x += body * toneModel.bodyAmount;
+
+                x = outputLowPassA.processLowPass(ch, x);
+                x = outputLowPassB.processLowPass(ch, x);
+                x = dcBlock.processHighPass(ch, x);
+                data[sample] = x;
+            }
+        }
+
         oversampler.processSamplesDown(block);
 
-        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        for (int sample = 0; sample < numSamples; ++sample)
         {
-            const float mix = mixSmooth.getNextValue();
-            const float dry = 1.0f - mix;
+            const float mix = juce::jlimit(0.0f, 1.0f, mixSmooth.getNextValue());
+            const float dryGain = std::cos(juce::MathConstants<float>::halfPi * mix);
+            const float wetGain = std::sin(juce::MathConstants<float>::halfPi * mix);
+            const float wetTrim = wetTrimSmooth.getNextValue();
             const float level = levelSmooth.getNextValue();
 
-            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int ch = 0; ch < numChannels; ++ch)
             {
                 const float clean = scratchBuffer.getSample(ch, sample);
-                const float wet = buffer.getSample(ch, sample);
-                buffer.setSample(ch, sample, ((wet * mix) + (clean * dry)) * level);
+                const float wet = buffer.getSample(ch, sample) * wetTrim;
+                buffer.setSample(ch, sample, ((clean * dryGain) + (wet * wetGain)) * level);
             }
         }
 
@@ -154,115 +220,173 @@ public:
     }
 
 private:
-    class ResponsiveDriveStage
+    class OnePoleFilterBank
     {
     public:
-        void prepare(const juce::dsp::ProcessSpec& spec)
+        void prepare(double newSampleRate, size_t numChannels)
         {
-            sampleRate = spec.sampleRate;
-            driveSmooth.reset(sampleRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
-            textureSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
-            reset();
+            sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
+            states.assign(numChannels, 0.0f);
+            setCutoff(1000.0f);
+        }
+
+        void ensureChannels(size_t numChannels)
+        {
+            if (states.size() < numChannels)
+                states.resize(numChannels, 0.0f);
         }
 
         void reset()
         {
-            dcOffset = 0.0f;
+            std::fill(states.begin(), states.end(), 0.0f);
         }
 
-        void setTargets(float driveControl, float textureControl)
+        void setCutoff(float cutoffHz)
         {
-            driveSmooth.setTargetValue(juce::Decibels::decibelsToGain(4.0f + driveControl * 0.34f));
-            textureSmooth.setTargetValue(juce::jlimit(0.0f, 1.0f, textureControl));
+            const double maxCutoff = juce::jmax(20.0, sampleRate * 0.45);
+            const double clamped = juce::jlimit(5.0, maxCutoff, (double) cutoffHz);
+            coefficient = (float) (1.0 - std::exp((-juce::MathConstants<double>::twoPi * clamped) / sampleRate));
         }
 
-        template <typename ProcessContext>
-        void process(const ProcessContext& context) noexcept
+        float processLowPass(int channel, float input) noexcept
         {
-            auto&& block = context.getOutputBlock();
-            const auto channels = (int)block.getNumChannels();
-            const auto samples = (int)block.getNumSamples();
+            auto& state = states[(size_t) channel];
+            state += coefficient * (input - state);
+            return state;
+        }
 
-            for (int sample = 0; sample < samples; ++sample)
-            {
-                const float drive = driveSmooth.getNextValue();
-                const float texture = textureSmooth.getNextValue();
-                const float asymmetry = 0.03f + texture * 0.24f;
-                const float density = 1.2f + texture * 2.2f;
-                const float sparkle = 0.20f + texture * 0.45f;
-
-                for (int ch = 0; ch < channels; ++ch)
-                {
-                    auto* data = block.getChannelPointer((size_t)ch);
-                    float x = data[sample] * drive;
-                    x += asymmetry * x * x * juce::jlimit(-1.5f, 1.5f, x);
-
-                    const float rounded = std::tanh(x);
-                    const float focused = std::atan(density * x) * (2.0f / juce::MathConstants<float>::pi);
-                    float y = juce::jmap(texture, rounded, (rounded * (1.0f - sparkle)) + (focused * sparkle));
-
-                    dcOffset = (dcOffset * Nova::Config::DC_OFFSET_DECAY) + (y * Nova::Config::DC_OFFSET_ATTACK);
-                    data[sample] = y - dcOffset;
-                }
-            }
+        float processHighPass(int channel, float input) noexcept
+        {
+            return input - processLowPass(channel, input);
         }
 
     private:
         double sampleRate = 44100.0;
-        juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveSmooth;
-        juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> textureSmooth;
-        float dcOffset = 0.0f;
+        float coefficient = 0.1f;
+        std::vector<float> states;
     };
 
-    using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
-        juce::dsp::IIR::Coefficients<float>>;
+    class ResponsiveDriveStage
+    {
+    public:
+        void prepare(double newSampleRate, size_t numChannels)
+        {
+            sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
+            channelState.assign(numChannels, {});
+            reset();
+        }
+
+        void ensureChannels(size_t numChannels)
+        {
+            if (channelState.size() < numChannels)
+                channelState.resize(numChannels, {});
+        }
+
+        void reset()
+        {
+            for (auto& state : channelState)
+                state = {};
+        }
+
+        float processSample(int channel, float input, float driveControl, float textureControl) noexcept
+        {
+            auto& state = channelState[(size_t) channel];
+            const float drive = juce::jlimit(0.0f, 1.0f, driveControl / 100.0f);
+            const float texture = juce::jlimit(0.0f, 1.0f, textureControl);
+
+            const float detector = std::abs(input);
+            const float envelopeCoeff = detector > state.envelope
+                ? 0.18f
+                : (0.0025f + drive * 0.0015f);
+            state.envelope += (detector - state.envelope) * envelopeCoeff;
+
+            const float inputGain = juce::Decibels::decibelsToGain(5.0f + drive * 22.0f);
+            const float sag = 1.0f / (1.0f + state.envelope * (0.18f + texture * 0.40f) * (1.0f + drive * 1.20f));
+            float x = input * inputGain * sag;
+
+            const float bias = (0.018f + texture * 0.085f + drive * 0.03f) * std::tanh(x * 0.70f);
+            const float soft = std::tanh((x + bias) * (1.10f + texture * 0.85f + drive * 0.25f));
+            const float dense = std::atan((x + bias * 0.45f) * (1.30f + texture * 2.10f + drive * 0.55f))
+                * (2.0f / juce::MathConstants<float>::pi);
+
+            float y = juce::jmap(texture, soft, (soft * 0.62f) + (dense * 0.38f));
+            y = std::tanh(y * (1.02f + drive * 0.14f));
+
+            state.dcOffset = (state.dcOffset * Nova::Config::DC_OFFSET_DECAY) + (y * Nova::Config::DC_OFFSET_ATTACK);
+            return y - state.dcOffset;
+        }
+
+    private:
+        struct ChannelState
+        {
+            float envelope = 0.0f;
+            float dcOffset = 0.0f;
+        };
+
+        double sampleRate = 44100.0;
+        std::vector<ChannelState> channelState;
+    };
+
+    struct ToneModel
+    {
+        float presenceAmount = 0.0f;
+        float bodyAmount = 0.0f;
+    };
+
+    static int oversamplingFactor() noexcept
+    {
+        return 4;
+    }
 
     static float levelFromControl(float control) noexcept
     {
-        return juce::jmap(juce::jlimit(0.0f, 1.0f, control), 0.08f, 1.55f);
+        const float levelDb = juce::jmap(juce::jlimit(0.0f, 1.0f, control), -18.0f, 6.0f);
+        return juce::Decibels::decibelsToGain(levelDb);
     }
 
-    void updateFiltersIfNeeded()
+    static float wetTrimFromControls(float driveControl, float textureControl) noexcept
     {
-        const float tone = toneParam != nullptr ? *toneParam : 0.58f;
-        const float texture = textureParam != nullptr ? *textureParam : 0.42f;
+        const float drive = juce::jlimit(0.0f, 1.0f, driveControl / 100.0f);
+        const float texture = juce::jlimit(0.0f, 1.0f, textureControl);
+        const float compensationDb = juce::jmap(drive, -0.35f, -4.25f) + juce::jmap(texture, 0.0f, -1.15f);
+        return juce::Decibels::decibelsToGain(compensationDb);
+    }
 
-        const bool toneChanged = !std::isfinite(cachedTone) || std::abs(cachedTone - tone) > 1.0e-4f;
-        const bool textureChanged = !std::isfinite(cachedTexture) || std::abs(cachedTexture - texture) > 1.0e-4f;
-        if (!toneChanged && !textureChanged)
-            return;
+    void updateToneModel(float driveControl, float toneControl, float textureControl)
+    {
+        const float drive = juce::jlimit(0.0f, 1.0f, driveControl / 100.0f);
+        const float tone = juce::jlimit(0.0f, 1.0f, toneControl);
+        const float texture = juce::jlimit(0.0f, 1.0f, textureControl);
 
-        cachedTone = tone;
-        cachedTexture = texture;
-        const float toneFreq = juce::jmap(tone, 1700.0f, 9200.0f);
-        const float presenceGain = juce::jmap(tone + texture * 0.4f, -3.0f, 7.0f);
-        const float bodyGain = juce::jmap(texture, -1.2f, 2.4f);
+        inputTighten.setCutoff(juce::jmap(drive, 34.0f, 68.0f));
+        presenceSplit.setCutoff(juce::jmap(juce::jlimit(0.0f, 1.0f, 0.20f + tone * 0.60f), 900.0f, 2100.0f));
+        bodyFilter.setCutoff(juce::jmap(juce::jlimit(0.0f, 1.0f, 0.30f + texture * 0.45f), 165.0f, 320.0f));
 
-        *preHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentInnerSampleRate, 38.0f);
-        *prePresence.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(currentInnerSampleRate,
-            1050.0f,
-            0.75f,
-            juce::Decibels::decibelsToGain(presenceGain));
-        *postBody.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentInnerSampleRate,
-            240.0f,
-            0.72f,
-            juce::Decibels::decibelsToGain(bodyGain));
-        *postLowPass.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(currentInnerSampleRate,
-            toneFreq,
-            0.68f);
-        *dcBlock.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentInnerSampleRate, 18.0f);
+        const float topCutControl = juce::jlimit(0.0f, 1.0f, 0.08f + tone * 0.82f - drive * 0.08f);
+        const float topCutHz = juce::jmap(topCutControl, 2500.0f, 9500.0f);
+        outputLowPassA.setCutoff(topCutHz);
+        outputLowPassB.setCutoff(topCutHz);
+        dcBlock.setCutoff(18.0f);
+
+        toneModel.presenceAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, tone * 0.78f + texture * 0.12f), -0.08f, 0.42f);
+        toneModel.bodyAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, texture * 0.72f + drive * 0.10f), -0.04f, 0.22f);
     }
 
     juce::dsp::Oversampling<float> oversampler;
-    Filter preHighPass;
-    Filter prePresence;
+    OnePoleFilterBank inputTighten;
+    OnePoleFilterBank presenceSplit;
+    OnePoleFilterBank bodyFilter;
+    OnePoleFilterBank outputLowPassA;
+    OnePoleFilterBank outputLowPassB;
+    OnePoleFilterBank dcBlock;
     ResponsiveDriveStage driveStage;
-    Filter postBody;
-    Filter postLowPass;
-    Filter dcBlock;
 
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveControlSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> toneControlSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> textureControlSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> levelSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> wetTrimSmooth;
     juce::AudioBuffer<float> scratchBuffer;
 
     juce::AudioParameterFloat* driveParam = nullptr;
@@ -272,10 +396,8 @@ private:
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentInnerSampleRate = 176400.0;
-    float cachedTone = std::numeric_limits<float>::quiet_NaN();
-    float cachedTexture = std::numeric_limits<float>::quiet_NaN();
+    ToneModel toneModel;
     bool isPrepared = false;
 };
 
-// Include after class definition to resolve circular dependency
 #include "OverdriveEditor.h"

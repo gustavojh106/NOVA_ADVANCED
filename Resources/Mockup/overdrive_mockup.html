@@ -1,0 +1,1552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1120, initial-scale=1.0">
+<title>NOVA — Aurora Overdrive Mockup</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow-x: hidden;
+  }
+
+  /* ======== COLOR PALETTE ======== */
+  :root {
+    --accent:        #F06848;
+    --accent-bright: #FF9B70;
+    --accent-deep:   #7B291A;
+    --shell-top:     #2A1E14;
+    --shell-bottom:  #0E0A06;
+    --panel-top:     #1E1610;
+    --panel-bottom:  #100C08;
+    --border:        #3D2E20;
+    --metal-bright:  #D8D0C8;
+    --metal-mid:     #9A9088;
+    --metal-dark:    #5A524A;
+    --text-strong:   #F8F0E8;
+    --text-muted:    #A89888;
+    --text-dim:      #7A6A5A;
+  }
+
+  /* ======== MAIN SHELL ======== */
+  .pedal-shell {
+    width: 1080px;
+    height: 760px;
+    border-radius: 20px;
+    position: relative;
+    overflow: hidden;
+    /* Base gradient */
+    background:
+      linear-gradient(180deg, var(--shell-top) 0%, #322518 30%, var(--shell-bottom) 100%);
+    box-shadow:
+      0 0 0 1.2px var(--accent-bright),
+      0 0 60px rgba(240,104,72,0.12),
+      0 20px 80px rgba(0,0,0,0.7);
+  }
+
+  /* Rusted orange metal texture overlay */
+  .pedal-shell::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url('rusted_orange_metal.jpg') center/cover;
+    opacity: 0.18;
+    border-radius: 20px;
+    pointer-events: none;
+  }
+
+  /* Orange halo at top */
+  .pedal-shell::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 18px; right: 18px;
+    height: 140px;
+    background: radial-gradient(ellipse at center bottom, rgba(240,104,72,0.22) 0%, transparent 70%);
+    border-radius: 18px 18px 0 0;
+    pointer-events: none;
+  }
+
+  /* Bottom vignette */
+  .vignette-bottom {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 35%;
+    background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.30));
+    border-radius: 0 0 20px 20px;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Accent border */
+  .accent-border {
+    position: absolute;
+    inset: 1px;
+    border-radius: 19px;
+    border: 1.2px solid rgba(240,104,72,0.38);
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* Inner bevel highlight */
+  .top-bevel {
+    position: absolute;
+    top: 2px; left: 6px; right: 6px;
+    height: 1.5px;
+    background: radial-gradient(ellipse at center, rgba(255,155,112,0.14), transparent);
+    pointer-events: none;
+    z-index: 5;
+  }
+
+  /* ======== CORNER SCREWS ======== */
+  .screw-corner {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .screw-corner img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .screw-tl { top: 5px; left: 5px; }
+  .screw-tr { top: 5px; right: 5px; }
+  .screw-bl { bottom: 5px; left: 5px; }
+  .screw-br { bottom: 5px; right: 5px; }
+
+  /* ======== CONTENT LAYER ======== */
+  .content {
+    position: relative;
+    z-index: 3;
+    padding: 22px;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  /* ======== PANEL BASE ======== */
+  .panel {
+    position: relative;
+    border-radius: 16px;
+    background: linear-gradient(180deg, var(--panel-top) 0%, var(--panel-bottom) 100%);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url('../Textures/carbon_fiber.png') repeat;
+    opacity: 0.07;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  /* Orange glow strip at top of panels */
+  .panel::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 14px; right: 14px;
+    height: 2.5px;
+    background: radial-gradient(ellipse at center, var(--accent) 0%, transparent 70%);
+    opacity: 0.42;
+    pointer-events: none;
+  }
+  .panel-inner-border {
+    position: absolute;
+    inset: 1px;
+    border-radius: 15px;
+    border: 1px solid rgba(240,104,72,0.25);
+    pointer-events: none;
+  }
+
+  /* Drop shadow under panels */
+  .panel-shadow {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+  }
+
+  /* ======== HEADER ======== */
+  .header {
+    height: 84px;
+    display: flex;
+    align-items: center;
+    padding: 14px 22px;
+  }
+  .header-left { flex: 1; }
+  .header-tag {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .header-title {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--text-strong);
+    letter-spacing: 1px;
+  }
+  .header-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+  .header-meta {
+    text-align: left;
+    margin-right: 18px;
+  }
+  .header-meta .circuit-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+  }
+  .header-meta .circuit-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  /* Status badge */
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #112118;
+    border: 1px solid rgba(240,104,72,0.50);
+    border-radius: 11px;
+    padding: 8px 16px;
+    min-width: 130px;
+    justify-content: center;
+  }
+  .status-badge.bypassed {
+    background: #3F1D1D;
+    border-color: rgba(239,68,68,0.58);
+  }
+  .status-led {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+  }
+  .status-led.active {
+    /* Show bottom half (green) */
+    object-position: bottom;
+  }
+  .status-text {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-strong);
+    letter-spacing: 0.5px;
+  }
+
+  /* LED container for clipping from filmstrip */
+  .led-container {
+    width: 20px;
+    height: 24px;
+    overflow: hidden;
+    position: relative;
+  }
+  .led-filmstrip {
+    position: absolute;
+    width: 20px;
+    /* Total image is 2 frames tall */
+  }
+
+  /* ======== MAIN AREA ======== */
+  .main-area {
+    flex: 1;
+    display: flex;
+    gap: 18px;
+    min-height: 0;
+  }
+
+  /* ======== KNOB CARDS ======== */
+  .knob-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 18px;
+  }
+  .knob-card .panel::after {
+    opacity: 0.22;
+  }
+
+  .card-screws {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    pointer-events: none;
+    z-index: 4;
+  }
+  .card-screw {
+    position: absolute;
+    object-fit: contain;
+  }
+  .card-screw-tl { top: 6px; left: 6px; }
+  .card-screw-tr { top: 6px; right: 6px; }
+
+  /* ======== HERO CARD (DRIVE) ======== */
+  .hero-card {
+    width: 360px;
+    flex-shrink: 0;
+  }
+  .hero-card .card-screw { width: 14px; height: 14px; }
+  .hero-card .card-screw-tl { top: 10px; left: 10px; }
+  .hero-card .card-screw-tr { top: 10px; right: 10px; }
+
+  .hero-label {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-strong);
+    text-align: center;
+    letter-spacing: 1.2px;
+    margin-top: 6px;
+    opacity: 0.92;
+  }
+
+  /* ======== CONTROL CARDS ======== */
+  .controls-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 18px;
+  }
+  .control-card .card-screw { width: 10px; height: 10px; }
+  .control-card .card-screw-tl { top: 7px; left: 7px; }
+  .control-card .card-screw-tr { top: 7px; right: 7px; }
+
+  .control-tag {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    align-self: flex-start;
+    margin-left: 18px;
+    margin-top: 14px;
+  }
+  .control-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-strong);
+    text-align: center;
+    letter-spacing: 1px;
+    margin-top: 4px;
+    opacity: 0.88;
+  }
+
+  /* ======== FILMSTRIP KNOB ======== */
+  .knob-container {
+    position: relative;
+    cursor: grab;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .knob-container:active { cursor: grabbing; }
+
+  .knob-shadow {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at center, rgba(0,0,0,0.50) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .knob-filmstrip {
+    display: block;
+    pointer-events: none;
+  }
+
+  /* Subtle ring highlight */
+  .knob-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.08);
+    pointer-events: none;
+  }
+
+  /* ======== ARC TRACK (SVG) ======== */
+  .knob-arc-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .knob-arc-svg {
+    position: absolute;
+    pointer-events: none;
+  }
+
+  /* ======== VALUE DISPLAY ======== */
+  .value-display {
+    text-align: center;
+    padding: 4px 12px;
+    border-radius: 9px;
+    background: linear-gradient(180deg, rgba(42,30,20,0.9) 0%, rgba(14,10,6,0.9) 100%);
+    border: 1px solid rgba(240,104,72,0.26);
+    position: relative;
+    overflow: hidden;
+  }
+  .value-display::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 20%; right: 20%;
+    height: 2px;
+    background: radial-gradient(ellipse at center, rgba(255,155,112,0.30), transparent);
+    pointer-events: none;
+  }
+  .value-display.hero {
+    padding: 5px 16px;
+    border-radius: 10px;
+    border-color: rgba(240,104,72,0.42);
+  }
+  .value-display.hero::before {
+    opacity: 0.55;
+  }
+  .value-text {
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.90);
+  }
+  .value-display.hero .value-text {
+    font-size: 13px;
+    color: rgba(255,255,255,0.96);
+  }
+
+  /* ======== HERO FOOTER ======== */
+  .hero-footer {
+    width: 100%;
+    padding: 0 24px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .hero-hint {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-align: center;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .hero-descriptor {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-strong);
+    text-align: center;
+    letter-spacing: 0.5px;
+    opacity: 0.94;
+  }
+  .hero-stage {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+  }
+
+  /* Analysis bars */
+  .analysis-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    margin-top: 6px;
+  }
+  .analysis-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .analysis-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    width: 72px;
+    letter-spacing: 0.3px;
+    flex-shrink: 0;
+  }
+  .analysis-track {
+    flex: 1;
+    height: 8px;
+    background: #243042;
+    border-radius: 5px;
+    overflow: hidden;
+    position: relative;
+  }
+  .analysis-fill {
+    height: 100%;
+    border-radius: 5px;
+    position: relative;
+    transition: width 0.3s ease;
+  }
+  .analysis-glow {
+    position: absolute;
+    inset: -2px -3px;
+    border-radius: 6px;
+    opacity: 0.18;
+    pointer-events: none;
+  }
+
+  /* ======== CONTROL FOOTER ======== */
+  .control-footer {
+    width: 100%;
+    padding: 0 18px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: center;
+  }
+  .control-hint {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-align: center;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
+  .control-descriptor {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-strong);
+    text-align: center;
+    opacity: 0.88;
+  }
+
+  /* Value rail */
+  .value-rail-container {
+    width: 100%;
+  }
+  .value-rail-title {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-align: center;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .value-rail {
+    width: 100%;
+    height: 8px;
+    background: #243042;
+    border-radius: 4px;
+    position: relative;
+  }
+  .value-rail-sweet {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: rgba(240,104,72,0.22);
+    border-radius: 4px;
+  }
+  .value-rail-fill {
+    position: absolute;
+    top: 0; left: 0;
+    height: 100%;
+    background: var(--accent-bright);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+  .value-rail-knob {
+    position: absolute;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    background: white;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    border: 1px solid var(--shell-bottom);
+    transition: left 0.3s ease;
+  }
+  .value-rail-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+  }
+  .value-rail-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  /* ======== INFO PANEL ======== */
+  .info-panel {
+    height: 170px;
+    display: flex;
+    padding: 18px 20px;
+    gap: 18px;
+  }
+  .info-text {
+    width: 308px;
+    flex-shrink: 0;
+  }
+  .info-voice-tag {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .info-voice-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin-top: 4px;
+    opacity: 0.92;
+  }
+  .info-voice-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+  .info-workflow-tag {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-top: 10px;
+  }
+  .info-workflow-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin-top: 2px;
+  }
+
+  /* Chips */
+  .chips-area {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 10px;
+    min-width: 160px;
+  }
+  .chip {
+    background: #101722;
+    border: 1px solid rgba(240,104,72,0.22);
+    border-radius: 9px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .chip-caption {
+    font-size: 8px;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .chip-value {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin-top: 3px;
+    opacity: 0.90;
+  }
+
+  /* Response graph */
+  .response-graph {
+    flex: 1;
+    min-width: 200px;
+    max-width: 270px;
+    background: #101722;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 14px;
+    position: relative;
+    margin-left: auto;
+  }
+  .response-graph-title {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .response-canvas {
+    width: 100%;
+    height: calc(100% - 24px);
+  }
+
+  /* ======== TICK MARKS ======== */
+  .tick-marks {
+    position: absolute;
+    pointer-events: none;
+  }
+
+  /* ======== INTERACTIVITY ======== */
+  .interactive-hint {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 12px;
+    color: rgba(255,255,255,0.35);
+    font-family: 'Inter', sans-serif;
+    pointer-events: none;
+    letter-spacing: 0.5px;
+  }
+
+  /* Comparison toggle */
+  .compare-toggle {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 100;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .compare-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel-top);
+    color: var(--text-muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+  }
+  .compare-btn.active {
+    background: var(--accent-deep);
+    border-color: var(--accent);
+    color: var(--text-strong);
+  }
+  .compare-btn:hover {
+    border-color: var(--accent-bright);
+  }
+
+  /* Knob type label */
+  .knob-type-label {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-bright);
+    font-family: 'Inter', sans-serif;
+    letter-spacing: 0.5px;
+    background: rgba(14,10,6,0.85);
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    z-index: 100;
+  }
+</style>
+</head>
+<body>
+
+<div class="knob-type-label" id="knobTypeLabel">KNOB: SHINY BLACK (NEW)</div>
+
+<div class="compare-toggle">
+  <button class="compare-btn active" id="btnNewKnob" onclick="setKnobType('new')">New Knob</button>
+  <button class="compare-btn" id="btnOldOrange" onclick="setKnobType('orange')">Old Orange</button>
+  <button class="compare-btn" id="btnOldSilver" onclick="setKnobType('silver')">Old Silver</button>
+</div>
+
+<div class="pedal-shell" id="pedalShell">
+  <div class="vignette-bottom"></div>
+  <div class="accent-border"></div>
+  <div class="top-bevel"></div>
+
+  <!-- Corner screws -->
+  <div class="screw-corner screw-tl"><img src="../Textures/screw_phillips_silver.png" alt="screw"></div>
+  <div class="screw-corner screw-tr"><img src="../Textures/screw_phillips_silver.png" alt="screw"></div>
+  <div class="screw-corner screw-bl"><img src="../Textures/screw_phillips_silver.png" alt="screw"></div>
+  <div class="screw-corner screw-br"><img src="../Textures/screw_phillips_silver.png" alt="screw"></div>
+
+  <div class="content">
+    <!-- ======== HEADER ======== -->
+    <div class="panel panel-shadow header">
+      <div class="panel-inner-border"></div>
+      <div class="header-left">
+        <div class="header-tag">PEDAL EDITOR</div>
+        <div class="header-title">AURORA OVERDRIVE</div>
+        <div class="header-sub">Premium gain staging with focused bite and parallel polish.</div>
+      </div>
+      <div class="header-meta">
+        <div class="circuit-label">CIRCUIT  OD-A1</div>
+        <div class="circuit-desc">Discrete clip stage<br>Parallel mix bus</div>
+      </div>
+      <div class="status-badge" id="statusBadge">
+        <div class="led-container">
+          <img src="../Textures/led_red_green.png" id="ledImg"
+               style="width:20px; position:absolute; top:0; left:0;"
+               alt="LED">
+        </div>
+        <span class="status-text" id="statusText">ACTIVE</span>
+      </div>
+    </div>
+
+    <!-- ======== MAIN AREA ======== -->
+    <div class="main-area">
+      <!-- HERO: DRIVE -->
+      <div class="panel panel-shadow hero-card knob-card" style="display:flex; flex-direction:column; align-items:center;">
+        <div class="panel-inner-border"></div>
+        <div class="card-screws">
+          <img src="../Textures/screw_torx.png" class="card-screw card-screw-tl" alt="">
+          <img src="../Textures/screw_torx.png" class="card-screw card-screw-tr" alt="">
+        </div>
+
+        <div class="hero-label">DRIVE</div>
+
+        <div class="knob-arc-container" style="width:286px; height:290px; margin-top:8px;">
+          <svg class="knob-arc-svg" width="286" height="290" viewBox="0 0 286 290">
+            <!-- Tick marks -->
+            <g id="heroTicks"></g>
+            <!-- Background arc -->
+            <path id="heroArcBg" fill="none" stroke="#1A1410" stroke-width="8" stroke-linecap="round"/>
+            <path id="heroArcTrack" fill="none" stroke="#344154" stroke-width="6" stroke-linecap="round"/>
+            <!-- Value arc -->
+            <path id="heroArcValue" fill="none" stroke="#F06848" stroke-width="6" stroke-linecap="round"/>
+            <!-- Glow arc -->
+            <path id="heroArcGlow" fill="none" stroke="#FF9B70" stroke-width="18" stroke-linecap="round" opacity="0.18"/>
+            <!-- Tip dot -->
+            <circle id="heroTipDot" r="4.5" fill="#FF9B70" opacity="0.85"/>
+          </svg>
+
+          <div class="knob-container" id="heroKnob" data-param="drive" data-value="0.45"
+               style="width:160px; height:160px; position:relative;">
+            <div class="knob-shadow" style="inset:-8px -8px -2px -8px;"></div>
+            <canvas id="heroKnobCanvas" width="160" height="160"
+                    style="width:160px; height:160px; border-radius:50%;"></canvas>
+            <div class="knob-ring" style="inset:0;"></div>
+            <div style="position:absolute; inset:-1.5px; border-radius:50%; border:2px solid rgba(240,104,72,0.12); pointer-events:none;"></div>
+          </div>
+        </div>
+
+        <div class="value-display hero" style="margin-top:2px;">
+          <span class="value-text" id="driveValue">45%</span>
+        </div>
+
+        <div class="hero-footer" style="margin-top:8px;">
+          <div class="hero-hint">GAIN STAGING</div>
+          <div class="hero-descriptor" id="driveDescriptor">FOCUSED CRUNCH</div>
+          <div class="hero-stage">Stage behavior</div>
+          <div class="analysis-bars">
+            <div class="analysis-row">
+              <span class="analysis-label">Saturation</span>
+              <div class="analysis-track">
+                <div class="analysis-fill" id="barSaturation" style="width:45%; background: var(--accent);">
+                  <div class="analysis-glow" style="background: var(--accent);"></div>
+                </div>
+              </div>
+            </div>
+            <div class="analysis-row">
+              <span class="analysis-label">Attack</span>
+              <div class="analysis-track">
+                <div class="analysis-fill" id="barAttack" style="width:58%; background: var(--accent-bright);">
+                  <div class="analysis-glow" style="background: var(--accent-bright);"></div>
+                </div>
+              </div>
+            </div>
+            <div class="analysis-row">
+              <span class="analysis-label">Blend</span>
+              <div class="analysis-track">
+                <div class="analysis-fill" id="barBlend" style="width:50%; background: #FBBF24;">
+                  <div class="analysis-glow" style="background: #FBBF24;"></div>
+                </div>
+              </div>
+            </div>
+            <div class="analysis-row">
+              <span class="analysis-label">Output</span>
+              <div class="analysis-track">
+                <div class="analysis-fill" id="barOutput" style="width:65%; background: #94A3B8;">
+                  <div class="analysis-glow" style="background: #94A3B8;"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTROLS GRID -->
+      <div class="controls-grid">
+        <!-- TONE -->
+        <div class="panel panel-shadow control-card knob-card" style="display:flex; flex-direction:column; align-items:center;">
+          <div class="panel-inner-border"></div>
+          <div class="card-screws">
+            <img src="../Textures/screw_torx.png" class="card-screw card-screw-tl" alt="">
+            <img src="../Textures/screw_torx.png" class="card-screw card-screw-tr" alt="">
+          </div>
+          <div class="control-tag">CONTROL</div>
+          <div class="control-label">TONE</div>
+          <div class="knob-arc-container" style="width:200px; height:200px; margin-top:4px;">
+            <svg class="knob-arc-svg" width="200" height="200" viewBox="0 0 200 200">
+              <g id="toneTicks"></g>
+              <path id="toneArcBg" fill="none" stroke="#1A1410" stroke-width="6" stroke-linecap="round"/>
+              <path id="toneArcTrack" fill="none" stroke="#344154" stroke-width="4" stroke-linecap="round"/>
+              <path id="toneArcValue" fill="none" stroke="#F06848" stroke-width="4" stroke-linecap="round"/>
+              <path id="toneArcGlow" fill="none" stroke="#FF9B70" stroke-width="12" stroke-linecap="round" opacity="0.14"/>
+              <circle id="toneTipDot" r="3" fill="#FF9B70" opacity="0.65"/>
+            </svg>
+            <div class="knob-container" id="toneKnob" data-param="tone" data-value="0.50"
+                 style="width:110px; height:110px; position:relative;">
+              <div class="knob-shadow" style="inset:-6px -6px -1px -6px;"></div>
+              <canvas id="toneKnobCanvas" width="110" height="110"
+                      style="width:110px; height:110px; border-radius:50%;"></canvas>
+              <div class="knob-ring" style="inset:0;"></div>
+            </div>
+          </div>
+          <div class="value-display" style="margin-top:2px;">
+            <span class="value-text" id="toneValue">50%</span>
+          </div>
+          <div class="control-footer" style="margin-top:6px;">
+            <div class="control-hint">HIGH-END FOCUS</div>
+            <div class="control-descriptor" id="toneDescriptor">BALANCED</div>
+            <div class="value-rail-container">
+              <div class="value-rail-title">EQ BALANCE</div>
+              <div class="value-rail">
+                <div class="value-rail-sweet" id="toneSweet" style="left:42%; width:16%;"></div>
+                <div class="value-rail-fill" id="toneFill" style="width:50%;"></div>
+                <div class="value-rail-knob" id="toneRailKnob" style="left:50%;"></div>
+              </div>
+              <div class="value-rail-labels">
+                <span class="value-rail-label">DARK</span>
+                <span class="value-rail-label">BRIGHT</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TEXTURE -->
+        <div class="panel panel-shadow control-card knob-card" style="display:flex; flex-direction:column; align-items:center;">
+          <div class="panel-inner-border"></div>
+          <div class="card-screws">
+            <img src="../Textures/screw_torx.png" class="card-screw card-screw-tl" alt="">
+            <img src="../Textures/screw_torx.png" class="card-screw card-screw-tr" alt="">
+          </div>
+          <div class="control-tag">CONTROL</div>
+          <div class="control-label">TEXTURE</div>
+          <div class="knob-arc-container" style="width:200px; height:200px; margin-top:4px;">
+            <svg class="knob-arc-svg" width="200" height="200" viewBox="0 0 200 200">
+              <g id="textureTicks"></g>
+              <path id="textureArcBg" fill="none" stroke="#1A1410" stroke-width="6" stroke-linecap="round"/>
+              <path id="textureArcTrack" fill="none" stroke="#344154" stroke-width="4" stroke-linecap="round"/>
+              <path id="textureArcValue" fill="none" stroke="#F06848" stroke-width="4" stroke-linecap="round"/>
+              <path id="textureArcGlow" fill="none" stroke="#FF9B70" stroke-width="12" stroke-linecap="round" opacity="0.14"/>
+              <circle id="textureTipDot" r="3" fill="#FF9B70" opacity="0.65"/>
+            </svg>
+            <div class="knob-container" id="textureKnob" data-param="texture" data-value="0.40"
+                 style="width:110px; height:110px; position:relative;">
+              <div class="knob-shadow" style="inset:-6px -6px -1px -6px;"></div>
+              <canvas id="textureKnobCanvas" width="110" height="110"
+                      style="width:110px; height:110px; border-radius:50%;"></canvas>
+              <div class="knob-ring" style="inset:0;"></div>
+            </div>
+          </div>
+          <div class="value-display" style="margin-top:2px;">
+            <span class="value-text" id="textureValue">40%</span>
+          </div>
+          <div class="control-footer" style="margin-top:6px;">
+            <div class="control-hint">CLIP DENSITY</div>
+            <div class="control-descriptor" id="textureDescriptor">TIGHT</div>
+            <div class="value-rail-container">
+              <div class="value-rail-title">CLIPPING GRAIN</div>
+              <div class="value-rail">
+                <div class="value-rail-sweet" id="textureSweet" style="left:42%; width:16%;"></div>
+                <div class="value-rail-fill" id="textureFill" style="width:40%;"></div>
+                <div class="value-rail-knob" id="textureRailKnob" style="left:40%;"></div>
+              </div>
+              <div class="value-rail-labels">
+                <span class="value-rail-label">SMOOTH</span>
+                <span class="value-rail-label">RAW</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MIX -->
+        <div class="panel panel-shadow control-card knob-card" style="display:flex; flex-direction:column; align-items:center;">
+          <div class="panel-inner-border"></div>
+          <div class="card-screws">
+            <img src="../Textures/screw_torx.png" class="card-screw card-screw-tl" alt="">
+            <img src="../Textures/screw_torx.png" class="card-screw card-screw-tr" alt="">
+          </div>
+          <div class="control-tag">CONTROL</div>
+          <div class="control-label">MIX</div>
+          <div class="knob-arc-container" style="width:200px; height:200px; margin-top:4px;">
+            <svg class="knob-arc-svg" width="200" height="200" viewBox="0 0 200 200">
+              <g id="mixTicks"></g>
+              <path id="mixArcBg" fill="none" stroke="#1A1410" stroke-width="6" stroke-linecap="round"/>
+              <path id="mixArcTrack" fill="none" stroke="#344154" stroke-width="4" stroke-linecap="round"/>
+              <path id="mixArcValue" fill="none" stroke="#F06848" stroke-width="4" stroke-linecap="round"/>
+              <path id="mixArcGlow" fill="none" stroke="#FF9B70" stroke-width="12" stroke-linecap="round" opacity="0.14"/>
+              <circle id="mixTipDot" r="3" fill="#FF9B70" opacity="0.65"/>
+            </svg>
+            <div class="knob-container" id="mixKnob" data-param="mix" data-value="0.50"
+                 style="width:110px; height:110px; position:relative;">
+              <div class="knob-shadow" style="inset:-6px -6px -1px -6px;"></div>
+              <canvas id="mixKnobCanvas" width="110" height="110"
+                      style="width:110px; height:110px; border-radius:50%;"></canvas>
+              <div class="knob-ring" style="inset:0;"></div>
+            </div>
+          </div>
+          <div class="value-display" style="margin-top:2px;">
+            <span class="value-text" id="mixValue">50%</span>
+          </div>
+          <div class="control-footer" style="margin-top:6px;">
+            <div class="control-hint">PARALLEL BLEND</div>
+            <div class="control-descriptor" id="mixDescriptor">PARALLEL</div>
+            <div class="value-rail-container">
+              <div class="value-rail-title">PARALLEL BLEND</div>
+              <div class="value-rail">
+                <div class="value-rail-sweet" id="mixSweet" style="left:42%; width:16%;"></div>
+                <div class="value-rail-fill" id="mixFill" style="width:50%;"></div>
+                <div class="value-rail-knob" id="mixRailKnob" style="left:50%;"></div>
+              </div>
+              <div class="value-rail-labels">
+                <span class="value-rail-label">DRY</span>
+                <span class="value-rail-label">WET</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LEVEL -->
+        <div class="panel panel-shadow control-card knob-card" style="display:flex; flex-direction:column; align-items:center;">
+          <div class="panel-inner-border"></div>
+          <div class="card-screws">
+            <img src="../Textures/screw_torx.png" class="card-screw card-screw-tl" alt="">
+            <img src="../Textures/screw_torx.png" class="card-screw card-screw-tr" alt="">
+          </div>
+          <div class="control-tag">CONTROL</div>
+          <div class="control-label">LEVEL</div>
+          <div class="knob-arc-container" style="width:200px; height:200px; margin-top:4px;">
+            <svg class="knob-arc-svg" width="200" height="200" viewBox="0 0 200 200">
+              <g id="levelTicks"></g>
+              <path id="levelArcBg" fill="none" stroke="#1A1410" stroke-width="6" stroke-linecap="round"/>
+              <path id="levelArcTrack" fill="none" stroke="#344154" stroke-width="4" stroke-linecap="round"/>
+              <path id="levelArcValue" fill="none" stroke="#F06848" stroke-width="4" stroke-linecap="round"/>
+              <path id="levelArcGlow" fill="none" stroke="#FF9B70" stroke-width="12" stroke-linecap="round" opacity="0.14"/>
+              <circle id="levelTipDot" r="3" fill="#FF9B70" opacity="0.65"/>
+            </svg>
+            <div class="knob-container" id="levelKnob" data-param="level" data-value="0.65"
+                 style="width:110px; height:110px; position:relative;">
+              <div class="knob-shadow" style="inset:-6px -6px -1px -6px;"></div>
+              <canvas id="levelKnobCanvas" width="110" height="110"
+                      style="width:110px; height:110px; border-radius:50%;"></canvas>
+              <div class="knob-ring" style="inset:0;"></div>
+            </div>
+          </div>
+          <div class="value-display" style="margin-top:2px;">
+            <span class="value-text" id="levelValue">65%</span>
+          </div>
+          <div class="control-footer" style="margin-top:6px;">
+            <div class="control-hint">OUTPUT TRIM</div>
+            <div class="control-descriptor" id="levelDescriptor">UNITY</div>
+            <div class="value-rail-container">
+              <div class="value-rail-title">OUTPUT TRIM</div>
+              <div class="value-rail">
+                <div class="value-rail-sweet" id="levelSweet" style="left:42%; width:16%;"></div>
+                <div class="value-rail-fill" id="levelFill" style="width:65%;"></div>
+                <div class="value-rail-knob" id="levelRailKnob" style="left:65%;"></div>
+              </div>
+              <div class="value-rail-labels">
+                <span class="value-rail-label">TRIM</span>
+                <span class="value-rail-label">BOOST</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======== INFO PANEL ======== -->
+    <div class="panel panel-shadow info-panel">
+      <div class="panel-inner-border"></div>
+      <div class="info-text">
+        <div class="info-voice-tag">VOICE</div>
+        <div class="info-voice-title">Warm clipping, controlled highs, mix-ready level.</div>
+        <div class="info-voice-desc">Use Drive for push, Texture for grain and Mix for parallel definition.</div>
+        <div class="info-workflow-tag">SUGGESTED WORKFLOW</div>
+        <div class="info-workflow-desc">Set Drive first, shape with Tone, add grain with Texture, then trim Mix and Level.</div>
+      </div>
+      <div class="chips-area">
+        <div class="chip">
+          <div class="chip-caption">CLIP</div>
+          <div class="chip-value" id="chipClip">FOCUSED CRUNCH</div>
+        </div>
+        <div class="chip">
+          <div class="chip-caption">TONE</div>
+          <div class="chip-value" id="chipTone">BALANCED</div>
+        </div>
+        <div class="chip">
+          <div class="chip-caption">TEXTURE</div>
+          <div class="chip-value" id="chipTexture">TIGHT</div>
+        </div>
+        <div class="chip">
+          <div class="chip-caption">LEVEL</div>
+          <div class="chip-value" id="chipLevel">UNITY</div>
+        </div>
+      </div>
+      <div class="response-graph">
+        <div class="response-graph-title">RESPONSE MAP</div>
+        <canvas id="responseCanvas" class="response-canvas"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="interactive-hint">Drag knobs to adjust  ·  Click buttons to compare knob styles</div>
+
+<script>
+// ============================
+// FILMSTRIP KNOB ENGINE
+// ============================
+
+// Knob image sources
+const KNOB_IMAGES = {
+  new:    { src: 'ShinyBlackKnob.png', frames: 50, orientation: 'horizontal', frameW: 128, frameH: 128 },
+  orange: { src: '../Textures/knob_orange.png', frames: 101, orientation: 'vertical', frameW: 128, frameH: 128 },
+  silver: { src: '../Textures/knob_boss_silver.png', frames: 101, orientation: 'vertical', frameW: 128, frameH: 128 },
+};
+
+let currentKnobType = 'new';
+const loadedImages = {};
+
+// Preload all knob images
+function preloadImages() {
+  for (const [key, info] of Object.entries(KNOB_IMAGES)) {
+    const img = new Image();
+    img.src = info.src;
+    img.onload = () => {
+      loadedImages[key] = img;
+      renderAllKnobs();
+    };
+    loadedImages[key] = null; // placeholder
+  }
+}
+
+// Arc geometry (matching JUCE: 225° sweep, from ~7:30 to ~4:30)
+const START_ANGLE = (5 / 4) * Math.PI;  // 225° from 12 o'clock = 7:30 position
+const END_ANGLE   = (11 / 4) * Math.PI; // 495° from 12 o'clock = 4:30 position
+const SWEEP       = END_ANGLE - START_ANGLE; // 270°
+
+function angleForValue(value) {
+  return START_ANGLE + value * SWEEP;
+}
+
+function pointOnArc(cx, cy, r, angle) {
+  return {
+    x: cx + r * Math.cos(angle),
+    y: cy + r * Math.sin(angle)
+  };
+}
+
+function describeArc(cx, cy, r, startAngle, endAngle) {
+  const start = pointOnArc(cx, cy, r, startAngle);
+  const end = pointOnArc(cx, cy, r, endAngle);
+  const sweep = endAngle - startAngle;
+  const largeArc = sweep > Math.PI ? 1 : 0;
+  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y}`;
+}
+
+// ============================
+// KNOB DEFINITIONS
+// ============================
+
+const knobs = {
+  drive:   { value: 0.45, el: 'heroKnob',    canvas: 'heroKnobCanvas',    size: 160, isHero: true },
+  tone:    { value: 0.50, el: 'toneKnob',     canvas: 'toneKnobCanvas',    size: 110, isHero: false },
+  texture: { value: 0.40, el: 'textureKnob',  canvas: 'textureKnobCanvas', size: 110, isHero: false },
+  mix:     { value: 0.50, el: 'mixKnob',      canvas: 'mixKnobCanvas',     size: 110, isHero: false },
+  level:   { value: 0.65, el: 'levelKnob',    canvas: 'levelKnobCanvas',   size: 110, isHero: false },
+};
+
+// ============================
+// RENDER FILMSTRIP FRAME
+// ============================
+
+function renderKnobFrame(canvasId, size, value) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  // HiDPI: scale canvas backing store to match device pixel ratio
+  const dpr = window.devicePixelRatio || 1;
+  const backingSize = Math.round(size * dpr);
+
+  if (canvas.width !== backingSize || canvas.height !== backingSize) {
+    canvas.width = backingSize;
+    canvas.height = backingSize;
+    canvas.style.width = size + 'px';
+    canvas.style.height = size + 'px';
+  }
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, backingSize, backingSize);
+  ctx.save();
+  ctx.scale(dpr, dpr);
+
+  // High quality interpolation
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  const info = KNOB_IMAGES[currentKnobType];
+  const img = loadedImages[currentKnobType];
+
+  // Dark circle behind knob
+  ctx.fillStyle = 'rgba(0,0,0,0.70)';
+  ctx.beginPath();
+  ctx.ellipse(size/2, size/2, size/2+2, size/2+2, 0, 0, Math.PI*2);
+  ctx.fill();
+
+  if (!img) { ctx.restore(); return; }
+
+  const frameIndex = Math.min(info.frames - 1, Math.max(0, Math.round(value * (info.frames - 1))));
+
+  if (info.orientation === 'horizontal') {
+    // ShinyBlackKnob: horizontal strip
+    ctx.drawImage(img,
+      frameIndex * info.frameW, 0, info.frameW, info.frameH,
+      0, 0, size, size);
+  } else {
+    // Vertical filmstrips (orange, silver)
+    ctx.drawImage(img,
+      0, frameIndex * info.frameH, info.frameW, info.frameH,
+      0, 0, size, size);
+  }
+
+  ctx.restore();
+}
+
+// ============================
+// RENDER ARC & TICKS
+// ============================
+
+function renderArc(prefix, cx, cy, radius, value, isHero) {
+  const trackThick = isHero ? 6 : 4;
+  const arcR = radius + (isHero ? 10 : 7);
+
+  // Background arc
+  const bgPath = describeArc(cx, cy, arcR, START_ANGLE, END_ANGLE);
+  document.getElementById(prefix + 'ArcBg').setAttribute('d', bgPath);
+  document.getElementById(prefix + 'ArcTrack').setAttribute('d', bgPath);
+
+  // Value arc
+  if (value > 0.001) {
+    const valAngle = angleForValue(value);
+    const valPath = describeArc(cx, cy, arcR, START_ANGLE, valAngle);
+    document.getElementById(prefix + 'ArcValue').setAttribute('d', valPath);
+    document.getElementById(prefix + 'ArcGlow').setAttribute('d', valPath);
+
+    const tip = pointOnArc(cx, cy, arcR, valAngle);
+    const tipDot = document.getElementById(prefix + 'TipDot');
+    tipDot.setAttribute('cx', tip.x);
+    tipDot.setAttribute('cy', tip.y);
+    tipDot.style.display = '';
+  } else {
+    document.getElementById(prefix + 'ArcValue').setAttribute('d', '');
+    document.getElementById(prefix + 'ArcGlow').setAttribute('d', '');
+    document.getElementById(prefix + 'TipDot').style.display = 'none';
+  }
+
+  // Tick marks
+  const tickCount = isHero ? 16 : 12;
+  const tickGroup = document.getElementById(prefix + 'Ticks');
+  tickGroup.innerHTML = '';
+  for (let i = 0; i <= tickCount; i++) {
+    const t = i / tickCount;
+    const tickAngle = START_ANGLE + t * SWEEP;
+    const isMajor = (i % 4) === 0;
+    const outerR = arcR + (isHero ? 6 : 4.5);
+    const innerR = arcR - (isMajor ? (isHero ? 8 : 6) : (isHero ? 4.5 : 3));
+    const outer = pointOnArc(cx, cy, outerR, tickAngle);
+    const inner = pointOnArc(cx, cy, innerR, tickAngle);
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', inner.x);
+    line.setAttribute('y1', inner.y);
+    line.setAttribute('x2', outer.x);
+    line.setAttribute('y2', outer.y);
+    line.setAttribute('stroke', isMajor ? 'rgba(255,255,255,0.78)' : 'rgba(107,114,128,0.52)');
+    line.setAttribute('stroke-width', isMajor ? 1.6 : 1.0);
+    tickGroup.appendChild(line);
+  }
+}
+
+// ============================
+// DESCRIPTORS
+// ============================
+
+function describeDrive(v) {
+  const val = v * 100;
+  if (val < 28) return 'EDGE PUSH';
+  if (val < 58) return 'FOCUSED CRUNCH';
+  if (val < 82) return 'SATURATED LEAD';
+  return 'FULL MOLTEN';
+}
+function describeTone(v) {
+  if (v < 0.30) return 'DARK';
+  if (v < 0.60) return 'BALANCED';
+  if (v < 0.82) return 'BRIGHT';
+  return 'CUTTING';
+}
+function describeTexture(v) {
+  if (v < 0.30) return 'SMOOTH';
+  if (v < 0.60) return 'TIGHT';
+  if (v < 0.82) return 'GRAINY';
+  return 'RAW';
+}
+function describeMix(v) {
+  if (v < 0.24) return 'DRY';
+  if (v < 0.55) return 'PARALLEL';
+  if (v < 0.86) return 'FORWARD';
+  return 'FULL WET';
+}
+function describeLevel(v) {
+  if (v < 0.28) return 'TRIMMED';
+  if (v < 0.62) return 'UNITY';
+  if (v < 0.84) return 'BOOSTED';
+  return 'HOT OUTPUT';
+}
+
+// ============================
+// UPDATE ALL UI
+// ============================
+
+function updateUI() {
+  const d = knobs.drive.value;
+  const t = knobs.tone.value;
+  const tx = knobs.texture.value;
+  const m = knobs.mix.value;
+  const l = knobs.level.value;
+
+  // Value texts
+  document.getElementById('driveValue').textContent = Math.round(d * 100) + '%';
+  document.getElementById('toneValue').textContent = Math.round(t * 100) + '%';
+  document.getElementById('textureValue').textContent = Math.round(tx * 100) + '%';
+  document.getElementById('mixValue').textContent = Math.round(m * 100) + '%';
+  document.getElementById('levelValue').textContent = Math.round(l * 100) + '%';
+
+  // Descriptors
+  document.getElementById('driveDescriptor').textContent = describeDrive(d);
+  document.getElementById('toneDescriptor').textContent = describeTone(t);
+  document.getElementById('textureDescriptor').textContent = describeTexture(tx);
+  document.getElementById('mixDescriptor').textContent = describeMix(m);
+  document.getElementById('levelDescriptor').textContent = describeLevel(l);
+
+  // Chips
+  document.getElementById('chipClip').textContent = describeDrive(d);
+  document.getElementById('chipTone').textContent = describeTone(t);
+  document.getElementById('chipTexture').textContent = describeTexture(tx);
+  document.getElementById('chipLevel').textContent = describeLevel(l);
+
+  // Analysis bars
+  const saturation = 0.08 + d * 0.92;
+  const attack = 0.30 + t * 0.70;
+  document.getElementById('barSaturation').style.width = (saturation * 100) + '%';
+  document.getElementById('barAttack').style.width = Math.min(100, attack * 100) + '%';
+  document.getElementById('barBlend').style.width = (m * 100) + '%';
+  document.getElementById('barOutput').style.width = (l * 100) + '%';
+
+  // Value rails
+  updateRail('tone', t);
+  updateRail('texture', tx);
+  updateRail('mix', m);
+  updateRail('level', l);
+
+  // Response graph
+  drawResponseCurve();
+}
+
+function updateRail(name, value) {
+  const pct = (value * 100) + '%';
+  document.getElementById(name + 'Fill').style.width = pct;
+  document.getElementById(name + 'RailKnob').style.left = pct;
+}
+
+// ============================
+// RENDER ALL KNOBS
+// ============================
+
+function renderAllKnobs() {
+  for (const [name, k] of Object.entries(knobs)) {
+    renderKnobFrame(k.canvas, k.size, k.value);
+  }
+
+  // Arcs
+  renderArc('hero', 143, 145, 70, knobs.drive.value, true);
+  renderArc('tone', 100, 100, 48, knobs.tone.value, false);
+  renderArc('texture', 100, 100, 48, knobs.texture.value, false);
+  renderArc('mix', 100, 100, 48, knobs.mix.value, false);
+  renderArc('level', 100, 100, 48, knobs.level.value, false);
+
+  updateUI();
+}
+
+// ============================
+// DRAG INTERACTION
+// ============================
+
+let dragTarget = null;
+let dragStartY = 0;
+let dragStartValue = 0;
+
+document.addEventListener('mousedown', (e) => {
+  const container = e.target.closest('.knob-container');
+  if (!container) return;
+  const param = container.dataset.param;
+  if (!param || !knobs[param]) return;
+
+  dragTarget = param;
+  dragStartY = e.clientY;
+  dragStartValue = knobs[param].value;
+  e.preventDefault();
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!dragTarget) return;
+  const dy = dragStartY - e.clientY;
+  const sensitivity = e.shiftKey ? 600 : 220;
+  const newValue = Math.max(0, Math.min(1, dragStartValue + dy / sensitivity));
+  knobs[dragTarget].value = newValue;
+  renderAllKnobs();
+});
+
+document.addEventListener('mouseup', () => {
+  dragTarget = null;
+});
+
+// Double-click to reset
+document.querySelectorAll('.knob-container').forEach(el => {
+  el.addEventListener('dblclick', () => {
+    const param = el.dataset.param;
+    if (!param) return;
+    const defaults = { drive: 0.45, tone: 0.50, texture: 0.40, mix: 0.50, level: 0.65 };
+    knobs[param].value = defaults[param] || 0.5;
+    renderAllKnobs();
+  });
+});
+
+// ============================
+// RESPONSE CURVE
+// ============================
+
+function drawResponseCurve() {
+  const canvas = document.getElementById('responseCanvas');
+  if (!canvas) return;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = canvas.offsetWidth * 2;
+  canvas.height = canvas.offsetHeight * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(2, 2);
+  const w = canvas.offsetWidth;
+  const h = canvas.offsetHeight;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(51,65,85,0.30)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 4; i++) {
+    const y = (i / 3) * h;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  // Curve
+  const drive = knobs.drive.value;
+  const tone = knobs.tone.value;
+  const texture = knobs.texture.value;
+  const mix = knobs.mix.value;
+
+  ctx.beginPath();
+  for (let i = 0; i <= 42; i++) {
+    const t = i / 42;
+    const x = t * w;
+    const tilt = ((tone * 2 - 1) * 0.22) * (t - 0.5);
+    const bump = Math.sin(t * Math.PI) * (0.06 + texture * 0.18);
+    const driveLift = 0.10 + drive * 0.16;
+    const blendFloor = -0.04 + mix * 0.09;
+    const normalized = Math.max(0.08, Math.min(0.92, 0.62 - driveLift + blendFloor - bump + tilt));
+    const y = normalized * h;
+
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+
+  // Glow
+  ctx.strokeStyle = 'rgba(240,104,72,0.12)';
+  ctx.lineWidth = 8;
+  ctx.stroke();
+
+  // Main line
+  ctx.strokeStyle = 'rgba(251,191,36,0.92)';
+  ctx.lineWidth = 2.2;
+  ctx.stroke();
+}
+
+// ============================
+// LED
+// ============================
+
+function setupLED() {
+  const ledImg = document.getElementById('ledImg');
+  // Show green half (bottom)
+  ledImg.onload = function() {
+    const totalH = ledImg.naturalHeight;
+    const frameH = totalH / 2;
+    const container = ledImg.parentElement;
+    container.style.height = (frameH * 20 / ledImg.naturalWidth) + 'px';
+    ledImg.style.height = (totalH * 20 / ledImg.naturalWidth) + 'px';
+    // Show green (bottom frame)
+    ledImg.style.top = -(frameH * 20 / ledImg.naturalWidth) + 'px';
+  };
+}
+
+// ============================
+// KNOB TYPE SWITCHER
+// ============================
+
+function setKnobType(type) {
+  currentKnobType = type;
+  document.querySelectorAll('.compare-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(type === 'new' ? 'btnNewKnob' : type === 'orange' ? 'btnOldOrange' : 'btnOldSilver').classList.add('active');
+
+  const labels = {
+    new: 'KNOB: SHINY BLACK (NEW)',
+    orange: 'KNOB: ORANGE (CURRENT HERO)',
+    silver: 'KNOB: BOSS SILVER (CURRENT CONTROL)',
+  };
+  document.getElementById('knobTypeLabel').textContent = labels[type];
+  renderAllKnobs();
+}
+
+// ============================
+// INIT
+// ============================
+
+window.addEventListener('load', () => {
+  preloadImages();
+  setupLED();
+  renderAllKnobs();
+
+  // Redraw response on resize
+  window.addEventListener('resize', drawResponseCurve);
+});
+</script>
+</body>
+</html>

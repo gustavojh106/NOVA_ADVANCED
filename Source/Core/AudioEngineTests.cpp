@@ -6,6 +6,8 @@
 #include "PluginProcessor.h"
 #include "PluginStateModel.h"
 #include "PedalRegistry.h"
+#include "SessionPersistence.h"
+#include "SessionStore.h"
 #include "DSP/Global/ChannelStrip.h"
 #include "DSP/Global/InputChain.h"
 #include "DSP/Global/OutputChain.h"
@@ -182,6 +184,59 @@ public:
                 expect(std::abs(buffer.getSample(0, i)) <= 1.0f, "Left channel exceeded digital ceiling");
                 expect(std::abs(buffer.getSample(1, i)) <= 1.0f, "Right channel exceeded digital ceiling");
             }
+        }
+
+        beginTest("Overdrive keeps the opposite channel silent");
+        {
+            OverdrivePedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.getDriveParam()->setValueNotifyingHost(pedal.getDriveParam()->convertTo0to1(92.0f));
+            pedal.getToneParam()->setValueNotifyingHost(pedal.getToneParam()->convertTo0to1(0.88f));
+            pedal.getTextureParam()->setValueNotifyingHost(pedal.getTextureParam()->convertTo0to1(0.90f));
+            pedal.getMixParam()->setValueNotifyingHost(pedal.getMixParam()->convertTo0to1(1.0f));
+            pedal.getLevelParam()->setValueNotifyingHost(pedal.getLevelParam()->convertTo0to1(0.75f));
+
+            juce::AudioBuffer<float> buffer(2, kBlockSize);
+            juce::MidiBuffer midi;
+            buffer.clear();
+
+            for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+                buffer.setSample(0, sample, 0.42f * std::sin(0.21f * (float) sample));
+
+            pedal.processBlock(buffer, midi);
+
+            float maxLeft = 0.0f;
+            float maxRight = 0.0f;
+            for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+            {
+                maxLeft = juce::jmax(maxLeft, std::abs(buffer.getSample(0, sample)));
+                maxRight = juce::jmax(maxRight, std::abs(buffer.getSample(1, sample)));
+            }
+
+            expect(maxLeft > 0.02f, "Driven channel should produce a measurable wet signal");
+            expect(maxRight < 1.0e-5f, "Silent channel should remain silent");
+        }
+
+        beginTest("Overdrive mix zero keeps the dry path transparent");
+        {
+            OverdrivePedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.getDriveParam()->setValueNotifyingHost(pedal.getDriveParam()->convertTo0to1(100.0f));
+            pedal.getToneParam()->setValueNotifyingHost(pedal.getToneParam()->convertTo0to1(0.1f));
+            pedal.getTextureParam()->setValueNotifyingHost(pedal.getTextureParam()->convertTo0to1(1.0f));
+            pedal.getMixParam()->setValueNotifyingHost(pedal.getMixParam()->convertTo0to1(0.0f));
+            pedal.getLevelParam()->setValueNotifyingHost(pedal.getLevelParam()->convertTo0to1(0.75f));
+
+            juce::AudioBuffer<float> buffer(2, 4);
+            juce::MidiBuffer midi;
+
+            const std::vector<float> left{ 0.24f, -0.48f, 0.72f, -0.31f };
+            const std::vector<float> right{ -0.18f, 0.27f, -0.36f, 0.45f };
+            buffer.copyFrom(0, 0, left.data(), (int) left.size());
+            buffer.copyFrom(1, 0, right.data(), (int) right.size());
+
+            pedal.processBlock(buffer, midi);
+            expectStereoSamplesMatch(*this, buffer, left, right, 3.0e-4f);
         }
 
         beginTest("Global processors preserve active params after reset");
@@ -371,6 +426,25 @@ public:
             expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
         }
 
+        beginTest("AudioEngine rebuilds graph latency when bypass changes node latency");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "latency-overdrive");
+            engine.synchronizeProcessingState();
+
+            const int activeLatency = engine.getLatencyNumSamples();
+            expect(activeLatency > 0, "Overdrive should contribute graph latency when active");
+
+            engine.setPedalBypassed(Nova::ChainID::LineA, 0, true);
+            engine.synchronizeProcessingState();
+            expectEquals(engine.getLatencyNumSamples(), 0);
+
+            engine.setPedalBypassed(Nova::ChainID::LineA, 0, false);
+            engine.synchronizeProcessingState();
+            expectEquals(engine.getLatencyNumSamples(), activeLatency);
+        }
+
         beginTest("AudioEngine diagnostic report reflects queued topology");
         {
             AudioEngine engine;
@@ -515,12 +589,24 @@ public:
         {
             expect(PedalRegistry::isTypeSupported("Compressor"), "Compressor should be registered");
             expect(PedalRegistry::isTypeSupported("Chorus"), "Chorus should be registered");
+            expect(PedalRegistry::isTypeSupported("Boost"), "Boost should be registered");
+            expect(PedalRegistry::isTypeSupported("Wah"), "Wah should be registered");
+            expect(PedalRegistry::isTypeSupported("Octave"), "Octave should be registered");
+            expect(PedalRegistry::isTypeSupported("Metal Distortion"), "Metal Distortion should be registered");
 
             const auto preTypes = PedalRegistry::getPedalTypesForZone(Nova::ZoneID::Pre);
             const auto fxTypes = PedalRegistry::getPedalTypesForZone(Nova::ZoneID::FX);
 
             expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Compressor")) != preTypes.end(),
                 "Compressor should be available in the pre zone");
+            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Boost")) != preTypes.end(),
+                "Boost should be available in the pre zone");
+            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Wah")) != preTypes.end(),
+                "Wah should be available in the pre zone");
+            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Octave")) != preTypes.end(),
+                "Octave should be available in the pre zone");
+            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Metal Distortion")) != preTypes.end(),
+                "Metal Distortion should be available in the pre zone");
             expect(std::find(fxTypes.begin(), fxTypes.end(), juce::String("Chorus")) != fxTypes.end(),
                 "Chorus should be available in the FX zone");
         }
@@ -539,6 +625,95 @@ public:
 
             processor.cycleSwitcher();
             expectEquals((int)processor.getSwitcherMode(), (int)Nova::SwitcherMode::LineA_Only);
+        }
+
+        beginTest("SessionStore command layer keeps canonical topology and runtime state");
+        {
+            SessionStore store;
+
+            juce::AudioParameterBool engineOn(Nova::IDs::ENGINE_ON.toString(), "Engine", false);
+            juce::AudioParameterChoice switchMode(Nova::IDs::SWITCH_MODE.toString(),
+                "Switcher", juce::StringArray{ "Line A", "Line B", "Dual" }, 0);
+            juce::AudioParameterFloat inputGain(Nova::IDs::INPUT_GAIN.toString(), "Input Gain", -60.0f, 24.0f, 0.0f);
+            juce::AudioParameterFloat outputMix(Nova::IDs::OUTPUT_MIX.toString(), "Output Mix", 0.0f, 100.0f, 100.0f);
+
+            SessionStore::ParameterBindings bindings;
+            bindings.engineOn = &engineOn;
+            bindings.switchMode = &switchMode;
+            bindings.inputGain = &inputGain;
+            bindings.outputMix = &outputMix;
+            store.bindParameters(bindings);
+
+            engineOn.setValueNotifyingHost(engineOn.convertTo0to1(true));
+            inputGain.setValueNotifyingHost(inputGain.convertTo0to1(6.0f));
+            outputMix.setValueNotifyingHost(outputMix.convertTo0to1(42.0f));
+
+            expect(store.noteParameterValueChanged(Nova::IDs::ENGINE_ON.toString(), engineOn.convertTo0to1(true)));
+            expect(store.noteParameterValueChanged(Nova::IDs::INPUT_GAIN.toString(), inputGain.convertTo0to1(6.0f)));
+            expect(store.noteParameterValueChanged(Nova::IDs::OUTPUT_MIX.toString(), outputMix.convertTo0to1(42.0f)));
+            store.syncStateFromBindingsNow();
+
+            expect(store.isEngineEnabled(), "Engine flag should mirror host parameter state");
+            expect(approximatelyEqual(store.getRuntimeGlobalParams().inputGainDb, 6.0f, 1.0e-3f),
+                "Runtime cache should reflect the mirrored input gain");
+            expect(approximatelyEqual(store.getRuntimeGlobalParams().outputMixRaw, 42.0f, 1.0e-3f),
+                "Runtime cache should reflect the mirrored mix");
+
+            auto addPre = store.applyCommand(SessionStore::Command::makeAddPedal(
+                "Overdrive", Nova::ChainID::LineA, Nova::ZoneID::Pre, -1));
+            auto addAmp1 = store.applyCommand(SessionStore::Command::makeAddPedal(
+                "Classic Amp", Nova::ChainID::LineA, Nova::ZoneID::Amp, -1));
+            auto addFx = store.applyCommand(SessionStore::Command::makeAddPedal(
+                "Reverb", Nova::ChainID::LineA, Nova::ZoneID::FX, -1));
+            auto addAmp2 = store.applyCommand(SessionStore::Command::makeAddPedal(
+                "High Gain Amp", Nova::ChainID::LineA, Nova::ZoneID::Amp, -1));
+
+            expect(addPre.changed && addAmp1.changed && addFx.changed && addAmp2.changed,
+                "Typed session commands should mutate the store");
+
+            const auto lineA = Nova::PluginStateModel::getLineTree(store.state(), Nova::ChainID::LineA);
+            expectEquals(lineA.getNumChildren(), 3);
+            expectEquals(lineA.getChild(0).getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Overdrive"));
+            expectEquals(lineA.getChild(1).getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("High Gain Amp"));
+            expectEquals(lineA.getChild(2).getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Reverb"));
+        }
+
+        beginTest("SessionPersistence saves and restores a canonical preset");
+        {
+            SessionStore store;
+            store.applyCommand(SessionStore::Command::makeAddPedal(
+                "Overdrive", Nova::ChainID::LineA, Nova::ZoneID::Pre, -1));
+            store.applyCommand(SessionStore::Command::makeAddPedal(
+                "Chorus", Nova::ChainID::LineB, Nova::ZoneID::FX, -1));
+
+            AudioEngine sourceEngine;
+            sourceEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+            SessionPersistence::rebuildEngineFromState(sourceEngine, store.state());
+
+            auto presetFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                .getChildFile("nova-session-persistence-test.nova-preset");
+            presetFile.deleteFile();
+
+            expect(SessionPersistence::savePresetToFile(presetFile, store, sourceEngine),
+                "Preset save should succeed");
+
+            SessionStore restoredStore;
+            AudioEngine restoredEngine;
+            restoredEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            expect(SessionPersistence::loadPresetFromFile(presetFile, restoredStore, restoredEngine),
+                "Preset load should succeed");
+
+            const auto restoredLineA = Nova::PluginStateModel::getLineTree(restoredStore.state(), Nova::ChainID::LineA);
+            const auto restoredLineB = Nova::PluginStateModel::getLineTree(restoredStore.state(), Nova::ChainID::LineB);
+            expectEquals(restoredLineA.getNumChildren(), 1);
+            expectEquals(restoredLineB.getNumChildren(), 1);
+            expectEquals(restoredLineA.getChild(0).getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Overdrive"));
+            expectEquals(restoredLineB.getChild(0).getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Chorus"));
+            expectEquals((int)restoredEngine.getNodes(Nova::ChainID::LineA).size(), 1);
+            expectEquals((int)restoredEngine.getNodes(Nova::ChainID::LineB).size(), 1);
+
+            presetFile.deleteFile();
         }
     }
 };

@@ -34,7 +34,10 @@ public:
         logEvent("session.owner", ownerName + " detached. owners=" + juce::String(remainingOwners));
 
         if (remainingOwners == 0)
+        {
             logEvent("session", "Session end");
+            logger.endSession();
+        }
     }
 
     static juce::File getLogFile()
@@ -119,6 +122,13 @@ private:
             logsDir.createDirectory();
 
         return logsDir.getChildFile("session-log.txt");
+    }
+
+    void endSession()
+    {
+        const juce::ScopedLock sl(writeLock);
+        juce::Logger::setCurrentLogger(nullptr);
+        outputStream.reset();
     }
 
     void beginSession()

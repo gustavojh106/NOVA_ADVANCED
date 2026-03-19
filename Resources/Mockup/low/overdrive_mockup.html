@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NOVA Overdrive - UI Mockup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    color: #ccc;
+    padding: 20px;
+    min-height: 100vh;
+  }
+
+  h1 { font-size: 14px; color: #666; margin-bottom: 8px; letter-spacing: 2px; }
+  .instructions {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 12px 20px;
+    margin-bottom: 20px;
+    font-size: 12px;
+    color: #888;
+    max-width: 1120px;
+    width: 100%;
+  }
+  .instructions b { color: #F06848; }
+
+  /* ============ PEDAL SHELL ============ */
+  .pedal-shell {
+    width: 1080px;
+    height: 760px;
+    border-radius: 20px;
+    position: relative;
+    overflow: hidden;
+    border: 1.5px solid rgba(240, 104, 72, 0.35);
+    box-shadow:
+      0 0 60px rgba(240, 104, 72, 0.08),
+      0 4px 30px rgba(0,0,0,0.6),
+      inset 0 1px 0 rgba(255,155,112,0.1);
+  }
+
+  /* Base gradient layer */
+  .shell-gradient {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, #2A1E14 0%, #322518 30%, #0E0A06 100%);
+    border-radius: 20px;
+  }
+
+  /* Texture overlay */
+  .shell-texture {
+    position: absolute;
+    inset: 0;
+    background-image: url('rusted_orange_metal.jpg');
+    background-size: cover;
+    opacity: 0.18;
+    border-radius: 20px;
+    mix-blend-mode: overlay;
+  }
+
+  /* Orange color wash */
+  .shell-wash {
+    position: absolute;
+    inset: 0;
+    background: rgba(240, 104, 72, 0.05);
+    border-radius: 20px;
+  }
+
+  /* Top halo */
+  .shell-halo {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 140px;
+    background: radial-gradient(ellipse at center top, rgba(240,104,72,0.20) 0%, transparent 70%);
+    border-radius: 20px 20px 0 0;
+  }
+
+  /* Bottom vignette */
+  .shell-vignette {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 35%;
+    background: linear-gradient(to bottom, transparent, rgba(0,0,0,0.30));
+    border-radius: 0 0 20px 20px;
+  }
+
+  /* ============ SCREWS ============ */
+  .screw {
+    position: absolute;
+    width: 22px;
+    height: 22px;
+    z-index: 50;
+  }
+  .screw img { width: 100%; height: 100%; }
+  .screw-tl { top: 10px; left: 10px; }
+  .screw-tr { top: 10px; right: 10px; }
+  .screw-bl { bottom: 10px; left: 10px; }
+  .screw-br { bottom: 10px; right: 10px; }
+
+  /* ============ CONTENT AREA ============ */
+  .content {
+    position: absolute;
+    inset: 22px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  /* ============ PANELS (cards) ============ */
+  .panel {
+    border-radius: 16px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #3D2E20;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+  }
+  .panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg,
+      rgba(30,22,16,1) 0%,
+      rgba(16,12,8,1) 100%);
+    border-radius: inherit;
+  }
+  .panel::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: url('carbon_fiber.png');
+    background-size: 64px 64px;
+    opacity: 0.07;
+    border-radius: inherit;
+  }
+  .panel .panel-glow {
+    position: absolute;
+    top: 0;
+    left: 14px; right: 14px;
+    height: 2.5px;
+    background: radial-gradient(ellipse at center, rgba(240,104,72,0.45) 0%, transparent 70%);
+    z-index: 2;
+  }
+  .panel-content {
+    position: relative;
+    z-index: 3;
+    padding: 14px 22px;
+  }
+
+  /* Panel with accent tint */
+  .panel-accent::before {
+    background: linear-gradient(180deg,
+      rgba(42,28,18,1) 0%,
+      rgba(16,12,8,1) 100%);
+  }
+
+  /* ============ HEADER ============ */
+  .header {
+    height: 84px;
+    display: flex;
+    align-items: center;
+  }
+  .header .panel-content {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    gap: 20px;
+  }
+  .header-left { flex: 1; }
+  .header-left .tag {
+    font-size: 10px;
+    font-weight: 700;
+    color: #7A6A5A;
+    letter-spacing: 1.5px;
+    margin-bottom: 2px;
+  }
+  .header-left .title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #F8F0E8;
+    letter-spacing: 0.5px;
+  }
+  .header-left .subtitle {
+    font-size: 11px;
+    color: #A89888;
+    margin-top: 2px;
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .circuit-info {
+    text-align: left;
+    font-size: 9px;
+    color: #7A6A5A;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .circuit-info .detail {
+    font-size: 11px;
+    color: #A89888;
+    font-weight: 400;
+    letter-spacing: 0;
+    margin-top: 2px;
+  }
+
+  /* Status pill */
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(17,33,24,1);
+    border: 1px solid rgba(240,104,72,0.45);
+    border-radius: 11px;
+    padding: 8px 16px;
+  }
+  .status-pill .led {
+    width: 28px;
+    height: 28px;
+  }
+  .status-pill .led img { width: 100%; height: 100%; }
+  .status-pill .label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #F8F0E8;
+    letter-spacing: 0.5px;
+  }
+
+  /* ============ MIDDLE AREA (knobs) ============ */
+  .middle {
+    flex: 1;
+    display: flex;
+    gap: 18px;
+  }
+
+  /* Hero knob panel (left) */
+  .hero-panel {
+    width: 360px;
+    display: flex;
+    flex-direction: column;
+  }
+  .hero-panel .panel-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    padding: 20px 24px;
+  }
+
+  /* Control knobs grid (right) */
+  .controls-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 18px;
+  }
+
+  /* ============ KNOB COMPONENTS ============ */
+  .knob-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .knob-label {
+    font-size: 15px;
+    font-weight: 700;
+    color: rgba(248,240,232,0.92);
+    letter-spacing: 1px;
+    text-align: center;
+  }
+  .knob-label.small {
+    font-size: 11px;
+  }
+  .knob-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Arc track behind knob */
+  .knob-arc {
+    position: absolute;
+    border-radius: 50%;
+    border: 5px solid #1A1410;
+    box-shadow: 0 0 0 1px #344154;
+  }
+  .knob-arc.hero {
+    width: 220px; height: 220px;
+    border-width: 6px;
+  }
+  .knob-arc.small {
+    width: 140px; height: 140px;
+    border-width: 4px;
+  }
+  /* Value arc overlay */
+  .knob-value-arc {
+    position: absolute;
+    border-radius: 50%;
+    border: 5px solid transparent;
+    border-top-color: #F06848;
+    border-left-color: #F06848;
+    transform: rotate(-45deg);
+    box-shadow: 0 0 12px rgba(240,104,72,0.25);
+  }
+  .knob-value-arc.hero {
+    width: 220px; height: 220px;
+    border-width: 6px;
+  }
+  .knob-value-arc.small {
+    width: 140px; height: 140px;
+    border-width: 4px;
+  }
+
+  .knob-img {
+    position: relative;
+    z-index: 2;
+    border-radius: 50%;
+    box-shadow:
+      0 4px 12px rgba(0,0,0,0.5),
+      0 0 1px rgba(255,255,255,0.08);
+  }
+  .knob-img.hero {
+    width: 160px; height: 160px;
+  }
+  .knob-img.small {
+    width: 100px; height: 100px;
+  }
+
+  .knob-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: rgba(248,240,232,0.90);
+    background: linear-gradient(180deg, rgba(42,30,20,0.9), rgba(14,10,6,0.9));
+    border: 1px solid rgba(240,104,72,0.30);
+    border-radius: 9px;
+    padding: 3px 14px;
+    text-align: center;
+    box-shadow: inset 0 1px 0 rgba(255,155,112,0.15);
+  }
+  .knob-value.small {
+    font-size: 11px;
+    padding: 2px 10px;
+    border-radius: 7px;
+  }
+
+  .knob-hint {
+    font-size: 10px;
+    font-weight: 700;
+    color: #7A6A5A;
+    letter-spacing: 1px;
+    text-align: center;
+  }
+  .knob-descriptor {
+    font-size: 17px;
+    font-weight: 700;
+    color: rgba(248,240,232,0.94);
+    text-align: center;
+  }
+  .knob-descriptor.small {
+    font-size: 11px;
+  }
+
+  /* Mini screws on panels */
+  .panel-screw {
+    position: absolute;
+    z-index: 20;
+  }
+  .panel-screw img { width: 100%; height: 100%; }
+  .panel-screw.tl { top: 8px; left: 8px; width: 12px; height: 12px; }
+  .panel-screw.tr { top: 8px; right: 8px; width: 12px; height: 12px; }
+  .panel-screw.hero-tl { top: 10px; left: 10px; width: 14px; height: 14px; }
+  .panel-screw.hero-tr { top: 10px; right: 10px; width: 14px; height: 14px; }
+
+  /* ============ ANALYSIS BARS ============ */
+  .analysis-section {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: auto;
+  }
+  .analysis-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    color: #7A6A5A;
+    letter-spacing: 0.5px;
+  }
+  .analysis-bar .bar-label { width: 80px; }
+  .analysis-bar .bar-track {
+    flex: 1;
+    height: 8px;
+    background: #243042;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .analysis-bar .bar-fill {
+    height: 100%;
+    border-radius: 5px;
+    box-shadow: 0 0 8px rgba(255,255,255,0.1);
+  }
+
+  /* ============ VALUE RAIL ============ */
+  .value-rail {
+    width: 100%;
+    margin-top: auto;
+  }
+  .rail-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: #A89888;
+    text-align: center;
+    margin-bottom: 6px;
+    letter-spacing: 0.5px;
+  }
+  .rail-track {
+    height: 8px;
+    background: #243042;
+    border-radius: 4px;
+    position: relative;
+    margin: 0 6px;
+  }
+  .rail-fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: #FF9B70;
+    border-radius: 4px;
+  }
+  .rail-thumb {
+    position: absolute;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 10px; height: 10px;
+    background: white;
+    border-radius: 50%;
+    border: 1px solid #0E0A06;
+  }
+  .rail-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9px;
+    font-weight: 700;
+    color: #7A6A5A;
+    margin-top: 6px;
+    padding: 0 6px;
+  }
+
+  /* ============ INFO PANEL ============ */
+  .info-panel {
+    height: 170px;
+  }
+  .info-panel .panel-content {
+    display: flex;
+    gap: 18px;
+    height: 100%;
+  }
+  .info-text {
+    width: 308px;
+    display: flex;
+    flex-direction: column;
+  }
+  .info-text .voice-tag {
+    font-size: 10px;
+    font-weight: 700;
+    color: #7A6A5A;
+    letter-spacing: 1.5px;
+    margin-bottom: 4px;
+  }
+  .info-text .voice-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: rgba(248,240,232,0.92);
+    margin-bottom: 6px;
+  }
+  .info-text .voice-body {
+    font-size: 11px;
+    color: #A89888;
+    line-height: 1.5;
+  }
+  .info-text .workflow-tag {
+    font-size: 9px;
+    font-weight: 700;
+    color: #7A6A5A;
+    letter-spacing: 1px;
+    margin-top: 10px;
+    margin-bottom: 4px;
+  }
+
+  .info-chips {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 10px;
+    width: 180px;
+  }
+  .chip {
+    background: #101722;
+    border: 1px solid rgba(240,104,72,0.22);
+    border-radius: 9px;
+    padding: 6px 10px;
+    display: flex;
+    flex-direction: column;
+  }
+  .chip .chip-label {
+    font-size: 8px;
+    font-weight: 700;
+    color: #7A6A5A;
+    letter-spacing: 0.5px;
+  }
+  .chip .chip-value {
+    font-size: 10px;
+    font-weight: 700;
+    color: rgba(248,240,232,0.90);
+    margin-top: 2px;
+  }
+
+  .info-graph {
+    flex: 1;
+    background: #101722;
+    border: 1px solid #3D2E20;
+    border-radius: 14px;
+    position: relative;
+    overflow: hidden;
+  }
+  .graph-label {
+    position: absolute;
+    top: 4px; left: 8px;
+    font-size: 9px;
+    font-weight: 700;
+    color: #7A6A5A;
+    letter-spacing: 0.5px;
+  }
+  .graph-curve {
+    position: absolute;
+    inset: 20px 14px 14px;
+  }
+  .graph-curve svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ============ ASSET PALETTE ============ */
+  .palette {
+    margin-top: 30px;
+    max-width: 1120px;
+    width: 100%;
+  }
+  .palette h2 {
+    font-size: 12px;
+    color: #666;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+  .palette-section {
+    margin-bottom: 20px;
+  }
+  .palette-section h3 {
+    font-size: 11px;
+    color: #F06848;
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+  }
+  .palette-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .palette-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 8px;
+  }
+  .palette-item img {
+    max-width: 80px;
+    max-height: 80px;
+    border-radius: 4px;
+  }
+  .palette-item .name {
+    font-size: 9px;
+    color: #888;
+    text-align: center;
+    max-width: 90px;
+    word-break: break-all;
+  }
+
+  /* Control card inner layout */
+  .control-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    padding: 14px 18px;
+  }
+  .control-tag {
+    font-size: 9px;
+    font-weight: 700;
+    color: #7A6A5A;
+    letter-spacing: 1px;
+    align-self: flex-start;
+  }
+</style>
+</head>
+<body>
+
+<h1>NOVA OVERDRIVE - UI MOCKUP</h1>
+<div class="instructions">
+  Este es un preview visual del pedal Overdrive con los assets reales. <b>Toma un screenshot</b> de cómo quieres que se vea
+  o dime qué mover/cambiar/quitar. Abajo del pedal hay una <b>paleta</b> con todos los assets disponibles para usar.
+</div>
+
+<!-- ============ PEDAL ============ -->
+<div class="pedal-shell">
+  <div class="shell-gradient"></div>
+  <div class="shell-texture"></div>
+  <div class="shell-wash"></div>
+  <div class="shell-halo"></div>
+  <div class="shell-vignette"></div>
+
+  <!-- Corner screws -->
+  <div class="screw screw-tl"><img src="screw_phillips_silver.png"></div>
+  <div class="screw screw-tr"><img src="screw_phillips_silver.png"></div>
+  <div class="screw screw-bl"><img src="screw_phillips_silver.png"></div>
+  <div class="screw screw-br"><img src="screw_phillips_silver.png"></div>
+
+  <div class="content">
+
+    <!-- ======== HEADER ======== -->
+    <div class="panel panel-accent header">
+      <div class="panel-glow"></div>
+      <div class="panel-content">
+        <div class="header-left">
+          <div class="tag">PEDAL EDITOR</div>
+          <div class="title">AURORA OVERDRIVE</div>
+          <div class="subtitle">Premium gain staging with focused bite and parallel polish.</div>
+        </div>
+        <div class="header-right">
+          <div class="circuit-info">
+            CIRCUIT OD-A1
+            <div class="detail">Discrete clip stage<br>Parallel mix bus</div>
+          </div>
+          <div class="status-pill">
+            <div class="led"><img src="led_green_preview.png"></div>
+            <div class="label">ACTIVE</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======== MIDDLE (KNOBS) ======== -->
+    <div class="middle">
+
+      <!-- HERO KNOB (DRIVE) -->
+      <div class="panel panel-accent hero-panel">
+        <div class="panel-glow"></div>
+        <div class="panel-screw hero-tl"><img src="screw_torx.png"></div>
+        <div class="panel-screw hero-tr"><img src="screw_torx.png"></div>
+        <div class="panel-content">
+          <div class="knob-container" style="flex:1; justify-content:center;">
+            <div class="knob-label">DRIVE</div>
+            <div class="knob-wrapper" style="margin: 12px 0;">
+              <div class="knob-arc hero"></div>
+              <img src="knob_orange_preview.png" class="knob-img hero">
+            </div>
+            <div class="knob-value">65%</div>
+            <div style="height:12px;"></div>
+            <div class="knob-hint">GAIN STAGING</div>
+            <div class="knob-descriptor">FOCUSED CRUNCH</div>
+            <div style="font-size:11px; color:#A89888; text-align:center; margin-top:2px;">Stage behavior</div>
+          </div>
+          <div class="analysis-section">
+            <div class="analysis-bar">
+              <span class="bar-label">SATURATION</span>
+              <div class="bar-track"><div class="bar-fill" style="width:65%; background:#F06848;"></div></div>
+            </div>
+            <div class="analysis-bar">
+              <span class="bar-label">ATTACK</span>
+              <div class="bar-track"><div class="bar-fill" style="width:55%; background:#FF9B70;"></div></div>
+            </div>
+            <div class="analysis-bar">
+              <span class="bar-label">BLEND</span>
+              <div class="bar-track"><div class="bar-fill" style="width:50%; background:#FBBF24;"></div></div>
+            </div>
+            <div class="analysis-bar">
+              <span class="bar-label">OUTPUT</span>
+              <div class="bar-track"><div class="bar-fill" style="width:60%; background:#94A3B8;"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTROL KNOBS GRID -->
+      <div class="controls-grid">
+
+        <!-- TONE -->
+        <div class="panel">
+          <div class="panel-glow"></div>
+          <div class="panel-screw tl"><img src="screw_torx.png"></div>
+          <div class="panel-screw tr"><img src="screw_torx.png"></div>
+          <div class="control-inner">
+            <div class="control-tag">CONTROL</div>
+            <div class="knob-container" style="flex:1; justify-content:center;">
+              <div class="knob-label small">TONE</div>
+              <div class="knob-wrapper" style="margin: 8px 0;">
+                <div class="knob-arc small"></div>
+                <img src="knob_boss_silver_preview.png" class="knob-img small">
+              </div>
+              <div class="knob-value small">55%</div>
+            </div>
+            <div class="value-rail">
+              <div class="rail-label">EQ BALANCE</div>
+              <div class="rail-track">
+                <div class="rail-fill" style="width:55%;"></div>
+                <div class="rail-thumb" style="left:55%;"></div>
+              </div>
+              <div class="rail-labels"><span>DARK</span><span>BRIGHT</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TEXTURE -->
+        <div class="panel">
+          <div class="panel-glow"></div>
+          <div class="panel-screw tl"><img src="screw_torx.png"></div>
+          <div class="panel-screw tr"><img src="screw_torx.png"></div>
+          <div class="control-inner">
+            <div class="control-tag">CONTROL</div>
+            <div class="knob-container" style="flex:1; justify-content:center;">
+              <div class="knob-label small">TEXTURE</div>
+              <div class="knob-wrapper" style="margin: 8px 0;">
+                <div class="knob-arc small"></div>
+                <img src="knob_boss_silver_preview.png" class="knob-img small">
+              </div>
+              <div class="knob-value small">40%</div>
+            </div>
+            <div class="value-rail">
+              <div class="rail-label">CLIPPING GRAIN</div>
+              <div class="rail-track">
+                <div class="rail-fill" style="width:40%;"></div>
+                <div class="rail-thumb" style="left:40%;"></div>
+              </div>
+              <div class="rail-labels"><span>SMOOTH</span><span>RAW</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MIX -->
+        <div class="panel">
+          <div class="panel-glow"></div>
+          <div class="panel-screw tl"><img src="screw_torx.png"></div>
+          <div class="panel-screw tr"><img src="screw_torx.png"></div>
+          <div class="control-inner">
+            <div class="control-tag">CONTROL</div>
+            <div class="knob-container" style="flex:1; justify-content:center;">
+              <div class="knob-label small">MIX</div>
+              <div class="knob-wrapper" style="margin: 8px 0;">
+                <div class="knob-arc small"></div>
+                <img src="knob_boss_silver_preview.png" class="knob-img small">
+              </div>
+              <div class="knob-value small">50%</div>
+            </div>
+            <div class="value-rail">
+              <div class="rail-label">PARALLEL BLEND</div>
+              <div class="rail-track">
+                <div class="rail-fill" style="width:50%;"></div>
+                <div class="rail-thumb" style="left:50%;"></div>
+              </div>
+              <div class="rail-labels"><span>DRY</span><span>WET</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LEVEL -->
+        <div class="panel">
+          <div class="panel-glow"></div>
+          <div class="panel-screw tl"><img src="screw_torx.png"></div>
+          <div class="panel-screw tr"><img src="screw_torx.png"></div>
+          <div class="control-inner">
+            <div class="control-tag">CONTROL</div>
+            <div class="knob-container" style="flex:1; justify-content:center;">
+              <div class="knob-label small">LEVEL</div>
+              <div class="knob-wrapper" style="margin: 8px 0;">
+                <div class="knob-arc small"></div>
+                <img src="knob_boss_silver_preview.png" class="knob-img small">
+              </div>
+              <div class="knob-value small">60%</div>
+            </div>
+            <div class="value-rail">
+              <div class="rail-label">OUTPUT TRIM</div>
+              <div class="rail-track">
+                <div class="rail-fill" style="width:60%;"></div>
+                <div class="rail-thumb" style="left:60%;"></div>
+              </div>
+              <div class="rail-labels"><span>TRIM</span><span>BOOST</span></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ======== INFO PANEL ======== -->
+    <div class="panel info-panel">
+      <div class="panel-glow"></div>
+      <div class="panel-content">
+        <div class="info-text">
+          <div class="voice-tag">VOICE</div>
+          <div class="voice-title">Warm clipping, controlled highs, mix-ready level.</div>
+          <div class="voice-body">Use Drive for push, Texture for grain and Mix for parallel definition.</div>
+          <div class="workflow-tag">SUGGESTED WORKFLOW</div>
+          <div class="voice-body">Set Drive first, shape with Tone, add grain with Texture, then trim Mix and Level.</div>
+        </div>
+        <div class="info-chips">
+          <div class="chip"><span class="chip-label">CLIP</span><span class="chip-value">FOCUSED CRUNCH</span></div>
+          <div class="chip"><span class="chip-label">TONE</span><span class="chip-value">BALANCED</span></div>
+          <div class="chip"><span class="chip-label">TEXTURE</span><span class="chip-value">TIGHT</span></div>
+          <div class="chip"><span class="chip-label">LEVEL</span><span class="chip-value">UNITY</span></div>
+        </div>
+        <div class="info-graph">
+          <div class="graph-label">RESPONSE MAP</div>
+          <div class="graph-curve">
+            <svg viewBox="0 0 200 100" preserveAspectRatio="none">
+              <line x1="0" y1="25" x2="200" y2="25" stroke="#334155" stroke-width="0.5" opacity="0.3"/>
+              <line x1="0" y1="50" x2="200" y2="50" stroke="#334155" stroke-width="0.5" opacity="0.3"/>
+              <line x1="0" y1="75" x2="200" y2="75" stroke="#334155" stroke-width="0.5" opacity="0.3"/>
+              <path d="M0,65 Q30,55 60,42 Q90,30 120,28 Q150,30 180,38 Q195,44 200,48"
+                    fill="none" stroke="#FBBF24" stroke-width="2" stroke-linecap="round"/>
+              <path d="M0,65 Q30,55 60,42 Q90,30 120,28 Q150,30 180,38 Q195,44 200,48"
+                    fill="none" stroke="#F06848" stroke-width="6" stroke-linecap="round" opacity="0.12"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============ ASSET PALETTE ============ -->
+<div class="palette">
+  <h2>ASSET PALETTE - AVAILABLE ELEMENTS</h2>
+
+  <div class="palette-section">
+    <h3>KNOBS (filmstrip previews)</h3>
+    <div class="palette-items">
+      <div class="palette-item"><img src="knob_orange_preview.png"><span class="name">knob_orange</span></div>
+      <div class="palette-item"><img src="knob_boss_silver_preview.png"><span class="name">knob_boss_silver</span></div>
+      <div class="palette-item"><img src="knob_black_gloss_preview.png"><span class="name">knob_black_gloss</span></div>
+      <div class="palette-item"><img src="knob_chrome_brown_preview.png"><span class="name">knob_chrome_brown</span></div>
+      <div class="palette-item"><img src="knob_chrome_purple_preview.png"><span class="name">knob_chrome_purple</span></div>
+      <div class="palette-item"><img src="knob_dark_vintage_preview.png"><span class="name">knob_dark_vintage</span></div>
+    </div>
+  </div>
+
+  <div class="palette-section">
+    <h3>SWITCHES & BUTTONS</h3>
+    <div class="palette-items">
+      <div class="palette-item"><img src="switch_off_preview.png"><span class="name">switch_rocker OFF</span></div>
+      <div class="palette-item"><img src="switch_on_preview.png"><span class="name">switch_rocker ON</span></div>
+      <div class="palette-item"><img src="toggle_up_preview.png"><span class="name">toggle_metal UP</span></div>
+      <div class="palette-item"><img src="toggle_down_preview.png"><span class="name">toggle_metal DOWN</span></div>
+      <div class="palette-item"><img src="button_red_metal_preview.png"><span class="name">button_red_metal</span></div>
+      <div class="palette-item"><img src="button_stomp_dark_preview.png"><span class="name">button_stomp</span></div>
+    </div>
+  </div>
+
+  <div class="palette-section">
+    <h3>LEDS & SCREWS</h3>
+    <div class="palette-items">
+      <div class="palette-item"><img src="led_red_preview.png"><span class="name">LED red</span></div>
+      <div class="palette-item"><img src="led_green_preview.png"><span class="name">LED green</span></div>
+      <div class="palette-item"><img src="screw_phillips_silver.png" style="max-width:40px;"><span class="name">screw_phillips</span></div>
+      <div class="palette-item"><img src="screw_torx.png" style="max-width:30px;"><span class="name">screw_torx</span></div>
+      <div class="palette-item"><img src="screws_4pack.png" style="max-width:80px;"><span class="name">screws_4pack</span></div>
+    </div>
+  </div>
+
+  <div class="palette-section">
+    <h3>TEXTURES</h3>
+    <div class="palette-items">
+      <div class="palette-item"><img src="rusted_orange_metal.jpg"><span class="name">rusted_orange_metal</span></div>
+      <div class="palette-item"><img src="brushed_metal.jpg"><span class="name">brushed_metal</span></div>
+      <div class="palette-item"><img src="carbon_fiber.png"><span class="name">carbon_fiber</span></div>
+      <div class="palette-item"><img src="diamond_plate.jpg"><span class="name">diamond_plate</span></div>
+      <div class="palette-item"><img src="gold_ridged_metal.jpg"><span class="name">gold_ridged_metal</span></div>
+      <div class="palette-item"><img src="dark_walnut.png"><span class="name">dark_walnut</span></div>
+      <div class="palette-item"><img src="quilted_leather.png"><span class="name">quilted_leather</span></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

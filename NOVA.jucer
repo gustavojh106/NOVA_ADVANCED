@@ -865,8 +865,11 @@
           <FILE id="VfEdHh" name="ClassicAmp.h" compile="0" resource="0" file="Source/Effects/Amplifiers/ClassicAmp.h"/>
           <FILE id="HgAm01" name="HighGainAmp.h" compile="0" resource="0" file="Source/Effects/Amplifiers/HighGainAmp.h"/>
           <FILE id="ClAm01" name="CleanAmp.h" compile="0" resource="0" file="Source/Effects/Amplifiers/CleanAmp.h"/>
+          <FILE id="ChAm01" name="ChimeAmp.h" compile="0" resource="0" file="Source/Effects/Amplifiers/ChimeAmp.h"/>
+          <FILE id="BtAm01" name="BoutiqueAmp.h" compile="0" resource="0" file="Source/Effects/Amplifiers/BoutiqueAmp.h"/>
         </GROUP>
         <GROUP id="{BD879881-2EBA-7DB7-0691-1F30F2D80A5F}" name="Cabinets">
+          <FILE id="SynIR1" name="SyntheticIR.h" compile="0" resource="0" file="Source/Effects/Cabinets/SyntheticIR.h"/>
           <FILE id="zgcSAe" name="CabinetEditor.h" compile="0" resource="0" file="Source/Effects/Cabinets/CabinetEditor.h"/>
           <FILE id="Rwzsje" name="CabinetPedal.h" compile="0" resource="0" file="Source/Effects/Cabinets/CabinetPedal.h"/>
           <FILE id="V2x12C" name="Vintage2x12Cabinet.h" compile="0" resource="0" file="Source/Effects/Cabinets/Vintage2x12Cabinet.h"/>
@@ -885,6 +888,10 @@
                   file="Source/Effects/Pedals/Overdrive/OverdriveEditor.h"/>
             <FILE id="AiOdag" name="OverdrivePedal.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/Overdrive/OverdrivePedal.h"/>
+            <FILE id="OdThm1" name="OverdriveThumbnail.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Overdrive/OverdriveThumbnail.h"/>
+            <FILE id="OdDsh1" name="OverdriveDashboard.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Overdrive/OverdriveDashboard.h"/>
           </GROUP>
           <GROUP id="{A1B2C3D4-1111-2222-3333-444455556666}" name="Distortion">
             <FILE id="DsP001" name="DistortionPedal.h" compile="0" resource="0"
@@ -920,6 +927,7 @@
           </GROUP>
           <GROUP id="{0E192CAD-6D43-B7C6-752D-80CA62732F34}" name="Base">
             <FILE id="chEeeJ" name="ProcessorBase.h" compile="0" resource="0" file="Source/Effects/Pedals/Base/ProcessorBase.h"/>
+            <FILE id="PdUIFy" name="PedalUIFactory.h" compile="0" resource="0" file="Source/Effects/Pedals/Base/PedalUIFactory.h"/>
           </GROUP>
         </GROUP>
       </GROUP>
@@ -948,6 +956,24 @@
         </GROUP>
         <GROUP id="{0F870D6B-EB89-6891-0B1B-2667A9F2C103}" name="Audio">
           <FILE id="EMIfa2" name="demo.wav" compile="0" resource="1" file="Source/Assets/Audio/demo.wav"/>
+        </GROUP>
+        <GROUP id="{A3B7C1D2-E4F5-6789-ABCD-EF0123456789}" name="Textures">
+          <FILE id="txBrMtl" name="brushed_metal.jpg" compile="0" resource="1" file="Resources/Textures/brushed_metal.jpg"/>
+          <FILE id="txCarbF" name="carbon_fiber.png" compile="0" resource="1" file="Resources/Textures/carbon_fiber.png"/>
+          <FILE id="txDkWal" name="dark_walnut.png" compile="0" resource="1" file="Resources/Textures/dark_walnut.png"/>
+          <FILE id="txDiaPl" name="diamond_plate.jpg" compile="0" resource="1" file="Resources/Textures/diamond_plate.jpg"/>
+          <FILE id="txGldMt" name="gold_ridged_metal.jpg" compile="0" resource="1" file="Resources/Textures/gold_ridged_metal.jpg"/>
+          <FILE id="txLtMap" name="light_maple.png" compile="0" resource="1" file="Resources/Textures/light_maple.png"/>
+          <FILE id="txQltLt" name="quilted_leather.png" compile="0" resource="1" file="Resources/Textures/quilted_leather.png"/>
+          <FILE id="txRstOr" name="rusted_orange_metal.jpg" compile="0" resource="1" file="Resources/Textures/rusted_orange_metal.jpg"/>
+          <FILE id="txDkWll" name="dark_wall.jpg" compile="0" resource="1" file="Resources/Textures/dark_wall.jpg"/>
+          <FILE id="txGrnFb" name="green_fabric.jpg" compile="0" resource="1" file="Resources/Textures/green_fabric.jpg"/>
+          <FILE id="txKnOr" name="knob_orange.png" compile="0" resource="1" file="Resources/Textures/knob_orange.png"/>
+          <FILE id="txKnBs" name="knob_boss_silver.png" compile="0" resource="1" file="Resources/Textures/knob_boss_silver.png"/>
+          <FILE id="txScPh" name="screw_phillips_silver.png" compile="0" resource="1" file="Resources/Textures/screw_phillips_silver.png"/>
+          <FILE id="txScTx" name="screw_torx.png" compile="0" resource="1" file="Resources/Textures/screw_torx.png"/>
+          <FILE id="txLdRG" name="led_red_green.png" compile="0" resource="1" file="Resources/Textures/led_red_green.png"/>
+          <FILE id="txSwRk" name="switch_rocker.png" compile="0" resource="1" file="Resources/Textures/switch_rocker.png"/>
         </GROUP>
       </GROUP>
     </GROUP>

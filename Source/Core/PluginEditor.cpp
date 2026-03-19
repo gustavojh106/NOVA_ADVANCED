@@ -3,18 +3,196 @@
 #include "PedalCatalog.h"
 #include "../GUI/Widgets/ChainLane.h"
 #include "../GUI/Widgets/AssetBrowserOverlay.h"
+#include "../Effects/Pedals/Base/PedalUIFactory.h"
+#include "../Effects/Pedals/Overdrive/OverdriveThumbnail.h"
+#include "../Effects/Pedals/Overdrive/OverdriveDashboard.h"
 #include <algorithm>
+
+namespace
+{
+    struct PedalUIRegistrar
+    {
+        PedalUIRegistrar()
+        {
+            Nova::OverdriveUI::registerOverdriveThumbnail();
+            Nova::OverdriveUI::registerOverdriveDashboard();
+        }
+    };
+    static PedalUIRegistrar sUIRegistrar;
+}
+
+class PedalEditorOverlay final : public juce::Component
+{
+public:
+    PedalEditorOverlay(juce::String pedalName,
+        juce::String pedalSubtitle,
+        std::unique_ptr<juce::AudioProcessorEditor> editorToShow,
+        std::function<void()> onCloseFn,
+        juce::Colour accentCol = juce::Colour::fromString("ffA78BFA"))
+        : title(std::move(pedalName)),
+          subtitle(std::move(pedalSubtitle)),
+          pedalEditor(std::move(editorToShow)),
+          onClose(std::move(onCloseFn)),
+          accent(accentCol)
+    {
+        setWantsKeyboardFocus(true);
+
+        addAndMakeVisible(viewport);
+        viewport.setScrollBarsShown(true, false);
+        editorCanvas = std::make_unique<juce::Component>();
+        viewport.setViewedComponent(editorCanvas.get(), false);
+
+        if (pedalEditor != nullptr)
+        {
+            naturalEditorSize = { juce::jmax(1, pedalEditor->getWidth()), juce::jmax(1, pedalEditor->getHeight()) };
+            editorCanvas->addAndMakeVisible(pedalEditor.get());
+            pedalEditor->setInterceptsMouseClicks(true, true);
+        }
+    }
+
+    bool keyPressed(const juce::KeyPress& key) override
+    {
+        if (key == juce::KeyPress::escapeKey)
+        {
+            if (onClose)
+                onClose();
+            return true;
+        }
+
+        return false;
+    }
+
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (!panelBounds.contains(e.getPosition()))
+        {
+            if (onClose)
+                onClose();
+        }
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        // Dark scrim
+        g.fillAll(juce::Colours::black.withAlpha(0.88f));
+
+        const auto pf = panelBounds.toFloat();
+
+        // Panel fill
+        juce::ColourGradient panelFill(juce::Colour::fromString("ff111827"),
+            pf.getCentreX(), pf.getY(),
+            juce::Colour::fromString("ff0B0E14"),
+            pf.getCentreX(), pf.getBottom(), false);
+        g.setGradientFill(panelFill);
+        g.fillRoundedRectangle(pf, 16.0f);
+
+        // Accent border
+        g.setColour(accent.withAlpha(0.35f));
+        g.drawRoundedRectangle(pf.reduced(0.5f), 16.0f, 1.5f);
+
+        // Top glow strip
+        auto topGlow = pf.reduced(20.0f, 0.0f).removeFromTop(2.5f);
+        juce::ColourGradient glowGrad(juce::Colours::transparentBlack, topGlow.getX(), topGlow.getCentreY(),
+            accent.withAlpha(0.55f), topGlow.getCentreX(), topGlow.getCentreY(), false);
+        glowGrad.addColour(1.0, juce::Colours::transparentBlack);
+        g.setGradientFill(glowGrad);
+        g.fillRoundedRectangle(topGlow, 1.5f);
+
+        // Floating close button circle
+        const auto closeCentre = juce::Point<float>(pf.getRight() - 6.0f, pf.getY() - 6.0f);
+        const float closeR = 16.0f;
+        g.setColour(juce::Colour::fromString("ff1A2332"));
+        g.fillEllipse(closeCentre.x - closeR, closeCentre.y - closeR, closeR * 2.0f, closeR * 2.0f);
+        g.setColour(accent.withAlpha(0.50f));
+        g.drawEllipse(closeCentre.x - closeR, closeCentre.y - closeR, closeR * 2.0f, closeR * 2.0f, 1.2f);
+        g.setColour(juce::Colours::white.withAlpha(0.85f));
+        g.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
+        g.drawText(juce::String::charToString(0xD7),
+            juce::Rectangle<float>(closeCentre.x - closeR, closeCentre.y - closeR, closeR * 2.0f, closeR * 2.0f).toNearestInt(),
+            juce::Justification::centred);
+
+        closeBtnBounds = juce::Rectangle<float>(closeCentre.x - closeR - 4.0f, closeCentre.y - closeR - 4.0f,
+            (closeR + 4.0f) * 2.0f, (closeR + 4.0f) * 2.0f);
+    }
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (closeBtnBounds.contains(e.getPosition().toFloat()))
+        {
+            if (onClose)
+                onClose();
+        }
+    }
+
+    void resized() override
+    {
+        const auto windowBounds = getLocalBounds();
+        const int padding = 16;
+
+        // Calculate panel size: wrap tightly around editor + minimal padding
+        int panelW = naturalEditorSize.x + padding * 2;
+        int panelH = naturalEditorSize.y + padding * 2;
+
+        // Clamp to available window size with margin
+        const int maxW = windowBounds.getWidth() - 40;
+        const int maxH = windowBounds.getHeight() - 40;
+        const bool needsViewport = (panelW > maxW || panelH > maxH);
+
+        panelW = juce::jmin(panelW, maxW);
+        panelH = juce::jmin(panelH, maxH);
+
+        // Ensure minimum size
+        panelW = juce::jmax(panelW, 280);
+        panelH = juce::jmax(panelH, 200);
+
+        panelBounds = juce::Rectangle<int>(
+            (windowBounds.getWidth() - panelW) / 2,
+            (windowBounds.getHeight() - panelH) / 2,
+            panelW, panelH);
+
+        auto content = panelBounds.reduced(padding);
+        viewport.setBounds(content);
+
+        if (pedalEditor != nullptr)
+        {
+            const int canvasW = juce::jmax(content.getWidth(), naturalEditorSize.x);
+            const int canvasH = juce::jmax(content.getHeight(), naturalEditorSize.y);
+            editorCanvas->setSize(canvasW, canvasH);
+            pedalEditor->setBounds((canvasW - naturalEditorSize.x) / 2,
+                (canvasH - naturalEditorSize.y) / 2,
+                naturalEditorSize.x,
+                naturalEditorSize.y);
+        }
+
+        viewport.setScrollBarsShown(needsViewport, false);
+    }
+
+private:
+    juce::String title;
+    juce::String subtitle;
+    std::unique_ptr<juce::AudioProcessorEditor> pedalEditor;
+    std::unique_ptr<juce::Component> editorCanvas;
+    std::function<void()> onClose;
+    juce::Point<int> naturalEditorSize { 1, 1 };
+    juce::Colour accent;
+
+    juce::Viewport viewport;
+    juce::Rectangle<int> panelBounds;
+    mutable juce::Rectangle<float> closeBtnBounds;
+};
 
 class PedalSlotComponent final : public juce::Component
 {
 public:
     PedalSlotComponent(NOVAAudioProcessor& ownerProcessor,
         Nova::ChainID ownerChain,
-        std::unique_ptr<juce::AudioProcessorEditor> childEditor)
+        std::function<void(Nova::ChainID, juce::String)> openEditorFn)
         : processor(ownerProcessor),
           chain(ownerChain),
-          embeddedEditor(std::move(childEditor))
+          onOpenEditor(std::move(openEditorFn))
     {
+        setRepaintsOnMouseActivity(true);
+
         addAndMakeVisible(powerButton);
         powerButton.onClick = [this] { toggleBypass(); };
 
@@ -24,14 +202,22 @@ public:
         addAndMakeVisible(dragHandle);
         dragHandle.setMouseCursor(juce::MouseCursor::DraggingHandCursor);
 
-        if (embeddedEditor != nullptr)
-        {
-            addAndMakeVisible(embeddedEditor.get());
-            embeddedEditor->setInterceptsMouseClicks(true, true);
-        }
-
         powerButton.setTriggeredOnMouseDown(false);
         removeButton.setTriggeredOnMouseDown(false);
+    }
+
+    void mouseEnter(const juce::MouseEvent& e) override
+    {
+        juce::ignoreUnused(e);
+        hovered = true;
+        repaint();
+    }
+
+    void mouseExit(const juce::MouseEvent& e) override
+    {
+        juce::ignoreUnused(e);
+        hovered = false;
+        repaint();
     }
 
     Nova::ChainID getChain() const { return chain; }
@@ -57,42 +243,131 @@ public:
 
     int getPreferredWidth() const
     {
-        return juce::jmax(150, (embeddedEditor != nullptr ? embeddedEditor->getWidth() : 190) + 8);
+        switch (getZone())
+        {
+            case Nova::ZoneID::Amp:
+            case Nova::ZoneID::Cabinet:
+                return 204;
+            case Nova::ZoneID::Pre:
+            case Nova::ZoneID::FX:
+            default:
+                return 156;
+        }
     }
 
     int getPreferredHeight() const
     {
-        return juce::jmax(132, (embeddedEditor != nullptr ? embeddedEditor->getHeight() : 170) + kHeaderHeight + 8);
+        switch (getZone())
+        {
+            case Nova::ZoneID::Amp:
+            case Nova::ZoneID::Cabinet:
+                return 132;
+            case Nova::ZoneID::Pre:
+            case Nova::ZoneID::FX:
+            default:
+                return 112;
+        }
     }
 
     void paint(juce::Graphics& g) override
     {
         const auto bounds = getLocalBounds().toFloat();
         const bool enabled = isPedalEnabled();
+        const auto accent = Nova::PedalCatalog::accentForType(getDisplayName());
+        const auto accentBright = Nova::PedalCatalog::accentBrightForType(getDisplayName());
 
-        juce::ColourGradient body(enabled ? juce::Colour::fromString("ff111827") : juce::Colour::fromString("ff080A0E"),
-            bounds.getCentreX(),
-            bounds.getY(),
-            enabled ? juce::Colour::fromString("ff0B0E14") : juce::Colour::fromString("ff060810"),
-            bounds.getCentreX(),
-            bounds.getBottom(),
-            false);
+        // Check for custom per-pedal dashboard painter
+        if (auto* customUI = Nova::PedalUI::findPedalUI(getDisplayName()))
+        {
+            if (customUI->dashboardPaint)
+            {
+                customUI->dashboardPaint(g, bounds, getDisplayName(), getSubtitle(),
+                    getTypeBadge(), enabled, hovered, kHeaderHeight);
+                return;
+            }
+        }
+
+        // ---- Default dashboard paint ----
+        // Accent-tinted body gradient
+        const auto bodyTopBase = enabled ? juce::Colour::fromString("ff111827") : juce::Colour::fromString("ff080A0E");
+        const auto bodyBotBase = enabled ? juce::Colour::fromString("ff0B0E14") : juce::Colour::fromString("ff060810");
+        const auto bodyTop = enabled ? bodyTopBase.interpolatedWith(accent, 0.06f) : bodyTopBase;
+
+        juce::ColourGradient body(bodyTop,
+            bounds.getCentreX(), bounds.getY(),
+            bodyBotBase, bounds.getCentreX(), bounds.getBottom(), false);
         g.setGradientFill(body);
         g.fillRoundedRectangle(bounds, 14.0f);
 
-        g.setColour(enabled ? juce::Colours::white.withAlpha(0.08f) : juce::Colours::white.withAlpha(0.03f));
-        g.drawRoundedRectangle(bounds.reduced(0.5f), 14.0f, 1.0f);
+        // Border: accent on hover, subtle otherwise
+        if (hovered && enabled)
+        {
+            g.setColour(accent.withAlpha(0.45f));
+            g.drawRoundedRectangle(bounds.reduced(0.5f), 14.0f, 1.5f);
+        }
+        else
+        {
+            g.setColour(enabled ? juce::Colours::white.withAlpha(0.08f) : juce::Colours::white.withAlpha(0.03f));
+            g.drawRoundedRectangle(bounds.reduced(0.5f), 14.0f, 1.0f);
+        }
 
-        auto header = bounds.reduced(6.0f).removeFromTop((float)kHeaderHeight - 4.0f);
+        // Top accent glow line when active
+        if (enabled)
+        {
+            auto topGlow = bounds.reduced(14.0f, 0.0f).removeFromTop(2.0f);
+            juce::ColourGradient glowGrad(juce::Colours::transparentBlack, topGlow.getX(), topGlow.getCentreY(),
+                accentBright.withAlpha(hovered ? 0.55f : 0.30f), topGlow.getCentreX(), topGlow.getCentreY(), false);
+            glowGrad.addColour(1.0, juce::Colours::transparentBlack);
+            g.setGradientFill(glowGrad);
+            g.fillRoundedRectangle(topGlow, 1.5f);
+        }
+
+        auto header = bounds.reduced(6.0f).removeFromTop((float)kHeaderHeight);
         g.setColour(enabled ? juce::Colour::fromString("ff1A2332") : juce::Colour::fromString("ff0D1520"));
         g.fillRoundedRectangle(header, 10.0f);
 
         g.setColour(enabled ? juce::Colours::white.withAlpha(0.72f) : juce::Colours::white.withAlpha(0.32f));
         g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText(getDisplayName().toUpperCase(),
-            header.toNearestInt().reduced(8, 0).withTrimmedRight(64),
+            header.toNearestInt().reduced(8, 0).withTrimmedRight(72),
             juce::Justification::centredLeft);
 
+        auto bodyArea = bounds.reduced(8.0f);
+        bodyArea.removeFromTop((float)kHeaderHeight + 6.0f);
+
+        auto topBand = bodyArea.removeFromTop(26.0f);
+        auto badge = topBand.removeFromLeft(58.0f);
+        g.setColour(accent.withAlpha(enabled ? 0.22f : 0.1f));
+        g.fillRoundedRectangle(badge, 6.0f);
+        g.setColour(accent.withAlpha(enabled ? 0.9f : 0.4f));
+        g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
+        g.drawFittedText(getTypeBadge(), badge.toNearestInt().reduced(6, 0), juce::Justification::centred, 1);
+
+        auto statePill = topBand.removeFromRight(56.0f);
+        g.setColour((enabled ? Nova::Colors::Success : Nova::Colors::Error).withAlpha(0.18f));
+        g.fillRoundedRectangle(statePill, 6.0f);
+        g.setColour(enabled ? Nova::Colors::Success : Nova::Colors::Error);
+        g.drawFittedText(enabled ? "ACTIVE" : "BYPASS", statePill.toNearestInt(), juce::Justification::centred, 1);
+
+        auto nameArea = bodyArea.removeFromTop(34.0f);
+        g.setColour(enabled ? juce::Colours::white.withAlpha(0.96f) : juce::Colours::white.withAlpha(0.46f));
+        g.setFont(juce::Font(juce::FontOptions(15.0f, juce::Font::bold)));
+        g.drawFittedText(getDisplayName(), nameArea.toNearestInt(), juce::Justification::centredLeft, 2);
+
+        auto subtitleArea = bodyArea.removeFromTop(24.0f);
+        g.setColour(juce::Colours::white.withAlpha(enabled ? 0.58f : 0.32f));
+        g.setFont(juce::Font(juce::FontOptions(11.0f)));
+        g.drawFittedText(getSubtitle(), subtitleArea.toNearestInt(), juce::Justification::centredLeft, 2);
+
+        // Footer: "EDIT" with hover brightening
+        auto footer = bounds.reduced(8.0f).removeFromBottom(20.0f);
+        g.setColour(accent.withAlpha(enabled ? (hovered ? 0.92f : 0.75f) : 0.3f));
+        g.fillRoundedRectangle(footer.removeFromLeft(44.0f).withHeight(3.0f).withY(footer.getCentreY() - 1.0f), 1.5f);
+        g.setColour(juce::Colours::white.withAlpha(enabled ? (hovered ? 0.72f : 0.45f) : 0.24f));
+        g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
+        g.drawText("EDIT", footer.toNearestInt().withTrimmedLeft(52), juce::Justification::centredLeft);
+
+        // Bypass overlay: dashed line pattern
         if (!enabled)
         {
             auto overlay = bounds.reduced(6.0f);
@@ -101,16 +376,40 @@ public:
             g.setColour(juce::Colours::black.withAlpha(0.62f));
             g.fillRoundedRectangle(overlay, 10.0f);
 
-            g.setColour(juce::Colour::fromString("ff2A3548"));
+            // Dashed horizontal line
             const float midY = overlay.getCentreY();
-            g.drawLine(overlay.getX() + 20.0f, midY, overlay.getRight() - 20.0f, midY, 2.0f);
-            g.drawLine(overlay.getRight() - 34.0f, midY - 7.0f, overlay.getRight() - 20.0f, midY, 2.0f);
-            g.drawLine(overlay.getRight() - 34.0f, midY + 7.0f, overlay.getRight() - 20.0f, midY, 2.0f);
+            const float dashLen = 8.0f;
+            const float gapLen = 5.0f;
+            const float lineStartX = overlay.getX() + 16.0f;
+            const float lineEndX = overlay.getRight() - 16.0f;
+            g.setColour(juce::Colour::fromString("ff2A3548").withAlpha(0.85f));
+            float cx = lineStartX;
+            while (cx < lineEndX)
+            {
+                const float segEnd = juce::jmin(cx + dashLen, lineEndX);
+                g.drawLine(cx, midY, segEnd, midY, 2.0f);
+                cx = segEnd + gapLen;
+            }
 
-            g.setColour(juce::Colours::white.withAlpha(0.52f));
-            g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
-            g.drawText("POWER OFF", overlay.toNearestInt().withTrimmedBottom(8), juce::Justification::centredBottom);
+            // Small "signal break" icon at center
+            const float iconX = overlay.getCentreX();
+            g.setColour(Nova::Colors::Error.withAlpha(0.55f));
+            g.drawLine(iconX - 6.0f, midY - 6.0f, iconX + 6.0f, midY + 6.0f, 2.0f);
+            g.drawLine(iconX + 6.0f, midY - 6.0f, iconX - 6.0f, midY + 6.0f, 2.0f);
         }
+    }
+
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        if (e.getDistanceFromDragStart() > 4)
+            return;
+
+        if (onOpenEditor == nullptr || dragHandle.getBounds().contains(e.getPosition()))
+            return;
+
+        const auto pedalID = getPedalID();
+        if (pedalID.isNotEmpty())
+            onOpenEditor(chain, pedalID);
     }
 
     void resized() override
@@ -121,9 +420,6 @@ public:
         removeButton.setBounds(header.removeFromRight(24).reduced(2));
         powerButton.setBounds(header.removeFromRight(42).reduced(2));
         dragHandle.setBounds(header.removeFromLeft(22).reduced(2));
-
-        if (embeddedEditor != nullptr)
-            embeddedEditor->setBounds(area.reduced(0, 2));
     }
 
 private:
@@ -180,7 +476,34 @@ private:
                 return type;
         }
 
-        return embeddedEditor != nullptr ? embeddedEditor->getName() : juce::String("Pedal");
+        return "Pedal";
+    }
+
+    juce::String getSubtitle() const
+    {
+        const auto subtitle = Nova::PedalCatalog::subtitleForType(getDisplayName());
+        if (subtitle.isNotEmpty())
+            return subtitle;
+
+        switch (getZone())
+        {
+            case Nova::ZoneID::Amp: return "Core amp stage";
+            case Nova::ZoneID::Cabinet: return "Speaker and mic voicing";
+            case Nova::ZoneID::FX: return "Post-amp texture";
+            case Nova::ZoneID::Pre:
+            default: return "Front-end tone shaping";
+        }
+    }
+
+    juce::String getTypeBadge() const
+    {
+        switch (Nova::PedalCatalog::kindFromType(getDisplayName()))
+        {
+            case Nova::PedalCatalog::Kind::Amplifier: return "AMP";
+            case Nova::PedalCatalog::Kind::Cabinet: return "CAB";
+            case Nova::PedalCatalog::Kind::Pedal:
+            default: return "FX";
+        }
     }
 
     void toggleBypass()
@@ -204,11 +527,6 @@ private:
     void refreshVisualState()
     {
         const bool enabled = isPedalEnabled();
-        if (embeddedEditor != nullptr)
-        {
-            embeddedEditor->setAlpha(enabled ? 1.0f : 0.22f);
-            embeddedEditor->setEnabled(enabled);
-        }
 
         powerButton.setButtonText(enabled ? "ON" : "OFF");
         powerButton.setColour(juce::TextButton::buttonColourId,
@@ -224,10 +542,11 @@ private:
     NOVAAudioProcessor& processor;
     Nova::ChainID chain;
     juce::ValueTree pedalState;
-    std::unique_ptr<juce::AudioProcessorEditor> embeddedEditor;
+    std::function<void(Nova::ChainID, juce::String)> onOpenEditor;
     juce::TextButton powerButton;
     juce::TextButton removeButton;
     DragHandleComponent dragHandle;
+    bool hovered = false;
 };
 
 // ==============================================================================
@@ -263,24 +582,56 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     btnStartStop.setColour(juce::TextButton::textColourOffId, Nova::Colors::Text.withAlpha(0.85f));
 
     // -----------------------
-    // BROWSER
+    // SIDEBAR DRAWERS
     // -----------------------
-    addAndMakeVisible(searchBarBrowser);
+    leftDrawer.isLeftSide = true;
+    leftDrawer.title = "QUICK ADD";
+    addAndMakeVisible(leftDrawer);
+    leftDrawer.setVisible(false);
+
+    rightDrawer.isLeftSide = false;
+    rightDrawer.title = "PRESETS";
+    addAndMakeVisible(rightDrawer);
+    rightDrawer.setVisible(false);
+
+    addAndMakeVisible(btnToggleLeft);
+    btnToggleLeft.setButtonText("+");
+    btnToggleLeft.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff1A2332"));
+    btnToggleLeft.setColour(juce::TextButton::textColourOffId, Nova::Colors::Accent);
+    btnToggleLeft.setTooltip("Toggle effects browser");
+    btnToggleLeft.onClick = [this] { toggleLeftPanel(); };
+
+    addAndMakeVisible(btnToggleRight);
+    btnToggleRight.setButtonText("PRESETS");
+    btnToggleRight.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff1A2332"));
+    btnToggleRight.setColour(juce::TextButton::textColourOffId, Nova::Colors::Accent);
+    btnToggleRight.onClick = [this] { toggleRightPanel(); };
+
+    // -----------------------
+    // BROWSER (inside left drawer)
+    // -----------------------
+    leftDrawer.addAndMakeVisible(searchBarBrowser);
     searchBarBrowser.setTextToShowWhenEmpty("Filter quick-add modules...", juce::Colours::grey);
     searchBarBrowser.onTextChange = [this] { applyBrowserFilter(); };
 
-    // Curated quick-add modules
-    setupQuickAddButton(btnAddCompressor, "Compressor", "PEDAL");
-    setupQuickAddButton(btnAddOverdrive, "Overdrive", "PEDAL");
+    quickAddViewport.setScrollBarsShown(true, false);
+    quickAddViewport.setScrollBarThickness(6);
+    quickAddViewport.setViewedComponent(&quickAddContainer, false);
+    leftDrawer.addAndMakeVisible(quickAddViewport);
 
-    setupQuickAddButton(btnAddChorus, "Chorus", "PEDAL");
-    setupQuickAddButton(btnAddDelay, "Delay", "PEDAL");
-
-    setupQuickAddButton(btnAddReverb, "Reverb", "PEDAL");
-
-    setupQuickAddButton(btnAddNeural, "Classic Amp", "AMP");
-
-    setupQuickAddButton(btnAddCabinet, "Cabinet", "CAB");
+    for (const auto& entry : Nova::PedalCatalog::entries())
+    {
+        auto btn = std::make_unique<DraggableButton>(entry.displayName);
+        juce::String itemType;
+        switch (entry.kind) {
+            case Nova::PedalCatalog::Kind::Amplifier: itemType = "AMP"; break;
+            case Nova::PedalCatalog::Kind::Cabinet:   itemType = "CAB"; break;
+            default:                                   itemType = "PEDAL"; break;
+        }
+        setupQuickAddButton(*btn, entry.typeID, itemType);
+        quickAddContainer.addAndMakeVisible(btn.get());
+        quickAddButtons.push_back(std::move(btn));
+    }
     // -----------------------
     // INPUT STRIP
     // -----------------------
@@ -392,32 +743,31 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
         outputMixAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, outputMix);
 
     // -----------------------
-    // PRESETS & FOOTER
+    // PRESETS (inside right drawer)
     // -----------------------
-    addAndMakeVisible(searchBarPresets);
+    rightDrawer.addAndMakeVisible(searchBarPresets);
     searchBarPresets.setTextToShowWhenEmpty("Filter...", juce::Colours::grey);
     searchBarPresets.onTextChange = [this] { refreshPresetList(); };
 
-    addAndMakeVisible(lblCurrentPreset);
+    rightDrawer.addAndMakeVisible(lblCurrentPreset);
     lblCurrentPreset.setJustificationType(juce::Justification::centred);
     lblCurrentPreset.setColour(juce::Label::textColourId, juce::Colours::lightgrey);
     lblCurrentPreset.setFont(juce::Font(juce::FontOptions(12.0f)));
     setCurrentPreset("No Preset");
 
-    addAndMakeVisible(presetSelector);
+    rightDrawer.addAndMakeVisible(presetSelector);
     presetSelector.setTextWhenNothingSelected("No Presets");
-    // Seleccionar en la lista no cambia el preset activo hasta presionar LOAD.
     presetSelector.onChange = [] {};
 
-    addAndMakeVisible(btnSave);
+    rightDrawer.addAndMakeVisible(btnSave);
     btnSave.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff0F3D22"));
     btnSave.onClick = [this] { saveSelectedOrPromptPreset(); };
 
-    addAndMakeVisible(btnLoad);
+    rightDrawer.addAndMakeVisible(btnLoad);
     btnLoad.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff0F3D22"));
     btnLoad.onClick = [this] { loadSelectedPreset(); };
 
-    addAndMakeVisible(btnClear);
+    rightDrawer.addAndMakeVisible(btnClear);
     btnClear.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff3D1418"));
     btnClear.onClick = [this] { clearPresetAndSession(); };
 
@@ -501,13 +851,11 @@ void NOVAAudioProcessorEditor::setupQuickAddButton(DraggableButton& button,
     const juce::String& typeID,
     const juce::String& itemType)
 {
-    addAndMakeVisible(button);
     button.setButtonText(typeID);
     button.setItemType(itemType);
-    button.setColour(juce::TextButton::buttonColourId,
-        Nova::PedalCatalog::accentForType(typeID).withAlpha(0.18f));
-    button.setColour(juce::TextButton::buttonOnColourId,
-        Nova::PedalCatalog::accentForType(typeID).withAlpha(0.35f));
+    button.setAccentColour(Nova::PedalCatalog::accentForType(typeID));
+    button.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    button.setColour(juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
     button.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.86f));
     button.setTooltip(Nova::PedalCatalog::subtitleForType(typeID));
 }
@@ -515,28 +863,37 @@ void NOVAAudioProcessorEditor::setupQuickAddButton(DraggableButton& button,
 void NOVAAudioProcessorEditor::applyBrowserFilter()
 {
     const auto filter = searchBarBrowser.getText().trim();
-    const std::array<DraggableButton*, 7> quickButtons{
-        &btnAddCompressor,
-        &btnAddOverdrive,
-        &btnAddChorus,
-        &btnAddDelay,
-        &btnAddReverb,
-        &btnAddNeural,
-        &btnAddCabinet
-    };
+    const auto& catalog = Nova::PedalCatalog::entries();
 
-    for (auto* button : quickButtons)
+    for (size_t i = 0; i < quickAddButtons.size() && i < catalog.size(); ++i)
     {
-        const bool matches = filter.isEmpty()
-            || button->getButtonText().containsIgnoreCase(filter)
-            || button->getTooltip().containsIgnoreCase(filter);
-
-        button->setVisible(matches);
-        button->setEnabled(matches);
+        const bool matches = Nova::PedalCatalog::matchesFilter(catalog[i], filter);
+        quickAddButtons[i]->setVisible(matches);
+        quickAddButtons[i]->setEnabled(matches);
     }
 
-    resized();
-    repaint();
+    layoutQuickAddButtons();
+    quickAddViewport.repaint();
+}
+
+void NOVAAudioProcessorEditor::layoutQuickAddButtons()
+{
+    constexpr int buttonH = 42;
+    constexpr int buttonGap = 6;
+    const int contentW = quickAddViewport.getWidth() - quickAddViewport.getScrollBarThickness() - 4;
+    const int buttonW = juce::jmax(80, contentW - 12);
+
+    int y = 4;
+    for (auto& btn : quickAddButtons)
+    {
+        if (!btn->isVisible())
+            continue;
+
+        btn->setBounds(6, y, buttonW, buttonH);
+        y += buttonH + buttonGap;
+    }
+
+    quickAddContainer.setSize(quickAddViewport.getWidth(), juce::jmax(y, quickAddViewport.getHeight()));
 }
 
 juce::Rectangle<int> NOVAAudioProcessorEditor::getInputStripBounds() const
@@ -770,40 +1127,11 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
     g.setColour(Nova::Colors::Border);
     g.drawHorizontalLine(footerRect.getY(), 0, (float)getWidth());
 
-    // Left browser column
-    auto left1 = area.removeFromLeft(176);
-    g.setColour(Nova::Colors::Panel);
-    g.fillRect(left1);
-
-    g.setColour(Nova::Colors::Border);
-    g.drawVerticalLine(left1.getRight(), (float)left1.getY(), (float)left1.getBottom());
-
-    g.setColour(Nova::Colors::Accent);
-    g.setFont(juce::Font(juce::FontOptions(15.0f, juce::Font::bold)));
-    g.drawText("QUICK ADD", left1.getX(), left1.getY() + 54, left1.getWidth(), 20, juce::Justification::centred);
-    g.setColour(Nova::Colors::TextDim);
-    g.setFont(juce::Font(juce::FontOptions(11.0f)));
-    g.drawFittedText("Drag a module into a lane or click any zone to open the full browser.",
-        juce::Rectangle<int>(left1.getX() + 10, left1.getY() + 82, left1.getWidth() - 20, 54),
-        juce::Justification::centred,
-        3);
-
-    // Input strip
+    // Input strip (left edge, no browser column)
     auto left2 = area.removeFromLeft(120);
     drawChannelStrip(g, left2, "INPUT");
 
-    // Presets column
-    auto right2 = area.removeFromRight(160);
-    g.setColour(Nova::Colors::Panel);
-    g.fillRect(right2);
-
-    g.setColour(Nova::Colors::Border);
-    g.drawVerticalLine(right2.getX(), (float)right2.getY(), (float)right2.getBottom());
-
-    g.setColour(Nova::Colors::Accent);
-    g.drawText("PRESETS", right2.getX(), right2.getY() + 60, right2.getWidth(), 20, juce::Justification::centred);
-
-    // Output strip
+    // Output strip (right edge, no presets column)
     auto right1 = area.removeFromRight(120);
     drawChannelStrip(g, right1, "OUTPUT");
 
@@ -1049,20 +1377,20 @@ void NOVAAudioProcessorEditor::resized()
 
     constexpr int headerH = 80;
     constexpr int footerH = 100;
-
-    constexpr int leftBrowserW = 176;
     constexpr int stripW = 120;
-    constexpr int rightPresetsW = 160;
+    constexpr int drawerW = 220;
 
     constexpr int mixerH = 170;
     constexpr int knobSz = 60;
-    constexpr int knobH = 78;  // 60 knob + 18 text
+    constexpr int knobH = 78;
     constexpr int knobGap = 10;
 
     // Header
     auto header = area.removeFromTop(headerH);
     const int cx = header.getCentreX();
 
+    btnToggleLeft.setBounds(header.getX() + 10, header.getCentreY() - 15, 36, 30);
+    btnToggleRight.setBounds(header.getRight() - 90, header.getCentreY() - 15, 80, 30);
     btnStartStop.setBounds(cx - 64, header.getCentreY() - 10, 128, 40);
     lblStats.setBounds(cx - 100, header.getCentreY() - 35, 200, 20);
     btnTuner.setBounds(cx - 238, header.getCentreY() - 15, 40, 30);
@@ -1071,35 +1399,10 @@ void NOVAAudioProcessorEditor::resized()
     auto footer = area.removeFromBottom(footerH);
     audioProcessor.audioVisualizer.setBounds(footer);
 
-    // Left browser column
-    auto left1 = area.removeFromLeft(leftBrowserW);
-    searchBarBrowser.setBounds(left1.removeFromTop(42).reduced(10, 6));
-    left1.removeFromTop(96);
-
-    const std::array<DraggableButton*, 7> quickButtons{
-        &btnAddCompressor,
-        &btnAddOverdrive,
-        &btnAddChorus,
-        &btnAddDelay,
-        &btnAddReverb,
-        &btnAddNeural,
-        &btnAddCabinet
-    };
-
-    int buttonY = left1.getY();
-    for (auto* button : quickButtons)
-    {
-        if (!button->isVisible())
-            continue;
-
-        button->setBounds(left1.getX() + 10, buttonY, left1.getWidth() - 20, 42);
-        buttonY += 50;
-    }
-
-    // Input strip
+    // Input strip (left edge)
     auto left2 = area.removeFromLeft(stripW);
     const int sideKnobW = 56;
-    const int sideKnobH = 68;  // 50 knob + 18 text
+    const int sideKnobH = 68;
     const int sideGap = 18;
     const int sideToggleH = 30;
     const int sideStackH = sideKnobH * 3 + sideGap * 2 + 14 + sideToggleH;
@@ -1121,20 +1424,7 @@ void NOVAAudioProcessorEditor::resized()
         sideFaderW,
         sideFaderH);
 
-    // Right presets column
-    auto right2 = area.removeFromRight(rightPresetsW);
-    searchBarPresets.setBounds(right2.removeFromTop(32).reduced(10, 4));
-    lblCurrentPreset.setBounds(right2.removeFromTop(24).reduced(8, 2));
-    presetSelector.setBounds(right2.removeFromTop(34).reduced(8, 2));
-    right2.removeFromTop(8);
-
-    auto btnArea = right2.removeFromBottom(96);
-    auto topButtons = btnArea.removeFromTop(42);
-    btnSave.setBounds(topButtons.removeFromLeft(75).reduced(5));
-    btnLoad.setBounds(topButtons.reduced(5));
-    btnClear.setBounds(btnArea.removeFromTop(42).reduced(5));
-
-    // Output strip
+    // Output strip (right edge)
     auto right1 = area.removeFromRight(stripW);
     auto outputKnobCol = juce::Rectangle<int>(right1.getX() + 4, right1.getY(), right1.getWidth() - 34, right1.getHeight());
     const int outStackH = sideKnobH * 3 + sideGap * 2;
@@ -1151,11 +1441,10 @@ void NOVAAudioProcessorEditor::resized()
         sideFaderW,
         sideFaderH);
 
-    // Center: mixer + lanes
+    // Center: mixer + lanes (now gets full remaining width)
     auto center = area;
     auto mixerArea = center.removeFromBottom(mixerH);
 
-    // Position the switcher button at the center of the circuit zone
     const int cKnobSz = 60;
     const int cKnobGap = 10;
     const int cStartXA = mixerArea.getX() + 30;
@@ -1181,12 +1470,76 @@ void NOVAAudioProcessorEditor::resized()
     if (laneA) laneA->setBounds(center.removeFromTop(laneH).reduced(10));
     if (laneB) laneB->setBounds(center.reduced(10));
 
+    // Sidebar drawers (overlay, positioned absolutely)
+    const int drawerTop = headerH;
+    const int drawerH = getHeight() - headerH - footerH;
+
+    if (leftPanelOpen)
+    {
+        leftDrawer.setBounds(0, drawerTop, drawerW, drawerH);
+        leftDrawer.toFront(false);
+
+        auto d = leftDrawer.getLocalBounds();
+        d.removeFromTop(36);
+        d = d.reduced(8, 0);
+        searchBarBrowser.setBounds(d.removeFromTop(32).reduced(2, 4));
+        d.removeFromTop(4);
+        quickAddViewport.setBounds(d);
+        layoutQuickAddButtons();
+    }
+
+    if (rightPanelOpen)
+    {
+        rightDrawer.setBounds(getWidth() - drawerW, drawerTop, drawerW, drawerH);
+        rightDrawer.toFront(false);
+
+        auto d = rightDrawer.getLocalBounds();
+        d.removeFromTop(36);
+        d = d.reduced(8, 0);
+        searchBarPresets.setBounds(d.removeFromTop(32).reduced(2, 4));
+        d.removeFromTop(4);
+        lblCurrentPreset.setBounds(d.removeFromTop(24));
+        d.removeFromTop(4);
+        presetSelector.setBounds(d.removeFromTop(34));
+        d.removeFromTop(8);
+
+        auto btnArea = d.removeFromBottom(96);
+        auto topButtons = btnArea.removeFromTop(42);
+        btnSave.setBounds(topButtons.removeFromLeft(topButtons.getWidth() / 2).reduced(4));
+        btnLoad.setBounds(topButtons.reduced(4));
+        btnClear.setBounds(btnArea.removeFromTop(42).reduced(4));
+    }
+
     updatePedalGui();
 }
 
 // ==============================================================================
-// CONTROL LOGIC (sin tocar)
+// CONTROL LOGIC
 // ==============================================================================
+
+void NOVAAudioProcessorEditor::toggleLeftPanel()
+{
+    leftPanelOpen = !leftPanelOpen;
+    leftDrawer.setVisible(leftPanelOpen);
+
+    btnToggleLeft.setColour(juce::TextButton::buttonColourId,
+        leftPanelOpen ? Nova::Colors::Accent.withAlpha(0.28f) : juce::Colour::fromString("ff1A2332"));
+
+    resized();
+    repaint();
+}
+
+void NOVAAudioProcessorEditor::toggleRightPanel()
+{
+    rightPanelOpen = !rightPanelOpen;
+    rightDrawer.setVisible(rightPanelOpen);
+
+    btnToggleRight.setColour(juce::TextButton::buttonColourId,
+        rightPanelOpen ? Nova::Colors::Accent.withAlpha(0.28f) : juce::Colour::fromString("ff1A2332"));
+
+    resized();
+    repaint();
+}
 
 void NOVAAudioProcessorEditor::toggleTuner()
 {
@@ -1349,19 +1702,16 @@ void NOVAAudioProcessorEditor::updatePedalGui()
 
                 if (it == activePedalEditors.end())
                 {
-                    std::unique_ptr<juce::AudioProcessorEditor> newEditor(item.nodeView.node->getProcessor()->createEditor());
-                    if (newEditor == nullptr)
-                        newEditor = std::make_unique<juce::GenericAudioProcessorEditor>(*(item.nodeView.node->getProcessor()));
-
-                    if (newEditor != nullptr)
-                    {
-                        auto host = std::make_unique<PedalSlotComponent>(audioProcessor, chain, std::move(newEditor));
-                        host->setPedalState(item.state);
-                        addAndMakeVisible(host.get());
-                        slot = host.get();
-                        activePedalEditors[item.nodeView.node->nodeID] = std::move(host);
-                        item.createdNow = true;
-                    }
+                    auto host = std::make_unique<PedalSlotComponent>(audioProcessor, chain,
+                        [this](Nova::ChainID chainId, juce::String pedalId)
+                        {
+                            showPedalEditor(chainId, pedalId);
+                        });
+                    host->setPedalState(item.state);
+                    addAndMakeVisible(host.get());
+                    slot = host.get();
+                    activePedalEditors[item.nodeView.node->nodeID] = std::move(host);
+                    item.createdNow = true;
                 }
                 else
                 {
@@ -1372,8 +1722,8 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                 if (slot)
                 {
                     item.slot = slot;
-                    item.preferredW = juce::jmax(166, slot->getPreferredWidth());
-                    item.preferredH = juce::jmax(152, slot->getPreferredHeight());
+                    item.preferredW = slot->getPreferredWidth();
+                    item.preferredH = slot->getPreferredHeight();
                 }
             }
 
@@ -1509,13 +1859,12 @@ void NOVAAudioProcessorEditor::updateSwitcherState()
 
 void NOVAAudioProcessorEditor::requestUiRefresh()
 {
-    if (juce::MessageManager::getInstance()->isThisTheMessageThread())
-    {
-        uiRefreshPending.store(false, std::memory_order_release);
-        handleAsyncUpdate();
-        return;
-    }
-
+    // Always defer to next message-loop iteration via triggerAsyncUpdate().
+    // DO NOT run handleAsyncUpdate() synchronously here — when called from
+    // valueTreeChildAdded during requestAddPedal, the engine rebuild hasn't
+    // happened yet, so updatePedalGui() would see stale engine state (the
+    // "always one action behind" bug). Deferring ensures the full
+    // requestAddPedal/requestMovePedal call completes before the UI refreshes.
     const bool wasPending = uiRefreshPending.exchange(true, std::memory_order_acq_rel);
     if (!wasPending)
         triggerAsyncUpdate();
@@ -1548,6 +1897,66 @@ bool NOVAAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
         return true;
     }
     return false;
+}
+
+void NOVAAudioProcessorEditor::showPedalEditor(Nova::ChainID chain, const juce::String& pedalID)
+{
+    const auto treeListID = (chain == Nova::ChainID::LineA) ? Nova::IDs::LINE_A : Nova::IDs::LINE_B;
+    auto treeList = audioProcessor.pluginState.getChildWithName(treeListID);
+    if (!treeList.isValid())
+        return;
+
+    int pedalIndex = -1;
+    juce::ValueTree pedalState;
+
+    for (int i = 0; i < treeList.getNumChildren(); ++i)
+    {
+        auto child = treeList.getChild(i);
+        if (!child.hasType(Nova::IDs::PEDAL))
+            continue;
+
+        if (child.getProperty(Nova::IDs::PEDAL_ID).toString() == pedalID)
+        {
+            pedalIndex = i;
+            pedalState = child;
+            break;
+        }
+    }
+
+    if (pedalIndex < 0 || !pedalState.isValid())
+        return;
+
+    auto* processorForPedal = audioProcessor.getAudioEngine().getProcessorForPedal(chain, pedalIndex);
+    if (processorForPedal == nullptr)
+        return;
+
+    std::unique_ptr<juce::AudioProcessorEditor> pedalEditor(processorForPedal->createEditor());
+    if (pedalEditor == nullptr)
+        pedalEditor = std::make_unique<juce::GenericAudioProcessorEditor>(*processorForPedal);
+
+    if (pedalEditor == nullptr)
+        return;
+
+    const auto pedalType = pedalState.getProperty(Nova::IDs::PEDAL_TYPE).toString();
+    auto overlay = std::make_unique<PedalEditorOverlay>(
+        pedalType,
+        Nova::PedalCatalog::subtitleForType(pedalType),
+        std::move(pedalEditor),
+        [this]()
+        {
+            juce::MessageManager::callAsync([this]()
+            {
+                currentOverlay.reset();
+                resized();
+            });
+        },
+        Nova::PedalCatalog::accentForType(pedalType));
+
+    addAndMakeVisible(overlay.get());
+    overlay->setBounds(getLocalBounds());
+    overlay->toFront(true);
+    overlay->grabKeyboardFocus();
+    currentOverlay = std::move(overlay);
 }
 
 std::vector<juce::Rectangle<int>> NOVAAudioProcessorEditor::getPedalBoundsForZone(Nova::ChainID chain, Nova::ZoneID zone) const

@@ -43,6 +43,7 @@ private:
     void setupQuickAddButton(DraggableButton& button, const juce::String& typeID, const juce::String& itemType);
     void applyBrowserFilter();
     void drawChannelStrip(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title);
+    void showPedalEditor(Nova::ChainID chain, const juce::String& pedalID);
     juce::Rectangle<int> getInputStripBounds() const;
     juce::Rectangle<int> getOutputStripBounds() const;
     void updateMeterState();
@@ -75,16 +76,44 @@ private:
 
     juce::TextButton btnTuner{ "T" };
 
-    // --- 2. BROWSER (Izquierda) ---
+    // --- SIDEBAR DRAWERS ---
+    struct SidebarDrawer final : public juce::Component
+    {
+        bool isLeftSide = true;
+        juce::String title;
+        void paint(juce::Graphics& g) override
+        {
+            g.fillAll(Nova::Colors::Panel);
+            g.setColour(Nova::Colors::Border);
+            if (isLeftSide)
+                g.drawVerticalLine(getWidth() - 1, 0.0f, (float)getHeight());
+            else
+                g.drawVerticalLine(0, 0.0f, (float)getHeight());
+
+            if (title.isNotEmpty())
+            {
+                g.setColour(Nova::Colors::Accent);
+                g.setFont(juce::Font(juce::FontOptions(14.0f, juce::Font::bold)));
+                g.drawText(title, 10, 8, getWidth() - 20, 22, juce::Justification::centred);
+            }
+        }
+    };
+
+    SidebarDrawer leftDrawer;
+    SidebarDrawer rightDrawer;
+    juce::TextButton btnToggleLeft;
+    juce::TextButton btnToggleRight;
+    bool leftPanelOpen = false;
+    bool rightPanelOpen = false;
+    void toggleLeftPanel();
+    void toggleRightPanel();
+
+    // --- 2. BROWSER (inside left drawer) ---
     juce::TextEditor searchBarBrowser;
-    // Usamos la clase importada DraggableButton
-    DraggableButton btnAddCompressor{ "Compressor" };
-    DraggableButton btnAddOverdrive{ "Overdrive" };
-    DraggableButton btnAddChorus{ "Chorus" };
-    DraggableButton btnAddDelay{ "Delay" };
-    DraggableButton btnAddReverb{ "Reverb" };
-    DraggableButton btnAddCabinet{ "Cabinet" };
-    DraggableButton btnAddNeural{ "Classic Amp" };
+    juce::Viewport quickAddViewport;
+    juce::Component quickAddContainer;
+    std::vector<std::unique_ptr<DraggableButton>> quickAddButtons;
+    void layoutQuickAddButtons();
 
     // --- 3. INPUT STRIP ---
     juce::SharedResourcePointer<UI::ModernKnobLnF> knobLnf;

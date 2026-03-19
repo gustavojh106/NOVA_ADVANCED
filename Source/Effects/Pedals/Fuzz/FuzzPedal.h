@@ -153,14 +153,21 @@ public:
                     const float gateThreshold = gateAmount * 0.02f;
                     const float gateGain = (inputEnvelope > gateThreshold) ? 1.0f : (inputEnvelope / juce::jmax(gateThreshold, 0.0001f));
 
+                    // Octave-up via full-wave rectification BEFORE clipping
+                    // Rectifying the input doubles the fundamental frequency
+                    const float octaveBlend = juce::jmap(fuzzAmount, 0.0f, 100.0f, 0.0f, 0.45f);
+                    const float rectified = std::abs(x * drive) * 2.0f - (x * drive);
+                    const float octaveSignal = rectified * octaveBlend;
+
                     // Germanium-style asymmetric clipping
                     x = x * drive + bias;
                     const float positive = 1.0f - std::exp(-x);
                     const float negative = -1.0f + std::exp(x);
                     x = (x >= 0.0f) ? positive : negative * 0.82f;
 
-                    // Octave-up ghost from full-wave rectification bleed
-                    x += std::abs(x) * 0.12f * (fuzzAmount * 0.01f);
+                    // Mix octave-up into the fuzzed signal
+                    const float octaveClipped = std::tanh(octaveSignal * 1.5f);
+                    x += octaveClipped * 0.35f;
 
                     data[sample] = x * gateGain;
                 }
