@@ -264,6 +264,26 @@ inline void resetToCleanState(juce::ValueTree state)
     }
 }
 
+inline int countPedalsInZone(const juce::ValueTree& state, ChainID chain, ZoneID zone)
+{
+    auto line = getLineTree(state, chain);
+    if (!line.isValid())
+        return 0;
+
+    int count = 0;
+    for (int i = 0; i < line.getNumChildren(); ++i)
+    {
+        auto child = line.getChild(i);
+        if (!child.hasType(IDs::PEDAL))
+            continue;
+        const auto childZone = static_cast<ZoneID>(
+            (int)child.getProperty(IDs::PEDAL_ZONE, (int)ZoneID::Pre));
+        if (childZone == zone)
+            ++count;
+    }
+    return count;
+}
+
 inline PedalInsertResult insertPedal(juce::ValueTree state,
     const juce::String& type,
     ChainID chain,
@@ -279,6 +299,13 @@ inline PedalInsertResult insertPedal(juce::ValueTree state,
     auto line = getLineTree(state, chain);
     if (!line.isValid())
         return result;
+
+    // Capacity gate for flex zones (Pre / FX)
+    if (result.zone == ZoneID::Pre || result.zone == ZoneID::FX)
+    {
+        if (countPedalsInZone(state, chain, result.zone) >= Config::MAX_PEDALS_PER_FLEX_ZONE)
+            return result;
+    }
 
     if (result.zone == ZoneID::Amp || result.zone == ZoneID::Cabinet)
     {

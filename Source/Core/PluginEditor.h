@@ -30,6 +30,8 @@ public:
 
     void paint(juce::Graphics&) override;
     void resized() override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override;
     bool keyPressed(const juce::KeyPress&) override;
 
     // Métodos públicos para interacción con hijos (DropZones)
@@ -73,6 +75,9 @@ private:
     // --- 1. HEADER COMPONENTS ---
     juce::TextButton btnStartStop;
     juce::Label lblStats;
+    juce::Label lblCpu;
+    juce::Label lblProc;
+    juce::Label lblBuf;
 
     juce::TextButton btnTuner{ "T" };
 
@@ -122,10 +127,15 @@ private:
     juce::Slider inputGate;
     juce::Slider inputTranspose;
     juce::ToggleButton btnMonoStereo{ "Mono/Stereo" };
-    juce::Slider inputFader;
 
     // --- 4. MIXER (Centro) ---
-    juce::TextButton btnSwitcher;
+    juce::TextButton btnSwitcher;     // kept for legacy — hidden, space key still cycles
+    juce::TextButton btnRouteA{ "A" };
+    juce::TextButton btnRoutePar{ "||" };
+    juce::TextButton btnRouteB{ "B" };
+    bool routeInfoHovered = false;
+    juce::Rectangle<float> routeInfoIconBounds;
+    juce::String routeInfoText { "Shortcut: Space. Routing behavior can be configured in Settings." };
 
     // Line A
     juce::Slider volSliderA;
@@ -141,7 +151,6 @@ private:
     juce::Slider outputVolume;
     juce::Slider outputGain;
     juce::Slider outputMix;
-    juce::Slider outputFader;
 
     // --- 6. PRESETS & FOOTER ---
     juce::TextEditor searchBarPresets;

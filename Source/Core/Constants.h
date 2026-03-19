@@ -124,5 +124,8 @@ namespace Nova
         static constexpr float DC_OFFSET_DECAY  = 0.9993f; // per-sample DC tracking pole (Overdrive)
         static constexpr float DC_OFFSET_ATTACK = 0.0007f; // per-sample DC tracking zero (Overdrive)
         static constexpr float AMP_SAG_DECAY    = 0.9992f; // per-sample sag envelope decay (ClassicAmp power-supply sim)
+
+        // ---- Flex zone layout (Pre / FX multi-row grid) ----
+        static constexpr int MAX_PEDALS_PER_FLEX_ZONE = 12;
     }
 }

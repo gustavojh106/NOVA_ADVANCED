@@ -76,7 +76,17 @@ DropZone::DropZone(NOVAAudioProcessor& processor, Nova::ChainID chainId, Nova::Z
     : proc(processor), chain(chainId), zone(zoneId)
 {
     setRepaintsOnMouseActivity(true);
-    tooltipOverlay = std::make_unique<FloatingTooltip>(); // Instanciamos el overlay
+    tooltipOverlay = std::make_unique<FloatingTooltip>();
+
+    addAndMakeVisible(addButton);
+    addButton.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+    addButton.setColour(juce::TextButton::textColourOnId, Nova::Colors::Accent);
+    addButton.setColour(juce::TextButton::textColourOffId, Nova::Colors::TextDim);
+    addButton.onClick = [this]
+    {
+        if (auto* editor = findParentComponentOfClass<NOVAAudioProcessorEditor>())
+            editor->showOverlay(zone, chain);
+    };
 }
 
 DropZone::~DropZone()
@@ -90,14 +100,22 @@ bool DropZone::isFixedSlot() const noexcept { return zone == Nova::ZoneID::Amp |
 void DropZone::resized()
 {
     auto bounds = getLocalBounds().toFloat();
-    infoIconBounds = bounds.removeFromTop(30.0f).removeFromRight(30.0f).withSizeKeepingCentre(16.0f, 16.0f);
+
+    // Top reserved area — (i) icon
+    auto topArea = bounds.removeFromTop((float)kTopReserved);
+    infoIconBounds = topArea.removeFromRight(28.0f).withSizeKeepingCentre(16.0f, 16.0f);
+
+    // Bottom reserved area — zone name + ADD button
+    auto bottomArea = getLocalBounds().removeFromBottom(kBottomReserved);
+    auto addBtnArea = bottomArea.removeFromRight(juce::jmin(40, bottomArea.getWidth() / 3));
+    addButton.setBounds(addBtnArea.reduced(2, 6));
 }
 
 juce::Rectangle<float> DropZone::getDropContentBounds() const
 {
-    auto bounds = getLocalBounds().toFloat().reduced(10.0f, 10.0f);
-    bounds.removeFromTop(18.0f);
-    bounds.removeFromBottom(42.0f);
+    auto bounds = getLocalBounds().toFloat().reduced(6.0f, 0.0f);
+    bounds.removeFromTop((float)kTopReserved);
+    bounds.removeFromBottom((float)kBottomReserved);
     return bounds;
 }
 
@@ -152,14 +170,51 @@ bool DropZone::isValidDragType(const juce::String& dragInfo) const
     if (pedalType.isEmpty())
         return false;
 
-    if (isMoveDrag(dragInfo))
+    const bool isMoveOp = isMoveDrag(dragInfo);
+
+    if (isMoveOp)
     {
         auto parts = juce::StringArray::fromTokens(dragInfo, ":", "");
         if (parts.size() < 3 || chainFromToken(parts[1]) != chain)
             return false;
     }
 
-    return Nova::PedalCatalog::canLiveInZone(pedalType, zone);
+    if (!Nova::PedalCatalog::canLiveInZone(pedalType, zone))
+        return false;
+
+    // Capacity gate for flex zones (Pre / FX)
+    if (zone == Nova::ZoneID::Pre || zone == Nova::ZoneID::FX)
+    {
+        const int current = Nova::PluginStateModel::countPedalsInZone(proc.pluginState, chain, zone);
+        const int limit   = Nova::Config::MAX_PEDALS_PER_FLEX_ZONE;
+
+        if (isMoveOp)
+        {
+            // A move from the same zone doesn't change count — always OK
+            auto parts = juce::StringArray::fromTokens(dragInfo, ":", "");
+            const int fromIndex = parts[2].getIntValue();
+            const auto treeListID = (chain == Nova::ChainID::LineA) ? Nova::IDs::LINE_A : Nova::IDs::LINE_B;
+            auto treeList = proc.pluginState.getChildWithName(treeListID);
+            if (treeList.isValid() && juce::isPositiveAndBelow(fromIndex, treeList.getNumChildren()))
+            {
+                const auto fromZone = static_cast<Nova::ZoneID>(
+                    (int)treeList.getChild(fromIndex).getProperty(Nova::IDs::PEDAL_ZONE, (int)Nova::ZoneID::Pre));
+                if (fromZone == zone)
+                    return true;  // same-zone reorder, no net change
+            }
+            // Cross-zone move — needs a free slot
+            if (current >= limit)
+                return false;
+        }
+        else
+        {
+            // New pedal from browser
+            if (current >= limit)
+                return false;
+        }
+    }
+
+    return true;
 }
 
 DropZone::DropPreview DropZone::calculateDropPreview(int dropX) const
@@ -549,20 +604,23 @@ void DropZone::paint(juce::Graphics& g)
         }
     }
 
-    // Textos
+    // ---- Bottom reserved: zone title + ADD button ----
     juce::String title;
-    if (zone == Nova::ZoneID::Pre)      title = "PRE-AMPLIFIER";
-    else if (zone == Nova::ZoneID::Amp) title = "AMPLIFIER HEAD";
-    else if (zone == Nova::ZoneID::FX)  title = "POST-AMPLIFIER";
-    else if (zone == Nova::ZoneID::Cabinet) title = "SPEAKER CABINET";
+    if (zone == Nova::ZoneID::Pre)          title = "PRE-AMP";
+    else if (zone == Nova::ZoneID::Amp)     title = "AMP HEAD";
+    else if (zone == Nova::ZoneID::FX)      title = "POST-AMP";
+    else if (zone == Nova::ZoneID::Cabinet) title = "CABINET";
 
+    auto footerBounds = getLocalBounds().toFloat().removeFromBottom((float)kBottomReserved);
+    footerBounds = footerBounds.reduced(8.0f, 0.0f);
+
+    // Zone title — left of the ADD button
+    auto titleArea = footerBounds.withTrimmedRight(40.0f);
     g.setColour(isMouseOver(true) ? juce::Colours::white.withAlpha(0.9f) : juce::Colours::grey.withAlpha(0.6f));
-    g.setFont(juce::Font(juce::FontOptions(13.0f, juce::Font::bold)));
+    g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
+    g.drawFittedText(title, titleArea.toNearestInt(), juce::Justification::centredLeft, 1);
 
-    auto textArea = bounds.removeFromBottom(40.0f);
-    g.drawFittedText(title, textArea.toNearestInt(), juce::Justification::centred, 1);
-
-    // Icono (i)
+    // ---- Top reserved: (i) icon ----
     g.setColour(isHoveringInfo ? juce::Colours::white : juce::Colours::grey.withAlpha(0.6f));
     g.drawEllipse(infoIconBounds, 1.0f);
     g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));

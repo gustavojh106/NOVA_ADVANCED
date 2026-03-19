@@ -56,6 +56,7 @@ public:
 
     void toggleEngine();
     void cycleSwitcher();
+    void setSwitcherMode(Nova::SwitcherMode mode);
     void toggleTuner();
 
 private:

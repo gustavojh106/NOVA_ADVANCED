@@ -39,7 +39,12 @@
       "Bash(mv \"KNB_Shape_orange_bipo.png\" \"knob_orange.png\")",
       "Bash(mv \"DIAL_NASTY_-_01.png\" \"knob_dark_vintage.png\")",
       "Bash(\"C:/Users/gusta/OneDrive/Desktop/JUCE/extras/Projucer/Builds/VisualStudio2022/x64/Release/App/Projucer.exe\" --resave NOVA.jucer)",
-      "Bash(\"/c/Users/gusta/Downloads/juce-8.0.12-windows/JUCE/Projucer.exe\" --resave NOVA.jucer)"
+      "Bash(\"/c/Users/gusta/Downloads/juce-8.0.12-windows/JUCE/Projucer.exe\" --resave NOVA.jucer)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" NOVA_StandalonePlugin.vcxproj -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" \"C:/Users/gusta/OneDrive/Desktop/ULTIMATE/NOVA/Builds/VisualStudio2022/NOVA_StandalonePlugin.vcxproj\" -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" \"C:/Users/gusta/OneDrive/Desktop/ULTIMATE/NOVA/Builds/VisualStudio2022/NOVA_SharedCode.vcxproj\" -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" \"C:/Users/gusta/OneDrive/Desktop/ULTIMATE/NOVA/Builds/VisualStudio2022/NOVA_StandalonePlugin.vcxproj\" -p:Configuration=Debug -p:Platform=x64 -p:AdditionalOptions=\"/FS\" -verbosity:minimal)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA_SharedCode.vcxproj\" -p:Configuration=Debug -p:Platform=x64 -v:minimal -noLogo)"
     ]
   }
 }

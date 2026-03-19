@@ -482,6 +482,20 @@ void NOVAAudioProcessor::requestAddPedal(const juce::String& type,
         return;
     }
 
+    // Capacity gate for flex zones
+    const auto effectiveZone = Nova::PedalCatalog::enforceZone(canonicalType, zone);
+    if (effectiveZone == Nova::ZoneID::Pre || effectiveZone == Nova::ZoneID::FX)
+    {
+        const int count = Nova::PluginStateModel::countPedalsInZone(pluginState, chain, effectiveZone);
+        if (count >= Nova::Config::MAX_PEDALS_PER_FLEX_ZONE)
+        {
+            NovaDiagnostics::SessionLogger::logEvent("pedal.add",
+                "Rejected: zone " + zoneToText(effectiveZone) + " at capacity ("
+                + juce::String(count) + "/" + juce::String(Nova::Config::MAX_PEDALS_PER_FLEX_ZONE) + ")");
+            return;
+        }
+    }
+
     sessionCoordinator.captureLivePedalStates(audioEngine);
     const auto insert = sessionCoordinator.insertPedal(type, chain, zone, insertIndex);
     if (!insert.inserted)
@@ -592,12 +606,20 @@ void NOVAAudioProcessor::cycleSwitcher()
             break;
     }
 
+    setSwitcherMode(static_cast<Nova::SwitcherMode>(mode));
+}
+
+void NOVAAudioProcessor::setSwitcherMode(Nova::SwitcherMode mode)
+{
+    if (switchModeParam == nullptr)
+        return;
+
     switchModeParam->setValueNotifyingHost(switchModeParam->convertTo0to1(static_cast<float>(mode)));
     hasPushedRuntimeGlobals = false;
     refreshEngineGlobalParamsIfNeeded(true);
     synchronizeEngineNow();
     NovaDiagnostics::SessionLogger::logEvent("switcher",
-        "Cycled switcher to " + switchModeToText((int)getSwitcherMode()));
+        "Set switcher to " + switchModeToText((int)getSwitcherMode()));
 }
 
 void NOVAAudioProcessor::toggleTuner()

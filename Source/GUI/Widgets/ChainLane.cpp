@@ -81,27 +81,47 @@ void ChainLane::resized()
 void ChainLane::paint(juce::Graphics& g)
 {
     const float y = getHeight() * 0.5f;
-    const float w = (float)getWidth();
-
-    juce::Path cable;
-    cable.startNewSubPath(0.0f, y);
-    cable.lineTo(w, y);
-
     const auto glow = getCableGlowColour();
 
-    // Sombra
+    // Build cable path only through the gaps BETWEEN zones (not through zone interiors)
+    juce::Path cable;
+
+    // Segment: left edge → Pre zone start
+    if (zones.size() > 0)
+    {
+        cable.startNewSubPath(0.0f, y);
+        cable.lineTo((float)zones[0]->getX(), y);
+    }
+
+    // Segments between consecutive zones
+    for (int i = 0; i + 1 < zones.size(); ++i)
+    {
+        const float gapStart = (float)zones[i]->getRight();
+        const float gapEnd   = (float)zones[i + 1]->getX();
+        cable.startNewSubPath(gapStart, y);
+        cable.lineTo(gapEnd, y);
+    }
+
+    // Segment: last zone end → right edge
+    if (zones.size() > 0)
+    {
+        cable.startNewSubPath((float)zones.getLast()->getRight(), y);
+        cable.lineTo((float)getWidth(), y);
+    }
+
+    // Shadow
     g.setColour(juce::Colours::black.withAlpha(0.6f));
     g.strokePath(cable, juce::PathStrokeType(kCableShadowThickness));
 
-    // Cuerpo
+    // Body
     g.setColour(kCableBodyColour);
     g.strokePath(cable, juce::PathStrokeType(kCableBodyThickness));
 
-    // Se�al
+    // Signal
     g.setColour(glow);
     g.strokePath(cable, juce::PathStrokeType(isLaneActive ? kCableSignalOn : kCableSignalOff));
 
-    // Glow externo cuando est� activo
+    // External glow when active
     if (isLaneActive)
     {
         g.setColour(glow.withAlpha(0.4f));

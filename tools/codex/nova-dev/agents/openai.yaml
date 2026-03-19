@@ -1,0 +1,7 @@
+interface:
+  display_name: "NOVA Dev"
+  short_description: "Project skill for the NOVA JUCE plugin repo"
+  default_prompt: "Use $nova-dev to work safely and efficiently inside the NOVA JUCE plugin repository."
+
+policy:
+  allow_implicit_invocation: true

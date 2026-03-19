@@ -67,9 +67,15 @@ private:
     bool isHoveringInfo = false;
     juce::Rectangle<float> infoIconBounds;
 
+    // Reserved padding areas (never covered by pedal cards)
+    static constexpr int kTopReserved    = 28;   // space for (i) icon
+    static constexpr int kBottomReserved = 44;   // space for zone name + ADD button
+
+    juce::TextButton addButton{ "+" };
+
     int shakeOffset = 0;
     int shakeTicks = 0;
 
-    // 2. Nuestro componente flotante seguro
+    // Floating tooltip overlay
     std::unique_ptr<FloatingTooltip> tooltipOverlay;
 };
