@@ -896,34 +896,96 @@
           <GROUP id="{A1B2C3D4-1111-2222-3333-444455556666}" name="Distortion">
             <FILE id="DsP001" name="DistortionPedal.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/Distortion/DistortionPedal.h"/>
+            <FILE id="DsE001" name="DistortionEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Distortion/DistortionEditor.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-555566660009}" name="Metal">
+            <FILE id="MtP001" name="MetalDistortionPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Metal/MetalDistortionPedal.h"/>
+            <FILE id="MtE001" name="MetalEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Metal/MetalEditor.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-555566660003}" name="Compressor">
+            <FILE id="CpP001" name="CompressorPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Compressor/CompressorPedal.h"/>
+            <FILE id="CpE001" name="CompressorEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Compressor/CompressorEditor.h"/>
           </GROUP>
           <GROUP id="{A1B2C3D4-1111-2222-3333-444455557777}" name="Fuzz">
             <FILE id="FzP001" name="FuzzPedal.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/Fuzz/FuzzPedal.h"/>
+            <FILE id="FzE001" name="FuzzEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Fuzz/FuzzEditor.h"/>
           </GROUP>
           <GROUP id="{A1B2C3D4-1111-2222-3333-444455558888}" name="Gate">
             <FILE id="NgP001" name="NoiseGatePedal.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/Gate/NoiseGatePedal.h"/>
+            <FILE id="NgE001" name="GateEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Gate/GateEditor.h"/>
           </GROUP>
           <GROUP id="{A1B2C3D4-1111-2222-3333-444455559999}" name="EQ">
             <FILE id="EqP001" name="EQPedal.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/EQ/EQPedal.h"/>
+            <FILE id="EqE001" name="EQEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/EQ/EQEditor.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-44445555EEEE}" name="Boost">
+            <FILE id="BsP001" name="BoostPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Boost/BoostPedal.h"/>
+            <FILE id="BsE001" name="BoostEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Boost/BoostEditor.h"/>
           </GROUP>
           <GROUP id="{A1B2C3D4-1111-2222-3333-44445555AAAA}" name="Wah">
             <FILE id="WaP001" name="AutoWahPedal.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/Wah/AutoWahPedal.h"/>
+            <FILE id="WaE001" name="AutoWahEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Wah/AutoWahEditor.h"/>
+            <FILE id="WaP002" name="ClassicWahPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Wah/ClassicWahPedal.h"/>
+            <FILE id="WaE002" name="ClassicWahEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Wah/ClassicWahEditor.h"/>
           </GROUP>
           <GROUP id="{A1B2C3D4-1111-2222-3333-44445555BBBB}" name="Phaser">
             <FILE id="PhP001" name="PhaserPedal.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/Phaser/PhaserPedal.h"/>
+            <FILE id="PhE001" name="PhaserEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Phaser/PhaserEditor.h"/>
           </GROUP>
           <GROUP id="{A1B2C3D4-1111-2222-3333-44445555CCCC}" name="Flanger">
             <FILE id="FlP001" name="FlangerPedal.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/Flanger/FlangerPedal.h"/>
+            <FILE id="FlE001" name="FlangerEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Flanger/FlangerEditor.h"/>
           </GROUP>
           <GROUP id="{A1B2C3D4-1111-2222-3333-44445555DDDD}" name="Tremolo">
             <FILE id="TrP001" name="TremoloPedal.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/Tremolo/TremoloPedal.h"/>
+            <FILE id="TrE001" name="TremoloEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Tremolo/TremoloEditor.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-555566660002}" name="Delay">
+            <FILE id="DlP001" name="DelayPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Delay/DelayPedal.h"/>
+            <FILE id="DlE001" name="DelayEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Delay/DelayEditor.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-555566660001}" name="Chorus">
+            <FILE id="ChP001" name="ChorusPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Chorus/ChorusPedal.h"/>
+            <FILE id="ChE001" name="ChorusEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Chorus/ChorusEditor.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-44445555FFFF}" name="Octave">
+            <FILE id="OcP001" name="OctavePedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Octave/OctavePedal.h"/>
+            <FILE id="OcE001" name="OctaveEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Octave/OctaveEditor.h"/>
+          </GROUP>
+          <GROUP id="{A1B2C3D4-1111-2222-3333-44445555EEEE}" name="Reverb">
+            <FILE id="RvP001" name="ReverbPedal.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Reverb/ReverbPedal.h"/>
+            <FILE id="RvE001" name="ReverbEditor.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Reverb/ReverbEditor.h"/>
           </GROUP>
           <GROUP id="{0E192CAD-6D43-B7C6-752D-80CA62732F34}" name="Base">
             <FILE id="chEeeJ" name="ProcessorBase.h" compile="0" resource="0" file="Source/Effects/Pedals/Base/ProcessorBase.h"/>

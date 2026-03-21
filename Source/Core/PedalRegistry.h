@@ -9,7 +9,7 @@
 #include "PedalCatalog.h"
 
 // Registered pedals
-#include "../Effects/Pedals/CompressorPedal.h"
+#include "../Effects/Pedals/Compressor/CompressorPedal.h"
 #include "../Effects/Pedals/Boost/BoostPedal.h"
 #include "../Effects/Pedals/Gate/NoiseGatePedal.h"
 #include "../Effects/Pedals/EQ/EQPedal.h"
@@ -20,7 +20,7 @@
 #include "../Effects/Pedals/Wah/ClassicWahPedal.h"
 #include "../Effects/Pedals/Wah/AutoWahPedal.h"
 #include "../Effects/Pedals/Octave/OctavePedal.h"
-#include "../Effects/Pedals/ChorusPedal.h"
+#include "../Effects/Pedals/Chorus/ChorusPedal.h"
 #include "../Effects/Pedals/Phaser/PhaserPedal.h"
 #include "../Effects/Pedals/Flanger/FlangerPedal.h"
 #include "../Effects/Pedals/Tremolo/TremoloPedal.h"

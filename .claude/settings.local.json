@@ -44,7 +44,23 @@
       "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" \"C:/Users/gusta/OneDrive/Desktop/ULTIMATE/NOVA/Builds/VisualStudio2022/NOVA_StandalonePlugin.vcxproj\" -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal)",
       "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" \"C:/Users/gusta/OneDrive/Desktop/ULTIMATE/NOVA/Builds/VisualStudio2022/NOVA_SharedCode.vcxproj\" -p:Configuration=Debug -p:Platform=x64 -verbosity:minimal)",
       "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" \"C:/Users/gusta/OneDrive/Desktop/ULTIMATE/NOVA/Builds/VisualStudio2022/NOVA_StandalonePlugin.vcxproj\" -p:Configuration=Debug -p:Platform=x64 -p:AdditionalOptions=\"/FS\" -verbosity:minimal)",
-      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA_SharedCode.vcxproj\" -p:Configuration=Debug -p:Platform=x64 -v:minimal -noLogo)"
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA_SharedCode.vcxproj\" -p:Configuration=Debug -p:Platform=x64 -v:minimal -noLogo)",
+      "Bash(grep -E \"\\\\.\\(h|cpp\\)$\")",
+      "Bash(grep -v \"^\\\\s*//\")",
+      "Bash(grep -r createEditor C:UsersgustaonedriveDesktopULTIMATENOVASourceEffectsPedals --include=*.h --include=*.cpp)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Configuration Debug -Platform x64 -Target NOVA_StandalonePlugin)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Target NOVA_SharedCode)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Professional\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" NOVA.sln /t:SharedCode /p:Configuration=Debug /p:Platform=x64 /m)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Professional\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"NOVA_SharedCode.vcxproj\" /p:Configuration=Debug /p:Platform=x64 /t:Rebuild /m)",
+      "Bash(\"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Professional\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" NOVA_SharedCode.vcxproj -p:Configuration=Debug -p:Platform=x64 -t:Rebuild)",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"& ''C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe'' ''Builds/VisualStudio2022/NOVA.sln'' -p:Configuration=Debug -p:Platform=x64 -t:SharedCode:Rebuild -v:minimal -noLogo 2>&1 | Select-Object -Last 30\")",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"& { $vswhere = ''C:/Program Files \\(x86\\)/Microsoft Visual Studio/Installer/vswhere.exe''; $msb = & $vswhere -latest -requires Microsoft.Component.MSBuild -find ''MSBuild/**/Bin/MSBuild.exe'' | Select-Object -First 1; & $msb NOVA.sln -p:Configuration=Debug -p:Platform=x64 -t:SharedCode:Rebuild -v:minimal -noLogo 2>&1 | Select-Object -Last 15 }\")",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"& { $vswhere = ''C:/Program Files \\(x86\\)/Microsoft Visual Studio/Installer/vswhere.exe''; $msb = & $vswhere -latest -requires Microsoft.Component.MSBuild -find ''MSBuild/**/Bin/MSBuild.exe'' | Select-Object -First 1; & $msb SharedCode.vcxproj -p:Configuration=Debug -p:Platform=x64 -t:Rebuild -v:minimal -noLogo 2>&1 | Select-Object -Last 15 }\")",
+      "Bash(ls:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"& { $vswhere = ''C:/Program Files \\(x86\\)/Microsoft Visual Studio/Installer/vswhere.exe''; $msb = & $vswhere -latest -requires Microsoft.Component.MSBuild -find ''MSBuild/**/Bin/MSBuild.exe'' | Select-Object -First 1; & $msb NOVA_SharedCode.vcxproj -p:Configuration=Debug -p:Platform=x64 -t:Rebuild -v:minimal -noLogo 2>&1 | Select-Object -Last 15 }\")",
+      "Bash(find C:UsersgustaOneDriveDesktopULTIMATENOVASourceEffectsPedalsEQ -type f -o -name *EQ*)",
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"& { $vswhere = ''C:/Program Files \\(x86\\)/Microsoft Visual Studio/Installer/vswhere.exe''; $msb = & $vswhere -latest -requires Microsoft.Component.MSBuild -find ''MSBuild/**/Bin/MSBuild.exe'' | Select-Object -First 1; & $msb NOVA_SharedCode.vcxproj -p:Configuration=Debug -p:Platform=x64 -t:Rebuild -v:minimal -noLogo 2>&1 | Select-Object -Last 20 }\")"
     ]
   }
 }

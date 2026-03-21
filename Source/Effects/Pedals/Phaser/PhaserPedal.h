@@ -1,58 +1,45 @@
 #pragma once
 
 #include "../Base/ProcessorBase.h"
-#include "../Base/PremiumPedalUI.h"
 
 #include <JuceHeader.h>
 #include <array>
 #include <cmath>
 
+// ============================================================================
+//  Stereo Phaser — staggered all-pass chain, tri-sine LFO, analog feedback
+//  Reference: MXR Phase 90 simplicity, EHX Small Stone depth
+// ============================================================================
 class PhaserPedal final : public ProcessorBase
 {
 public:
     PhaserPedal()
     {
-        addParameter(rateParam = new juce::AudioParameterFloat("phaserRate", "Rate", 0.05f, 8.0f, 0.65f));
-        addParameter(depthParam = new juce::AudioParameterFloat("phaserDepth", "Depth", 0.0f, 1.0f, 0.72f));
+        addParameter(rateParam     = new juce::AudioParameterFloat("phaserRate",     "Rate",     0.05f, 8.0f, 0.65f));
+        addParameter(depthParam    = new juce::AudioParameterFloat("phaserDepth",    "Depth",    0.0f, 1.0f, 0.72f));
         addParameter(feedbackParam = new juce::AudioParameterFloat("phaserFeedback", "Feedback", -0.85f, 0.85f, 0.45f));
-        addParameter(stagesParam = new juce::AudioParameterFloat("phaserStages", "Stages", 2.0f, 12.0f, 6.0f));
-        addParameter(mixParam = new juce::AudioParameterFloat("phaserMix", "Mix", 0.0f, 1.0f, 0.5f));
+        addParameter(stagesParam   = new juce::AudioParameterFloat("phaserStages",   "Stages",   2.0f, 12.0f, 6.0f));
+        addParameter(mixParam      = new juce::AudioParameterFloat("phaserMix",      "Mix",      0.0f, 1.0f, 0.5f));
     }
 
     const juce::String getName() const override { return "Phaser"; }
-    double getTailLengthSeconds() const override { return 0.1; }
+    double getTailLengthSeconds() const override { return 0.15; }
 
     bool hasEditor() const override { return true; }
-    juce::AudioProcessorEditor* createEditor() override
-    {
-        using namespace Nova::PedalUI;
-
-        return new PremiumPedalEditor(*this,
-            "Modulation",
-            "Phase Shift",
-            juce::Colour::fromString("ffC084FC"),
-            {
-                { "Rate", rateParam, [](float value) { return juce::String(value, 2) + " Hz"; } },
-                { "Depth", depthParam, [](float value) { return formatPercent(value); } },
-                { "Feedback", feedbackParam, [](float value) { return juce::String(juce::roundToInt(value * 100.0f)) + "%"; } },
-                { "Stages", stagesParam, [](float value) { return juce::String(juce::roundToInt(value)); } },
-                { "Mix", mixParam, [](float value) { return formatPercent(value); } }
-            },
-            214,
-            178);
-    }
+    juce::AudioProcessorEditor* createEditor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
     {
         if (sampleRate <= 0.0)
             return;
 
-        currentSampleRate = sampleRate;
+        sr = sampleRate;
+        piOverSr = juce::MathConstants<float>::pi / (float)sr;
 
-        rateSmooth.reset(sampleRate, 0.04);
-        depthSmooth.reset(sampleRate, 0.04);
-        feedbackSmooth.reset(sampleRate, 0.04);
-        mixSmooth.reset(sampleRate, 0.04);
+        rateSmooth.reset(sr, 0.04);
+        depthSmooth.reset(sr, 0.04);
+        feedbackSmooth.reset(sr, 0.04);
+        mixSmooth.reset(sr, 0.04);
 
         rateSmooth.setCurrentAndTargetValue(rateParam != nullptr ? *rateParam : 0.65f);
         depthSmooth.setCurrentAndTargetValue(depthParam != nullptr ? *depthParam : 0.72f);
@@ -64,10 +51,7 @@ public:
         isPrepared = true;
     }
 
-    void releaseResources() override
-    {
-        isPrepared = false;
-    }
+    void releaseResources() override { isPrepared = false; }
 
     void reset() override
     {
@@ -96,65 +80,100 @@ public:
         const int numChannels = juce::jmin(2, buffer.getNumChannels());
         const int numSamples = buffer.getNumSamples();
 
-        constexpr float minFreq = 200.0f;
-        constexpr float maxFreq = 4500.0f;
+        constexpr float halfPi = juce::MathConstants<float>::halfPi;
         constexpr float twoPi = juce::MathConstants<float>::twoPi;
+
+        // Wider sweep range than basic phaser
+        constexpr float kMinFreq = 80.0f;
+        constexpr float kMaxFreq = 5500.0f;
+
+        // Stereo LFO offset (90 degrees)
+        constexpr float kStereoOffset = 0.25f;
+
+        // Stage frequency stagger — each stage sweeps slightly higher
+        constexpr float kStaggerPerStage = 0.12f;
 
         for (int sample = 0; sample < numSamples; ++sample)
         {
-            const float rate = rateSmooth.getNextValue();
-            const float depth = depthSmooth.getNextValue();
+            const float rate     = rateSmooth.getNextValue();
+            const float depth    = depthSmooth.getNextValue();
             const float feedback = feedbackSmooth.getNextValue();
-            const float mix = mixSmooth.getNextValue();
+            const float mix      = mixSmooth.getNextValue();
 
-            const float lfoValue = 0.5f + 0.5f * std::sin(twoPi * lfoPhase);
-            const float sweepFreq = minFreq + (maxFreq - minFreq) * lfoValue * depth;
-            const float allPassCoeff = (std::tan(juce::MathConstants<float>::pi * sweepFreq / (float)currentSampleRate) - 1.0f)
-                / (std::tan(juce::MathConstants<float>::pi * sweepFreq / (float)currentSampleRate) + 1.0f);
+            // ---- Tri-sine hybrid LFO (60% triangle + 40% sine for musical sweep) ----
+            auto computeLfo = [twoPi](float phase) -> float
+            {
+                float tri = (phase < 0.5f) ? (phase * 4.0f - 1.0f) : (3.0f - phase * 4.0f);
+                float sine = std::sin(twoPi * phase);
+                float raw = tri * 0.6f + sine * 0.4f;
+                return raw * 0.5f + 0.5f;  // 0-1
+            };
+
+            float lfoL = computeLfo(lfoPhase);
+            float lfoR = (numChannels > 1)
+                ? computeLfo(std::fmod(lfoPhase + kStereoOffset, 1.0f))
+                : lfoL;
+
+            float baseFreqL = kMinFreq + (kMaxFreq - kMinFreq) * lfoL * depth;
+            float baseFreqR = kMinFreq + (kMaxFreq - kMinFreq) * lfoR * depth;
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 const float dry = buffer.getSample(ch, sample);
                 float x = dry + feedbackState[(size_t)ch] * feedback;
 
+                float baseFreq = (ch == 0) ? baseFreqL : baseFreqR;
+
                 for (int stage = 0; stage < numStages && stage < kMaxStages; ++stage)
                 {
-                    const float input = x;
-                    x = allPassCoeff * input + allPassStates[(size_t)ch][(size_t)stage];
-                    allPassStates[(size_t)ch][(size_t)stage] = input - allPassCoeff * x;
+                    float stagger = 1.0f + (float)stage * kStaggerPerStage;
+                    float stageFreq = juce::jlimit(20.0f, (float)(sr * 0.45), baseFreq * stagger);
+
+                    float t = std::tan(piOverSr * stageFreq);
+                    float coeff = (t - 1.0f) / (t + 1.0f);
+
+                    float input = x;
+                    x = coeff * input + allPassStates[(size_t)ch][(size_t)stage];
+                    allPassStates[(size_t)ch][(size_t)stage] = input - coeff * x;
                 }
 
                 feedbackState[(size_t)ch] = std::tanh(x);
 
-                const float wet = x;
-                buffer.setSample(ch, sample, dry * (1.0f - mix) + wet * mix);
+                // Equal-power dry/wet mix
+                const float dryGain = std::cos(mix * halfPi);
+                const float wetGain = std::sin(mix * halfPi);
+                buffer.setSample(ch, sample, dry * dryGain + x * wetGain);
             }
 
-            lfoPhase += rate / (float)juce::jmax(1.0, currentSampleRate);
-            if (lfoPhase >= 1.0f)
-                lfoPhase -= 1.0f;
+            lfoPhase += rate / (float)sr;
+            if (lfoPhase >= 1.0f) lfoPhase -= 1.0f;
         }
 
         endBypassProcess(buffer);
     }
 
+    // Public accessors for editor
+    juce::AudioParameterFloat* rateParam     = nullptr;
+    juce::AudioParameterFloat* depthParam    = nullptr;
+    juce::AudioParameterFloat* feedbackParam = nullptr;
+    juce::AudioParameterFloat* stagesParam   = nullptr;
+    juce::AudioParameterFloat* mixParam      = nullptr;
+    float lfoPhase = 0.0f;
+
 private:
     static constexpr int kMaxStages = 12;
+
+    double sr = 44100.0;
+    float piOverSr = juce::MathConstants<float>::pi / 44100.0f;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> rateSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> depthSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> feedbackSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
 
-    juce::AudioParameterFloat* rateParam = nullptr;
-    juce::AudioParameterFloat* depthParam = nullptr;
-    juce::AudioParameterFloat* feedbackParam = nullptr;
-    juce::AudioParameterFloat* stagesParam = nullptr;
-    juce::AudioParameterFloat* mixParam = nullptr;
-
-    std::array<std::array<float, 12>, 2> allPassStates{};
-    std::array<float, 2> feedbackState{};
-    double currentSampleRate = 44100.0;
-    float lfoPhase = 0.0f;
+    std::array<std::array<float, 12>, 2> allPassStates {};
+    std::array<float, 2> feedbackState {};
     bool isPrepared = false;
 };
+
+#include "PhaserEditor.h"

@@ -1,109 +1,194 @@
 #pragma once
 
 #include "../Base/ProcessorBase.h"
-#include "../Base/PremiumPedalUI.h"
 
 #include <JuceHeader.h>
+#include <array>
 #include <cmath>
-#include <limits>
 
+// ============================================================================
+//  Stereo Delay — analog-voiced with ping-pong, modulated time, progressive sat
+//  Reference: Strymon El Capistan warmth, Boss DD-500 versatility
+// ============================================================================
+namespace Nova { namespace DelayDSP {
+
+// ---- Biquad filter ----
+struct Biquad
+{
+    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
+    float a1 = 0.0f, a2 = 0.0f;
+    float z1 = 0.0f, z2 = 0.0f;
+
+    void reset() { z1 = z2 = 0.0f; }
+
+    void setLowPass(float freq, float q, double sr)
+    {
+        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
+        float sinW0 = std::sin(w0), cosW0 = std::cos(w0);
+        float alpha = sinW0 / (2.0f * q);
+        float a0inv = 1.0f / (1.0f + alpha);
+        b0 = (1.0f - cosW0) * 0.5f * a0inv;
+        b1 = (1.0f - cosW0) * a0inv;
+        b2 = b0;
+        a1 = -2.0f * cosW0 * a0inv;
+        a2 = (1.0f - alpha) * a0inv;
+    }
+
+    void setHighPass(float freq, float q, double sr)
+    {
+        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
+        float sinW0 = std::sin(w0), cosW0 = std::cos(w0);
+        float alpha = sinW0 / (2.0f * q);
+        float a0inv = 1.0f / (1.0f + alpha);
+        b0 = (1.0f + cosW0) * 0.5f * a0inv;
+        b1 = -(1.0f + cosW0) * a0inv;
+        b2 = b0;
+        a1 = -2.0f * cosW0 * a0inv;
+        a2 = (1.0f - alpha) * a0inv;
+    }
+
+    float process(float x) noexcept
+    {
+        float y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        return y;
+    }
+};
+
+// ---- Delay line with cubic Hermite interpolation ----
+struct DelayLine
+{
+    std::vector<float> buf;
+    int writePos = 0;
+    int size = 1;
+
+    void allocate(int maxSamples)
+    {
+        size = juce::jmax(4, maxSamples);
+        buf.assign((size_t)size, 0.0f);
+        writePos = 0;
+    }
+
+    void clear() { std::fill(buf.begin(), buf.end(), 0.0f); writePos = 0; }
+
+    void write(float sample)
+    {
+        buf[(size_t)writePos] = sample;
+        if (++writePos >= size) writePos = 0;
+    }
+
+    float readCubic(float delaySamples) const noexcept
+    {
+        float clampedDelay = juce::jlimit(1.0f, (float)(size - 2), delaySamples);
+        float rp = (float)writePos - clampedDelay;
+        while (rp < 0.0f) rp += (float)size;
+
+        int i1 = ((int)rp) % size;
+        int i0 = (i1 - 1 + size) % size;
+        int i2 = (i1 + 1) % size;
+        int i3 = (i1 + 2) % size;
+        float f = rp - std::floor(rp);
+
+        float y0 = buf[(size_t)i0], y1 = buf[(size_t)i1];
+        float y2 = buf[(size_t)i2], y3 = buf[(size_t)i3];
+        float a = y3 - y2 - y0 + y1;
+        float b = y0 - y1 - a;
+        float c = y2 - y0;
+        return y1 + f * (c + f * (b + f * a));
+    }
+};
+
+// ---- Progressive analog saturation ----
+inline float analogSaturate(float x, float drive) noexcept
+{
+    // Drive scales with feedback level — repeats get warmer
+    return std::tanh(x * (1.0f + drive * 0.6f));
+}
+
+}} // namespace Nova::DelayDSP
+
+
+// ============================================================================
+//  DelayPedal — Processor
+// ============================================================================
 class DelayPedal final : public ProcessorBase
 {
 public:
     DelayPedal()
     {
-        addParameter(timeParam = new juce::AudioParameterFloat("delayTime", "Time", 40.0f, 1400.0f, 420.0f));
-        addParameter(feedbackParam = new juce::AudioParameterFloat("delayFeedback", "Feedback", 0.0f, 0.9f, 0.42f));
-        addParameter(toneParam = new juce::AudioParameterFloat("delayTone", "Tone", 600.0f, 12000.0f, 4800.0f));
-        addParameter(spreadParam = new juce::AudioParameterFloat("delaySpread", "Spread", 0.0f, 1.0f, 0.42f));
-        addParameter(mixParam = new juce::AudioParameterFloat("delayMix", "Mix", 0.0f, 1.0f, 0.3f));
+        addParameter(timeParam     = new juce::AudioParameterFloat("delayTime",     "Time",     40.0f, 1400.0f, 420.0f));
+        addParameter(feedbackParam = new juce::AudioParameterFloat("delayFeedback", "Feedback", 0.0f, 0.95f, 0.42f));
+        addParameter(toneParam     = new juce::AudioParameterFloat("delayTone",     "Tone",     600.0f, 12000.0f, 4800.0f));
+        addParameter(spreadParam   = new juce::AudioParameterFloat("delaySpread",   "Spread",   0.0f, 1.0f, 0.42f));
+        addParameter(mixParam      = new juce::AudioParameterFloat("delayMix",      "Mix",      0.0f, 1.0f, 0.3f));
     }
 
     const juce::String getName() const override { return "Delay"; }
-    double getTailLengthSeconds() const override { return 2.5; }
+    double getTailLengthSeconds() const override { return 3.0; }
 
     bool hasEditor() const override { return true; }
-    juce::AudioProcessorEditor* createEditor() override
-    {
-        using namespace Nova::PedalUI;
-
-        return new PremiumPedalEditor(*this,
-            "Delay",
-            "Orbit",
-            juce::Colour::fromString("ff60A5FA"),
-            {
-                { "Time", timeParam, [](float value) { return formatMilliseconds(value); } },
-                { "Feedback", feedbackParam, [](float value) { return formatPercent(value); } },
-                { "Tone", toneParam, [](float value) { return formatHertz(value); } },
-                { "Spread", spreadParam, [](float value) { return formatPercent(value); } },
-                { "Mix", mixParam, [](float value) { return formatPercent(value); } }
-            },
-            214,
-            178);
-    }
+    juce::AudioProcessorEditor* createEditor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
     {
         if (sampleRate <= 0.0)
             return;
 
-        currentSampleRate = sampleRate;
-        maxDelaySamples = juce::jmax(1, (int)std::ceil(sampleRate * 2.6));
-        delayBuffer.setSize(2, maxDelaySamples + juce::jmax(1, samplesPerBlock) + 8, false, false, true);
+        sr = sampleRate;
 
-        timeSmooth.reset(sampleRate, 0.04);
-        feedbackSmooth.reset(sampleRate, 0.04);
-        spreadSmooth.reset(sampleRate, 0.05);
-        mixSmooth.reset(sampleRate, 0.04);
+        // Max delay: 2.6 seconds
+        const int maxDelay = (int)std::ceil(sr * 2.6) + juce::jmax(1, samplesPerBlock) + 8;
+        delayL.allocate(maxDelay);
+        delayR.allocate(maxDelay);
+
+        // Smoothers
+        timeSmooth.reset(sr, 0.04);
+        feedbackSmooth.reset(sr, 0.04);
+        spreadSmooth.reset(sr, 0.05);
+        mixSmooth.reset(sr, 0.04);
 
         timeSmooth.setCurrentAndTargetValue(timeParam != nullptr ? *timeParam : 420.0f);
         feedbackSmooth.setCurrentAndTargetValue(feedbackParam != nullptr ? *feedbackParam : 0.42f);
         spreadSmooth.setCurrentAndTargetValue(spreadParam != nullptr ? *spreadParam : 0.42f);
         mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? *mixParam : 0.3f);
 
-        for (auto& filter : toneFilters)
-        {
-            filter.prepare(sampleRate);
-            filter.setCutoff(toneParam != nullptr ? *toneParam : 4800.0f);
-        }
+        // Tone LP in feedback path (2-pole biquad)
+        for (auto& lp : toneLPF) lp.reset();
+        // Feedback rumble HP (80 Hz)
+        for (auto& hp : fbHighPass) hp.reset();
+        // DC blocker
+        for (auto& hp : dcBlock) hp.reset();
+        updateTone();
 
-        for (auto& filter : feedbackHighPassFilters)
-            filter.prepare(sampleRate);
-
-        cachedToneCutoff = std::numeric_limits<float>::quiet_NaN();
+        for (auto& hp : fbHighPass)
+            hp.setHighPass(80.0f, 0.707f, sr);
+        for (auto& hp : dcBlock)
+            hp.setHighPass(18.0f, 0.707f, sr);
 
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
         isPrepared = true;
     }
 
-    void releaseResources() override
-    {
-        isPrepared = false;
-    }
+    void releaseResources() override { isPrepared = false; }
 
     void reset() override
     {
-        delayBuffer.clear();
-        delayWritePos = 0;
+        delayL.clear();
+        delayR.clear();
+        lfoPhase = 0.0f;
 
-        if (timeParam != nullptr)
-            timeSmooth.setCurrentAndTargetValue(*timeParam);
+        timeSmooth.setCurrentAndTargetValue(timeParam != nullptr ? *timeParam : 420.0f);
+        feedbackSmooth.setCurrentAndTargetValue(feedbackParam != nullptr ? *feedbackParam : 0.42f);
+        spreadSmooth.setCurrentAndTargetValue(spreadParam != nullptr ? *spreadParam : 0.42f);
+        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? *mixParam : 0.3f);
 
-        if (feedbackParam != nullptr)
-            feedbackSmooth.setCurrentAndTargetValue(*feedbackParam);
+        for (auto& lp : toneLPF) lp.reset();
+        for (auto& hp : fbHighPass) hp.reset();
+        for (auto& hp : dcBlock) hp.reset();
 
-        if (spreadParam != nullptr)
-            spreadSmooth.setCurrentAndTargetValue(*spreadParam);
-
-        if (mixParam != nullptr)
-            mixSmooth.setCurrentAndTargetValue(*mixParam);
-
-        for (auto& filter : toneFilters)
-            filter.reset();
-
-        for (auto& filter : feedbackHighPassFilters)
-            filter.reset();
+        lastWetL = lastWetR = 0.0f;
     }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
@@ -115,163 +200,134 @@ public:
         feedbackSmooth.setTargetValue(feedbackParam != nullptr ? *feedbackParam : 0.42f);
         spreadSmooth.setTargetValue(spreadParam != nullptr ? *spreadParam : 0.42f);
         mixSmooth.setTargetValue(mixParam != nullptr ? *mixParam : 0.3f);
+        updateTone();
 
-        updateToneFiltersIfNeeded();
+        const int numChannels = juce::jmin(2, buffer.getNumChannels());
+        const int numSamples = buffer.getNumSamples();
+        constexpr float twoPi = juce::MathConstants<float>::twoPi;
+        constexpr float halfPi = juce::MathConstants<float>::halfPi;
 
-        const int delayBufferLength = delayBuffer.getNumSamples();
+        // Analog drift modulation constants (subtle — not a user parameter)
+        constexpr float kModRate = 0.43f;     // Hz — slow organic drift
+        constexpr float kModDepthMs = 0.25f;  // ms — very subtle wobble
 
-        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        const float maxDelaySamples = (float)(delayL.size - 4);
+
+        for (int sample = 0; sample < numSamples; ++sample)
         {
-            const float timeMs = timeSmooth.getNextValue();
+            const float timeMs   = timeSmooth.getNextValue();
             const float feedback = feedbackSmooth.getNextValue();
-            const float spread = spreadSmooth.getNextValue();
-            const float mix = mixSmooth.getNextValue();
+            const float spread   = spreadSmooth.getNextValue();
+            const float mix      = mixSmooth.getNextValue();
 
-            const float baseDelaySamples = juce::jlimit(1.0f,
-                (float)(maxDelaySamples - 4),
-                timeMs * (float)currentSampleRate * 0.001f);
-            const float offset = baseDelaySamples * 0.16f * spread;
-            const float delayLeft = juce::jlimit(1.0f, (float)(maxDelaySamples - 4), baseDelaySamples - offset);
-            const float delayRight = juce::jlimit(1.0f, (float)(maxDelaySamples - 4), baseDelaySamples + offset);
+            // Base delay in samples
+            const float baseDelay = juce::jlimit(1.0f, maxDelaySamples,
+                timeMs * (float)sr * 0.001f);
 
-            const float wetL = readDelaySample(0, delayLeft, delayBufferLength);
-            const float wetR = readDelaySample(1, delayRight, delayBufferLength);
+            // Analog drift modulation on delay time
+            const float modDepthSamples = kModDepthMs * (float)sr * 0.001f;
+            const float lfoVal = std::sin(twoPi * lfoPhase);
 
-            const float crossfeed = spread * 0.82f;
-            const float fbL = feedbackHighPassFilters[0].process(
-                toneFilters[0].process((wetL * (1.0f - crossfeed)) + (wetR * crossfeed)));
-            const float fbR = feedbackHighPassFilters[1].process(
-                toneFilters[1].process((wetR * (1.0f - crossfeed)) + (wetL * crossfeed)));
+            // Stereo time offset: subtle width (±3% based on spread)
+            const float stereoOffset = baseDelay * 0.03f * spread;
+            const float delayLSamples = juce::jlimit(1.0f, maxDelaySamples,
+                baseDelay - stereoOffset + lfoVal * modDepthSamples);
+            const float delayRSamples = juce::jlimit(1.0f, maxDelaySamples,
+                baseDelay + stereoOffset + lfoVal * modDepthSamples * 0.7f);
 
+            // Read delayed signal (cubic Hermite)
+            float wetL = delayL.readCubic(delayLSamples);
+            float wetR = delayR.readCubic(delayRSamples);
+
+            // Input
             const float inL = buffer.getSample(0, sample);
-            const float inR = buffer.getNumChannels() > 1 ? buffer.getSample(1, sample) : inL;
+            const float inR = numChannels > 1 ? buffer.getSample(1, sample) : inL;
 
-            delayBuffer.setSample(0, delayWritePos, std::tanh(inL + (fbL * feedback)));
-            delayBuffer.setSample(1, delayWritePos, std::tanh(inR + (fbR * feedback)));
+            // Ping-pong crossfeed in feedback path
+            // spread=0: independent L/R, spread=1: full ping-pong
+            const float fbStraight = 1.0f - spread;
+            const float fbCross = spread;
+            float fbL = wetL * fbStraight + wetR * fbCross;
+            float fbR = wetR * fbStraight + wetL * fbCross;
 
-            buffer.setSample(0, sample, juce::jmap(mix, inL, wetL));
-            if (buffer.getNumChannels() > 1)
-                buffer.setSample(1, sample, juce::jmap(mix, inR, wetR));
+            // Tone filter in feedback (each repeat gets darker)
+            fbL = toneLPF[0].process(fbL);
+            fbR = toneLPF[1].process(fbR);
 
-            if (++delayWritePos >= delayBufferLength)
-                delayWritePos = 0;
+            // High-pass to prevent rumble buildup
+            fbL = fbHighPass[0].process(fbL);
+            fbR = fbHighPass[1].process(fbR);
+
+            // Progressive saturation (more drive at higher feedback)
+            fbL = Nova::DelayDSP::analogSaturate(fbL, feedback);
+            fbR = Nova::DelayDSP::analogSaturate(fbR, feedback);
+
+            // Write to delay lines: dry input + filtered feedback
+            delayL.write(inL + fbL * feedback);
+            delayR.write(inR + fbR * feedback);
+
+            // DC block the wet output
+            float outWetL = dcBlock[0].process(wetL);
+            float outWetR = dcBlock[1].process(wetR);
+
+            // Equal-power dry/wet mix
+            const float dryGain = std::cos(mix * halfPi);
+            const float wetGain = std::sin(mix * halfPi);
+
+            buffer.setSample(0, sample, inL * dryGain + outWetL * wetGain);
+            if (numChannels > 1)
+                buffer.setSample(1, sample, inR * dryGain + outWetR * wetGain);
+
+            // Advance LFO
+            lfoPhase += kModRate / (float)sr;
+            if (lfoPhase >= 1.0f) lfoPhase -= 1.0f;
         }
+
+        // Store last wet levels for editor (cheap, end of block)
+        lastWetL = std::abs(delayL.readCubic(timeSmooth.getCurrentValue() * (float)sr * 0.001f));
+        lastWetR = std::abs(delayR.readCubic(timeSmooth.getCurrentValue() * (float)sr * 0.001f));
 
         endBypassProcess(buffer);
     }
 
+    // Public accessors for editor
+    juce::AudioParameterFloat* timeParam     = nullptr;
+    juce::AudioParameterFloat* feedbackParam = nullptr;
+    juce::AudioParameterFloat* toneParam     = nullptr;
+    juce::AudioParameterFloat* spreadParam   = nullptr;
+    juce::AudioParameterFloat* mixParam      = nullptr;
+    float lfoPhase = 0.0f;
+    float lastWetL = 0.0f;
+    float lastWetR = 0.0f;
+
 private:
-    struct OnePoleLowPass
-    {
-        void prepare(double newSampleRate)
-        {
-            sampleRate = juce::jmax(1.0, newSampleRate);
-            reset();
-        }
-
-        void reset()
-        {
-            state = 0.0f;
-        }
-
-        void setCutoff(float hz)
-        {
-            const auto cutoff = juce::jlimit(20.0f, (float)(sampleRate * 0.45), hz);
-            const auto coeff = std::exp(-2.0 * juce::MathConstants<double>::pi * cutoff / sampleRate);
-            b1 = (float)coeff;
-            a0 = 1.0f - b1;
-        }
-
-        float process(float x) noexcept
-        {
-            state = (a0 * x) + (b1 * state);
-            return state;
-        }
-
-        double sampleRate = 44100.0;
-        float a0 = 0.15f;
-        float b1 = 0.85f;
-        float state = 0.0f;
-    };
-
-    struct OnePoleHighPass
-    {
-        void prepare(double newSampleRate)
-        {
-            sampleRate = juce::jmax(1.0, newSampleRate);
-            setCutoff(35.0f);
-            reset();
-        }
-
-        void reset()
-        {
-            x1 = 0.0f;
-            y1 = 0.0f;
-        }
-
-        void setCutoff(float hz)
-        {
-            const auto cutoff = juce::jlimit(20.0f, (float)(sampleRate * 0.45), hz);
-            pole = (float)std::exp(-2.0 * juce::MathConstants<double>::pi * cutoff / sampleRate);
-        }
-
-        float process(float x) noexcept
-        {
-            const float y = x - x1 + (pole * y1);
-            x1 = x;
-            y1 = y;
-            return y;
-        }
-
-        double sampleRate = 44100.0;
-        float pole = 0.99f;
-        float x1 = 0.0f;
-        float y1 = 0.0f;
-    };
-
-    void updateToneFiltersIfNeeded()
+    void updateTone()
     {
         const float cutoff = toneParam != nullptr ? *toneParam : 4800.0f;
-        if (std::isfinite(cachedToneCutoff) && std::abs(cachedToneCutoff - cutoff) <= 0.5f)
-            return;
-
+        if (std::abs(cachedToneCutoff - cutoff) < 0.5f) return;
         cachedToneCutoff = cutoff;
-        toneFilters[0].setCutoff(cutoff);
-        toneFilters[1].setCutoff(cutoff);
+
+        for (auto& lp : toneLPF)
+            lp.setLowPass(cutoff, 0.707f, sr);
     }
 
-    float readDelaySample(int channel, float delayInSamples, int bufferLength) const noexcept
-    {
-        float readPosition = (float)delayWritePos - delayInSamples;
-        while (readPosition < 0.0f)
-            readPosition += (float)bufferLength;
+    double sr = 44100.0;
 
-        const int indexA = (int)readPosition;
-        const int indexB = (indexA + 1) % bufferLength;
-        const float frac = readPosition - (float)indexA;
+    Nova::DelayDSP::DelayLine delayL, delayR;
 
-        const float a = delayBuffer.getSample(channel, indexA);
-        const float b = delayBuffer.getSample(channel, indexB);
-        return a + (b - a) * frac;
-    }
-
-    juce::AudioBuffer<float> delayBuffer;
-    std::array<OnePoleLowPass, 2> toneFilters;
-    std::array<OnePoleHighPass, 2> feedbackHighPassFilters;
+    // Smoothers
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> timeSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> feedbackSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> spreadSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
 
-    juce::AudioParameterFloat* timeParam = nullptr;
-    juce::AudioParameterFloat* feedbackParam = nullptr;
-    juce::AudioParameterFloat* toneParam = nullptr;
-    juce::AudioParameterFloat* spreadParam = nullptr;
-    juce::AudioParameterFloat* mixParam = nullptr;
+    // Feedback path filters (per channel)
+    std::array<Nova::DelayDSP::Biquad, 2> toneLPF;
+    std::array<Nova::DelayDSP::Biquad, 2> fbHighPass;
+    std::array<Nova::DelayDSP::Biquad, 2> dcBlock;
 
-    double currentSampleRate = 44100.0;
-    int maxDelaySamples = 1;
-    int delayWritePos = 0;
-    float cachedToneCutoff = std::numeric_limits<float>::quiet_NaN();
+    float cachedToneCutoff = -1.0f;
     bool isPrepared = false;
 };
+
+#include "DelayEditor.h"
