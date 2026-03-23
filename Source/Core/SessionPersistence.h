@@ -98,7 +98,20 @@ public:
 
                 juce::MemoryOutputStream decoded;
                 if (!juce::Base64::convertFromBase64(decoded, encodedState))
+                {
+                    NovaDiagnostics::SessionLogger::logEvent("preset.pedal.decode.failed",
+                        "Base64 decode failed for pedal index=" + juce::String(i));
                     continue;
+                }
+
+                // Reject suspiciously small or oversized decoded pedal state
+                if (decoded.getDataSize() < 4 || decoded.getDataSize() > 2 * 1024 * 1024)
+                {
+                    NovaDiagnostics::SessionLogger::logEvent("preset.pedal.decode.rejected",
+                        "Decoded pedal state out of bounds (" + juce::String((int)decoded.getDataSize())
+                        + " bytes) for pedal index=" + juce::String(i));
+                    continue;
+                }
 
                 if (auto* proc = engine.getProcessorForPedal(chain, i))
                     proc->setStateInformation(decoded.getData(), (int)decoded.getDataSize());
@@ -139,11 +152,41 @@ public:
 
     static bool loadPresetFromFile(const juce::File& file, SessionStore& store, AudioEngine& engine)
     {
+        if (!file.existsAsFile())
+            return false;
+
+        // P0: reject files larger than 50 MB to prevent OOM
+        if (file.getSize() > 50 * 1024 * 1024)
+        {
+            NovaDiagnostics::SessionLogger::logEvent("preset.load.rejected",
+                "File too large: " + file.getFullPathName()
+                + " (" + juce::String(file.getSize() / (1024 * 1024)) + " MB)");
+            return false;
+        }
+
         juce::MemoryBlock data;
-        if (!file.existsAsFile() || !file.loadFileAsData(data))
+        if (!file.loadFileAsData(data))
             return false;
 
         auto loaded = juce::ValueTree::readFromData(data.getData(), (int)data.getSize());
+
+        // P0: validate structure — must have NOVA_STATE root with SETTINGS + LINE_A + LINE_B
+        if (!loaded.isValid() || !loaded.hasType(Nova::IDs::MAIN_STATE))
+        {
+            NovaDiagnostics::SessionLogger::logEvent("preset.load.invalid",
+                "Invalid or corrupt preset structure: " + file.getFileName());
+            return false;
+        }
+
+        if (!loaded.getChildWithName(Nova::IDs::SETTINGS).isValid()
+            || !loaded.getChildWithName(Nova::IDs::LINE_A).isValid()
+            || !loaded.getChildWithName(Nova::IDs::LINE_B).isValid())
+        {
+            NovaDiagnostics::SessionLogger::logEvent("preset.load.invalid",
+                "Preset missing required sections (SETTINGS/LINE_A/LINE_B): " + file.getFileName());
+            return false;
+        }
+
         if (!store.applyCommand(SessionStore::Command::makeRestoreState(loaded)).changed)
             return false;
 

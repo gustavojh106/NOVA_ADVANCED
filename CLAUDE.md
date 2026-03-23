@@ -118,6 +118,12 @@ Zone sort rank: 0=Pre, 1=Amp, 2=FX, 3=Cabinet. Max 12 pedals per flex zone (`MAX
 | `Source/Core/DSP/Global/ChannelStrip.h` | Per-line gain, pan, width processing |
 | `Source/Core/DSP/Global/OutputChain.h` | Output limiter, DC blocker, soft ceiling |
 | `Source/Core/DSP/Services/TunerService.h` | Background pitch detection (4096-sample window) |
+| `Source/Core/AudioEngineTests.cpp` | Unit tests (NOVA category, runs in Standalone) |
+| `Source/Core/SessionLogger.h` | Singleton file logger with owner-count lifecycle |
+| `Source/Core/OfflineQADiagnostics.h` | Offline QA scenario runner, writes report to log dir |
+| `Source/Core/Visualizer.h` | Simple oscilloscope component for debug visualization |
+
+**Legacy placeholders** (empty, safe to ignore): `Common.h`, `GlobalProcessors.h` — functionality moved to `Constants.h` and `DSP/Global/` respectively.
 
 ### DSP Conventions
 

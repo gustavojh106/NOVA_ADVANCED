@@ -434,14 +434,28 @@ void AudioEngine::applyPendingGlobalParams()
         && juce::Thread::getCurrentThreadId() == audioPlane.audioThreadID);
 
     {
+        bool acquired = false;
         if (runningOnAudioThread)
         {
-            if (!controlPlane.globalParamsLock.tryEnter())
-                return;
+            // Try up to 3 times with a brief spin to avoid silently dropping updates
+            for (int attempt = 0; attempt < 3; ++attempt)
+            {
+                if (controlPlane.globalParamsLock.tryEnter())
+                {
+                    acquired = true;
+                    break;
+                }
+                // Minimal spin: yield to the other thread holding the lock
+                for (volatile int spin = 0; spin < 32; ++spin) {}
+            }
+
+            if (!acquired)
+                return; // Still contended — will catch up next block
         }
         else
         {
             controlPlane.globalParamsLock.enter();
+            acquired = true;
         }
 
         snapshot = controlPlane.pendingGlobalParams;
@@ -642,25 +656,36 @@ void AudioEngine::applyGraphCommandNow(const GraphCommand& cmd,
     {
         case GraphCommandType::AddPedal:
         {
-            if (auto pedal = PedalRegistry::createPedal(cmd.pedalType))
+            auto pedal = PedalRegistry::createPedal(cmd.pedalType);
+            if (!pedal)
             {
-                auto node = mainGraph->addNode(std::move(pedal));
-                if (node != nullptr)
-                {
-                    ChainNodeSlot slot;
-                    slot.node = node;
-                    slot.pedalID = cmd.pedalID;
-                    slot.zone = cmd.zone;
-
-                    if (cmd.index >= 0 && cmd.index <= (int)chain.size())
-                        chain.insert(chain.begin() + cmd.index, std::move(slot));
-                    else
-                        chain.push_back(std::move(slot));
-
-                    topologyChanged = true;
-                    renderSequenceInvalidated = true;
-                }
+                NovaDiagnostics::SessionLogger::logEvent("engine.addPedal.failed",
+                    "PedalRegistry::createPedal returned nullptr for type=\"" + cmd.pedalType
+                    + "\", pedalID=" + cmd.pedalID);
+                break;
             }
+
+            auto node = mainGraph->addNode(std::move(pedal));
+            if (node == nullptr)
+            {
+                NovaDiagnostics::SessionLogger::logEvent("engine.addPedal.failed",
+                    "mainGraph->addNode returned nullptr for type=\"" + cmd.pedalType
+                    + "\", pedalID=" + cmd.pedalID);
+                break;
+            }
+
+            ChainNodeSlot slot;
+            slot.node = node;
+            slot.pedalID = cmd.pedalID;
+            slot.zone = cmd.zone;
+
+            if (cmd.index >= 0 && cmd.index <= (int)chain.size())
+                chain.insert(chain.begin() + cmd.index, std::move(slot));
+            else
+                chain.push_back(std::move(slot));
+
+            topologyChanged = true;
+            renderSequenceInvalidated = true;
             break;
         }
 

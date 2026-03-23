@@ -288,7 +288,12 @@ const juce::String NOVAAudioProcessor::getName() const { return "NOVA"; }
 
 bool NOVAAudioProcessor::acceptsMidi() const { return false; }
 bool NOVAAudioProcessor::producesMidi() const { return false; }
-double NOVAAudioProcessor::getTailLengthSeconds() const { return 0.0; }
+double NOVAAudioProcessor::getTailLengthSeconds() const
+{
+    // Report a conservative tail so DAWs don't cut reverb/delay tails on stop.
+    // 3 seconds covers most delay + reverb tail combinations in the chain.
+    return 3.0;
+}
 
 int NOVAAudioProcessor::getNumPrograms() { return 1; }
 int NOVAAudioProcessor::getCurrentProgram() { return 0; }

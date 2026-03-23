@@ -12,6 +12,7 @@ class CleanAmp final : public ProcessorBase
 {
 public:
     CleanAmp()
+        : oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
         addParameter(driveParam = new juce::AudioParameterFloat("cleanDrive", "Drive", 0.0f, 1.0f, 0.25f));
         addParameter(bassParam = new juce::AudioParameterFloat("cleanBass", "Bass", 0.0f, 1.0f, 0.52f));
@@ -49,17 +50,28 @@ public:
 
         currentSampleRate = sampleRate;
 
-        juce::dsp::ProcessSpec spec;
-        spec.sampleRate = sampleRate;
-        spec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock);
-        spec.numChannels = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
+        oversampler.reset();
+        oversampler.initProcessing((size_t)juce::jmax(1, samplesPerBlock));
 
-        inputHighPass.prepare(spec);
-        bassShelf.prepare(spec);
-        trebleShelf.prepare(spec);
-        reverb.prepare(spec);
+        currentInnerRate = sampleRate * 4.0;
 
-        driveSmooth.reset(sampleRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
+        juce::dsp::ProcessSpec innerSpec;
+        innerSpec.sampleRate = currentInnerRate;
+        innerSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock * 4);
+        innerSpec.numChannels = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
+
+        inputHighPass.prepare(innerSpec);
+        bassShelf.prepare(innerSpec);
+        trebleShelf.prepare(innerSpec);
+        dcBlock.prepare(innerSpec);
+
+        juce::dsp::ProcessSpec baseSpec;
+        baseSpec.sampleRate = sampleRate;
+        baseSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock);
+        baseSpec.numChannels = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
+        reverb.prepare(baseSpec);
+
+        driveSmooth.reset(currentInnerRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
         reverbSmooth.reset(sampleRate, 0.04);
         masterSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
 
@@ -73,6 +85,7 @@ public:
         cachedBass = std::numeric_limits<float>::quiet_NaN();
         cachedTreble = std::numeric_limits<float>::quiet_NaN();
 
+        setProcessingLatency((int)oversampler.getLatencyInSamples());
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
         isPrepared = true;
@@ -85,9 +98,11 @@ public:
 
     void reset() override
     {
+        oversampler.reset();
         inputHighPass.reset();
         bassShelf.reset();
         trebleShelf.reset();
+        dcBlock.reset();
         reverb.reset();
 
         driveSmooth.setCurrentAndTargetValue(driveParam != nullptr ? *driveParam : 0.25f);
@@ -100,37 +115,50 @@ public:
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
+        juce::ScopedNoDenormals noDenormals;
+
         updateToneIfNeeded();
         driveSmooth.setTargetValue(driveParam != nullptr ? *driveParam : 0.25f);
         reverbSmooth.setTargetValue(reverbParam != nullptr ? *reverbParam : 0.2f);
         masterSmooth.setTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
-
-        // Update reverb params
         updateReverbIfNeeded();
 
+        // --- Oversampled saturation + tone ---
         juce::dsp::AudioBlock<float> block(buffer);
-        juce::dsp::ProcessContextReplacing<float> context(block);
+        auto upsampled = oversampler.processSamplesUp(block);
 
-        inputHighPass.process(context);
+        {
+            juce::dsp::ProcessContextReplacing<float> ctx(upsampled);
+            inputHighPass.process(ctx);
+        }
 
-        // Gentle tube warmth - soft single-stage saturation
-        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        // Gentle tube warmth — soft single-stage saturation at 4x rate
+        const int uChannels = (int)upsampled.getNumChannels();
+        const int uSamples = (int)upsampled.getNumSamples();
+
+        for (int sample = 0; sample < uSamples; ++sample)
         {
             const float drive = 1.0f + driveSmooth.getNextValue() * 3.0f;
 
-            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int ch = 0; ch < uChannels; ++ch)
             {
-                float x = buffer.getSample(ch, sample) * drive;
-                // Soft tube-like saturation
+                auto* data = upsampled.getChannelPointer((size_t)ch);
+                float x = data[sample] * drive;
                 x = std::tanh(x * 0.8f) * 1.15f;
-                buffer.setSample(ch, sample, x);
+                data[sample] = x;
             }
         }
 
-        bassShelf.process(context);
-        trebleShelf.process(context);
+        {
+            juce::dsp::ProcessContextReplacing<float> ctx(upsampled);
+            bassShelf.process(ctx);
+            trebleShelf.process(ctx);
+            dcBlock.process(ctx);
+        }
 
-        // Spring reverb
+        oversampler.processSamplesDown(block);
+
+        // --- Spring reverb (at base rate, post-oversampling) ---
         if (wetBuffer.getNumSamples() < buffer.getNumSamples())
             wetBuffer.setSize(buffer.getNumChannels(), buffer.getNumSamples(), false, false, true);
 
@@ -179,11 +207,12 @@ private:
         const float bassGain = juce::jmap(bass, -6.0f, 8.0f);
         const float trebleGain = juce::jmap(treble, -6.0f, 8.0f);
 
-        *inputHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentSampleRate, 40.0f);
-        *bassShelf.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentSampleRate,
+        *inputHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentInnerRate, 40.0f);
+        *bassShelf.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentInnerRate,
             280.0f, 0.72f, juce::Decibels::decibelsToGain(bassGain));
-        *trebleShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(currentSampleRate,
+        *trebleShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(currentInnerRate,
             2800.0f, 0.68f, juce::Decibels::decibelsToGain(trebleGain));
+        *dcBlock.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentInnerRate, 18.0f);
     }
 
     void updateReverbIfNeeded()
@@ -200,9 +229,11 @@ private:
         reverb.setParameters(params);
     }
 
+    juce::dsp::Oversampling<float> oversampler;
     IIRFilter inputHighPass;
     IIRFilter bassShelf;
     IIRFilter trebleShelf;
+    IIRFilter dcBlock;
     juce::dsp::Reverb reverb;
     juce::AudioBuffer<float> wetBuffer;
 
@@ -217,6 +248,7 @@ private:
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentSampleRate = 44100.0;
+    double currentInnerRate = 176400.0;
     float cachedBass = std::numeric_limits<float>::quiet_NaN();
     float cachedTreble = std::numeric_limits<float>::quiet_NaN();
     bool isPrepared = false;
