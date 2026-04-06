@@ -183,6 +183,46 @@ struct DCBlocker
     void reset() { x1 = y1 = 0.0f; }
 };
 
+struct CharacterDelayVoice
+{
+    CircularDelay delay;
+    OnePoleHP hp;
+    OnePoleLP lp;
+    float readSamples = 1.0f;
+    float feedback = 0.0f;
+
+    void prepare(double sr, float maxSeconds)
+    {
+        delay.allocate((int)(sr * maxSeconds) + 64);
+        reset();
+    }
+
+    void reset()
+    {
+        delay.clear();
+        hp.reset();
+        lp.reset();
+    }
+
+    void configure(double sr, float delayMs, float hpHz, float lpHz, float fb)
+    {
+        readSamples = juce::jlimit(1.0f,
+            (float)juce::jmax(4, delay.length - 2),
+            delayMs * (float)(sr * 0.001));
+        delay.setLength(juce::jmax(4, (int)std::ceil(readSamples) + 4));
+        hp.setCutoff(hpHz, sr);
+        lp.setCutoff(lpHz, sr);
+        feedback = juce::jlimit(0.0f, 0.92f, fb);
+    }
+
+    float process(float input) noexcept
+    {
+        const float tap = delay.readLinear(readSamples);
+        delay.write(input + tap * feedback);
+        return lp.process(hp.process(tap));
+    }
+};
+
 // Two-band damper: crossover splits into bass/treble with independent attenuation
 struct TwoBandDamper
 {
@@ -594,6 +634,9 @@ public:
         er.prepare(sr);
         shimmer.prepare(sr);
         shimmerLP.setCutoff(5500.0f, sr);
+        springDripVoice.prepare(sr, 0.08f);
+        plateSheenVoice.prepare(sr, 0.05f);
+        hallBloomVoice.prepare(sr, 0.22f);
         outputToneL.setCutoff(7500.0f, sr);
         outputToneR.setCutoff(7500.0f, sr);
 
@@ -610,6 +653,14 @@ public:
         widthSmooth.setCurrentAndTargetValue(1.0f);
         outToneHzSmooth.reset(sr, 0.05);
         outToneHzSmooth.setCurrentAndTargetValue(7500.0f);
+        duckAmountSmooth.reset(sr, 0.03);
+        duckAmountSmooth.setCurrentAndTargetValue(0.0f);
+        freezeSmooth.reset(sr, 0.02);
+        freezeSmooth.setCurrentAndTargetValue(0.0f);
+
+        duckAttackCoeff = (float)std::exp(-1.0 / (sr * 0.012));
+        duckReleaseCoeff = (float)std::exp(-1.0 / (sr * 0.180));
+        bloomLP.setCutoff(1800.0f, sr);
 
         reset();
     }
@@ -627,16 +678,22 @@ public:
         er.reset();
         shimmer.reset();
         shimmerLP.reset();
+        springDripVoice.reset();
+        plateSheenVoice.reset();
+        hallBloomVoice.reset();
         outputToneL.reset();
         outputToneR.reset();
+        bloomLP.reset();
         dcL.reset();  dcR.reset();
         modPhases.fill(0.0f);
+        duckEnv = 0.0f;
     }
 
     // Call when any parameter changes (cheap — not per-sample)
     void configure(int mode, float decay01, float size01, float tone01,
                    float damping01, float bassCut01, float diffusion01,
-                   float width01, float modAmount01, float predelayMs)
+                   float width01, float modAmount01, float predelayMs,
+                   float duckAmount01, bool freezeEnabled)
     {
         const auto& t = tuningForMode(mode);
         currentMode   = mode;
@@ -700,6 +757,8 @@ public:
                         (mode == 0) ? 0.55f : 0.5f; // Spring — strong ER drip
         erLevelSmooth.setTargetValue(erLevel);
         widthSmooth.setTargetValue(width01);
+        duckAmountSmooth.setTargetValue(duckAmount01);
+        freezeSmooth.setTargetValue(freezeEnabled ? 1.0f : 0.0f);
 
         // ---- Pre-delay ----
         float pdSamples = juce::jlimit(0.0f, (float)(predelayMid.length - 4),
@@ -715,6 +774,91 @@ public:
         // Higher LP cutoff lets the pitch-shifted harmonics through clearly
         shimmerLP.setCutoff(lerp(5000.0f, 12000.0f, tone01), sr);
         outToneHzSmooth.setTargetValue(lerp(2800.0f, t.dampLpMin * 1.15f, tone01));
+
+        modeInputDrive = 1.0f;
+        modeStereoExcite = 0.35f;
+        modeSideScale = 1.0f;
+        modeCrossfeed = 0.0f;
+        modeBloomMix = 0.0f;
+        modeAttackMix = 0.0f;
+        springDripMix = 0.0f;
+        plateSheenMix = 0.0f;
+        hallBloomVoiceMix = 0.0f;
+        float bloomCutoffHz = 1800.0f;
+
+        switch (mode)
+        {
+            case 0:
+                modeInputDrive = 1.12f;
+                modeStereoExcite = 0.42f;
+                modeSideScale = 0.88f;
+                modeAttackMix = 0.08f;
+                springDripMix = 0.24f + size01 * 0.10f;
+                bloomCutoffHz = 2600.0f;
+                springDripVoice.configure(sr, lerp(11.0f, 19.0f, size01),
+                    lerp(1400.0f, 2400.0f, tone01),
+                    lerp(3600.0f, 6200.0f, tone01),
+                    0.38f + decay01 * 0.16f);
+                break;
+
+            case 1:
+                modeInputDrive = 1.08f;
+                modeStereoExcite = 0.28f;
+                modeSideScale = 0.92f;
+                modeCrossfeed = 0.05f;
+                modeAttackMix = 0.15f;
+                modeBloomMix = 0.05f;
+                plateSheenMix = 0.16f + tone01 * 0.10f;
+                bloomCutoffHz = 3400.0f;
+                plateSheenVoice.configure(sr, lerp(13.0f, 23.0f, size01),
+                    lerp(1900.0f, 3200.0f, tone01),
+                    lerp(7000.0f, 12500.0f, tone01),
+                    0.44f + decay01 * 0.18f);
+                break;
+
+            case 2:
+                modeInputDrive = 0.98f;
+                modeStereoExcite = 0.34f;
+                modeSideScale = 1.02f;
+                modeCrossfeed = 0.07f;
+                modeBloomMix = 0.14f;
+                hallBloomVoiceMix = 0.18f + size01 * 0.10f;
+                bloomCutoffHz = 1600.0f;
+                hallBloomVoice.configure(sr, lerp(62.0f, 108.0f, size01),
+                    140.0f,
+                    lerp(1200.0f, 2600.0f, tone01),
+                    0.54f + decay01 * 0.18f);
+                break;
+
+            case 3:
+                modeInputDrive = 1.04f;
+                modeStereoExcite = 0.24f;
+                modeSideScale = 0.78f;
+                modeAttackMix = 0.06f;
+                bloomCutoffHz = 3000.0f;
+                break;
+
+            case 4:
+                modeInputDrive = 1.00f;
+                modeStereoExcite = 0.36f;
+                modeSideScale = 1.05f;
+                modeCrossfeed = 0.08f;
+                modeBloomMix = 0.18f;
+                bloomCutoffHz = 2200.0f;
+                break;
+
+            case 5:
+            default:
+                modeInputDrive = 0.94f;
+                modeStereoExcite = 0.46f;
+                modeSideScale = 1.18f;
+                modeCrossfeed = 0.12f;
+                modeBloomMix = 0.28f;
+                bloomCutoffHz = 1100.0f;
+                break;
+        }
+
+        bloomLP.setCutoff(bloomCutoffHz, sr);
     }
 
     void processSample(float inL, float inR, float& outL, float& outR) noexcept
@@ -724,11 +868,15 @@ public:
         const float erLevel  = erLevelSmooth.getNextValue();
         const float width    = widthSmooth.getNextValue();
         const float toneHz   = outToneHzSmooth.getNextValue();
+        const float duckAmount = duckAmountSmooth.getNextValue();
+        const float freeze = freezeSmooth.getNextValue();
         outputToneL.setCutoff(toneHz, sr);
         outputToneR.setCutoff(toneHz, sr);
 
         const float midIn  = (inL + inR) * 0.5f;
         const float sideIn = (inL - inR) * 0.5f;
+        updateDuckEnvelope(midIn, sideIn);
+        const float duckGain = computeDuckGain(duckAmount, freeze);
 
         // ---- Pre-delay (shared by ER + late) ----
         predelayMid.write(midIn);
@@ -754,6 +902,11 @@ public:
             for (auto& d : dispersion)
                 diffused = d.process(diffused);
 
+        const float inputInject = 1.0f - freeze * 0.985f;
+        const float loopFeedback = lerp(fb, juce::jmax(fb, 0.9992f), freeze);
+        const float attackExcite = std::tanh(diffused * modeInputDrive * 0.7f) * modeAttackMix;
+        diffused *= modeInputDrive * inputInject;
+
         // ---- Read FDN lines (modulated, cubic interpolation) ----
         std::array<float, NUM_LINES> lineOut{};
         for (int i = 0; i < NUM_LINES; ++i)
@@ -767,12 +920,16 @@ public:
             if (modPhases[(size_t)i] >= 1.0f) modPhases[(size_t)i] -= 1.0f;
         }
 
+        const auto rawLineOut = lineOut;
+
         // ---- Two-band damping + HP ----
         for (int i = 0; i < NUM_LINES; ++i)
         {
             lineOut[(size_t)i] = dampers[i].process(lineOut[(size_t)i]);
             lineOut[(size_t)i] = dampHP[i].process(lineOut[(size_t)i]);
             lineOut[(size_t)i] = dampLP[i].process(lineOut[(size_t)i]);
+            if (freeze > 0.0f)
+                lineOut[(size_t)i] = lerp(lineOut[(size_t)i], rawLineOut[(size_t)i], freeze * 0.94f);
         }
 
         // ---- Stereo output taps (before Hadamard — taps from damped lines) ----
@@ -782,8 +939,8 @@ public:
             lateMid  += kTapL[(size_t)i] * lineOut[(size_t)i];
             lateSide += kTapR[(size_t)i] * lineOut[(size_t)i];
         }
-        float lateL = (lateMid + lateSide * width) * kInvSqrt8;
-        float lateR = (lateMid - lateSide * width) * kInvSqrt8;
+        float lateL = (lateMid + lateSide * width * modeSideScale) * kInvSqrt8;
+        float lateR = (lateMid - lateSide * width * modeSideScale) * kInvSqrt8;
 
         // ---- Hadamard mixing (feedback path) ----
         hadamard8(lineOut);
@@ -802,10 +959,10 @@ public:
         // ---- Write back into FDN lines ----
         for (int i = 0; i < NUM_LINES; ++i)
         {
-            float fbSig = fb * lineOut[(size_t)i];
+            float fbSig = loopFeedback * lineOut[(size_t)i];
             // Soft-limit feedback (transparent below ±2.5, compresses above)
             fbSig = std::tanh(fbSig * 0.4f) * 2.5f;
-            const float stereoExcite = delayedSide * width * 0.35f * kTapR[(size_t)i];
+            const float stereoExcite = delayedSide * width * modeStereoExcite * kTapR[(size_t)i];
             float inp = (diffused + stereoExcite) * kInvSqrt8 + fbSig;
             if (useShimmer) inp += shimSig * kInvSqrt8;
             lines[i].write(inp);
@@ -818,12 +975,18 @@ public:
             lateR = std::tanh(lateR * 1.15f) / 1.15f;
         }
 
+        lateL += attackExcite + delayedSide * modeAttackMix * 0.08f;
+        lateR += attackExcite - delayedSide * modeAttackMix * 0.08f;
+        applyDedicatedModeCharacter(delayedMid, delayedSide, width, freeze, lateL, lateR);
+        applyModeBloomAndCrossfeed(lateL, lateR);
+
         lateL = outputToneL.process(lateL);
         lateR = outputToneR.process(lateR);
 
         // ---- Blend ER + late reverb ----
-        outL = erL * erLevel + lateL;
-        outR = erR * erLevel + lateR;
+        const float erMix = erLevel * (1.0f - freeze);
+        outL = (erL * erMix + lateL) * duckGain;
+        outR = (erR * erMix + lateR) * duckGain;
 
         // ---- DC blocking ----
         outL = dcL.process(outL);
@@ -850,6 +1013,8 @@ public:
             const float erLevel  = erLevelSmooth.getNextValue();
             const float width    = widthSmooth.getNextValue();
             const float toneHz   = outToneHzSmooth.getNextValue();
+            const float duckAmount = duckAmountSmooth.getNextValue();
+            const float freeze = freezeSmooth.getNextValue();
             outputToneL.setCutoff(toneHz, sr);
             outputToneR.setCutoff(toneHz, sr);
 
@@ -857,6 +1022,8 @@ public:
             const float sR = inR[s];
             const float midIn  = (sL + sR) * 0.5f;
             const float sideIn = (sL - sR) * 0.5f;
+            updateDuckEnvelope(midIn, sideIn);
+            const float duckGain = computeDuckGain(duckAmount, freeze);
 
             predelayMid.write(midIn);
             predelaySide.write(sideIn);
@@ -877,6 +1044,11 @@ public:
                 for (auto& d : dispersion)
                     diffused = d.process(diffused);
 
+            const float inputInject = 1.0f - freeze * 0.985f;
+            const float loopFeedback = lerp(fb, juce::jmax(fb, 0.9992f), freeze);
+            const float attackExcite = std::tanh(diffused * modeInputDrive * 0.7f) * modeAttackMix;
+            diffused *= modeInputDrive * inputInject;
+
             // FDN read + damping (unrolled inner loop)
             std::array<float, NUM_LINES> lineOut{};
             for (int i = 0; i < NUM_LINES; ++i)
@@ -889,11 +1061,15 @@ public:
                 if (modPhases[(size_t)i] >= 1.0f) modPhases[(size_t)i] -= 1.0f;
             }
 
+            const auto rawLineOut = lineOut;
+
             for (int i = 0; i < NUM_LINES; ++i)
             {
                 lineOut[(size_t)i] = dampers[i].process(lineOut[(size_t)i]);
                 lineOut[(size_t)i] = dampHP[i].process(lineOut[(size_t)i]);
                 lineOut[(size_t)i] = dampLP[i].process(lineOut[(size_t)i]);
+                if (freeze > 0.0f)
+                    lineOut[(size_t)i] = lerp(lineOut[(size_t)i], rawLineOut[(size_t)i], freeze * 0.94f);
             }
 
             float lateMid = 0.0f, lateSide = 0.0f;
@@ -902,8 +1078,8 @@ public:
                 lateMid  += kTapL[(size_t)i] * lineOut[(size_t)i];
                 lateSide += kTapR[(size_t)i] * lineOut[(size_t)i];
             }
-            float lateL = (lateMid + lateSide * width) * kInvSqrt8;
-            float lateR = (lateMid - lateSide * width) * kInvSqrt8;
+            float lateL = (lateMid + lateSide * width * modeSideScale) * kInvSqrt8;
+            float lateR = (lateMid - lateSide * width * modeSideScale) * kInvSqrt8;
 
             hadamard8(lineOut);
 
@@ -919,8 +1095,8 @@ public:
 
             for (int i = 0; i < NUM_LINES; ++i)
             {
-                float fbSig = std::tanh(fb * lineOut[(size_t)i] * 0.4f) * 2.5f;
-                const float stereoExcite = delayedSide * width * 0.35f * kTapR[(size_t)i];
+                float fbSig = std::tanh(loopFeedback * lineOut[(size_t)i] * 0.4f) * 2.5f;
+                const float stereoExcite = delayedSide * width * modeStereoExcite * kTapR[(size_t)i];
                 float inp = (diffused + stereoExcite) * kInvSqrt8 + fbSig;
                 if (useShimmer) inp += shimSig * kInvSqrt8;
                 lines[i].write(inp);
@@ -932,17 +1108,86 @@ public:
                 lateR = std::tanh(lateR * 1.15f) * 0.8695652f;
             }
 
+            lateL += attackExcite + delayedSide * modeAttackMix * 0.08f;
+            lateR += attackExcite - delayedSide * modeAttackMix * 0.08f;
+            applyDedicatedModeCharacter(delayedMid, delayedSide, width, freeze, lateL, lateR);
+            applyModeBloomAndCrossfeed(lateL, lateR);
+
             lateL = outputToneL.process(lateL);
             lateR = outputToneR.process(lateR);
 
-            outL[s] = dcL.process(erL * erLevel + lateL);
-            outR[s] = dcR.process(erR * erLevel + lateR);
+            const float erMix = erLevel * (1.0f - freeze);
+            outL[s] = dcL.process((erL * erMix + lateL) * duckGain);
+            outR[s] = dcR.process((erR * erMix + lateR) * duckGain);
         }
     }
 
     int currentMode = 0;
 
 private:
+    void updateDuckEnvelope(float midIn, float sideIn) noexcept
+    {
+        const float detector = std::abs(midIn) + 0.35f * std::abs(sideIn);
+        const float coeff = detector > duckEnv ? duckAttackCoeff : duckReleaseCoeff;
+        duckEnv = detector + coeff * (duckEnv - detector);
+    }
+
+    float computeDuckGain(float duckAmount, float freeze) const noexcept
+    {
+        float duckControl = juce::jlimit(0.0f, 1.0f, (duckEnv - 0.015f) * 8.0f);
+        float duckGain = 1.0f - duckAmount * duckControl * 0.82f;
+        duckGain = juce::jmax(0.18f, duckGain * (0.85f + 0.15f * duckGain));
+        return lerp(duckGain, 1.0f, freeze);
+    }
+
+    void applyDedicatedModeCharacter(float delayedMid, float delayedSide,
+        float width, float freeze, float& lateL, float& lateR) noexcept
+    {
+        const float freezeInputScale = 1.0f - freeze * 0.92f;
+
+        if (springDripMix > 0.0f)
+        {
+            const float drip = springDripVoice.process((delayedMid + delayedSide * 0.42f) * freezeInputScale);
+            lateL += drip * springDripMix;
+            lateR -= drip * springDripMix * 0.82f;
+        }
+
+        if (plateSheenMix > 0.0f)
+        {
+            const float plateMono = (lateL + lateR) * 0.5f;
+            const float sheen = plateSheenVoice.process((plateMono + delayedMid * 0.45f) * freezeInputScale);
+            lateL += sheen * plateSheenMix * (0.92f + width * 0.08f);
+            lateR += sheen * plateSheenMix * (0.86f + width * 0.06f);
+        }
+
+        if (hallBloomVoiceMix > 0.0f)
+        {
+            const float hallSeed = ((lateL + lateR) * 0.5f + delayedMid * 0.22f) * freezeInputScale;
+            const float bloom = hallBloomVoice.process(hallSeed);
+            const float side = bloom * width * 0.28f;
+            lateL += bloom * hallBloomVoiceMix + side;
+            lateR += bloom * hallBloomVoiceMix - side;
+        }
+    }
+
+    void applyModeBloomAndCrossfeed(float& lateL, float& lateR) noexcept
+    {
+        if (modeBloomMix > 0.0f)
+        {
+            const float bloom = bloomLP.process((lateL + lateR) * 0.5f) * modeBloomMix;
+            lateL += bloom;
+            lateR += bloom;
+        }
+
+        if (modeCrossfeed > 0.0f)
+        {
+            const float prevL = lateL;
+            const float prevR = lateR;
+            lateL = prevL + prevR * modeCrossfeed;
+            lateR = prevR + prevL * modeCrossfeed;
+        }
+    }
+
     double sr         = 48000.0;
     double ratioToRef = 1.0;
 
@@ -965,13 +1210,31 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> erLevelSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> outToneHzSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> duckAmountSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> freezeSmooth;
 
     EarlyReflections   er;
     GrainPitchShifter  shimmer;
     OnePoleLP          shimmerLP;
+    CharacterDelayVoice springDripVoice;
+    CharacterDelayVoice plateSheenVoice;
+    CharacterDelayVoice hallBloomVoice;
+    OnePoleLP          bloomLP;
     OnePoleLP          outputToneL, outputToneR;
     bool  useShimmer   = false;
     float shimmerMix_  = 0.0f;
+    float duckEnv = 0.0f;
+    float duckAttackCoeff = 0.98f;
+    float duckReleaseCoeff = 0.999f;
+    float modeInputDrive = 1.0f;
+    float modeStereoExcite = 0.35f;
+    float modeSideScale = 1.0f;
+    float modeCrossfeed = 0.0f;
+    float modeBloomMix = 0.0f;
+    float modeAttackMix = 0.0f;
+    float springDripMix = 0.0f;
+    float plateSheenMix = 0.0f;
+    float hallBloomVoiceMix = 0.0f;
 
     DCBlocker dcL, dcR;
 };
@@ -1010,6 +1273,10 @@ public:
             "reverbPredelay", "Predelay", 0.0f, 250.0f, 15.0f));
         addParameter(mixParam = new juce::AudioParameterFloat(
             "reverbMix", "Mix", 0.0f, 1.0f, 0.28f));
+        addParameter(duckParam = new juce::AudioParameterFloat(
+            "reverbDuck", "Duck", 0.0f, 1.0f, 0.0f));
+        addParameter(freezeParam = new juce::AudioParameterBool(
+            "reverbFreeze", "Freeze", false));
         addParameter(shimmerPitchParam = new juce::AudioParameterChoice(
             "reverbShimmerPitch", "Shimmer Pitch",
             { "Fifth", "Octave", "Octave+5th", "2 Octaves" }, 1));
@@ -1033,7 +1300,8 @@ public:
 
         lastMode = -1;
         lastDecay = lastTone = lastSize = lastDamp = -1.0f;
-        lastBass = lastDiff = lastWidth = lastMod = lastPD = -1.0f;
+        lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = -1.0f;
+        lastFreeze = false;
         reset();
         isPrepared = true;
     }
@@ -1049,9 +1317,10 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override
     {
         juce::XmlElement xml("NIMBUS_REVERB_STATE");
-        xml.setAttribute("version", 3);
+        xml.setAttribute("version", 4);
         xml.setAttribute("modeIndex", modeParam ? modeParam->getIndex() : 0);
         xml.setAttribute("shimmerPitchIndex", shimmerPitchParam ? shimmerPitchParam->getIndex() : 1);
+        xml.setAttribute("reverbFreeze", freezeParam != nullptr && freezeParam->get());
         writeFloat(xml, "reverbDecay", decayParam);
         writeFloat(xml, "reverbTone", toneParam);
         writeFloat(xml, "reverbSize", sizeParam);
@@ -1062,6 +1331,7 @@ public:
         writeFloat(xml, "reverbMod", modParam);
         writeFloat(xml, "reverbPredelay", predelayParam);
         writeFloat(xml, "reverbMix", mixParam);
+        writeFloat(xml, "reverbDuck", duckParam);
         copyXmlToBinary(xml, destData);
     }
 
@@ -1075,6 +1345,7 @@ public:
         {
             setChoiceIndex(modeParam, xml->getIntAttribute("modeIndex", 0));
             setChoiceIndex(shimmerPitchParam, xml->getIntAttribute("shimmerPitchIndex", 1));
+            restoreBool(*xml, "reverbFreeze", freezeParam);
             restoreFloat(*xml, "reverbDecay", decayParam);
             restoreFloat(*xml, "reverbTone", toneParam);
             restoreFloat(*xml, "reverbSize", sizeParam);
@@ -1085,6 +1356,7 @@ public:
             restoreFloat(*xml, "reverbMod", modParam);
             restoreFloat(*xml, "reverbPredelay", predelayParam);
             restoreFloat(*xml, "reverbMix", mixParam);
+            restoreFloat(*xml, "reverbDuck", duckParam);
         }
         else if (xml->hasTagName("PLUGIN_STATE"))
         {
@@ -1117,13 +1389,21 @@ public:
                     continue;
                 }
 
+                if (id == "reverbFreeze")
+                {
+                    if (freezeParam != nullptr)
+                        freezeParam->setValueNotifyingHost(value >= 0.5f ? 1.0f : 0.0f);
+                    continue;
+                }
+
                 restoreLegacyFloat(id, value);
             }
         }
 
         lastMode = -1;
         lastDecay = lastTone = lastSize = lastDamp = -1.0f;
-        lastBass = lastDiff = lastWidth = lastMod = lastPD = -1.0f;
+        lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = -1.0f;
+        lastFreeze = false;
         if (mixParam) mixSmooth.setCurrentAndTargetValue(mixParam->get());
     }
 
@@ -1145,6 +1425,8 @@ public:
         const float width   = widthParam   ? widthParam->get()      : 0.90f;
         const float mod     = modParam     ? modParam->get()        : 0.30f;
         const float pdMs    = predelayParam? predelayParam->get()   : 15.0f;
+        const float duck    = duckParam    ? duckParam->get()       : 0.0f;
+        const bool  freeze  = freezeParam  ? freezeParam->get()     : false;
 
         // Reconfigure only when parameters actually change
         if (mode != lastMode
@@ -1156,9 +1438,11 @@ public:
             || std::abs(diff  - lastDiff)  > 1e-4f
             || std::abs(width - lastWidth) > 1e-4f
             || std::abs(mod   - lastMod)   > 1e-4f
-            || std::abs(pdMs  - lastPD)    > 0.1f)
+            || std::abs(pdMs  - lastPD)    > 0.1f
+            || std::abs(duck  - lastDuck)  > 1e-4f
+            || freeze != lastFreeze)
         {
-            engine.configure(mode, decay, size, tone, damp, bass, diff, width, mod, pdMs);
+            engine.configure(mode, decay, size, tone, damp, bass, diff, width, mod, pdMs, duck, freeze);
             lastMode  = mode;
             lastDecay = decay;
             lastTone  = tone;
@@ -1169,6 +1453,8 @@ public:
             lastWidth = width;
             lastMod   = mod;
             lastPD    = pdMs;
+            lastDuck  = duck;
+            lastFreeze = freeze;
         }
 
         // Apply user shimmer pitch override (only affects Shimmer mode)
@@ -1239,6 +1525,8 @@ public:
     juce::AudioParameterFloat*  modParam      = nullptr;
     juce::AudioParameterFloat*  predelayParam = nullptr;
     juce::AudioParameterFloat*  mixParam      = nullptr;
+    juce::AudioParameterFloat*  duckParam     = nullptr;
+    juce::AudioParameterBool*   freezeParam   = nullptr;
     juce::AudioParameterChoice* shimmerPitchParam = nullptr;
 
 private:
@@ -1252,6 +1540,12 @@ private:
     {
         if (param != nullptr && xml.hasAttribute(name))
             param->setValueNotifyingHost(param->convertTo0to1((float)xml.getDoubleAttribute(name)));
+    }
+
+    static void restoreBool(const juce::XmlElement& xml, const char* name, juce::AudioParameterBool* param)
+    {
+        if (param != nullptr && xml.hasAttribute(name))
+            param->setValueNotifyingHost(xml.getBoolAttribute(name) ? 1.0f : 0.0f);
     }
 
     static void setChoiceIndex(juce::AudioParameterChoice* param, int index)
@@ -1284,6 +1578,7 @@ private:
         else if (id == "reverbMod") apply(modParam);
         else if (id == "reverbPredelay") apply(predelayParam);
         else if (id == "reverbMix") apply(mixParam);
+        else if (id == "reverbDuck") apply(duckParam);
     }
 
     Nova::Reverb::Engine engine;
@@ -1292,7 +1587,8 @@ private:
     double currentSampleRate = 44100.0;
     int    lastMode  = -1;
     float  lastDecay = -1.0f, lastTone = -1.0f, lastSize = -1.0f, lastDamp = -1.0f;
-    float  lastBass  = -1.0f, lastDiff = -1.0f, lastWidth = -1.0f, lastMod  = -1.0f, lastPD   = -1.0f;
+    float  lastBass  = -1.0f, lastDiff = -1.0f, lastWidth = -1.0f, lastMod  = -1.0f, lastPD   = -1.0f, lastDuck = -1.0f;
+    bool   lastFreeze = false;
     bool   isPrepared = false;
 };
 

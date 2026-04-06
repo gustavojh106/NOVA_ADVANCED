@@ -352,6 +352,8 @@ private:
         reverb.modParam->setValueNotifyingHost(reverb.modParam->convertTo0to1(0.42f));
         reverb.predelayParam->setValueNotifyingHost(reverb.predelayParam->convertTo0to1(24.0f));
         reverb.mixParam->setValueNotifyingHost(reverb.mixParam->convertTo0to1(1.0f));
+        reverb.duckParam->setValueNotifyingHost(reverb.duckParam->convertTo0to1(0.0f));
+        reverb.freezeParam->setValueNotifyingHost(0.0f);
     }
 
     static void configureFlagshipHall(ReverbPedal& reverb)
@@ -367,6 +369,8 @@ private:
         reverb.modParam->setValueNotifyingHost(reverb.modParam->convertTo0to1(0.26f));
         reverb.predelayParam->setValueNotifyingHost(reverb.predelayParam->convertTo0to1(12.0f));
         reverb.mixParam->setValueNotifyingHost(reverb.mixParam->convertTo0to1(1.0f));
+        reverb.duckParam->setValueNotifyingHost(reverb.duckParam->convertTo0to1(0.0f));
+        reverb.freezeParam->setValueNotifyingHost(0.0f);
     }
 
     static std::vector<OfflineQAScenarioResult> runAllScenarios()
@@ -379,6 +383,9 @@ private:
         results.push_back(runEngineReenableRecoveryScenario());
         results.push_back(runReverbTailScenario());
         results.push_back(runReverbStereoFieldScenario());
+        results.push_back(runReverbModeDistinctnessScenario());
+        results.push_back(runReverbFreezeScenario());
+        results.push_back(runReverbDuckingScenario());
         results.push_back(runReverbAutomationStressScenario());
         results.push_back(runGraphDiagnosticsScenario());
         return results;
@@ -633,6 +640,168 @@ private:
         return result;
     }
 
+    static OfflineQAScenarioResult runReverbFreezeScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "reverb_freeze_hold";
+
+        ReverbPedal reverb;
+        reverb.prepareToPlay(sampleRate, blockSize);
+        configureFlagshipCloud(reverb);
+
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> block(2, blockSize);
+        juce::AudioBuffer<float> output(2, (int)(sampleRate * 3.0));
+        output.clear();
+
+        block.clear();
+        block.setSample(0, 0, 1.0f);
+        block.setSample(1, 0, 1.0f);
+        reverb.processBlock(block, midi);
+        output.copyFrom(0, 0, block, 0, 0, blockSize);
+        output.copyFrom(1, 0, block, 1, 0, blockSize);
+
+        reverb.freezeParam->setValueNotifyingHost(1.0f);
+
+        for (int offset = blockSize; offset < output.getNumSamples(); offset += blockSize)
+        {
+            const int numSamples = juce::jmin(blockSize, output.getNumSamples() - offset);
+            block.clear();
+            reverb.processBlock(block, midi);
+            output.copyFrom(0, offset, block, 0, 0, numSamples);
+            output.copyFrom(1, offset, block, 1, 0, numSamples);
+        }
+
+        const bool finite = bufferHasOnlyFiniteSamples(output);
+        const double earlyRms = computeWindowRms(output, (int)(sampleRate * 0.8), (int)(sampleRate * 0.4));
+        const double heldRms = computeWindowRms(output, output.getNumSamples() - (int)(sampleRate * 0.4), (int)(sampleRate * 0.3));
+
+        result.metrics.push_back({ "early_rms_0p8_1p2s", earlyRms });
+        result.metrics.push_back({ "held_rms_last_300ms", heldRms });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite && heldRms > earlyRms * 0.60;
+        result.notes = result.passed ? "Freeze captured and held a stable ambient pad"
+                                     : "Freeze failed to sustain enough of the captured tail";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runReverbModeDistinctnessScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "reverb_mode_distinctness";
+
+        auto renderMode = [](int modeIndex)
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.74f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.66f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.70f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.84f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(1.0f));
+            pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(16.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.6));
+            input.clear();
+            input.setSample(0, 0, 1.0f);
+            input.setSample(1, 0, 1.0f);
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> rendered(2, input.getNumSamples());
+            rendered.clear();
+            juce::AudioBuffer<float> blockBuf(2, blockSize);
+
+            for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+            {
+                const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+                blockBuf.clear();
+                for (int ch = 0; ch < 2; ++ch)
+                    blockBuf.copyFrom(ch, 0, input, ch, offset, numSamples);
+                pedal.processBlock(blockBuf, midi);
+                rendered.copyFrom(0, offset, blockBuf, 0, 0, numSamples);
+                rendered.copyFrom(1, offset, blockBuf, 1, 0, numSamples);
+            }
+
+            return rendered;
+        };
+
+        const auto spring = renderMode(0);
+        const auto plate = renderMode(1);
+        const auto hall = renderMode(2);
+
+        const double springPlateNull = computeNullRms(spring, plate);
+        const double plateHallNull = computeNullRms(plate, hall);
+        const double springHallNull = computeNullRms(spring, hall);
+
+        result.metrics.push_back({ "spring_plate_null_rms", springPlateNull });
+        result.metrics.push_back({ "plate_hall_null_rms", plateHallNull });
+        result.metrics.push_back({ "spring_hall_null_rms", springHallNull });
+
+        result.passed = springPlateNull > 8.0e-4
+            && plateHallNull > 7.0e-4
+            && springHallNull > 8.0e-4;
+        result.notes = result.passed ? "Spring, Plate and Hall produce clearly separated impulse signatures"
+                                     : "Hero modes still overlap too much in their rendered tails";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runReverbDuckingScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "reverb_ducking_response";
+
+        ReverbPedal baseline;
+        baseline.prepareToPlay(sampleRate, blockSize);
+        configureFlagshipHall(baseline);
+
+        ReverbPedal ducked;
+        ducked.prepareToPlay(sampleRate, blockSize);
+        configureFlagshipHall(ducked);
+        ducked.duckParam->setValueNotifyingHost(ducked.duckParam->convertTo0to1(0.90f));
+
+        const auto input = generateSine((int)(sampleRate * 1.5), 220.0, 0.22f);
+        juce::MidiBuffer midi;
+
+        auto renderPedal = [&](ReverbPedal& pedal)
+        {
+            juce::AudioBuffer<float> rendered(2, input.getNumSamples());
+            rendered.clear();
+            juce::AudioBuffer<float> block(2, blockSize);
+
+            for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+            {
+                const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+                block.clear();
+                for (int ch = 0; ch < 2; ++ch)
+                    block.copyFrom(ch, 0, input, ch, offset, numSamples);
+                pedal.processBlock(block, midi);
+                rendered.copyFrom(0, offset, block, 0, 0, numSamples);
+                rendered.copyFrom(1, offset, block, 1, 0, numSamples);
+            }
+
+            return rendered;
+        };
+
+        const auto baselineOut = renderPedal(baseline);
+        const auto duckedOut = renderPedal(ducked);
+        const bool finite = bufferHasOnlyFiniteSamples(duckedOut);
+        const double baselineRms = computeWindowRms(baselineOut, (int)(sampleRate * 0.6), (int)(sampleRate * 0.3));
+        const double duckedRms = computeWindowRms(duckedOut, (int)(sampleRate * 0.6), (int)(sampleRate * 0.3));
+
+        result.metrics.push_back({ "baseline_rms", baselineRms });
+        result.metrics.push_back({ "ducked_rms", duckedRms });
+        result.metrics.push_back({ "rms_ratio", duckedRms / juce::jmax(1.0e-9, baselineRms) });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite && duckedRms < baselineRms * 0.75;
+        result.notes = result.passed ? "Ducking carved audible space while the source stayed active"
+                                     : "Ducking did not reduce the wet bed enough under sustained input";
+        return result;
+    }
+
     static OfflineQAScenarioResult runReverbAutomationStressScenario()
     {
         OfflineQAScenarioResult result;
@@ -667,6 +836,8 @@ private:
             reverb.widthParam->setValueNotifyingHost(reverb.widthParam->convertTo0to1(0.25f + 0.75f * phase));
             reverb.modParam->setValueNotifyingHost(reverb.modParam->convertTo0to1(0.10f + 0.60f * std::abs(std::cos(phase * juce::MathConstants<float>::twoPi))));
             reverb.predelayParam->setValueNotifyingHost(reverb.predelayParam->convertTo0to1(phase * 180.0f));
+            reverb.duckParam->setValueNotifyingHost(reverb.duckParam->convertTo0to1(0.75f * (1.0f - phase)));
+            reverb.freezeParam->setValueNotifyingHost((blockIndex % 257) == 0 ? 1.0f : 0.0f);
 
             reverb.processBlock(block, midi);
             peak = juce::jmax(peak, (double)analyseBuffer(block).peak);

@@ -17,6 +17,8 @@ private:
     void timerCallback() override;
     void updateModeButtons();
     void setMode(int mode);
+    void toggleFreeze();
+    void updateFreezeButton();
     void setShimmerPitch(int index);
     void updateShimmerPitchButtons();
     void paintDecayCurve(juce::Graphics& g, juce::Rectangle<float> bounds);
@@ -35,21 +37,23 @@ private:
 
     juce::TextButton btnSpring { "SPRING" }, btnPlate { "PLATE" }, btnHall { "HALL" },
         btnRoom { "ROOM" }, btnShimmer { "SHIMMER" }, btnCloud { "CLOUD" };
+    juce::TextButton btnFreeze { "FREEZE" };
 
     // Shimmer pitch buttons (visible only in Shimmer mode)
     juce::TextButton btnPitch5th { "5TH" }, btnPitchOct { "OCT" },
         btnPitchOct5 { "OCT+5" }, btnPitch2Oct { "2 OCT" };
 
     juce::Slider sldDecay, sldTone, sldSize, sldDamping, sldBassCut,
-        sldDiffusion, sldWidth, sldMod, sldPredelay, sldMix;
+        sldDiffusion, sldWidth, sldMod, sldPredelay, sldMix, sldDuck;
     juce::Label lblDecay, lblTone, lblSize, lblDamping, lblBassCut,
-        lblDiffusion, lblWidth, lblMod, lblPredelay, lblMix;
+        lblDiffusion, lblWidth, lblMod, lblPredelay, lblMix, lblDuck;
     juce::Label valDecay, valTone, valSize, valDamping, valBassCut,
-        valDiffusion, valWidth, valMod, valPredelay, valMix;
+        valDiffusion, valWidth, valMod, valPredelay, valMix, valDuck;
 
     juce::Rectangle<float> vizBounds;
     int cachedMode = -1;
     int cachedShimmerPitch = -1;
+    bool cachedFreeze = false;
 
     struct ReverbKnobLnF : public juce::LookAndFeel_V4
     {
@@ -118,6 +122,8 @@ inline ReverbEditor::ReverbEditor(ReverbPedal& pedal)
     setupButton(btnRoom, 3);
     setupButton(btnShimmer, 4);
     setupButton(btnCloud, 5);
+    btnFreeze.onClick = [this] { toggleFreeze(); };
+    addAndMakeVisible(btnFreeze);
 
     auto setupPitchButton = [this](juce::TextButton& button, int pitchIdx)
     {
@@ -161,6 +167,7 @@ inline ReverbEditor::ReverbEditor(ReverbPedal& pedal)
     setupKnob(sldMod, lblMod, valMod, "MOD", 0.0, 1.0, 0.30);
     setupKnob(sldPredelay, lblPredelay, valPredelay, "PREDELAY", 0.0, 250.0, 15.0, 1.0);
     setupKnob(sldMix, lblMix, valMix, "MIX", 0.0, 1.0, 0.28);
+    setupKnob(sldDuck, lblDuck, valDuck, "DUCK", 0.0, 1.0, 0.0);
 
     auto wire = [](juce::Slider& slider, juce::AudioParameterFloat* param)
     {
@@ -192,6 +199,7 @@ inline ReverbEditor::ReverbEditor(ReverbPedal& pedal)
     wire(sldMod, proc.modParam);
     wire(sldPredelay, proc.predelayParam);
     wire(sldMix, proc.mixParam);
+    wire(sldDuck, proc.duckParam);
 
     startTimerHz(24);
 }
@@ -200,7 +208,7 @@ inline ReverbEditor::~ReverbEditor()
 {
     stopTimer();
     for (auto* slider : { &sldDecay, &sldTone, &sldSize, &sldDamping, &sldBassCut,
-                          &sldDiffusion, &sldWidth, &sldMod, &sldPredelay, &sldMix })
+                          &sldDiffusion, &sldWidth, &sldMod, &sldPredelay, &sldMix, &sldDuck })
         slider->setLookAndFeel(nullptr);
 }
 
@@ -215,6 +223,18 @@ inline void ReverbEditor::setMode(int mode)
     proc.modeParam->setValueNotifyingHost(normalised);
     proc.modeParam->endChangeGesture();
     updateModeButtons();
+    repaint();
+}
+
+inline void ReverbEditor::toggleFreeze()
+{
+    if (proc.freezeParam == nullptr)
+        return;
+
+    proc.freezeParam->beginChangeGesture();
+    proc.freezeParam->setValueNotifyingHost(proc.freezeParam->get() ? 0.0f : 1.0f);
+    proc.freezeParam->endChangeGesture();
+    updateFreezeButton();
     repaint();
 }
 
@@ -242,6 +262,14 @@ inline void ReverbEditor::updateModeButtons()
     btnPitchOct5.setVisible(showPitch);
     btnPitch2Oct.setVisible(showPitch);
     if (showPitch) updateShimmerPitchButtons();
+}
+
+inline void ReverbEditor::updateFreezeButton()
+{
+    const bool isFrozen = proc.freezeParam != nullptr && proc.freezeParam->get();
+    btnFreeze.setColour(juce::TextButton::buttonColourId, isFrozen ? accentGlow : juce::Colour(0xff1A2332));
+    btnFreeze.setColour(juce::TextButton::textColourOffId, isFrozen ? bgDark : textDim);
+    cachedFreeze = isFrozen;
 }
 
 inline void ReverbEditor::setShimmerPitch(int index)
@@ -292,12 +320,16 @@ inline void ReverbEditor::timerCallback()
     sync(sldMod, proc.modParam);
     sync(sldPredelay, proc.predelayParam);
     sync(sldMix, proc.mixParam);
+    sync(sldDuck, proc.duckParam);
 
     if ((proc.modeParam != nullptr ? proc.modeParam->getIndex() : 0) != cachedMode)
         updateModeButtons();
 
     if ((proc.shimmerPitchParam != nullptr ? proc.shimmerPitchParam->getIndex() : 1) != cachedShimmerPitch)
         updateShimmerPitchButtons();
+
+    if ((proc.freezeParam != nullptr ? proc.freezeParam->get() : false) != cachedFreeze)
+        updateFreezeButton();
 
     auto fmt = [](juce::Label& label, float value, const juce::String& suffix)
     {
@@ -314,6 +346,7 @@ inline void ReverbEditor::timerCallback()
     fmt(valMod, (float) sldMod.getValue() * 100.0f, "%");
     fmt(valPredelay, (float) sldPredelay.getValue(), " ms");
     fmt(valMix, (float) sldMix.getValue() * 100.0f, "%");
+    fmt(valDuck, (float) sldDuck.getValue() * 100.0f, "%");
 
     repaint(vizBounds.toNearestInt());
 }
@@ -336,6 +369,11 @@ inline void ReverbEditor::paint(juce::Graphics& g)
     g.setColour(textDim);
     g.setFont(juce::Font(12.0f));
     g.drawText("Dense tails, controlled damping, stereo width and modern modulation.", 28, 62, 420, 18, juce::Justification::centredLeft);
+
+    g.setColour(textDim);
+    g.setFont(juce::Font(10.0f, juce::Font::bold));
+    g.drawText("PERFORMANCE", btnFreeze.getX() - 96, btnFreeze.getY(), 90, btnFreeze.getHeight(),
+        juce::Justification::centredRight);
 
     // Shimmer pitch section label
     if (btnPitch5th.isVisible())
@@ -381,6 +419,8 @@ inline void ReverbEditor::paintDecayCurve(juce::Graphics& g, juce::Rectangle<flo
     const float size = (float) sldSize.getValue();
     const float damping = (float) sldDamping.getValue();
     const float stereoWidth = (float) sldWidth.getValue();
+    const float duck = (float) sldDuck.getValue();
+    const bool freeze = proc.freezeParam != nullptr && proc.freezeParam->get();
     const int mode = proc.modeParam != nullptr ? proc.modeParam->getIndex() : 0;
     const float pdNorm = juce::jlimit(0.0f, 0.25f, predelay / 600.0f);
     const float decayRate = 2.0f + (1.0f - decay) * 14.0f;
@@ -396,7 +436,9 @@ inline void ReverbEditor::paintDecayCurve(juce::Graphics& g, juce::Rectangle<flo
         if (t >= pdNorm)
         {
             const float tPost = (t - pdNorm) / juce::jmax(0.01f, 1.0f - pdNorm);
-            env = shapeFor(mode, tPost, decayRate, size, stereoWidth) * (1.0f - damping * 0.12f);
+            env = shapeFor(mode, tPost, decayRate, size, stereoWidth) * (1.0f - damping * 0.12f) * (1.0f - duck * 0.28f);
+            if (freeze)
+                env = juce::jmax(env, 0.62f);
         }
 
         const float y = baseY - env * heightPx * 0.88f;
@@ -451,6 +493,7 @@ inline void ReverbEditor::resized()
         btnPitchOct.setBounds(px, pbY, pbW, pbH);  px += pbW + pbGap;
         btnPitchOct5.setBounds(px, pbY, pbW, pbH); px += pbW + pbGap;
         btnPitch2Oct.setBounds(px, pbY, pbW, pbH);
+        btnFreeze.setBounds(getWidth() - 146, pbY, 96, pbH);
     }
 
     vizBounds = juce::Rectangle<float>(32.0f, 204.0f, (float) (getWidth() - 64), 138.0f);
@@ -460,30 +503,34 @@ inline void ReverbEditor::resized()
         { &sldDecay, &lblDecay, &valDecay }, { &sldTone, &lblTone, &valTone }, { &sldSize, &lblSize, &valSize },
         { &sldDamping, &lblDamping, &valDamping }, { &sldBassCut, &lblBassCut, &valBassCut },
         { &sldDiffusion, &lblDiffusion, &valDiffusion }, { &sldWidth, &lblWidth, &valWidth }, { &sldMod, &lblMod, &valMod },
-        { &sldPredelay, &lblPredelay, &valPredelay }, { &sldMix, &lblMix, &valMix }
+        { &sldPredelay, &lblPredelay, &valPredelay }, { &sldMix, &lblMix, &valMix }, { &sldDuck, &lblDuck, &valDuck }
     };
 
     const int knobSize = 88;
     const int labelH = 16;
     const int valueH = 16;
     const int left = 28;
-    const int usableW = getWidth() - left * 2;
-    const int slotW = usableW / 5;
     const int firstRowY = 362;
     const int secondRowY = 486;
+    const int topCount = 6;
+    const int bottomCount = 5;
+    const int topSlotW = (getWidth() - left * 2) / topCount;
+    const int bottomSlotW = (getWidth() - left * 2) / bottomCount;
 
-    for (int i = 0; i < 10; ++i)
+    for (int i = 0; i < 11; ++i)
     {
-        const int row = i / 5;
-        const int col = i % 5;
+        const bool topRow = i < topCount;
+        const int col = topRow ? i : (i - topCount);
+        const int slotW = topRow ? topSlotW : bottomSlotW;
         const int centreX = left + col * slotW + slotW / 2;
-        const int y = row == 0 ? firstRowY : secondRowY;
+        const int y = topRow ? firstRowY : secondRowY;
         groups[i].label->setBounds(centreX - 54, y, 108, labelH);
         groups[i].slider->setBounds(centreX - knobSize / 2, y + labelH + 4, knobSize, knobSize);
         groups[i].value->setBounds(centreX - 54, y + labelH + knobSize + 8, 108, valueH);
     }
 
     updateModeButtons();
+    updateFreezeButton();
 }
 
 inline juce::AudioProcessorEditor* ReverbPedal::createEditor()

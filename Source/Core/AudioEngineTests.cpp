@@ -117,6 +117,29 @@ double computeStereoCorrelation(const juce::AudioBuffer<float>& buffer, int star
     return denom > 1.0e-12 ? cov / denom : 1.0;
 }
 
+double computeBufferNullRms(const juce::AudioBuffer<float>& a, const juce::AudioBuffer<float>& b)
+{
+    const int channels = juce::jmin(a.getNumChannels(), b.getNumChannels());
+    const int samples = juce::jmin(a.getNumSamples(), b.getNumSamples());
+    if (channels <= 0 || samples <= 0)
+        return 0.0;
+
+    double sumSquares = 0.0;
+    int count = 0;
+
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        for (int i = 0; i < samples; ++i)
+        {
+            const double diff = (double)a.getSample(ch, i) - (double)b.getSample(ch, i);
+            sumSquares += diff * diff;
+            ++count;
+        }
+    }
+
+    return count > 0 ? std::sqrt(sumSquares / (double)count) : 0.0;
+}
+
 juce::AudioBuffer<float> renderReverbOutput(ReverbPedal& pedal,
     const juce::AudioBuffer<float>& input,
     int blockSize)
@@ -134,6 +157,36 @@ juce::AudioBuffer<float> renderReverbOutput(ReverbPedal& pedal,
         for (int ch = 0; ch < input.getNumChannels(); ++ch)
             block.copyFrom(ch, 0, input, ch, offset, numSamples);
 
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+template <typename Callback>
+juce::AudioBuffer<float> renderReverbOutputWithAutomation(ReverbPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize,
+    Callback&& callback)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    int blockIndex = 0;
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize, ++blockIndex)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        callback(blockIndex, offset, block);
         pedal.processBlock(block, midi);
 
         for (int ch = 0; ch < output.getNumChannels(); ++ch)
@@ -744,6 +797,8 @@ public:
             source.modParam->setValueNotifyingHost(source.modParam->convertTo0to1(0.44f));
             source.predelayParam->setValueNotifyingHost(source.predelayParam->convertTo0to1(86.0f));
             source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.37f));
+            source.duckParam->setValueNotifyingHost(source.duckParam->convertTo0to1(0.41f));
+            source.freezeParam->setValueNotifyingHost(1.0f);
 
             juce::MemoryBlock state;
             source.getStateInformation(state);
@@ -758,6 +813,8 @@ public:
             expect(approximatelyEqual(restored.diffusionParam->get(), 0.88f, 1.0e-3f));
             expect(approximatelyEqual(restored.widthParam->get(), 0.93f, 1.0e-3f));
             expect(approximatelyEqual(restored.predelayParam->get(), 86.0f, 0.5f));
+            expect(approximatelyEqual(restored.duckParam->get(), 0.41f, 1.0e-3f));
+            expect(restored.freezeParam->get(), "Freeze state should round-trip in the modern format");
         }
 
         beginTest("ReverbPedal maps legacy three-mode state to the correct mode");
@@ -857,6 +914,107 @@ public:
             expect(bufferHasOnlyFiniteSamples(output), "Stereo render must remain finite");
             expect(std::abs(corr) < 0.97, "Wet field should not collapse into a near-mono correlation");
             expect(sideRatio > 0.12, "Hall mode should project measurable energy into the opposite channel");
+        }
+
+        beginTest("Reverb hero modes render measurably different impulse signatures");
+        {
+            auto renderMode = [](int modeIndex)
+            {
+                ReverbPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost((float)modeIndex / 5.0f);
+                pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.74f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.66f));
+                pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.70f));
+                pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.84f));
+                pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(1.0f));
+                pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(16.0f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+                juce::AudioBuffer<float> input(2, (int)(kSampleRate * 1.6));
+                input.clear();
+                input.setSample(0, 0, 1.0f);
+                input.setSample(1, 0, 1.0f);
+                return renderReverbOutput(pedal, input, kBlockSize);
+            };
+
+            const auto spring = renderMode(0);
+            const auto plate = renderMode(1);
+            const auto hall = renderMode(2);
+
+            const double springPlateNull = computeBufferNullRms(spring, plate);
+            const double plateHallNull = computeBufferNullRms(plate, hall);
+            const double springHallNull = computeBufferNullRms(spring, hall);
+
+            expect(springPlateNull > 8.0e-4, "Spring and Plate should no longer collapse into near-identical tails");
+            expect(plateHallNull > 7.0e-4, "Plate and Hall should carry distinct signatures");
+            expect(springHallNull > 8.0e-4, "Spring and Hall should remain clearly separated");
+        }
+
+        beginTest("ReverbPedal freeze holds a stable ambient pad after capture");
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(1.0f); // Cloud
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.86f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.88f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.92f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(1.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            const int totalSamples = (int)(kSampleRate * 3.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            input.setSample(0, 0, 1.0f);
+            input.setSample(1, 0, 1.0f);
+
+            const auto output = renderReverbOutputWithAutomation(pedal, input, kBlockSize,
+                [&pedal](int blockIndex, int, juce::AudioBuffer<float>&)
+                {
+                    if (blockIndex == 1 && pedal.freezeParam != nullptr)
+                        pedal.freezeParam->setValueNotifyingHost(1.0f);
+                });
+
+            const double lateRms = computeWindowRms(output, (int)(kSampleRate * 0.8), (int)(kSampleRate * 0.4));
+            const double heldRms = computeWindowRms(output, totalSamples - (int)(kSampleRate * 0.4), (int)(kSampleRate * 0.3));
+
+            expect(bufferHasOnlyFiniteSamples(output), "Freeze render must remain finite");
+            expect(heldRms > lateRms * 0.60, "Freeze should sustain a significant portion of the captured tail");
+        }
+
+        beginTest("ReverbPedal ducking clears space while the source is active");
+        {
+            ReverbPedal baseline;
+            baseline.prepareToPlay(kSampleRate, kBlockSize);
+            baseline.modeParam->setValueNotifyingHost(0.4f); // Hall
+            baseline.decayParam->setValueNotifyingHost(baseline.decayParam->convertTo0to1(0.72f));
+            baseline.diffusionParam->setValueNotifyingHost(baseline.diffusionParam->convertTo0to1(0.86f));
+            baseline.mixParam->setValueNotifyingHost(baseline.mixParam->convertTo0to1(1.0f));
+
+            ReverbPedal ducked;
+            ducked.prepareToPlay(kSampleRate, kBlockSize);
+            ducked.modeParam->setValueNotifyingHost(0.4f); // Hall
+            ducked.decayParam->setValueNotifyingHost(ducked.decayParam->convertTo0to1(0.72f));
+            ducked.diffusionParam->setValueNotifyingHost(ducked.diffusionParam->convertTo0to1(0.86f));
+            ducked.mixParam->setValueNotifyingHost(ducked.mixParam->convertTo0to1(1.0f));
+            ducked.duckParam->setValueNotifyingHost(ducked.duckParam->convertTo0to1(0.90f));
+
+            const int totalSamples = (int)(kSampleRate * 1.5);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float sample = 0.22f * std::sin(juce::MathConstants<double>::twoPi * 220.0 * (double)i / kSampleRate);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto baselineOut = renderReverbOutput(baseline, input, kBlockSize);
+            const auto duckedOut = renderReverbOutput(ducked, input, kBlockSize);
+            const double baselineRms = computeWindowRms(baselineOut, (int)(kSampleRate * 0.6), (int)(kSampleRate * 0.3));
+            const double duckedRms = computeWindowRms(duckedOut, (int)(kSampleRate * 0.6), (int)(kSampleRate * 0.3));
+
+            expect(duckedRms < baselineRms * 0.75, "High ducking should noticeably reduce wet energy under sustained playing");
         }
 
         beginTest("Processor switcher cycles through all three routing modes");
