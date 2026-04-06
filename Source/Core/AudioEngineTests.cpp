@@ -798,6 +798,8 @@ public:
             source.predelayParam->setValueNotifyingHost(source.predelayParam->convertTo0to1(86.0f));
             source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.37f));
             source.duckParam->setValueNotifyingHost(source.duckParam->convertTo0to1(0.41f));
+            source.swellParam->setValueNotifyingHost(source.swellParam->convertTo0to1(0.63f));
+            source.gateParam->setValueNotifyingHost(source.gateParam->convertTo0to1(0.28f));
             source.freezeParam->setValueNotifyingHost(1.0f);
 
             juce::MemoryBlock state;
@@ -814,6 +816,8 @@ public:
             expect(approximatelyEqual(restored.widthParam->get(), 0.93f, 1.0e-3f));
             expect(approximatelyEqual(restored.predelayParam->get(), 86.0f, 0.5f));
             expect(approximatelyEqual(restored.duckParam->get(), 0.41f, 1.0e-3f));
+            expect(approximatelyEqual(restored.swellParam->get(), 0.63f, 1.0e-3f));
+            expect(approximatelyEqual(restored.gateParam->get(), 0.28f, 1.0e-3f));
             expect(restored.freezeParam->get(), "Freeze state should round-trip in the modern format");
         }
 
@@ -1015,6 +1019,85 @@ public:
             const double duckedRms = computeWindowRms(duckedOut, (int)(kSampleRate * 0.6), (int)(kSampleRate * 0.3));
 
             expect(duckedRms < baselineRms * 0.75, "High ducking should noticeably reduce wet energy under sustained playing");
+        }
+
+        beginTest("ReverbPedal swell softens the wet attack and blooms afterward");
+        {
+            auto renderPedal = [&](float swellAmount)
+            {
+                ReverbPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(1.0f); // Cloud
+                pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.80f));
+                pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.84f));
+                pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.90f));
+                pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(18.0f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.swellParam->setValueNotifyingHost(pedal.swellParam->convertTo0to1(swellAmount));
+
+                const int totalSamples = (int)(kSampleRate * 1.2);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                const int burstSamples = (int)(kSampleRate * 0.35);
+                for (int i = 0; i < burstSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 196.0f * (float)i / (float)kSampleRate;
+                    const float sample = 0.20f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderReverbOutput(pedal, input, kBlockSize);
+            };
+
+            const auto baselineOut = renderPedal(0.0f);
+            const auto swelledOut = renderPedal(0.92f);
+            const double baselineEarly = computeWindowRms(baselineOut, (int)(kSampleRate * 0.03), (int)(kSampleRate * 0.11));
+            const double swelledEarly = computeWindowRms(swelledOut, (int)(kSampleRate * 0.03), (int)(kSampleRate * 0.11));
+            const double baselineBloom = computeWindowRms(baselineOut, (int)(kSampleRate * 0.20), (int)(kSampleRate * 0.22));
+            const double swelledBloom = computeWindowRms(swelledOut, (int)(kSampleRate * 0.20), (int)(kSampleRate * 0.22));
+
+            expect(swelledEarly < baselineEarly * 0.72, "High swell should noticeably soften the early wet attack");
+            expect(swelledBloom > swelledEarly * 1.45, "High swell should bloom after the initial onset");
+            expect(swelledBloom > baselineBloom * 0.45, "Swell should delay the wet body, not erase it");
+        }
+
+        beginTest("ReverbPedal gate clamps the tail after the source stops");
+        {
+            auto renderPedal = [&](float gateAmount)
+            {
+                ReverbPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(0.4f); // Hall
+                pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.76f));
+                pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.86f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.gateParam->setValueNotifyingHost(pedal.gateParam->convertTo0to1(gateAmount));
+
+                const int totalSamples = (int)(kSampleRate * 1.6);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                const int burstSamples = (int)(kSampleRate * 0.22);
+                for (int i = 0; i < burstSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 220.0f * (float)i / (float)kSampleRate;
+                    const float sample = 0.22f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderReverbOutput(pedal, input, kBlockSize);
+            };
+
+            const auto baselineOut = renderPedal(0.0f);
+            const auto gatedOut = renderPedal(0.92f);
+            const double baselineBody = computeWindowRms(baselineOut, (int)(kSampleRate * 0.12), (int)(kSampleRate * 0.20));
+            const double gatedBody = computeWindowRms(gatedOut, (int)(kSampleRate * 0.12), (int)(kSampleRate * 0.20));
+            const double baselineTail = computeWindowRms(baselineOut, (int)(kSampleRate * 0.90), (int)(kSampleRate * 0.25));
+            const double gatedTail = computeWindowRms(gatedOut, (int)(kSampleRate * 0.90), (int)(kSampleRate * 0.25));
+
+            expect(gatedBody > baselineBody * 0.55, "Gate should preserve a useful body while the source is active");
+            expect(gatedTail < baselineTail * 0.42, "High gate should clamp the late tail decisively");
         }
 
         beginTest("Processor switcher cycles through all three routing modes");

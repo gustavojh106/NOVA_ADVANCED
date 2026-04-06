@@ -44,11 +44,11 @@ private:
         btnPitchOct5 { "OCT+5" }, btnPitch2Oct { "2 OCT" };
 
     juce::Slider sldDecay, sldTone, sldSize, sldDamping, sldBassCut,
-        sldDiffusion, sldWidth, sldMod, sldPredelay, sldMix, sldDuck;
+        sldDiffusion, sldWidth, sldMod, sldPredelay, sldMix, sldDuck, sldSwell, sldGate;
     juce::Label lblDecay, lblTone, lblSize, lblDamping, lblBassCut,
-        lblDiffusion, lblWidth, lblMod, lblPredelay, lblMix, lblDuck;
+        lblDiffusion, lblWidth, lblMod, lblPredelay, lblMix, lblDuck, lblSwell, lblGate;
     juce::Label valDecay, valTone, valSize, valDamping, valBassCut,
-        valDiffusion, valWidth, valMod, valPredelay, valMix, valDuck;
+        valDiffusion, valWidth, valMod, valPredelay, valMix, valDuck, valSwell, valGate;
 
     juce::Rectangle<float> vizBounds;
     int cachedMode = -1;
@@ -168,6 +168,8 @@ inline ReverbEditor::ReverbEditor(ReverbPedal& pedal)
     setupKnob(sldPredelay, lblPredelay, valPredelay, "PREDELAY", 0.0, 250.0, 15.0, 1.0);
     setupKnob(sldMix, lblMix, valMix, "MIX", 0.0, 1.0, 0.28);
     setupKnob(sldDuck, lblDuck, valDuck, "DUCK", 0.0, 1.0, 0.0);
+    setupKnob(sldSwell, lblSwell, valSwell, "SWELL", 0.0, 1.0, 0.0);
+    setupKnob(sldGate, lblGate, valGate, "GATE", 0.0, 1.0, 0.0);
 
     auto wire = [](juce::Slider& slider, juce::AudioParameterFloat* param)
     {
@@ -200,6 +202,8 @@ inline ReverbEditor::ReverbEditor(ReverbPedal& pedal)
     wire(sldPredelay, proc.predelayParam);
     wire(sldMix, proc.mixParam);
     wire(sldDuck, proc.duckParam);
+    wire(sldSwell, proc.swellParam);
+    wire(sldGate, proc.gateParam);
 
     startTimerHz(24);
 }
@@ -208,7 +212,8 @@ inline ReverbEditor::~ReverbEditor()
 {
     stopTimer();
     for (auto* slider : { &sldDecay, &sldTone, &sldSize, &sldDamping, &sldBassCut,
-                          &sldDiffusion, &sldWidth, &sldMod, &sldPredelay, &sldMix, &sldDuck })
+                          &sldDiffusion, &sldWidth, &sldMod, &sldPredelay, &sldMix, &sldDuck,
+                          &sldSwell, &sldGate })
         slider->setLookAndFeel(nullptr);
 }
 
@@ -321,6 +326,8 @@ inline void ReverbEditor::timerCallback()
     sync(sldPredelay, proc.predelayParam);
     sync(sldMix, proc.mixParam);
     sync(sldDuck, proc.duckParam);
+    sync(sldSwell, proc.swellParam);
+    sync(sldGate, proc.gateParam);
 
     if ((proc.modeParam != nullptr ? proc.modeParam->getIndex() : 0) != cachedMode)
         updateModeButtons();
@@ -347,6 +354,8 @@ inline void ReverbEditor::timerCallback()
     fmt(valPredelay, (float) sldPredelay.getValue(), " ms");
     fmt(valMix, (float) sldMix.getValue() * 100.0f, "%");
     fmt(valDuck, (float) sldDuck.getValue() * 100.0f, "%");
+    fmt(valSwell, (float) sldSwell.getValue() * 100.0f, "%");
+    fmt(valGate, (float) sldGate.getValue() * 100.0f, "%");
 
     repaint(vizBounds.toNearestInt());
 }
@@ -368,7 +377,7 @@ inline void ReverbEditor::paint(juce::Graphics& g)
 
     g.setColour(textDim);
     g.setFont(juce::Font(12.0f));
-    g.drawText("Dense tails, controlled damping, stereo width and modern modulation.", 28, 62, 420, 18, juce::Justification::centredLeft);
+    g.drawText("Dense tails, shaped attacks, gated ambience and modern modulation.", 28, 62, 460, 18, juce::Justification::centredLeft);
 
     g.setColour(textDim);
     g.setFont(juce::Font(10.0f, juce::Font::bold));
@@ -420,9 +429,12 @@ inline void ReverbEditor::paintDecayCurve(juce::Graphics& g, juce::Rectangle<flo
     const float damping = (float) sldDamping.getValue();
     const float stereoWidth = (float) sldWidth.getValue();
     const float duck = (float) sldDuck.getValue();
+    const float swell = (float) sldSwell.getValue();
+    const float gate = (float) sldGate.getValue();
     const bool freeze = proc.freezeParam != nullptr && proc.freezeParam->get();
     const int mode = proc.modeParam != nullptr ? proc.modeParam->getIndex() : 0;
     const float pdNorm = juce::jlimit(0.0f, 0.25f, predelay / 600.0f);
+    const float swellLead = swell * 0.14f;
     const float decayRate = 2.0f + (1.0f - decay) * 14.0f;
 
     juce::Path fillPath, strokePath;
@@ -436,7 +448,14 @@ inline void ReverbEditor::paintDecayCurve(juce::Graphics& g, juce::Rectangle<flo
         if (t >= pdNorm)
         {
             const float tPost = (t - pdNorm) / juce::jmax(0.01f, 1.0f - pdNorm);
-            env = shapeFor(mode, tPost, decayRate, size, stereoWidth) * (1.0f - damping * 0.12f) * (1.0f - duck * 0.28f);
+            const float swellOpen = juce::jlimit(0.0f, 1.0f, (tPost - swellLead) / juce::jmax(0.05f, 0.14f + swellLead));
+            const float swellShape = swellOpen * swellOpen * (3.0f - 2.0f * swellOpen);
+            const float gateShape = 1.0f - gate * juce::jlimit(0.0f, 1.0f, (tPost - 0.22f) / 0.30f);
+            env = shapeFor(mode, tPost, decayRate, size, stereoWidth)
+                * (1.0f - damping * 0.12f)
+                * (1.0f - duck * 0.28f)
+                * (1.0f + (swellShape - 1.0f) * swell)
+                * juce::jmax(0.05f, gateShape);
             if (freeze)
                 env = juce::jmax(env, 0.62f);
         }
@@ -503,21 +522,22 @@ inline void ReverbEditor::resized()
         { &sldDecay, &lblDecay, &valDecay }, { &sldTone, &lblTone, &valTone }, { &sldSize, &lblSize, &valSize },
         { &sldDamping, &lblDamping, &valDamping }, { &sldBassCut, &lblBassCut, &valBassCut },
         { &sldDiffusion, &lblDiffusion, &valDiffusion }, { &sldWidth, &lblWidth, &valWidth }, { &sldMod, &lblMod, &valMod },
-        { &sldPredelay, &lblPredelay, &valPredelay }, { &sldMix, &lblMix, &valMix }, { &sldDuck, &lblDuck, &valDuck }
+        { &sldPredelay, &lblPredelay, &valPredelay }, { &sldMix, &lblMix, &valMix }, { &sldDuck, &lblDuck, &valDuck },
+        { &sldSwell, &lblSwell, &valSwell }, { &sldGate, &lblGate, &valGate }
     };
 
-    const int knobSize = 88;
+    const int knobSize = 84;
     const int labelH = 16;
     const int valueH = 16;
     const int left = 28;
     const int firstRowY = 362;
     const int secondRowY = 486;
-    const int topCount = 6;
-    const int bottomCount = 5;
+    const int topCount = 7;
+    const int bottomCount = 6;
     const int topSlotW = (getWidth() - left * 2) / topCount;
     const int bottomSlotW = (getWidth() - left * 2) / bottomCount;
 
-    for (int i = 0; i < 11; ++i)
+    for (int i = 0; i < 13; ++i)
     {
         const bool topRow = i < topCount;
         const int col = topRow ? i : (i - topCount);

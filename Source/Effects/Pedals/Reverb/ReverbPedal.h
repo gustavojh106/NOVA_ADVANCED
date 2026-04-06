@@ -223,6 +223,14 @@ struct CharacterDelayVoice
     }
 };
 
+struct PerformanceGains
+{
+    float duckGain = 1.0f;
+    float swellGain = 1.0f;
+    float gateGain = 1.0f;
+    float gateFeedbackScale = 1.0f;
+};
+
 // Two-band damper: crossover splits into bass/treble with independent attenuation
 struct TwoBandDamper
 {
@@ -655,11 +663,19 @@ public:
         outToneHzSmooth.setCurrentAndTargetValue(7500.0f);
         duckAmountSmooth.reset(sr, 0.03);
         duckAmountSmooth.setCurrentAndTargetValue(0.0f);
+        swellAmountSmooth.reset(sr, 0.04);
+        swellAmountSmooth.setCurrentAndTargetValue(0.0f);
+        gateAmountSmooth.reset(sr, 0.04);
+        gateAmountSmooth.setCurrentAndTargetValue(0.0f);
         freezeSmooth.reset(sr, 0.02);
         freezeSmooth.setCurrentAndTargetValue(0.0f);
 
         duckAttackCoeff = (float)std::exp(-1.0 / (sr * 0.012));
         duckReleaseCoeff = (float)std::exp(-1.0 / (sr * 0.180));
+        swellAttackCoeff = (float)std::exp(-1.0 / (sr * 0.085));
+        swellReleaseCoeff = (float)std::exp(-1.0 / (sr * 0.110));
+        gateAttackCoeff = (float)std::exp(-1.0 / (sr * 0.006));
+        gateReleaseCoeff = (float)std::exp(-1.0 / (sr * 0.145));
         bloomLP.setCutoff(1800.0f, sr);
 
         reset();
@@ -687,13 +703,15 @@ public:
         dcL.reset();  dcR.reset();
         modPhases.fill(0.0f);
         duckEnv = 0.0f;
+        swellEnv = 0.0f;
+        gateEnv = 0.0f;
     }
 
     // Call when any parameter changes (cheap — not per-sample)
     void configure(int mode, float decay01, float size01, float tone01,
                    float damping01, float bassCut01, float diffusion01,
                    float width01, float modAmount01, float predelayMs,
-                   float duckAmount01, bool freezeEnabled)
+                   float duckAmount01, float swellAmount01, float gateAmount01, bool freezeEnabled)
     {
         const auto& t = tuningForMode(mode);
         currentMode   = mode;
@@ -758,6 +776,8 @@ public:
         erLevelSmooth.setTargetValue(erLevel);
         widthSmooth.setTargetValue(width01);
         duckAmountSmooth.setTargetValue(duckAmount01);
+        swellAmountSmooth.setTargetValue(swellAmount01);
+        gateAmountSmooth.setTargetValue(gateAmount01);
         freezeSmooth.setTargetValue(freezeEnabled ? 1.0f : 0.0f);
 
         // ---- Pre-delay ----
@@ -869,14 +889,16 @@ public:
         const float width    = widthSmooth.getNextValue();
         const float toneHz   = outToneHzSmooth.getNextValue();
         const float duckAmount = duckAmountSmooth.getNextValue();
+        const float swellAmount = swellAmountSmooth.getNextValue();
+        const float gateAmount = gateAmountSmooth.getNextValue();
         const float freeze = freezeSmooth.getNextValue();
         outputToneL.setCutoff(toneHz, sr);
         outputToneR.setCutoff(toneHz, sr);
 
         const float midIn  = (inL + inR) * 0.5f;
         const float sideIn = (inL - inR) * 0.5f;
-        updateDuckEnvelope(midIn, sideIn);
-        const float duckGain = computeDuckGain(duckAmount, freeze);
+        updatePerformanceEnvelopes(midIn, sideIn);
+        const auto performance = computePerformanceGains(duckAmount, swellAmount, gateAmount, freeze);
 
         // ---- Pre-delay (shared by ER + late) ----
         predelayMid.write(midIn);
@@ -889,8 +911,8 @@ public:
         // ---- Early reflections ----
         float erL = 0.0f, erR = 0.0f;
         er.process(delayedMid, erL, erR);
-        erL += delayedSide * 0.08f * width;
-        erR -= delayedSide * 0.08f * width;
+        erL = (erL + delayedSide * 0.08f * width) * performance.swellGain;
+        erR = (erR - delayedSide * 0.08f * width) * performance.swellGain;
 
         // ---- Input diffusion (6 cascaded all-pass stages) ----
         float diffused = delayedMid;
@@ -904,8 +926,10 @@ public:
 
         const float inputInject = 1.0f - freeze * 0.985f;
         const float loopFeedback = lerp(fb, juce::jmax(fb, 0.9992f), freeze);
-        const float attackExcite = std::tanh(diffused * modeInputDrive * 0.7f) * modeAttackMix;
-        diffused *= modeInputDrive * inputInject;
+        const float gatedFeedback = loopFeedback * performance.gateFeedbackScale;
+        const float attackExcite = std::tanh(diffused * modeInputDrive * 0.7f)
+            * modeAttackMix * performance.swellGain;
+        diffused *= modeInputDrive * inputInject * performance.swellGain;
 
         // ---- Read FDN lines (modulated, cubic interpolation) ----
         std::array<float, NUM_LINES> lineOut{};
@@ -959,10 +983,11 @@ public:
         // ---- Write back into FDN lines ----
         for (int i = 0; i < NUM_LINES; ++i)
         {
-            float fbSig = loopFeedback * lineOut[(size_t)i];
+            float fbSig = gatedFeedback * lineOut[(size_t)i];
             // Soft-limit feedback (transparent below ±2.5, compresses above)
             fbSig = std::tanh(fbSig * 0.4f) * 2.5f;
-            const float stereoExcite = delayedSide * width * modeStereoExcite * kTapR[(size_t)i];
+            const float stereoExcite = delayedSide * width * modeStereoExcite * kTapR[(size_t)i]
+                * performance.swellGain;
             float inp = (diffused + stereoExcite) * kInvSqrt8 + fbSig;
             if (useShimmer) inp += shimSig * kInvSqrt8;
             lines[i].write(inp);
@@ -985,8 +1010,9 @@ public:
 
         // ---- Blend ER + late reverb ----
         const float erMix = erLevel * (1.0f - freeze);
-        outL = (erL * erMix + lateL) * duckGain;
-        outR = (erR * erMix + lateR) * duckGain;
+        const float wetGain = performance.duckGain * performance.gateGain;
+        outL = (erL * erMix + lateL) * wetGain;
+        outR = (erR * erMix + lateR) * wetGain;
 
         // ---- DC blocking ----
         outL = dcL.process(outL);
@@ -1014,6 +1040,8 @@ public:
             const float width    = widthSmooth.getNextValue();
             const float toneHz   = outToneHzSmooth.getNextValue();
             const float duckAmount = duckAmountSmooth.getNextValue();
+            const float swellAmount = swellAmountSmooth.getNextValue();
+            const float gateAmount = gateAmountSmooth.getNextValue();
             const float freeze = freezeSmooth.getNextValue();
             outputToneL.setCutoff(toneHz, sr);
             outputToneR.setCutoff(toneHz, sr);
@@ -1022,8 +1050,8 @@ public:
             const float sR = inR[s];
             const float midIn  = (sL + sR) * 0.5f;
             const float sideIn = (sL - sR) * 0.5f;
-            updateDuckEnvelope(midIn, sideIn);
-            const float duckGain = computeDuckGain(duckAmount, freeze);
+            updatePerformanceEnvelopes(midIn, sideIn);
+            const auto performance = computePerformanceGains(duckAmount, swellAmount, gateAmount, freeze);
 
             predelayMid.write(midIn);
             predelaySide.write(sideIn);
@@ -1034,8 +1062,8 @@ public:
 
             float erL = 0.0f, erR = 0.0f;
             er.process(delayedMid, erL, erR);
-            erL += delayedSide * 0.08f * width;
-            erR -= delayedSide * 0.08f * width;
+            erL = (erL + delayedSide * 0.08f * width) * performance.swellGain;
+            erR = (erR - delayedSide * 0.08f * width) * performance.swellGain;
 
             float diffused = delayedMid;
             for (auto& d : diffusers)
@@ -1046,8 +1074,10 @@ public:
 
             const float inputInject = 1.0f - freeze * 0.985f;
             const float loopFeedback = lerp(fb, juce::jmax(fb, 0.9992f), freeze);
-            const float attackExcite = std::tanh(diffused * modeInputDrive * 0.7f) * modeAttackMix;
-            diffused *= modeInputDrive * inputInject;
+            const float gatedFeedback = loopFeedback * performance.gateFeedbackScale;
+            const float attackExcite = std::tanh(diffused * modeInputDrive * 0.7f)
+                * modeAttackMix * performance.swellGain;
+            diffused *= modeInputDrive * inputInject * performance.swellGain;
 
             // FDN read + damping (unrolled inner loop)
             std::array<float, NUM_LINES> lineOut{};
@@ -1095,8 +1125,9 @@ public:
 
             for (int i = 0; i < NUM_LINES; ++i)
             {
-                float fbSig = std::tanh(loopFeedback * lineOut[(size_t)i] * 0.4f) * 2.5f;
-                const float stereoExcite = delayedSide * width * modeStereoExcite * kTapR[(size_t)i];
+                float fbSig = std::tanh(gatedFeedback * lineOut[(size_t)i] * 0.4f) * 2.5f;
+                const float stereoExcite = delayedSide * width * modeStereoExcite * kTapR[(size_t)i]
+                    * performance.swellGain;
                 float inp = (diffused + stereoExcite) * kInvSqrt8 + fbSig;
                 if (useShimmer) inp += shimSig * kInvSqrt8;
                 lines[i].write(inp);
@@ -1117,27 +1148,55 @@ public:
             lateR = outputToneR.process(lateR);
 
             const float erMix = erLevel * (1.0f - freeze);
-            outL[s] = dcL.process((erL * erMix + lateL) * duckGain);
-            outR[s] = dcR.process((erR * erMix + lateR) * duckGain);
+            const float wetGain = performance.duckGain * performance.gateGain;
+            outL[s] = dcL.process((erL * erMix + lateL) * wetGain);
+            outR[s] = dcR.process((erR * erMix + lateR) * wetGain);
         }
     }
 
     int currentMode = 0;
 
 private:
-    void updateDuckEnvelope(float midIn, float sideIn) noexcept
+    void updatePerformanceEnvelopes(float midIn, float sideIn) noexcept
     {
         const float detector = std::abs(midIn) + 0.35f * std::abs(sideIn);
-        const float coeff = detector > duckEnv ? duckAttackCoeff : duckReleaseCoeff;
-        duckEnv = detector + coeff * (duckEnv - detector);
+        const float duckCoeff = detector > duckEnv ? duckAttackCoeff : duckReleaseCoeff;
+        duckEnv = detector + duckCoeff * (duckEnv - detector);
+
+        const float swellCoeff = detector > swellEnv ? swellAttackCoeff : swellReleaseCoeff;
+        swellEnv = detector + swellCoeff * (swellEnv - detector);
+
+        const float gateCoeff = detector > gateEnv ? gateAttackCoeff : gateReleaseCoeff;
+        gateEnv = detector + gateCoeff * (gateEnv - detector);
     }
 
-    float computeDuckGain(float duckAmount, float freeze) const noexcept
+    PerformanceGains computePerformanceGains(float duckAmount, float swellAmount,
+        float gateAmount, float freeze) const noexcept
     {
+        PerformanceGains gains;
+
         float duckControl = juce::jlimit(0.0f, 1.0f, (duckEnv - 0.015f) * 8.0f);
-        float duckGain = 1.0f - duckAmount * duckControl * 0.82f;
-        duckGain = juce::jmax(0.18f, duckGain * (0.85f + 0.15f * duckGain));
-        return lerp(duckGain, 1.0f, freeze);
+        gains.duckGain = 1.0f - duckAmount * duckControl * 0.82f;
+        gains.duckGain = juce::jmax(0.18f, gains.duckGain * (0.85f + 0.15f * gains.duckGain));
+        gains.duckGain = lerp(gains.duckGain, 1.0f, freeze);
+
+        const float swellThreshold = 0.004f + swellAmount * 0.010f;
+        float swellOpen = juce::jlimit(0.0f, 1.0f, (swellEnv - swellThreshold) / (0.11f + swellThreshold));
+        swellOpen = swellOpen * swellOpen * (3.0f - 2.0f * swellOpen);
+        gains.swellGain = lerp(1.0f, 0.18f + swellOpen * 0.82f, swellAmount);
+        gains.swellGain = lerp(gains.swellGain, 1.0f, freeze);
+
+        const float gateThreshold = 0.010f + gateAmount * 0.040f;
+        float gateOpen = juce::jlimit(0.0f, 1.0f, (gateEnv - gateThreshold) / (0.11f + gateThreshold));
+        gateOpen = gateOpen * gateOpen * (3.0f - 2.0f * gateOpen);
+        const float gateFloor = juce::jmax(0.02f, 1.0f - gateAmount * 0.97f);
+        gains.gateGain = lerp(1.0f, gateFloor + gateOpen * (1.0f - gateFloor), gateAmount);
+
+        const float tightFeedback = juce::jmax(0.64f, 0.92f - gateAmount * 0.22f);
+        gains.gateFeedbackScale = lerp(1.0f, tightFeedback + gateOpen * (1.0f - tightFeedback), gateAmount);
+        gains.gateGain = lerp(gains.gateGain, 1.0f, freeze);
+        gains.gateFeedbackScale = lerp(gains.gateFeedbackScale, 1.0f, freeze);
+        return gains;
     }
 
     void applyDedicatedModeCharacter(float delayedMid, float delayedSide,
@@ -1211,6 +1270,8 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> outToneHzSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> duckAmountSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> swellAmountSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> gateAmountSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> freezeSmooth;
 
     EarlyReflections   er;
@@ -1226,6 +1287,12 @@ private:
     float duckEnv = 0.0f;
     float duckAttackCoeff = 0.98f;
     float duckReleaseCoeff = 0.999f;
+    float swellEnv = 0.0f;
+    float swellAttackCoeff = 0.999f;
+    float swellReleaseCoeff = 0.999f;
+    float gateEnv = 0.0f;
+    float gateAttackCoeff = 0.98f;
+    float gateReleaseCoeff = 0.999f;
     float modeInputDrive = 1.0f;
     float modeStereoExcite = 0.35f;
     float modeSideScale = 1.0f;
@@ -1275,6 +1342,10 @@ public:
             "reverbMix", "Mix", 0.0f, 1.0f, 0.28f));
         addParameter(duckParam = new juce::AudioParameterFloat(
             "reverbDuck", "Duck", 0.0f, 1.0f, 0.0f));
+        addParameter(swellParam = new juce::AudioParameterFloat(
+            "reverbSwell", "Swell", 0.0f, 1.0f, 0.0f));
+        addParameter(gateParam = new juce::AudioParameterFloat(
+            "reverbGate", "Gate", 0.0f, 1.0f, 0.0f));
         addParameter(freezeParam = new juce::AudioParameterBool(
             "reverbFreeze", "Freeze", false));
         addParameter(shimmerPitchParam = new juce::AudioParameterChoice(
@@ -1300,7 +1371,7 @@ public:
 
         lastMode = -1;
         lastDecay = lastTone = lastSize = lastDamp = -1.0f;
-        lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = -1.0f;
+        lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = lastSwell = lastGate = -1.0f;
         lastFreeze = false;
         reset();
         isPrepared = true;
@@ -1317,7 +1388,7 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override
     {
         juce::XmlElement xml("NIMBUS_REVERB_STATE");
-        xml.setAttribute("version", 4);
+        xml.setAttribute("version", 5);
         xml.setAttribute("modeIndex", modeParam ? modeParam->getIndex() : 0);
         xml.setAttribute("shimmerPitchIndex", shimmerPitchParam ? shimmerPitchParam->getIndex() : 1);
         xml.setAttribute("reverbFreeze", freezeParam != nullptr && freezeParam->get());
@@ -1332,6 +1403,8 @@ public:
         writeFloat(xml, "reverbPredelay", predelayParam);
         writeFloat(xml, "reverbMix", mixParam);
         writeFloat(xml, "reverbDuck", duckParam);
+        writeFloat(xml, "reverbSwell", swellParam);
+        writeFloat(xml, "reverbGate", gateParam);
         copyXmlToBinary(xml, destData);
     }
 
@@ -1357,6 +1430,8 @@ public:
             restoreFloat(*xml, "reverbPredelay", predelayParam);
             restoreFloat(*xml, "reverbMix", mixParam);
             restoreFloat(*xml, "reverbDuck", duckParam);
+            restoreFloat(*xml, "reverbSwell", swellParam);
+            restoreFloat(*xml, "reverbGate", gateParam);
         }
         else if (xml->hasTagName("PLUGIN_STATE"))
         {
@@ -1402,7 +1477,7 @@ public:
 
         lastMode = -1;
         lastDecay = lastTone = lastSize = lastDamp = -1.0f;
-        lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = -1.0f;
+        lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = lastSwell = lastGate = -1.0f;
         lastFreeze = false;
         if (mixParam) mixSmooth.setCurrentAndTargetValue(mixParam->get());
     }
@@ -1426,6 +1501,8 @@ public:
         const float mod     = modParam     ? modParam->get()        : 0.30f;
         const float pdMs    = predelayParam? predelayParam->get()   : 15.0f;
         const float duck    = duckParam    ? duckParam->get()       : 0.0f;
+        const float swell   = swellParam   ? swellParam->get()      : 0.0f;
+        const float gate    = gateParam    ? gateParam->get()       : 0.0f;
         const bool  freeze  = freezeParam  ? freezeParam->get()     : false;
 
         // Reconfigure only when parameters actually change
@@ -1440,9 +1517,11 @@ public:
             || std::abs(mod   - lastMod)   > 1e-4f
             || std::abs(pdMs  - lastPD)    > 0.1f
             || std::abs(duck  - lastDuck)  > 1e-4f
+            || std::abs(swell - lastSwell) > 1e-4f
+            || std::abs(gate  - lastGate)  > 1e-4f
             || freeze != lastFreeze)
         {
-            engine.configure(mode, decay, size, tone, damp, bass, diff, width, mod, pdMs, duck, freeze);
+            engine.configure(mode, decay, size, tone, damp, bass, diff, width, mod, pdMs, duck, swell, gate, freeze);
             lastMode  = mode;
             lastDecay = decay;
             lastTone  = tone;
@@ -1454,6 +1533,8 @@ public:
             lastMod   = mod;
             lastPD    = pdMs;
             lastDuck  = duck;
+            lastSwell = swell;
+            lastGate  = gate;
             lastFreeze = freeze;
         }
 
@@ -1526,6 +1607,8 @@ public:
     juce::AudioParameterFloat*  predelayParam = nullptr;
     juce::AudioParameterFloat*  mixParam      = nullptr;
     juce::AudioParameterFloat*  duckParam     = nullptr;
+    juce::AudioParameterFloat*  swellParam    = nullptr;
+    juce::AudioParameterFloat*  gateParam     = nullptr;
     juce::AudioParameterBool*   freezeParam   = nullptr;
     juce::AudioParameterChoice* shimmerPitchParam = nullptr;
 
@@ -1579,6 +1662,8 @@ private:
         else if (id == "reverbPredelay") apply(predelayParam);
         else if (id == "reverbMix") apply(mixParam);
         else if (id == "reverbDuck") apply(duckParam);
+        else if (id == "reverbSwell") apply(swellParam);
+        else if (id == "reverbGate") apply(gateParam);
     }
 
     Nova::Reverb::Engine engine;
@@ -1588,6 +1673,7 @@ private:
     int    lastMode  = -1;
     float  lastDecay = -1.0f, lastTone = -1.0f, lastSize = -1.0f, lastDamp = -1.0f;
     float  lastBass  = -1.0f, lastDiff = -1.0f, lastWidth = -1.0f, lastMod  = -1.0f, lastPD   = -1.0f, lastDuck = -1.0f;
+    float  lastSwell = -1.0f, lastGate = -1.0f;
     bool   lastFreeze = false;
     bool   isPrepared = false;
 };

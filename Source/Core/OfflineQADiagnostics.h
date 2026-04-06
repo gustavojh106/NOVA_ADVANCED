@@ -353,6 +353,8 @@ private:
         reverb.predelayParam->setValueNotifyingHost(reverb.predelayParam->convertTo0to1(24.0f));
         reverb.mixParam->setValueNotifyingHost(reverb.mixParam->convertTo0to1(1.0f));
         reverb.duckParam->setValueNotifyingHost(reverb.duckParam->convertTo0to1(0.0f));
+        reverb.swellParam->setValueNotifyingHost(reverb.swellParam->convertTo0to1(0.0f));
+        reverb.gateParam->setValueNotifyingHost(reverb.gateParam->convertTo0to1(0.0f));
         reverb.freezeParam->setValueNotifyingHost(0.0f);
     }
 
@@ -370,6 +372,8 @@ private:
         reverb.predelayParam->setValueNotifyingHost(reverb.predelayParam->convertTo0to1(12.0f));
         reverb.mixParam->setValueNotifyingHost(reverb.mixParam->convertTo0to1(1.0f));
         reverb.duckParam->setValueNotifyingHost(reverb.duckParam->convertTo0to1(0.0f));
+        reverb.swellParam->setValueNotifyingHost(reverb.swellParam->convertTo0to1(0.0f));
+        reverb.gateParam->setValueNotifyingHost(reverb.gateParam->convertTo0to1(0.0f));
         reverb.freezeParam->setValueNotifyingHost(0.0f);
     }
 
@@ -386,6 +390,8 @@ private:
         results.push_back(runReverbModeDistinctnessScenario());
         results.push_back(runReverbFreezeScenario());
         results.push_back(runReverbDuckingScenario());
+        results.push_back(runReverbSwellScenario());
+        results.push_back(runReverbGateScenario());
         results.push_back(runReverbAutomationStressScenario());
         results.push_back(runGraphDiagnosticsScenario());
         return results;
@@ -802,6 +808,139 @@ private:
         return result;
     }
 
+    static OfflineQAScenarioResult runReverbSwellScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "reverb_swell_bloom";
+
+        auto renderPedal = [](float swellAmount)
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            configureFlagshipCloud(pedal);
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.80f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.84f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.90f));
+            pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(18.0f));
+            pedal.swellParam->setValueNotifyingHost(pedal.swellParam->convertTo0to1(swellAmount));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.2));
+            input.clear();
+            const int burstSamples = (int)(sampleRate * 0.35);
+            for (int i = 0; i < burstSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 196.0f * (float)i / (float)sampleRate;
+                const float sample = 0.20f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> rendered(2, input.getNumSamples());
+            rendered.clear();
+            juce::AudioBuffer<float> block(2, blockSize);
+
+            for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+            {
+                const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+                block.clear();
+                for (int ch = 0; ch < 2; ++ch)
+                    block.copyFrom(ch, 0, input, ch, offset, numSamples);
+                pedal.processBlock(block, midi);
+                rendered.copyFrom(0, offset, block, 0, 0, numSamples);
+                rendered.copyFrom(1, offset, block, 1, 0, numSamples);
+            }
+
+            return rendered;
+        };
+
+        const auto baselineOut = renderPedal(0.0f);
+        const auto swelledOut = renderPedal(0.92f);
+        const bool finite = bufferHasOnlyFiniteSamples(swelledOut);
+        const double baselineEarly = computeWindowRms(baselineOut, (int)(sampleRate * 0.03), (int)(sampleRate * 0.11));
+        const double swelledEarly = computeWindowRms(swelledOut, (int)(sampleRate * 0.03), (int)(sampleRate * 0.11));
+        const double baselineBloom = computeWindowRms(baselineOut, (int)(sampleRate * 0.20), (int)(sampleRate * 0.22));
+        const double swelledBloom = computeWindowRms(swelledOut, (int)(sampleRate * 0.20), (int)(sampleRate * 0.22));
+
+        result.metrics.push_back({ "baseline_early_rms", baselineEarly });
+        result.metrics.push_back({ "swelled_early_rms", swelledEarly });
+        result.metrics.push_back({ "baseline_bloom_rms", baselineBloom });
+        result.metrics.push_back({ "swelled_bloom_rms", swelledBloom });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite
+            && swelledEarly < baselineEarly * 0.72
+            && swelledBloom > swelledEarly * 1.45
+            && swelledBloom > baselineBloom * 0.45;
+        result.notes = result.passed ? "Swell softened the wet attack and bloomed afterward"
+                                     : "Swell did not produce a clear delayed bloom profile";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runReverbGateScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "reverb_gate_clamp";
+
+        auto renderPedal = [](float gateAmount)
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            configureFlagshipHall(pedal);
+            pedal.gateParam->setValueNotifyingHost(pedal.gateParam->convertTo0to1(gateAmount));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.6));
+            input.clear();
+            const int burstSamples = (int)(sampleRate * 0.22);
+            for (int i = 0; i < burstSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 220.0f * (float)i / (float)sampleRate;
+                const float sample = 0.22f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> rendered(2, input.getNumSamples());
+            rendered.clear();
+            juce::AudioBuffer<float> block(2, blockSize);
+
+            for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+            {
+                const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+                block.clear();
+                for (int ch = 0; ch < 2; ++ch)
+                    block.copyFrom(ch, 0, input, ch, offset, numSamples);
+                pedal.processBlock(block, midi);
+                rendered.copyFrom(0, offset, block, 0, 0, numSamples);
+                rendered.copyFrom(1, offset, block, 1, 0, numSamples);
+            }
+
+            return rendered;
+        };
+
+        const auto baselineOut = renderPedal(0.0f);
+        const auto gatedOut = renderPedal(0.92f);
+        const bool finite = bufferHasOnlyFiniteSamples(gatedOut);
+        const double baselineBody = computeWindowRms(baselineOut, (int)(sampleRate * 0.12), (int)(sampleRate * 0.20));
+        const double gatedBody = computeWindowRms(gatedOut, (int)(sampleRate * 0.12), (int)(sampleRate * 0.20));
+        const double baselineTail = computeWindowRms(baselineOut, (int)(sampleRate * 0.90), (int)(sampleRate * 0.25));
+        const double gatedTail = computeWindowRms(gatedOut, (int)(sampleRate * 0.90), (int)(sampleRate * 0.25));
+
+        result.metrics.push_back({ "baseline_body_rms", baselineBody });
+        result.metrics.push_back({ "gated_body_rms", gatedBody });
+        result.metrics.push_back({ "baseline_tail_rms", baselineTail });
+        result.metrics.push_back({ "gated_tail_rms", gatedTail });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite
+            && gatedBody > baselineBody * 0.55
+            && gatedTail < baselineTail * 0.42;
+        result.notes = result.passed ? "Gate kept the body while clamping the late tail"
+                                     : "Gate failed to clamp the tail decisively enough";
+        return result;
+    }
+
     static OfflineQAScenarioResult runReverbAutomationStressScenario()
     {
         OfflineQAScenarioResult result;
@@ -837,6 +976,8 @@ private:
             reverb.modParam->setValueNotifyingHost(reverb.modParam->convertTo0to1(0.10f + 0.60f * std::abs(std::cos(phase * juce::MathConstants<float>::twoPi))));
             reverb.predelayParam->setValueNotifyingHost(reverb.predelayParam->convertTo0to1(phase * 180.0f));
             reverb.duckParam->setValueNotifyingHost(reverb.duckParam->convertTo0to1(0.75f * (1.0f - phase)));
+            reverb.swellParam->setValueNotifyingHost(reverb.swellParam->convertTo0to1(0.85f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+            reverb.gateParam->setValueNotifyingHost(reverb.gateParam->convertTo0to1(0.80f * phase));
             reverb.freezeParam->setValueNotifyingHost((blockIndex % 257) == 0 ? 1.0f : 0.0f);
 
             reverb.processBlock(block, midi);
