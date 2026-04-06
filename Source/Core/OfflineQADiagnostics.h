@@ -29,6 +29,20 @@ class OfflineQADiagnostics final
 public:
     static juce::File getReportFile()
     {
+        if (const auto overridePath = juce::SystemStats::getEnvironmentVariable("NOVA_QA_REPORT_PATH", {});
+            overridePath.isNotEmpty())
+        {
+            auto file = juce::File::getCurrentWorkingDirectory().getChildFile(overridePath);
+            if (juce::File::isAbsolutePath(overridePath))
+                file = juce::File(overridePath);
+
+            auto parent = file.getParentDirectory();
+            if (!parent.exists())
+                parent.createDirectory();
+
+            return file;
+        }
+
         auto logFile = SessionLogger::getLogFile();
         auto parent = logFile.getParentDirectory();
         if (!parent.exists())
@@ -355,6 +369,7 @@ private:
         reverb.duckParam->setValueNotifyingHost(reverb.duckParam->convertTo0to1(0.0f));
         reverb.swellParam->setValueNotifyingHost(reverb.swellParam->convertTo0to1(0.0f));
         reverb.gateParam->setValueNotifyingHost(reverb.gateParam->convertTo0to1(0.0f));
+        reverb.reverseParam->setValueNotifyingHost(reverb.reverseParam->convertTo0to1(0.0f));
         reverb.freezeParam->setValueNotifyingHost(0.0f);
     }
 
@@ -374,6 +389,7 @@ private:
         reverb.duckParam->setValueNotifyingHost(reverb.duckParam->convertTo0to1(0.0f));
         reverb.swellParam->setValueNotifyingHost(reverb.swellParam->convertTo0to1(0.0f));
         reverb.gateParam->setValueNotifyingHost(reverb.gateParam->convertTo0to1(0.0f));
+        reverb.reverseParam->setValueNotifyingHost(reverb.reverseParam->convertTo0to1(0.0f));
         reverb.freezeParam->setValueNotifyingHost(0.0f);
     }
 
@@ -392,6 +408,9 @@ private:
         results.push_back(runReverbDuckingScenario());
         results.push_back(runReverbSwellScenario());
         results.push_back(runReverbGateScenario());
+        results.push_back(runReverbReverseScenario());
+        results.push_back(runReverbReverseSwellScenario());
+        results.push_back(runReverbFreezeReverseScenario());
         results.push_back(runReverbAutomationStressScenario());
         results.push_back(runGraphDiagnosticsScenario());
         return results;
@@ -941,6 +960,216 @@ private:
         return result;
     }
 
+    static OfflineQAScenarioResult runReverbReverseScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "reverb_reverse_bloom";
+
+        auto renderPedal = [](float reverseAmount)
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            configureFlagshipCloud(pedal);
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.82f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.88f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.92f));
+            pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(20.0f));
+            pedal.reverseParam->setValueNotifyingHost(pedal.reverseParam->convertTo0to1(reverseAmount));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.4));
+            input.clear();
+            const int burstSamples = (int)(sampleRate * 0.18);
+            for (int i = 0; i < burstSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 246.0f * (float)i / (float)sampleRate;
+                const float sample = 0.20f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> rendered(2, input.getNumSamples());
+            rendered.clear();
+            juce::AudioBuffer<float> block(2, blockSize);
+
+            for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+            {
+                const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+                block.clear();
+                for (int ch = 0; ch < 2; ++ch)
+                    block.copyFrom(ch, 0, input, ch, offset, numSamples);
+                pedal.processBlock(block, midi);
+                rendered.copyFrom(0, offset, block, 0, 0, numSamples);
+                rendered.copyFrom(1, offset, block, 1, 0, numSamples);
+            }
+
+            return rendered;
+        };
+
+        const auto baselineOut = renderPedal(0.0f);
+        const auto reverseOut = renderPedal(0.92f);
+        const bool finite = bufferHasOnlyFiniteSamples(reverseOut);
+        const double baselineEarly = computeWindowRms(baselineOut, (int)(sampleRate * 0.03), (int)(sampleRate * 0.14));
+        const double reverseEarly = computeWindowRms(reverseOut, (int)(sampleRate * 0.03), (int)(sampleRate * 0.14));
+        const double baselineLate = computeWindowRms(baselineOut, (int)(sampleRate * 0.24), (int)(sampleRate * 0.30));
+        const double reverseLate = computeWindowRms(reverseOut, (int)(sampleRate * 0.24), (int)(sampleRate * 0.30));
+
+        result.metrics.push_back({ "baseline_early_rms", baselineEarly });
+        result.metrics.push_back({ "reverse_early_rms", reverseEarly });
+        result.metrics.push_back({ "baseline_late_rms", baselineLate });
+        result.metrics.push_back({ "reverse_late_rms", reverseLate });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite
+            && reverseEarly < baselineEarly * 0.70
+            && reverseLate > reverseEarly * 1.60
+            && reverseLate > baselineLate * 0.65;
+        result.notes = result.passed ? "Reverse ambience delayed the bloom while keeping useful late energy"
+                                     : "Reverse ambience did not create a clear delayed bloom profile";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runReverbReverseSwellScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "reverb_reverse_swell_combo";
+
+        auto renderPedal = [](float reverseAmount, float swellAmount)
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            configureFlagshipCloud(pedal);
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.84f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.90f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.94f));
+            pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(24.0f));
+            pedal.reverseParam->setValueNotifyingHost(pedal.reverseParam->convertTo0to1(reverseAmount));
+            pedal.swellParam->setValueNotifyingHost(pedal.swellParam->convertTo0to1(swellAmount));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.5));
+            input.clear();
+            const int burstSamples = (int)(sampleRate * 0.16);
+            for (int i = 0; i < burstSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 174.0f * (float)i / (float)sampleRate;
+                const float sample = 0.22f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> rendered(2, input.getNumSamples());
+            rendered.clear();
+            juce::AudioBuffer<float> block(2, blockSize);
+
+            for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+            {
+                const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+                block.clear();
+                for (int ch = 0; ch < 2; ++ch)
+                    block.copyFrom(ch, 0, input, ch, offset, numSamples);
+                pedal.processBlock(block, midi);
+                rendered.copyFrom(0, offset, block, 0, 0, numSamples);
+                rendered.copyFrom(1, offset, block, 1, 0, numSamples);
+            }
+
+            return rendered;
+        };
+
+        const auto baselineOut = renderPedal(0.0f, 0.0f);
+        const auto comboOut = renderPedal(0.82f, 0.84f);
+        const bool finite = bufferHasOnlyFiniteSamples(comboOut);
+        const double baselineEarly = computeWindowRms(baselineOut, (int)(sampleRate * 0.03), (int)(sampleRate * 0.14));
+        const double comboEarly = computeWindowRms(comboOut, (int)(sampleRate * 0.03), (int)(sampleRate * 0.14));
+        const double baselineLate = computeWindowRms(baselineOut, (int)(sampleRate * 0.24), (int)(sampleRate * 0.32));
+        const double comboLate = computeWindowRms(comboOut, (int)(sampleRate * 0.24), (int)(sampleRate * 0.32));
+
+        result.metrics.push_back({ "baseline_early_rms", baselineEarly });
+        result.metrics.push_back({ "combo_early_rms", comboEarly });
+        result.metrics.push_back({ "baseline_late_rms", baselineLate });
+        result.metrics.push_back({ "combo_late_rms", comboLate });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite
+            && comboEarly < baselineEarly * 0.60
+            && comboLate > comboEarly * 2.00
+            && comboLate > baselineLate * 0.48;
+        result.notes = result.passed ? "Reverse+swell produced a delayed cinematic bloom without collapsing the body"
+                                     : "Reverse+swell did not hold together as a usable performance combo";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runReverbFreezeReverseScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "reverb_freeze_reverse_capture";
+
+        auto renderPedal = [](bool automateFreeze)
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            configureFlagshipCloud(pedal);
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.86f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.90f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.94f));
+            pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(20.0f));
+            pedal.reverseParam->setValueNotifyingHost(pedal.reverseParam->convertTo0to1(0.78f));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.8));
+            input.clear();
+            const int burstSamples = (int)(sampleRate * 0.30);
+            for (int i = 0; i < burstSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 196.0f * (float)i / (float)sampleRate;
+                const float sample = 0.20f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> rendered(2, input.getNumSamples());
+            rendered.clear();
+            juce::AudioBuffer<float> block(2, blockSize);
+
+            for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+            {
+                const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+                if (automateFreeze && offset >= (int)(sampleRate * 0.58))
+                    pedal.freezeParam->setValueNotifyingHost(1.0f);
+                else
+                    pedal.freezeParam->setValueNotifyingHost(0.0f);
+
+                block.clear();
+                for (int ch = 0; ch < 2; ++ch)
+                    block.copyFrom(ch, 0, input, ch, offset, numSamples);
+                pedal.processBlock(block, midi);
+                rendered.copyFrom(0, offset, block, 0, 0, numSamples);
+                rendered.copyFrom(1, offset, block, 1, 0, numSamples);
+            }
+
+            return rendered;
+        };
+
+        const auto baselineOut = renderPedal(false);
+        const auto frozenOut = renderPedal(true);
+        const bool finite = bufferHasOnlyFiniteSamples(frozenOut);
+        const double captureRms = computeWindowRms(frozenOut, (int)(sampleRate * 0.78), (int)(sampleRate * 0.20));
+        const double heldRms = computeWindowRms(frozenOut, (int)(sampleRate * 1.34), (int)(sampleRate * 0.28));
+        const double baselineHeld = computeWindowRms(baselineOut, (int)(sampleRate * 1.34), (int)(sampleRate * 0.28));
+
+        result.metrics.push_back({ "capture_rms", captureRms });
+        result.metrics.push_back({ "held_rms", heldRms });
+        result.metrics.push_back({ "baseline_held_rms", baselineHeld });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite
+            && heldRms > captureRms * 0.55
+            && heldRms > baselineHeld * 2.50;
+        result.notes = result.passed ? "Freeze captured a stable reverse pad instead of letting it collapse"
+                                     : "Freeze+reverse did not hold a convincing captured pad";
+        return result;
+    }
+
     static OfflineQAScenarioResult runReverbAutomationStressScenario()
     {
         OfflineQAScenarioResult result;
@@ -978,6 +1207,7 @@ private:
             reverb.duckParam->setValueNotifyingHost(reverb.duckParam->convertTo0to1(0.75f * (1.0f - phase)));
             reverb.swellParam->setValueNotifyingHost(reverb.swellParam->convertTo0to1(0.85f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
             reverb.gateParam->setValueNotifyingHost(reverb.gateParam->convertTo0to1(0.80f * phase));
+            reverb.reverseParam->setValueNotifyingHost(reverb.reverseParam->convertTo0to1(0.70f * (1.0f - std::abs(phase * 2.0f - 1.0f))));
             reverb.freezeParam->setValueNotifyingHost((blockIndex % 257) == 0 ? 1.0f : 0.0f);
 
             reverb.processBlock(block, midi);

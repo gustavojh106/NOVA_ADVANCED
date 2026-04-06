@@ -800,6 +800,7 @@ public:
             source.duckParam->setValueNotifyingHost(source.duckParam->convertTo0to1(0.41f));
             source.swellParam->setValueNotifyingHost(source.swellParam->convertTo0to1(0.63f));
             source.gateParam->setValueNotifyingHost(source.gateParam->convertTo0to1(0.28f));
+            source.reverseParam->setValueNotifyingHost(source.reverseParam->convertTo0to1(0.54f));
             source.freezeParam->setValueNotifyingHost(1.0f);
 
             juce::MemoryBlock state;
@@ -818,6 +819,7 @@ public:
             expect(approximatelyEqual(restored.duckParam->get(), 0.41f, 1.0e-3f));
             expect(approximatelyEqual(restored.swellParam->get(), 0.63f, 1.0e-3f));
             expect(approximatelyEqual(restored.gateParam->get(), 0.28f, 1.0e-3f));
+            expect(approximatelyEqual(restored.reverseParam->get(), 0.54f, 1.0e-3f));
             expect(restored.freezeParam->get(), "Freeze state should round-trip in the modern format");
         }
 
@@ -1008,7 +1010,8 @@ public:
             input.clear();
             for (int i = 0; i < totalSamples; ++i)
             {
-                const float sample = 0.22f * std::sin(juce::MathConstants<double>::twoPi * 220.0 * (double)i / kSampleRate);
+                const float phase = juce::MathConstants<float>::twoPi * 220.0f * (float)i / (float)kSampleRate;
+                const float sample = 0.22f * std::sin(phase);
                 input.setSample(0, i, sample);
                 input.setSample(1, i, sample);
             }
@@ -1098,6 +1101,136 @@ public:
 
             expect(gatedBody > baselineBody * 0.55, "Gate should preserve a useful body while the source is active");
             expect(gatedTail < baselineTail * 0.42, "High gate should clamp the late tail decisively");
+        }
+
+        beginTest("ReverbPedal reverse ambience pushes the bloom later in time");
+        {
+            auto renderPedal = [&](float reverseAmount)
+            {
+                ReverbPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(1.0f); // Cloud
+                pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.82f));
+                pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.88f));
+                pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.92f));
+                pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(20.0f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.reverseParam->setValueNotifyingHost(pedal.reverseParam->convertTo0to1(reverseAmount));
+
+                const int totalSamples = (int)(kSampleRate * 1.4);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                const int burstSamples = (int)(kSampleRate * 0.18);
+                for (int i = 0; i < burstSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 246.0f * (float)i / (float)kSampleRate;
+                    const float sample = 0.20f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderReverbOutput(pedal, input, kBlockSize);
+            };
+
+            const auto baselineOut = renderPedal(0.0f);
+            const auto reverseOut = renderPedal(0.92f);
+            const double baselineEarly = computeWindowRms(baselineOut, (int)(kSampleRate * 0.03), (int)(kSampleRate * 0.14));
+            const double reverseEarly = computeWindowRms(reverseOut, (int)(kSampleRate * 0.03), (int)(kSampleRate * 0.14));
+            const double baselineLate = computeWindowRms(baselineOut, (int)(kSampleRate * 0.24), (int)(kSampleRate * 0.30));
+            const double reverseLate = computeWindowRms(reverseOut, (int)(kSampleRate * 0.24), (int)(kSampleRate * 0.30));
+
+            expect(reverseEarly < baselineEarly * 0.70, "Reverse ambience should suppress more of the early wet attack");
+            expect(reverseLate > reverseEarly * 1.60, "Reverse ambience should bloom later than its own onset");
+            expect(reverseLate > baselineLate * 0.65, "Reverse ambience should keep enough late energy to stay musical");
+        }
+
+        beginTest("ReverbPedal reverse and swell create a delayed cinematic bloom");
+        {
+            auto renderPedal = [&](float reverseAmount, float swellAmount)
+            {
+                ReverbPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(1.0f); // Cloud
+                pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.84f));
+                pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.90f));
+                pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.94f));
+                pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(24.0f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.reverseParam->setValueNotifyingHost(pedal.reverseParam->convertTo0to1(reverseAmount));
+                pedal.swellParam->setValueNotifyingHost(pedal.swellParam->convertTo0to1(swellAmount));
+
+                const int totalSamples = (int)(kSampleRate * 1.5);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                const int burstSamples = (int)(kSampleRate * 0.16);
+                for (int i = 0; i < burstSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 174.0f * (float)i / (float)kSampleRate;
+                    const float sample = 0.22f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderReverbOutput(pedal, input, kBlockSize);
+            };
+
+            const auto baselineOut = renderPedal(0.0f, 0.0f);
+            const auto comboOut = renderPedal(0.82f, 0.84f);
+            const double baselineEarly = computeWindowRms(baselineOut, (int)(kSampleRate * 0.03), (int)(kSampleRate * 0.14));
+            const double comboEarly = computeWindowRms(comboOut, (int)(kSampleRate * 0.03), (int)(kSampleRate * 0.14));
+            const double baselineLate = computeWindowRms(baselineOut, (int)(kSampleRate * 0.24), (int)(kSampleRate * 0.32));
+            const double comboLate = computeWindowRms(comboOut, (int)(kSampleRate * 0.24), (int)(kSampleRate * 0.32));
+
+            expect(comboEarly < baselineEarly * 0.60, "Reverse+swell should strongly soften the early wet onset");
+            expect(comboLate > comboEarly * 2.00, "Reverse+swell should bloom substantially later than its onset");
+            expect(comboLate > baselineLate * 0.48, "Reverse+swell should still retain a usable late body");
+        }
+
+        beginTest("ReverbPedal freeze captures a stable reverse pad");
+        {
+            auto renderPedal = [&](bool automateFreeze)
+            {
+                ReverbPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(1.0f); // Cloud
+                pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.86f));
+                pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.90f));
+                pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.94f));
+                pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(20.0f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.reverseParam->setValueNotifyingHost(pedal.reverseParam->convertTo0to1(0.78f));
+
+                const int totalSamples = (int)(kSampleRate * 1.8);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                const int burstSamples = (int)(kSampleRate * 0.30);
+                for (int i = 0; i < burstSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 196.0f * (float)i / (float)kSampleRate;
+                    const float sample = 0.20f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderReverbOutputWithAutomation(pedal, input, kBlockSize,
+                    [&](int, int offset, juce::AudioBuffer<float>&)
+                    {
+                        if (automateFreeze && offset >= (int)(kSampleRate * 0.58))
+                            pedal.freezeParam->setValueNotifyingHost(1.0f);
+                        else
+                            pedal.freezeParam->setValueNotifyingHost(0.0f);
+                    });
+            };
+
+            const auto baselineOut = renderPedal(false);
+            const auto frozenOut = renderPedal(true);
+            const double captureRms = computeWindowRms(frozenOut, (int)(kSampleRate * 0.78), (int)(kSampleRate * 0.20));
+            const double heldRms = computeWindowRms(frozenOut, (int)(kSampleRate * 1.34), (int)(kSampleRate * 0.28));
+            const double baselineHeld = computeWindowRms(baselineOut, (int)(kSampleRate * 1.34), (int)(kSampleRate * 0.28));
+
+            expect(bufferHasOnlyFiniteSamples(frozenOut), "Freeze+reverse render should stay finite");
+            expect(heldRms > captureRms * 0.55, "Freeze should preserve most of the captured reverse pad");
+            expect(heldRms > baselineHeld * 2.50, "Freeze should hold longer than the unfrozen reverse tail");
         }
 
         beginTest("Processor switcher cycles through all three routing modes");

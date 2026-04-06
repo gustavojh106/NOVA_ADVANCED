@@ -44,11 +44,11 @@ private:
         btnPitchOct5 { "OCT+5" }, btnPitch2Oct { "2 OCT" };
 
     juce::Slider sldDecay, sldTone, sldSize, sldDamping, sldBassCut,
-        sldDiffusion, sldWidth, sldMod, sldPredelay, sldMix, sldDuck, sldSwell, sldGate;
+        sldDiffusion, sldWidth, sldMod, sldPredelay, sldMix, sldDuck, sldSwell, sldGate, sldReverse;
     juce::Label lblDecay, lblTone, lblSize, lblDamping, lblBassCut,
-        lblDiffusion, lblWidth, lblMod, lblPredelay, lblMix, lblDuck, lblSwell, lblGate;
+        lblDiffusion, lblWidth, lblMod, lblPredelay, lblMix, lblDuck, lblSwell, lblGate, lblReverse;
     juce::Label valDecay, valTone, valSize, valDamping, valBassCut,
-        valDiffusion, valWidth, valMod, valPredelay, valMix, valDuck, valSwell, valGate;
+        valDiffusion, valWidth, valMod, valPredelay, valMix, valDuck, valSwell, valGate, valReverse;
 
     juce::Rectangle<float> vizBounds;
     int cachedMode = -1;
@@ -170,6 +170,7 @@ inline ReverbEditor::ReverbEditor(ReverbPedal& pedal)
     setupKnob(sldDuck, lblDuck, valDuck, "DUCK", 0.0, 1.0, 0.0);
     setupKnob(sldSwell, lblSwell, valSwell, "SWELL", 0.0, 1.0, 0.0);
     setupKnob(sldGate, lblGate, valGate, "GATE", 0.0, 1.0, 0.0);
+    setupKnob(sldReverse, lblReverse, valReverse, "REVERSE", 0.0, 1.0, 0.0);
 
     auto wire = [](juce::Slider& slider, juce::AudioParameterFloat* param)
     {
@@ -204,6 +205,7 @@ inline ReverbEditor::ReverbEditor(ReverbPedal& pedal)
     wire(sldDuck, proc.duckParam);
     wire(sldSwell, proc.swellParam);
     wire(sldGate, proc.gateParam);
+    wire(sldReverse, proc.reverseParam);
 
     startTimerHz(24);
 }
@@ -213,7 +215,7 @@ inline ReverbEditor::~ReverbEditor()
     stopTimer();
     for (auto* slider : { &sldDecay, &sldTone, &sldSize, &sldDamping, &sldBassCut,
                           &sldDiffusion, &sldWidth, &sldMod, &sldPredelay, &sldMix, &sldDuck,
-                          &sldSwell, &sldGate })
+                          &sldSwell, &sldGate, &sldReverse })
         slider->setLookAndFeel(nullptr);
 }
 
@@ -328,6 +330,7 @@ inline void ReverbEditor::timerCallback()
     sync(sldDuck, proc.duckParam);
     sync(sldSwell, proc.swellParam);
     sync(sldGate, proc.gateParam);
+    sync(sldReverse, proc.reverseParam);
 
     if ((proc.modeParam != nullptr ? proc.modeParam->getIndex() : 0) != cachedMode)
         updateModeButtons();
@@ -356,6 +359,7 @@ inline void ReverbEditor::timerCallback()
     fmt(valDuck, (float) sldDuck.getValue() * 100.0f, "%");
     fmt(valSwell, (float) sldSwell.getValue() * 100.0f, "%");
     fmt(valGate, (float) sldGate.getValue() * 100.0f, "%");
+    fmt(valReverse, (float) sldReverse.getValue() * 100.0f, "%");
 
     repaint(vizBounds.toNearestInt());
 }
@@ -377,7 +381,7 @@ inline void ReverbEditor::paint(juce::Graphics& g)
 
     g.setColour(textDim);
     g.setFont(juce::Font(12.0f));
-    g.drawText("Dense tails, shaped attacks, gated ambience and modern modulation.", 28, 62, 460, 18, juce::Justification::centredLeft);
+    g.drawText("Dense tails, shaped attacks, reverse blooms and gated ambience.", 28, 62, 460, 18, juce::Justification::centredLeft);
 
     g.setColour(textDim);
     g.setFont(juce::Font(10.0f, juce::Font::bold));
@@ -431,6 +435,7 @@ inline void ReverbEditor::paintDecayCurve(juce::Graphics& g, juce::Rectangle<flo
     const float duck = (float) sldDuck.getValue();
     const float swell = (float) sldSwell.getValue();
     const float gate = (float) sldGate.getValue();
+    const float reverse = (float) sldReverse.getValue();
     const bool freeze = proc.freezeParam != nullptr && proc.freezeParam->get();
     const int mode = proc.modeParam != nullptr ? proc.modeParam->getIndex() : 0;
     const float pdNorm = juce::jlimit(0.0f, 0.25f, predelay / 600.0f);
@@ -451,10 +456,14 @@ inline void ReverbEditor::paintDecayCurve(juce::Graphics& g, juce::Rectangle<flo
             const float swellOpen = juce::jlimit(0.0f, 1.0f, (tPost - swellLead) / juce::jmax(0.05f, 0.14f + swellLead));
             const float swellShape = swellOpen * swellOpen * (3.0f - 2.0f * swellOpen);
             const float gateShape = 1.0f - gate * juce::jlimit(0.0f, 1.0f, (tPost - 0.22f) / 0.30f);
+            const float reverseLead = juce::jlimit(0.0f, 1.0f, (tPost - 0.10f) / 0.28f);
+            const float reverseTail = juce::jlimit(0.0f, 1.0f, (tPost - 0.58f) / 0.24f);
+            const float reverseShape = juce::jmax(0.05f, reverseLead * (1.0f - reverseTail * 0.88f));
             env = shapeFor(mode, tPost, decayRate, size, stereoWidth)
                 * (1.0f - damping * 0.12f)
                 * (1.0f - duck * 0.28f)
                 * (1.0f + (swellShape - 1.0f) * swell)
+                * (1.0f + (reverseShape - 1.0f) * reverse)
                 * juce::jmax(0.05f, gateShape);
             if (freeze)
                 env = juce::jmax(env, 0.62f);
@@ -523,7 +532,7 @@ inline void ReverbEditor::resized()
         { &sldDamping, &lblDamping, &valDamping }, { &sldBassCut, &lblBassCut, &valBassCut },
         { &sldDiffusion, &lblDiffusion, &valDiffusion }, { &sldWidth, &lblWidth, &valWidth }, { &sldMod, &lblMod, &valMod },
         { &sldPredelay, &lblPredelay, &valPredelay }, { &sldMix, &lblMix, &valMix }, { &sldDuck, &lblDuck, &valDuck },
-        { &sldSwell, &lblSwell, &valSwell }, { &sldGate, &lblGate, &valGate }
+        { &sldSwell, &lblSwell, &valSwell }, { &sldGate, &lblGate, &valGate }, { &sldReverse, &lblReverse, &valReverse }
     };
 
     const int knobSize = 84;
@@ -533,11 +542,11 @@ inline void ReverbEditor::resized()
     const int firstRowY = 362;
     const int secondRowY = 486;
     const int topCount = 7;
-    const int bottomCount = 6;
+    const int bottomCount = 7;
     const int topSlotW = (getWidth() - left * 2) / topCount;
     const int bottomSlotW = (getWidth() - left * 2) / bottomCount;
 
-    for (int i = 0; i < 13; ++i)
+    for (int i = 0; i < 14; ++i)
     {
         const bool topRow = i < topCount;
         const int col = topRow ? i : (i - topCount);

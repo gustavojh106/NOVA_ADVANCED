@@ -229,6 +229,67 @@ struct PerformanceGains
     float swellGain = 1.0f;
     float gateGain = 1.0f;
     float gateFeedbackScale = 1.0f;
+    float wetTrim = 1.0f;
+    float reverseSendScale = 1.0f;
+    float reverseMixScale = 1.0f;
+};
+
+struct ReverseBloomVoice
+{
+    CircularDelay delay;
+    OnePoleHP hp;
+    OnePoleLP lp;
+    float grainSamples = 2048.0f;
+    float baseDelaySamples = 3072.0f;
+    float phaseA = 0.0f;
+    float phaseB = 0.5f;
+
+    void prepare(double sr, float maxSeconds)
+    {
+        delay.allocate((int)(sr * maxSeconds) + 64);
+        reset();
+    }
+
+    void reset()
+    {
+        delay.clear();
+        hp.reset();
+        lp.reset();
+        phaseA = 0.0f;
+        phaseB = 0.5f;
+    }
+
+    void configure(double sr, float grainMs, float baseDelayMs, float hpHz, float lpHz)
+    {
+        grainSamples = juce::jlimit(192.0f, (float)juce::jmax(256, delay.length - 8),
+            grainMs * (float)(sr * 0.001));
+        baseDelaySamples = juce::jlimit(grainSamples * 0.35f,
+            (float)juce::jmax(256, delay.length - 8),
+            baseDelayMs * (float)(sr * 0.001));
+        delay.setLength(juce::jmax(256, (int)std::ceil(baseDelaySamples + grainSamples) + 8));
+        hp.setCutoff(hpHz, sr);
+        lp.setCutoff(lpHz, sr);
+    }
+
+    float process(float input) noexcept
+    {
+        delay.write(input);
+
+        auto renderGrain = [this](float& phase) noexcept
+        {
+            const float readDelay = juce::jlimit(1.0f, (float)(delay.length - 2),
+                baseDelaySamples + (1.0f - phase) * grainSamples);
+            const float sample = delay.readLinear(readDelay);
+            const float window = 0.5f - 0.5f * std::cos(kTwoPi * phase);
+            phase += 1.0f / juce::jmax(128.0f, grainSamples);
+            if (phase >= 1.0f)
+                phase -= 1.0f;
+            return sample * window;
+        };
+
+        const float reversed = renderGrain(phaseA) + renderGrain(phaseB);
+        return lp.process(hp.process(reversed));
+    }
 };
 
 // Two-band damper: crossover splits into bass/treble with independent attenuation
@@ -645,6 +706,8 @@ public:
         springDripVoice.prepare(sr, 0.08f);
         plateSheenVoice.prepare(sr, 0.05f);
         hallBloomVoice.prepare(sr, 0.22f);
+        reverseVoiceL.prepare(sr, 0.52f);
+        reverseVoiceR.prepare(sr, 0.52f);
         outputToneL.setCutoff(7500.0f, sr);
         outputToneR.setCutoff(7500.0f, sr);
 
@@ -667,6 +730,8 @@ public:
         swellAmountSmooth.setCurrentAndTargetValue(0.0f);
         gateAmountSmooth.reset(sr, 0.04);
         gateAmountSmooth.setCurrentAndTargetValue(0.0f);
+        reverseAmountSmooth.reset(sr, 0.05);
+        reverseAmountSmooth.setCurrentAndTargetValue(0.0f);
         freezeSmooth.reset(sr, 0.02);
         freezeSmooth.setCurrentAndTargetValue(0.0f);
 
@@ -697,6 +762,8 @@ public:
         springDripVoice.reset();
         plateSheenVoice.reset();
         hallBloomVoice.reset();
+        reverseVoiceL.reset();
+        reverseVoiceR.reset();
         outputToneL.reset();
         outputToneR.reset();
         bloomLP.reset();
@@ -711,7 +778,7 @@ public:
     void configure(int mode, float decay01, float size01, float tone01,
                    float damping01, float bassCut01, float diffusion01,
                    float width01, float modAmount01, float predelayMs,
-                   float duckAmount01, float swellAmount01, float gateAmount01, bool freezeEnabled)
+                   float duckAmount01, float swellAmount01, float gateAmount01, float reverseAmount01, bool freezeEnabled)
     {
         const auto& t = tuningForMode(mode);
         currentMode   = mode;
@@ -778,6 +845,7 @@ public:
         duckAmountSmooth.setTargetValue(duckAmount01);
         swellAmountSmooth.setTargetValue(swellAmount01);
         gateAmountSmooth.setTargetValue(gateAmount01);
+        reverseAmountSmooth.setTargetValue(reverseAmount01);
         freezeSmooth.setTargetValue(freezeEnabled ? 1.0f : 0.0f);
 
         // ---- Pre-delay ----
@@ -805,6 +873,10 @@ public:
         plateSheenMix = 0.0f;
         hallBloomVoiceMix = 0.0f;
         float bloomCutoffHz = 1800.0f;
+        float reverseGrainMs = 130.0f;
+        float reverseDelayMs = 85.0f;
+        float reverseHpHz = 160.0f;
+        float reverseLpHz = 5200.0f;
 
         switch (mode)
         {
@@ -813,6 +885,10 @@ public:
                 modeStereoExcite = 0.42f;
                 modeSideScale = 0.88f;
                 modeAttackMix = 0.08f;
+                reverseGrainMs = 96.0f;
+                reverseDelayMs = 58.0f;
+                reverseHpHz = 230.0f;
+                reverseLpHz = 4200.0f;
                 springDripMix = 0.24f + size01 * 0.10f;
                 bloomCutoffHz = 2600.0f;
                 springDripVoice.configure(sr, lerp(11.0f, 19.0f, size01),
@@ -828,6 +904,10 @@ public:
                 modeCrossfeed = 0.05f;
                 modeAttackMix = 0.15f;
                 modeBloomMix = 0.05f;
+                reverseGrainMs = 112.0f;
+                reverseDelayMs = 76.0f;
+                reverseHpHz = 190.0f;
+                reverseLpHz = 5600.0f;
                 plateSheenMix = 0.16f + tone01 * 0.10f;
                 bloomCutoffHz = 3400.0f;
                 plateSheenVoice.configure(sr, lerp(13.0f, 23.0f, size01),
@@ -842,6 +922,10 @@ public:
                 modeSideScale = 1.02f;
                 modeCrossfeed = 0.07f;
                 modeBloomMix = 0.14f;
+                reverseGrainMs = 158.0f;
+                reverseDelayMs = 108.0f;
+                reverseHpHz = 150.0f;
+                reverseLpHz = 6000.0f;
                 hallBloomVoiceMix = 0.18f + size01 * 0.10f;
                 bloomCutoffHz = 1600.0f;
                 hallBloomVoice.configure(sr, lerp(62.0f, 108.0f, size01),
@@ -855,6 +939,10 @@ public:
                 modeStereoExcite = 0.24f;
                 modeSideScale = 0.78f;
                 modeAttackMix = 0.06f;
+                reverseGrainMs = 118.0f;
+                reverseDelayMs = 82.0f;
+                reverseHpHz = 170.0f;
+                reverseLpHz = 5200.0f;
                 bloomCutoffHz = 3000.0f;
                 break;
 
@@ -864,6 +952,10 @@ public:
                 modeSideScale = 1.05f;
                 modeCrossfeed = 0.08f;
                 modeBloomMix = 0.18f;
+                reverseGrainMs = 176.0f;
+                reverseDelayMs = 122.0f;
+                reverseHpHz = 140.0f;
+                reverseLpHz = 7600.0f;
                 bloomCutoffHz = 2200.0f;
                 break;
 
@@ -874,11 +966,19 @@ public:
                 modeSideScale = 1.18f;
                 modeCrossfeed = 0.12f;
                 modeBloomMix = 0.28f;
+                reverseGrainMs = 210.0f;
+                reverseDelayMs = 140.0f;
+                reverseHpHz = 120.0f;
+                reverseLpHz = 6800.0f;
                 bloomCutoffHz = 1100.0f;
                 break;
         }
 
         bloomLP.setCutoff(bloomCutoffHz, sr);
+        reverseVoiceL.configure(sr, lerp(reverseGrainMs * 0.78f, reverseGrainMs * 1.24f, size01),
+            lerp(reverseDelayMs * 0.82f, reverseDelayMs * 1.18f, size01), reverseHpHz, reverseLpHz);
+        reverseVoiceR.configure(sr, lerp(reverseGrainMs * 0.84f, reverseGrainMs * 1.30f, size01),
+            lerp(reverseDelayMs * 0.88f, reverseDelayMs * 1.24f, size01), reverseHpHz * 0.94f, reverseLpHz * 1.06f);
     }
 
     void processSample(float inL, float inR, float& outL, float& outR) noexcept
@@ -891,6 +991,7 @@ public:
         const float duckAmount = duckAmountSmooth.getNextValue();
         const float swellAmount = swellAmountSmooth.getNextValue();
         const float gateAmount = gateAmountSmooth.getNextValue();
+        const float reverseAmount = reverseAmountSmooth.getNextValue();
         const float freeze = freezeSmooth.getNextValue();
         outputToneL.setCutoff(toneHz, sr);
         outputToneR.setCutoff(toneHz, sr);
@@ -898,7 +999,7 @@ public:
         const float midIn  = (inL + inR) * 0.5f;
         const float sideIn = (inL - inR) * 0.5f;
         updatePerformanceEnvelopes(midIn, sideIn);
-        const auto performance = computePerformanceGains(duckAmount, swellAmount, gateAmount, freeze);
+        const auto performance = computePerformanceGains(duckAmount, swellAmount, gateAmount, reverseAmount, freeze);
 
         // ---- Pre-delay (shared by ER + late) ----
         predelayMid.write(midIn);
@@ -1008,9 +1109,19 @@ public:
         lateL = outputToneL.process(lateL);
         lateR = outputToneR.process(lateR);
 
+        const float shapedReverseAmount = juce::jlimit(0.0f, 1.0f, reverseAmount * performance.reverseMixScale);
+        const float reverseSeedL = (lateL + erL * 0.24f + attackExcite * 0.36f) * performance.reverseSendScale;
+        const float reverseSeedR = (lateR + erR * 0.24f + attackExcite * 0.36f) * performance.reverseSendScale;
+        const float reverseL = reverseVoiceL.process(reverseSeedL);
+        const float reverseR = reverseVoiceR.process(reverseSeedR);
+        const float reverseDryBlend = 1.0f - shapedReverseAmount * 0.52f;
+        const float reverseWetBlend = 0.20f + shapedReverseAmount * (1.28f + modeBloomMix * 0.50f);
+        lateL = lateL * reverseDryBlend + reverseL * reverseWetBlend;
+        lateR = lateR * reverseDryBlend + reverseR * reverseWetBlend;
+
         // ---- Blend ER + late reverb ----
-        const float erMix = erLevel * (1.0f - freeze);
-        const float wetGain = performance.duckGain * performance.gateGain;
+        const float erMix = erLevel * (1.0f - freeze) * (1.0f - shapedReverseAmount * (0.72f + swellAmount * 0.08f));
+        const float wetGain = performance.duckGain * performance.gateGain * performance.wetTrim;
         outL = (erL * erMix + lateL) * wetGain;
         outR = (erR * erMix + lateR) * wetGain;
 
@@ -1042,6 +1153,7 @@ public:
             const float duckAmount = duckAmountSmooth.getNextValue();
             const float swellAmount = swellAmountSmooth.getNextValue();
             const float gateAmount = gateAmountSmooth.getNextValue();
+            const float reverseAmount = reverseAmountSmooth.getNextValue();
             const float freeze = freezeSmooth.getNextValue();
             outputToneL.setCutoff(toneHz, sr);
             outputToneR.setCutoff(toneHz, sr);
@@ -1051,7 +1163,7 @@ public:
             const float midIn  = (sL + sR) * 0.5f;
             const float sideIn = (sL - sR) * 0.5f;
             updatePerformanceEnvelopes(midIn, sideIn);
-            const auto performance = computePerformanceGains(duckAmount, swellAmount, gateAmount, freeze);
+            const auto performance = computePerformanceGains(duckAmount, swellAmount, gateAmount, reverseAmount, freeze);
 
             predelayMid.write(midIn);
             predelaySide.write(sideIn);
@@ -1147,8 +1259,18 @@ public:
             lateL = outputToneL.process(lateL);
             lateR = outputToneR.process(lateR);
 
-            const float erMix = erLevel * (1.0f - freeze);
-            const float wetGain = performance.duckGain * performance.gateGain;
+            const float shapedReverseAmount = juce::jlimit(0.0f, 1.0f, reverseAmount * performance.reverseMixScale);
+            const float reverseSeedL = (lateL + erL * 0.24f + attackExcite * 0.36f) * performance.reverseSendScale;
+            const float reverseSeedR = (lateR + erR * 0.24f + attackExcite * 0.36f) * performance.reverseSendScale;
+            const float reverseL = reverseVoiceL.process(reverseSeedL);
+            const float reverseR = reverseVoiceR.process(reverseSeedR);
+            const float reverseDryBlend = 1.0f - shapedReverseAmount * 0.52f;
+            const float reverseWetBlend = 0.20f + shapedReverseAmount * (1.28f + modeBloomMix * 0.50f);
+            lateL = lateL * reverseDryBlend + reverseL * reverseWetBlend;
+            lateR = lateR * reverseDryBlend + reverseR * reverseWetBlend;
+
+            const float erMix = erLevel * (1.0f - freeze) * (1.0f - shapedReverseAmount * (0.72f + swellAmount * 0.08f));
+            const float wetGain = performance.duckGain * performance.gateGain * performance.wetTrim;
             outL[s] = dcL.process((erL * erMix + lateL) * wetGain);
             outR[s] = dcR.process((erR * erMix + lateR) * wetGain);
         }
@@ -1171,31 +1293,41 @@ private:
     }
 
     PerformanceGains computePerformanceGains(float duckAmount, float swellAmount,
-        float gateAmount, float freeze) const noexcept
+        float gateAmount, float reverseAmount, float freeze) const noexcept
     {
         PerformanceGains gains;
+        const float reverseBlend = juce::jlimit(0.0f, 1.0f, reverseAmount);
+        const float reverseSwellCombo = reverseBlend * swellAmount;
+        const float reverseGateCombo = reverseBlend * gateAmount;
 
         float duckControl = juce::jlimit(0.0f, 1.0f, (duckEnv - 0.015f) * 8.0f);
-        gains.duckGain = 1.0f - duckAmount * duckControl * 0.82f;
+        const float effectiveDuckAmount = duckAmount * (1.0f - reverseBlend * 0.18f);
+        gains.duckGain = 1.0f - effectiveDuckAmount * duckControl * 0.82f;
         gains.duckGain = juce::jmax(0.18f, gains.duckGain * (0.85f + 0.15f * gains.duckGain));
         gains.duckGain = lerp(gains.duckGain, 1.0f, freeze);
 
         const float swellThreshold = 0.004f + swellAmount * 0.010f;
         float swellOpen = juce::jlimit(0.0f, 1.0f, (swellEnv - swellThreshold) / (0.11f + swellThreshold));
         swellOpen = swellOpen * swellOpen * (3.0f - 2.0f * swellOpen);
-        gains.swellGain = lerp(1.0f, 0.18f + swellOpen * 0.82f, swellAmount);
+        const float effectiveSwellAmount = swellAmount * (1.0f - reverseBlend * 0.10f);
+        gains.swellGain = lerp(1.0f, 0.18f + swellOpen * 0.82f, effectiveSwellAmount);
         gains.swellGain = lerp(gains.swellGain, 1.0f, freeze);
 
-        const float gateThreshold = 0.010f + gateAmount * 0.040f;
+        const float effectiveGateAmount = gateAmount * (1.0f - reverseBlend * 0.24f);
+        const float gateThreshold = 0.010f + effectiveGateAmount * 0.040f;
         float gateOpen = juce::jlimit(0.0f, 1.0f, (gateEnv - gateThreshold) / (0.11f + gateThreshold));
         gateOpen = gateOpen * gateOpen * (3.0f - 2.0f * gateOpen);
-        const float gateFloor = juce::jmax(0.02f, 1.0f - gateAmount * 0.97f);
-        gains.gateGain = lerp(1.0f, gateFloor + gateOpen * (1.0f - gateFloor), gateAmount);
+        const float gateFloor = juce::jmax(0.02f + reverseGateCombo * 0.08f, 1.0f - effectiveGateAmount * 0.97f);
+        gains.gateGain = lerp(1.0f, gateFloor + gateOpen * (1.0f - gateFloor), effectiveGateAmount);
 
-        const float tightFeedback = juce::jmax(0.64f, 0.92f - gateAmount * 0.22f);
-        gains.gateFeedbackScale = lerp(1.0f, tightFeedback + gateOpen * (1.0f - tightFeedback), gateAmount);
+        const float tightFeedback = juce::jmax(0.64f, 0.92f - effectiveGateAmount * 0.22f + reverseGateCombo * 0.06f);
+        gains.gateFeedbackScale = lerp(1.0f, tightFeedback + gateOpen * (1.0f - tightFeedback), effectiveGateAmount);
         gains.gateGain = lerp(gains.gateGain, 1.0f, freeze);
         gains.gateFeedbackScale = lerp(gains.gateFeedbackScale, 1.0f, freeze);
+
+        gains.wetTrim = juce::jlimit(0.95f, 1.18f, 1.0f + reverseBlend * 0.05f + reverseSwellCombo * 0.10f);
+        gains.reverseSendScale = juce::jlimit(0.92f, 1.35f, 1.0f + reverseBlend * 0.10f + reverseSwellCombo * 0.16f);
+        gains.reverseMixScale = juce::jlimit(0.90f, 1.20f, 1.0f + reverseBlend * 0.04f + reverseSwellCombo * 0.10f - freeze * 0.08f);
         return gains;
     }
 
@@ -1272,6 +1404,7 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> duckAmountSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> swellAmountSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> gateAmountSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> reverseAmountSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> freezeSmooth;
 
     EarlyReflections   er;
@@ -1280,6 +1413,8 @@ private:
     CharacterDelayVoice springDripVoice;
     CharacterDelayVoice plateSheenVoice;
     CharacterDelayVoice hallBloomVoice;
+    ReverseBloomVoice   reverseVoiceL;
+    ReverseBloomVoice   reverseVoiceR;
     OnePoleLP          bloomLP;
     OnePoleLP          outputToneL, outputToneR;
     bool  useShimmer   = false;
@@ -1346,6 +1481,8 @@ public:
             "reverbSwell", "Swell", 0.0f, 1.0f, 0.0f));
         addParameter(gateParam = new juce::AudioParameterFloat(
             "reverbGate", "Gate", 0.0f, 1.0f, 0.0f));
+        addParameter(reverseParam = new juce::AudioParameterFloat(
+            "reverbReverse", "Reverse", 0.0f, 1.0f, 0.0f));
         addParameter(freezeParam = new juce::AudioParameterBool(
             "reverbFreeze", "Freeze", false));
         addParameter(shimmerPitchParam = new juce::AudioParameterChoice(
@@ -1371,7 +1508,7 @@ public:
 
         lastMode = -1;
         lastDecay = lastTone = lastSize = lastDamp = -1.0f;
-        lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = lastSwell = lastGate = -1.0f;
+        lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = lastSwell = lastGate = lastReverse = -1.0f;
         lastFreeze = false;
         reset();
         isPrepared = true;
@@ -1388,7 +1525,7 @@ public:
     void getStateInformation(juce::MemoryBlock& destData) override
     {
         juce::XmlElement xml("NIMBUS_REVERB_STATE");
-        xml.setAttribute("version", 5);
+        xml.setAttribute("version", 6);
         xml.setAttribute("modeIndex", modeParam ? modeParam->getIndex() : 0);
         xml.setAttribute("shimmerPitchIndex", shimmerPitchParam ? shimmerPitchParam->getIndex() : 1);
         xml.setAttribute("reverbFreeze", freezeParam != nullptr && freezeParam->get());
@@ -1405,6 +1542,7 @@ public:
         writeFloat(xml, "reverbDuck", duckParam);
         writeFloat(xml, "reverbSwell", swellParam);
         writeFloat(xml, "reverbGate", gateParam);
+        writeFloat(xml, "reverbReverse", reverseParam);
         copyXmlToBinary(xml, destData);
     }
 
@@ -1432,6 +1570,7 @@ public:
             restoreFloat(*xml, "reverbDuck", duckParam);
             restoreFloat(*xml, "reverbSwell", swellParam);
             restoreFloat(*xml, "reverbGate", gateParam);
+            restoreFloat(*xml, "reverbReverse", reverseParam);
         }
         else if (xml->hasTagName("PLUGIN_STATE"))
         {
@@ -1477,7 +1616,7 @@ public:
 
         lastMode = -1;
         lastDecay = lastTone = lastSize = lastDamp = -1.0f;
-        lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = lastSwell = lastGate = -1.0f;
+        lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = lastSwell = lastGate = lastReverse = -1.0f;
         lastFreeze = false;
         if (mixParam) mixSmooth.setCurrentAndTargetValue(mixParam->get());
     }
@@ -1503,6 +1642,7 @@ public:
         const float duck    = duckParam    ? duckParam->get()       : 0.0f;
         const float swell   = swellParam   ? swellParam->get()      : 0.0f;
         const float gate    = gateParam    ? gateParam->get()       : 0.0f;
+        const float reverse = reverseParam ? reverseParam->get()    : 0.0f;
         const bool  freeze  = freezeParam  ? freezeParam->get()     : false;
 
         // Reconfigure only when parameters actually change
@@ -1519,9 +1659,10 @@ public:
             || std::abs(duck  - lastDuck)  > 1e-4f
             || std::abs(swell - lastSwell) > 1e-4f
             || std::abs(gate  - lastGate)  > 1e-4f
+            || std::abs(reverse - lastReverse) > 1e-4f
             || freeze != lastFreeze)
         {
-            engine.configure(mode, decay, size, tone, damp, bass, diff, width, mod, pdMs, duck, swell, gate, freeze);
+            engine.configure(mode, decay, size, tone, damp, bass, diff, width, mod, pdMs, duck, swell, gate, reverse, freeze);
             lastMode  = mode;
             lastDecay = decay;
             lastTone  = tone;
@@ -1535,6 +1676,7 @@ public:
             lastDuck  = duck;
             lastSwell = swell;
             lastGate  = gate;
+            lastReverse = reverse;
             lastFreeze = freeze;
         }
 
@@ -1551,10 +1693,6 @@ public:
         const int numSamples  = buffer.getNumSamples();
         const int numChannels = buffer.getNumChannels();
         constexpr float halfPi = juce::MathConstants<float>::halfPi;
-
-        // Copy input to scratch buffers for block processing
-        const float* srcL = buffer.getReadPointer(0);
-        const float* srcR = numChannels > 1 ? buffer.getReadPointer(1) : srcL;
 
         // Use the buffer itself as wet output workspace
         auto* dstL = buffer.getWritePointer(0);
@@ -1609,6 +1747,7 @@ public:
     juce::AudioParameterFloat*  duckParam     = nullptr;
     juce::AudioParameterFloat*  swellParam    = nullptr;
     juce::AudioParameterFloat*  gateParam     = nullptr;
+    juce::AudioParameterFloat*  reverseParam  = nullptr;
     juce::AudioParameterBool*   freezeParam   = nullptr;
     juce::AudioParameterChoice* shimmerPitchParam = nullptr;
 
@@ -1664,6 +1803,7 @@ private:
         else if (id == "reverbDuck") apply(duckParam);
         else if (id == "reverbSwell") apply(swellParam);
         else if (id == "reverbGate") apply(gateParam);
+        else if (id == "reverbReverse") apply(reverseParam);
     }
 
     Nova::Reverb::Engine engine;
@@ -1673,7 +1813,7 @@ private:
     int    lastMode  = -1;
     float  lastDecay = -1.0f, lastTone = -1.0f, lastSize = -1.0f, lastDamp = -1.0f;
     float  lastBass  = -1.0f, lastDiff = -1.0f, lastWidth = -1.0f, lastMod  = -1.0f, lastPD   = -1.0f, lastDuck = -1.0f;
-    float  lastSwell = -1.0f, lastGate = -1.0f;
+    float  lastSwell = -1.0f, lastGate = -1.0f, lastReverse = -1.0f;
     bool   lastFreeze = false;
     bool   isPrepared = false;
 };
