@@ -24,6 +24,125 @@ bool approximatelyEqual(float actual, float expected, float tolerance = kToleran
     return std::abs(actual - expected) <= tolerance;
 }
 
+bool bufferHasOnlyFiniteSamples(const juce::AudioBuffer<float>& buffer)
+{
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            if (!std::isfinite(buffer.getSample(ch, i)))
+                return false;
+
+    return true;
+}
+
+double computeWindowRms(const juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
+{
+    const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+    const int safeLength = juce::jlimit(0, buffer.getNumSamples() - safeStart, numSamples);
+
+    if (safeLength <= 0)
+        return 0.0;
+
+    double sumSquares = 0.0;
+    int count = 0;
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        for (int i = 0; i < safeLength; ++i)
+        {
+            const double s = buffer.getSample(ch, safeStart + i);
+            sumSquares += s * s;
+            ++count;
+        }
+    }
+
+    return count > 0 ? std::sqrt(sumSquares / (double)count) : 0.0;
+}
+
+double computeChannelWindowRms(const juce::AudioBuffer<float>& buffer, int channel, int startSample, int numSamples)
+{
+    if (!juce::isPositiveAndBelow(channel, buffer.getNumChannels()))
+        return 0.0;
+
+    const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+    const int safeLength = juce::jlimit(0, buffer.getNumSamples() - safeStart, numSamples);
+
+    if (safeLength <= 0)
+        return 0.0;
+
+    double sumSquares = 0.0;
+    for (int i = 0; i < safeLength; ++i)
+    {
+        const double s = buffer.getSample(channel, safeStart + i);
+        sumSquares += s * s;
+    }
+
+    return std::sqrt(sumSquares / (double)safeLength);
+}
+
+double computeStereoCorrelation(const juce::AudioBuffer<float>& buffer, int startSample)
+{
+    if (buffer.getNumChannels() < 2)
+        return 1.0;
+
+    const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+    const int samples = buffer.getNumSamples() - safeStart;
+    if (samples <= 1)
+        return 1.0;
+
+    double sumL = 0.0;
+    double sumR = 0.0;
+    for (int i = safeStart; i < buffer.getNumSamples(); ++i)
+    {
+        sumL += buffer.getSample(0, i);
+        sumR += buffer.getSample(1, i);
+    }
+
+    const double meanL = sumL / (double)samples;
+    const double meanR = sumR / (double)samples;
+
+    double cov = 0.0;
+    double varL = 0.0;
+    double varR = 0.0;
+
+    for (int i = safeStart; i < buffer.getNumSamples(); ++i)
+    {
+        const double l = buffer.getSample(0, i) - meanL;
+        const double r = buffer.getSample(1, i) - meanR;
+        cov += l * r;
+        varL += l * l;
+        varR += r * r;
+    }
+
+    const double denom = std::sqrt(varL * varR);
+    return denom > 1.0e-12 ? cov / denom : 1.0;
+}
+
+juce::AudioBuffer<float> renderReverbOutput(ReverbPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
 void expectStereoSamplesMatch(juce::UnitTest& test,
     const juce::AudioBuffer<float>& buffer,
     const std::vector<float>& expectedLeft,
@@ -609,6 +728,135 @@ public:
                 "Metal Distortion should be available in the pre zone");
             expect(std::find(fxTypes.begin(), fxTypes.end(), juce::String("Chorus")) != fxTypes.end(),
                 "Chorus should be available in the FX zone");
+        }
+
+        beginTest("ReverbPedal round-trips its modern commercial state");
+        {
+            ReverbPedal source;
+            source.modeParam->setValueNotifyingHost(0.8f); // Shimmer
+            source.decayParam->setValueNotifyingHost(source.decayParam->convertTo0to1(0.82f));
+            source.toneParam->setValueNotifyingHost(source.toneParam->convertTo0to1(0.67f));
+            source.sizeParam->setValueNotifyingHost(source.sizeParam->convertTo0to1(0.74f));
+            source.dampingParam->setValueNotifyingHost(source.dampingParam->convertTo0to1(0.29f));
+            source.bassCutParam->setValueNotifyingHost(source.bassCutParam->convertTo0to1(0.21f));
+            source.diffusionParam->setValueNotifyingHost(source.diffusionParam->convertTo0to1(0.88f));
+            source.widthParam->setValueNotifyingHost(source.widthParam->convertTo0to1(0.93f));
+            source.modParam->setValueNotifyingHost(source.modParam->convertTo0to1(0.44f));
+            source.predelayParam->setValueNotifyingHost(source.predelayParam->convertTo0to1(86.0f));
+            source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.37f));
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            ReverbPedal restored;
+            restored.setStateInformation(state.getData(), (int)state.getSize());
+
+            expectEquals(restored.modeParam->getIndex(), 4);
+            expect(approximatelyEqual(restored.decayParam->get(), 0.82f, 1.0e-3f));
+            expect(approximatelyEqual(restored.toneParam->get(), 0.67f, 1.0e-3f));
+            expect(approximatelyEqual(restored.sizeParam->get(), 0.74f, 1.0e-3f));
+            expect(approximatelyEqual(restored.diffusionParam->get(), 0.88f, 1.0e-3f));
+            expect(approximatelyEqual(restored.widthParam->get(), 0.93f, 1.0e-3f));
+            expect(approximatelyEqual(restored.predelayParam->get(), 86.0f, 0.5f));
+        }
+
+        beginTest("ReverbPedal maps legacy three-mode state to the correct mode");
+        {
+            struct LegacyStateHelper : ProcessorBase
+            {
+                static void encode(const juce::XmlElement& xml, juce::MemoryBlock& block)
+                {
+                    copyXmlToBinary(xml, block);
+                }
+
+                void prepareToPlay(double, int) override {}
+                void releaseResources() override {}
+                void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}
+            };
+
+            juce::XmlElement xml("PLUGIN_STATE");
+            auto addParam = [&xml](const juce::String& id, float normalised)
+            {
+                auto* child = xml.createNewChildElement("PARAM");
+                child->setAttribute("id", id);
+                child->setAttribute("value", normalised);
+            };
+
+            addParam("reverbMode", 1.0f);       // legacy Hall
+            addParam("reverbDecay", 0.40f);
+            addParam("reverbTone", 0.75f);
+            addParam("reverbPredelay", 0.20f);
+            addParam("reverbMix", 0.35f);
+
+            juce::MemoryBlock state;
+            LegacyStateHelper::encode(xml, state);
+
+            ReverbPedal restored;
+            restored.setStateInformation(state.getData(), (int)state.getSize());
+
+            expectEquals(restored.modeParam->getIndex(), 2);
+            expect(approximatelyEqual(restored.toneParam->get(), 0.75f, 1.0e-3f));
+        }
+
+        beginTest("ReverbPedal produces a long finite tail that decays cleanly");
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(1.0f); // Cloud
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.88f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.72f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.86f));
+            pedal.dampingParam->setValueNotifyingHost(pedal.dampingParam->convertTo0to1(0.33f));
+            pedal.bassCutParam->setValueNotifyingHost(pedal.bassCutParam->convertTo0to1(0.22f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.92f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(1.0f));
+            pedal.modParam->setValueNotifyingHost(pedal.modParam->convertTo0to1(0.42f));
+            pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(24.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            const int totalSamples = (int)(kSampleRate * 6.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            input.setSample(0, 0, 1.0f);
+            input.setSample(1, 0, 1.0f);
+
+            const auto output = renderReverbOutput(pedal, input, kBlockSize);
+            const double lateRms = computeWindowRms(output, (int)(kSampleRate * 0.8), (int)(kSampleRate * 0.5));
+            const double endRms = computeWindowRms(output, totalSamples - (int)(kSampleRate * 0.25), (int)(kSampleRate * 0.25));
+
+            expect(bufferHasOnlyFiniteSamples(output), "Tail render must remain finite across the whole buffer");
+            expect(output.getMagnitude(0, 0, output.getNumSamples()) < 1.25f, "Cloud tail should stay inside a sane peak ceiling");
+            expect(lateRms > 1.0e-4, "Cloud mode should still carry measurable energy after the initial bloom");
+            expect(endRms < lateRms * 0.45, "Tail should decay substantially by the end of the render");
+        }
+
+        beginTest("ReverbPedal generates a decorrelated stereo field");
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(0.4f); // Hall
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.74f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.66f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.70f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.84f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(1.0f));
+            pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(12.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            const int totalSamples = (int)(kSampleRate * 2.5);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            input.setSample(0, 0, 1.0f);
+
+            const auto output = renderReverbOutput(pedal, input, kBlockSize);
+            const double corr = computeStereoCorrelation(output, (int)(kSampleRate * 0.05));
+            const double rmsLeft = computeChannelWindowRms(output, 0, (int)(kSampleRate * 0.1), (int)(kSampleRate * 1.0));
+            const double rmsRight = computeChannelWindowRms(output, 1, (int)(kSampleRate * 0.1), (int)(kSampleRate * 1.0));
+            const double sideRatio = rmsRight / juce::jmax(1.0e-9, rmsLeft);
+
+            expect(bufferHasOnlyFiniteSamples(output), "Stereo render must remain finite");
+            expect(std::abs(corr) < 0.97, "Wet field should not collapse into a near-mono correlation");
+            expect(sideRatio > 0.12, "Hall mode should project measurable energy into the opposite channel");
         }
 
         beginTest("Processor switcher cycles through all three routing modes");

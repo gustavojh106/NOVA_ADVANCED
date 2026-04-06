@@ -54,7 +54,7 @@ Input → InputChain → [Line A chain] → ChannelStrip A ─┐
                                               (SwitcherMode selects routing)
 ```
 
-The `AudioEngine` owns a `juce::AudioProcessorGraph` and manages two parallel effect chains (Line A / Line B). Routing modes: `LineA_Only`, `LineB_Only`, `Dual_Parallel`.
+The `AudioEngine` owns a `juce::AudioProcessorGraph` and manages two parallel effect chains (Line A / Line B). Routing modes: `LineA_Only`, `LineB_Only`, `Dual_Parallel`. Input routing: `Stereo`, `Left`, `Right`, `Sum` (mono summing).
 
 ### Control Plane / Audio Plane Separation
 
@@ -87,43 +87,56 @@ Zone sort rank: 0=Pre, 1=Amp, 2=FX, 3=Cabinet. Max 12 pedals per flex zone (`MAX
 
 ### Adding a New Effect
 
-1. Create processor class inheriting `ProcessorBase` (in `Source/Effects/Pedals/<Category>/`)
-2. Add entry to `PedalCatalog::entries()` array (update array size template parameter)
-3. Register factory in `PedalRegistry::getFactory()` map + add `#include`
-4. Add source file to `NOVA.jucer` via Projucer and re-export
-5. If the pedal has a custom editor, implement `createEditor()` override
-6. Optionally register custom paint in `PedalUIFactory` for thumbnail/dashboard rendering
+1. Create a subfolder `Source/Effects/Pedals/<Name>/` with processor class inheriting `ProcessorBase` (`<Name>Pedal.h`)
+2. Create custom editor in the same subfolder (`<Name>Editor.h`) — see `OverdriveEditor.h` as reference
+3. Add entry to `PedalCatalog::entries()` array (update array size template parameter)
+4. Register factory in `PedalRegistry::getFactory()` map + add `#include`
+5. Add source files to `NOVA.jucer` via Projucer and re-export
+6. Optionally add thumbnail/dashboard paint in `PedalUIFactory` (or as separate `<Name>Thumbnail.h`/`<Name>Dashboard.h`)
 7. Validate: state serialization, bypass crossfade, zone placement, and latency reporting
+
+### Source Directory Layout
+
+```
+Source/
+├── Core/                       # Plugin entry points, engine, state, constants
+│   ├── DSP/Global/             # InputChain, ChannelStrip, OutputChain
+│   └── DSP/Services/           # TunerService
+├── Effects/
+│   ├── Pedals/Base/            # ProcessorBase, PedalUIFactory, PremiumPedalUI
+│   ├── Pedals/<Name>/          # All 17 pedals: <Name>Pedal.h + <Name>Editor.h (+ optional Thumbnail/Dashboard)
+│   ├── Pedals/*.h              # Legacy flat files (fully superseded by subfolder versions)
+│   ├── Amplifiers/             # 5 amp processors (flat .h files)
+│   └── Cabinets/               # CabinetPedal, SyntheticIR, cabinet variants
+├── GUI/
+│   ├── Widgets/                # ChainLane, DropZone, AssetBrowserOverlay, AssetItem, DraggableButton
+│   ├── Overlays/               # TunerOverlay
+│   └── Wizards/                # WizardBase, StartWizard, AudioSetupWizard, PresetFinderWizard
+├── Lib/                        # Vendored: RTNeural, Eigen, json, xsimd, models/
+└── Resources/Textures/         # Knob filmstrips, surface materials
+```
+
+**Pedal file structure**: All 17 pedals are in their own subfolder (e.g., `Pedals/Overdrive/OverdrivePedal.h` + `OverdriveEditor.h`). Notable exceptions: `Wah/` contains two pedals (ClassicWahPedal + AutoWahPedal), and `Neural/` uses RTNeural inference for neural amp modeling (distinct from other pedal patterns). A few legacy flat files (e.g., `Pedals/ChorusPedal.h`, `Pedals/CompressorPedal.h`) still exist but are fully superseded — always use the subfolder version.
 
 ### Key Files
 
+These files have non-obvious roles or are central coordination points — most other files are self-explanatory from the directory layout above.
+
 | File | Role |
 |------|------|
-| `Source/Core/Constants.h` | All enums, ValueTree IDs, colors, config constants |
-| `Source/Core/AudioEngine.h/cpp` | Graph management, audio processing, auto-heal |
-| `Source/Core/PluginProcessor.h/cpp` | JUCE plugin entry point, host parameter bridge |
-| `Source/Core/PluginEditor.h/cpp` | Main GUI: responsive layout, modal overlays, sidebars |
-| `Source/Core/PedalCatalog.h` | Static catalog of all 25 effects with metadata + accent colors |
-| `Source/Core/PedalRegistry.h` | Factory map: type string → processor constructor |
-| `Source/Core/PluginStateModel.h` | ValueTree state operations (pure functions) |
-| `Source/Core/SessionStore.h` | Command-pattern state mutations + parameter bindings |
-| `Source/Core/SessionCoordinator.h` | Async coordinator between GUI/host and store |
-| `Source/Core/SessionPersistence.h` | Preset file I/O, engine rebuild from state |
-| `Source/Effects/Pedals/Base/ProcessorBase.h` | Base class for all effects (bypass, latency) |
-| `Source/Effects/Pedals/Base/PedalUIFactory.h` | Registry for per-pedal custom paint lambdas |
-| `Source/Effects/Pedals/Base/PremiumPedalUI.h` | Premium editor templates with filmstrip support |
-| `Source/Effects/Cabinets/SyntheticIR.h` | Biquad-based synthetic impulse response generator |
-| `Source/Core/StyleSheet.h` | Knob geometry, LookAndFeel classes |
-| `Source/Core/DSP/Global/InputChain.h` | Input conditioning: gain, gate, force-mono, pitch transpose |
-| `Source/Core/DSP/Global/ChannelStrip.h` | Per-line gain, pan, width processing |
-| `Source/Core/DSP/Global/OutputChain.h` | Output limiter, DC blocker, soft ceiling |
-| `Source/Core/DSP/Services/TunerService.h` | Background pitch detection (4096-sample window) |
-| `Source/Core/AudioEngineTests.cpp` | Unit tests (NOVA category, runs in Standalone) |
-| `Source/Core/SessionLogger.h` | Singleton file logger with owner-count lifecycle |
-| `Source/Core/OfflineQADiagnostics.h` | Offline QA scenario runner, writes report to log dir |
-| `Source/Core/Visualizer.h` | Simple oscilloscope component for debug visualization |
+| `Source/Core/Constants.h` | Single source of truth: all enums, ValueTree IDs, colors, config constants |
+| `Source/Core/AudioEngine.h/cpp` | Graph management, two-plane architecture, auto-heal, audio processing |
+| `Source/Core/PluginStateModel.h` | Pure-function ValueTree ops: zone ordering, sanitization, schema versioning |
+| `Source/Core/SessionStore.h` | Command-pattern state mutations, host parameter bindings, `RuntimeGlobalParams` snapshots |
+| `Source/Core/SessionPersistence.h` | Preset file I/O with Base64-encoded pedal states, engine rebuild from state |
+| `Source/Core/PedalCatalog.h` | Static catalog of all 25 effects: metadata, zone rules, accent colors |
+| `Source/Core/PedalRegistry.h` | Factory map: type string → processor constructor (add `#include` + entry here for new effects) |
+| `Source/Effects/Pedals/Base/ProcessorBase.h` | Base class for all effects: bypass crossfade, latency reporting |
+| `Source/Effects/Pedals/Base/PremiumPedalUI.h` | Premium editor template with filmstrip knobs, hero knob, response curves |
+| `Source/Effects/Cabinets/SyntheticIR.h` | Biquad cascade → comb-filter → exponential decay → 1024-sample IR per cabinet type |
+| `Source/Core/StyleSheet.h` | Knob geometry constants, `ModernKnobLnF`, `StudioTrimKnobLnF` LookAndFeel classes |
 
-**Legacy placeholders** (empty, safe to ignore): `Common.h`, `GlobalProcessors.h` — functionality moved to `Constants.h` and `DSP/Global/` respectively.
+**Legacy placeholders** (empty, safe to ignore): `Common.h`, `GlobalProcessors.h`.
 
 ### DSP Conventions
 
@@ -152,6 +165,8 @@ The editor (`PluginEditor.h/cpp`) uses a multi-tier responsive layout with three
 - **Async refresh**: `uiRefreshPending` atomic + `AsyncUpdater` batches repaints; `StatsTimer` polls at 30 Hz for metering
 - **Drag-and-drop formats**: `"TypeID:DisplayName"` (asset browser → chain), `"MOVE:LineA/LineB:PedalIndex"` (intra-chain move)
 - **Colors**: All defined in `Nova::Colors::*` in `Constants.h`. Each pedal has its own `accentHex`/`accentBrightHex` in `PedalCatalog`
+
+- **Wizards**: `GUI/Wizards/WizardBase.h` — multi-step overlay with progress dots, back/next/skip navigation. Subclasses (`StartWizard`, `AudioSetupWizard`, `PresetFinderWizard`) override `buildStepContent()` and `onStepChanged()`. Shown as full-screen modal overlays.
 
 **Premium editor reference**: `OverdriveEditor.h` — hero knob + control grid + response curve + texture overlays. Matching `OverdriveThumbnail.h` and `OverdriveDashboard.h` for asset browser and compact views.
 

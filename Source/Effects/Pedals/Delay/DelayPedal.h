@@ -99,12 +99,44 @@ struct DelayLine
     }
 };
 
-// ---- Progressive analog saturation ----
-inline float analogSaturate(float x, float drive) noexcept
+// ---- Analog soft saturation (unity small-signal gain) ----
+inline float analogSaturate(float x) noexcept
 {
-    // Drive scales with feedback level — repeats get warmer
-    return std::tanh(x * (1.0f + drive * 0.6f));
+    // tanh: unity gain at x→0, bounded output ±1, adds odd harmonics
+    // Each pass through the feedback loop adds progressive warmth
+    return std::tanh(x);
 }
+
+// ---- Short all-pass delay for feedback diffusion (tape head smearing) ----
+struct AllPassFilter
+{
+    std::vector<float> buf;
+    int writePos = 0;
+    int delay = 1;
+    float coeff = 0.5f;
+
+    void allocate(int maxDelay)
+    {
+        buf.assign((size_t)juce::jmax(4, maxDelay + 1), 0.0f);
+        writePos = 0;
+    }
+
+    void clear() { std::fill(buf.begin(), buf.end(), 0.0f); writePos = 0; }
+
+    void setDelay(int d) { delay = juce::jlimit(1, (int)buf.size() - 1, d); }
+
+    float process(float input) noexcept
+    {
+        int readPos = writePos - delay;
+        if (readPos < 0) readPos += (int)buf.size();
+        float delayed = buf[(size_t)readPos];
+        float w = input + coeff * delayed;
+        buf[(size_t)writePos] = w;
+        float output = -coeff * w + delayed;
+        if (++writePos >= (int)buf.size()) writePos = 0;
+        return output;
+    }
+};
 
 }} // namespace Nova::DelayDSP
 
@@ -162,9 +194,19 @@ public:
         updateTone();
 
         for (auto& hp : fbHighPass)
-            hp.setHighPass(80.0f, 0.707f, sr);
+            hp.setHighPass(40.0f, 0.707f, sr);
         for (auto& hp : dcBlock)
             hp.setHighPass(18.0f, 0.707f, sr);
+
+        // Feedback diffusion all-pass filters (tape-head smearing)
+        // Asymmetric L/R delays for stereo decorrelation
+        const double ratio = sr / 48000.0;
+        for (auto& ap : diffusionL) { ap.allocate(64); ap.coeff = 0.45f; }
+        for (auto& ap : diffusionR) { ap.allocate(64); ap.coeff = 0.45f; }
+        diffusionL[0].setDelay(juce::jmax(1, (int)(13.0 * ratio)));
+        diffusionL[1].setDelay(juce::jmax(1, (int)(23.0 * ratio)));
+        diffusionR[0].setDelay(juce::jmax(1, (int)(17.0 * ratio)));
+        diffusionR[1].setDelay(juce::jmax(1, (int)(29.0 * ratio)));
 
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
@@ -178,6 +220,7 @@ public:
         delayL.clear();
         delayR.clear();
         lfoPhase = 0.0f;
+        lfoPhase2 = 0.0f;
 
         timeSmooth.setCurrentAndTargetValue(timeParam != nullptr ? *timeParam : 420.0f);
         feedbackSmooth.setCurrentAndTargetValue(feedbackParam != nullptr ? *feedbackParam : 0.42f);
@@ -187,6 +230,8 @@ public:
         for (auto& lp : toneLPF) lp.reset();
         for (auto& hp : fbHighPass) hp.reset();
         for (auto& hp : dcBlock) hp.reset();
+        for (auto& ap : diffusionL) ap.clear();
+        for (auto& ap : diffusionR) ap.clear();
 
         lastWetL = lastWetR = 0.0f;
     }
@@ -207,9 +252,11 @@ public:
         constexpr float twoPi = juce::MathConstants<float>::twoPi;
         constexpr float halfPi = juce::MathConstants<float>::halfPi;
 
-        // Analog drift modulation constants (subtle — not a user parameter)
-        constexpr float kModRate = 0.43f;     // Hz — slow organic drift
-        constexpr float kModDepthMs = 0.25f;  // ms — very subtle wobble
+        // Dual-LFO analog drift — richer than single-rate wobble
+        constexpr float kModRate1 = 0.37f;      // Hz — primary slow drift
+        constexpr float kModRate2 = 0.71f;      // Hz — secondary shimmer
+        constexpr float kModDepthMs1 = 0.20f;   // ms — primary depth
+        constexpr float kModDepthMs2 = 0.12f;   // ms — secondary depth
 
         const float maxDelaySamples = (float)(delayL.size - 4);
 
@@ -224,16 +271,20 @@ public:
             const float baseDelay = juce::jlimit(1.0f, maxDelaySamples,
                 timeMs * (float)sr * 0.001f);
 
-            // Analog drift modulation on delay time
-            const float modDepthSamples = kModDepthMs * (float)sr * 0.001f;
-            const float lfoVal = std::sin(twoPi * lfoPhase);
+            // Dual-LFO analog drift modulation
+            const float modDepth1 = kModDepthMs1 * (float)sr * 0.001f;
+            const float modDepth2 = kModDepthMs2 * (float)sr * 0.001f;
+            const float lfo1 = std::sin(twoPi * lfoPhase);
+            const float lfo2 = std::sin(twoPi * lfoPhase2);
+            const float modL = lfo1 * modDepth1 + lfo2 * modDepth2;
+            const float modR = lfo1 * modDepth1 * 0.8f - lfo2 * modDepth2 * 0.6f;
 
             // Stereo time offset: subtle width (±3% based on spread)
             const float stereoOffset = baseDelay * 0.03f * spread;
             const float delayLSamples = juce::jlimit(1.0f, maxDelaySamples,
-                baseDelay - stereoOffset + lfoVal * modDepthSamples);
+                baseDelay - stereoOffset + modL);
             const float delayRSamples = juce::jlimit(1.0f, maxDelaySamples,
-                baseDelay + stereoOffset + lfoVal * modDepthSamples * 0.7f);
+                baseDelay + stereoOffset + modR);
 
             // Read delayed signal (cubic Hermite)
             float wetL = delayL.readCubic(delayLSamples);
@@ -244,7 +295,6 @@ public:
             const float inR = numChannels > 1 ? buffer.getSample(1, sample) : inL;
 
             // Ping-pong crossfeed in feedback path
-            // spread=0: independent L/R, spread=1: full ping-pong
             const float fbStraight = 1.0f - spread;
             const float fbCross = spread;
             float fbL = wetL * fbStraight + wetR * fbCross;
@@ -254,17 +304,27 @@ public:
             fbL = toneLPF[0].process(fbL);
             fbR = toneLPF[1].process(fbR);
 
-            // High-pass to prevent rumble buildup
+            // High-pass to prevent sub-bass buildup
             fbL = fbHighPass[0].process(fbL);
             fbR = fbHighPass[1].process(fbR);
 
-            // Progressive saturation (more drive at higher feedback)
-            fbL = Nova::DelayDSP::analogSaturate(fbL, feedback);
-            fbR = Nova::DelayDSP::analogSaturate(fbR, feedback);
+            // Soft saturation: unity small-signal gain, bounded output ±1
+            // Each pass through tanh adds analog warmth (odd harmonics)
+            fbL = Nova::DelayDSP::analogSaturate(fbL);
+            fbR = Nova::DelayDSP::analogSaturate(fbR);
 
-            // Write to delay lines: dry input + filtered feedback
-            delayL.write(inL + fbL * feedback);
-            delayR.write(inR + fbR * feedback);
+            // Apply feedback gain AFTER saturation — guarantees loop gain < 1
+            // This is the critical fix: prevents helicopter self-oscillation
+            fbL *= feedback;
+            fbR *= feedback;
+
+            // Feedback diffusion: subtle all-pass smearing for tape/analog character
+            for (auto& ap : diffusionL) fbL = ap.process(fbL);
+            for (auto& ap : diffusionR) fbR = ap.process(fbR);
+
+            // Write to delay lines
+            delayL.write(inL + fbL);
+            delayR.write(inR + fbR);
 
             // DC block the wet output
             float outWetL = dcBlock[0].process(wetL);
@@ -278,9 +338,11 @@ public:
             if (numChannels > 1)
                 buffer.setSample(1, sample, inR * dryGain + outWetR * wetGain);
 
-            // Advance LFO
-            lfoPhase += kModRate / (float)sr;
+            // Advance dual LFOs (incommensurate rates prevent beating)
+            lfoPhase += kModRate1 / (float)sr;
             if (lfoPhase >= 1.0f) lfoPhase -= 1.0f;
+            lfoPhase2 += kModRate2 / (float)sr;
+            if (lfoPhase2 >= 1.0f) lfoPhase2 -= 1.0f;
         }
 
         // Store last wet levels for editor (cheap, end of block)
@@ -297,6 +359,7 @@ public:
     juce::AudioParameterFloat* spreadParam   = nullptr;
     juce::AudioParameterFloat* mixParam      = nullptr;
     float lfoPhase = 0.0f;
+    float lfoPhase2 = 0.0f;
     float lastWetL = 0.0f;
     float lastWetR = 0.0f;
 
@@ -325,6 +388,10 @@ private:
     std::array<Nova::DelayDSP::Biquad, 2> toneLPF;
     std::array<Nova::DelayDSP::Biquad, 2> fbHighPass;
     std::array<Nova::DelayDSP::Biquad, 2> dcBlock;
+
+    // Feedback diffusion: 2 all-pass stages per channel (asymmetric for stereo width)
+    std::array<Nova::DelayDSP::AllPassFilter, 2> diffusionL;
+    std::array<Nova::DelayDSP::AllPassFilter, 2> diffusionR;
 
     float cachedToneCutoff = -1.0f;
     bool isPrepared = false;

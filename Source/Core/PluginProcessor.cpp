@@ -291,8 +291,8 @@ bool NOVAAudioProcessor::producesMidi() const { return false; }
 double NOVAAudioProcessor::getTailLengthSeconds() const
 {
     // Report a conservative tail so DAWs don't cut reverb/delay tails on stop.
-    // 3 seconds covers most delay + reverb tail combinations in the chain.
-    return 3.0;
+    // Nimbus Cloud/Shimmer can ring well beyond a short FX tail.
+    return 16.0;
 }
 
 int NOVAAudioProcessor::getNumPrograms() { return 1; }
@@ -612,6 +612,39 @@ void NOVAAudioProcessor::cycleSwitcher()
     }
 
     setSwitcherMode(static_cast<Nova::SwitcherMode>(mode));
+}
+
+void NOVAAudioProcessor::cycleSwitcherWithMask(int enabledModesBitmask)
+{
+    if (switchModeParam == nullptr)
+        return;
+
+    // Collect enabled modes in order: A(0), Parallel(1), B(2)
+    std::vector<int> enabled;
+    for (int i = 0; i < 3; ++i)
+        if ((enabledModesBitmask >> i) & 1)
+            enabled.push_back(i);
+
+    if (enabled.size() < 2)
+    {
+        cycleSwitcher(); // fallback to normal cycle
+        return;
+    }
+
+    const int currentMode = switchModeParam->getIndex();
+
+    // Find current mode in the enabled list, then advance to next
+    int nextIdx = 0;
+    for (int i = 0; i < (int)enabled.size(); ++i)
+    {
+        if (enabled[(size_t)i] == currentMode)
+        {
+            nextIdx = (i + 1) % (int)enabled.size();
+            break;
+        }
+    }
+
+    setSwitcherMode(static_cast<Nova::SwitcherMode>(enabled[(size_t)nextIdx]));
 }
 
 void NOVAAudioProcessor::setSwitcherMode(Nova::SwitcherMode mode)

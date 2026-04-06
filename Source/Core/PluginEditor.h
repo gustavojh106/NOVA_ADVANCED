@@ -69,6 +69,12 @@ private:
     void savePresetWithName(const juce::String& presetName);
     void loadSelectedPreset();
     void clearPresetAndSession();
+    void openSettingsOverlay();
+    void launchWizard(int wizardID); // 0=AudioSetup, 1=Start, 2=PresetFinder
+    void setLeftPanelOpen(bool shouldOpen);
+    void setRightPanelOpen(bool shouldOpen);
+    void refreshDrawerButtons();
+    void applyEditorPreferences(bool applyStartupPanels);
 
     NOVAAudioProcessor& audioProcessor;
 
@@ -80,6 +86,7 @@ private:
     juce::Label lblBuf;
 
     juce::TextButton btnTuner{ "T" };
+    juce::TextButton btnSettings{ "SETTINGS" };
 
     // --- SIDEBAR DRAWERS ---
     struct SidebarDrawer final : public juce::Component
@@ -211,6 +218,9 @@ private:
 
     int lastKnownAutoHealCount = 0;
     int autoHealFlashFrames    = 0;
+    bool showPerformanceStats = true;
+    bool openQuickAddOnStartup = false;
+    bool openPresetsOnStartup = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(NOVAAudioProcessorEditor)
 };

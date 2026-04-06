@@ -6,16 +6,217 @@
 #include "../Effects/Pedals/Base/PedalUIFactory.h"
 #include "../Effects/Pedals/Overdrive/OverdriveThumbnail.h"
 #include "../Effects/Pedals/Overdrive/OverdriveDashboard.h"
+#include "../Effects/Pedals/Reverb/ReverbThumbnail.h"
+#include "../Effects/Pedals/Reverb/ReverbDashboard.h"
 #include <algorithm>
+
+#if JucePlugin_Build_Standalone
+ #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+#endif
 
 namespace
 {
+    namespace EditorPrefs
+    {
+        constexpr const char* showStatsKey = "editor.showPerformanceStats";
+        constexpr const char* openBrowserOnStartupKey = "editor.openBrowserOnStartup";
+        constexpr const char* openPresetsOnStartupKey = "editor.openPresetsOnStartup";
+        constexpr const char* startupModeKey = "editor.startupMode";
+        constexpr const char* confirmBeforeClearKey = "editor.confirmBeforeClear";
+        constexpr const char* tunerReferenceKey = "editor.tunerReference";
+        constexpr const char* showLatencyTipsKey = "editor.showLatencyTips";
+        constexpr const char* libraryViewKey = "editor.libraryView";
+        constexpr const char* favoritesFirstKey = "editor.libraryFavoritesFirst";
+        constexpr const char* switcherShortcutKey = "editor.switcherShortcut";
+        constexpr const char* switcherModesKey = "editor.switcherModes";
+        constexpr const char* rootTag = "NOVA_EDITOR_SETTINGS";
+        constexpr const char* itemTag = "SETTING";
+        constexpr const char* nameAttr = "name";
+        constexpr const char* valueAttr = "value";
+
+        juce::File getSettingsFile()
+        {
+            auto directory = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                .getChildFile("NOVA");
+
+            if (!directory.exists())
+                directory.createDirectory();
+
+            return directory.getChildFile("editor-settings.xml");
+        }
+
+        juce::StringPairArray& cache()
+        {
+            static bool loaded = false;
+            static juce::StringPairArray values;
+
+            if (!loaded)
+            {
+                const auto file = getSettingsFile();
+
+                if (file.existsAsFile())
+                {
+                    auto xml = juce::parseXML(file);
+                    if (xml != nullptr && xml->hasTagName(rootTag))
+                    {
+                        for (auto* child = xml->getFirstChildElement(); child != nullptr; child = child->getNextElement())
+                        {
+                            if (!child->hasTagName(itemTag))
+                                continue;
+                            const auto key = child->getStringAttribute(nameAttr);
+                            if (key.isNotEmpty())
+                                values.set(key, child->getStringAttribute(valueAttr));
+                        }
+                    }
+                }
+
+                loaded = true;
+            }
+
+            return values;
+        }
+
+        void flushToDisk()
+        {
+            juce::XmlElement root(rootTag);
+            const auto& values = cache();
+
+            for (int i = 0; i < values.size(); ++i)
+            {
+                auto* child = root.createNewChildElement(itemTag);
+                child->setAttribute(nameAttr, values.getAllKeys()[i]);
+                child->setAttribute(valueAttr, values.getAllValues()[i]);
+            }
+
+            root.writeTo(getSettingsFile(), {});
+        }
+
+        bool getBool(const char* key, bool defaultValue)
+        {
+            const auto& values = cache();
+            return values.containsKey(key)
+                ? values[key].equalsIgnoreCase("true") || values[key] == "1"
+                : defaultValue;
+        }
+
+        void setBool(const char* key, bool value)
+        {
+            cache().set(key, value ? "true" : "false");
+            flushToDisk();
+        }
+
+        juce::String getString(const char* key, const juce::String& defaultValue)
+        {
+            const auto& values = cache();
+            return values.containsKey(key) ? values[key] : defaultValue;
+        }
+
+        void setString(const char* key, const juce::String& value)
+        {
+            cache().set(key, value);
+            flushToDisk();
+        }
+
+        float parseTunerReference()
+        {
+            const auto val = getString(tunerReferenceKey, "A = 440 Hz");
+            if (val.contains("442")) return 442.0f;
+            if (val.contains("432")) return 432.0f;
+            return 440.0f;
+        }
+
+        // Switcher shortcut key — stored as keyCode, default=space
+        int getSwitcherKeyCode()
+        {
+            const auto val = getString(switcherShortcutKey, "");
+            if (val.isNotEmpty())
+                return val.getIntValue();
+            return juce::KeyPress::spaceKey;
+        }
+
+        void setSwitcherKeyCode(int keyCode)
+        {
+            setString(switcherShortcutKey, juce::String(keyCode));
+        }
+
+        juce::String keyCodeToDisplayName(int keyCode)
+        {
+            if (keyCode == juce::KeyPress::spaceKey)   return "SPACE";
+            if (keyCode == juce::KeyPress::returnKey)   return "ENTER";
+            if (keyCode == juce::KeyPress::tabKey)      return "TAB";
+            if (keyCode == juce::KeyPress::escapeKey)   return "ESC";
+            if (keyCode == juce::KeyPress::F1Key)       return "F1";
+            if (keyCode == juce::KeyPress::F2Key)       return "F2";
+            if (keyCode == juce::KeyPress::F3Key)       return "F3";
+            if (keyCode == juce::KeyPress::F4Key)       return "F4";
+            if (keyCode == juce::KeyPress::F5Key)       return "F5";
+            if (keyCode == juce::KeyPress::F6Key)       return "F6";
+            if (keyCode == juce::KeyPress::F7Key)       return "F7";
+            if (keyCode == juce::KeyPress::F8Key)       return "F8";
+            if (keyCode == juce::KeyPress::F9Key)       return "F9";
+            if (keyCode == juce::KeyPress::F10Key)      return "F10";
+            if (keyCode == juce::KeyPress::F11Key)      return "F11";
+            if (keyCode == juce::KeyPress::F12Key)      return "F12";
+            if (keyCode >= 'A' && keyCode <= 'Z')
+                return juce::String::charToString((juce::juce_wchar)keyCode);
+            if (keyCode >= '0' && keyCode <= '9')
+                return juce::String::charToString((juce::juce_wchar)keyCode);
+            return juce::KeyPress(keyCode, {}, 0).getTextDescription().toUpperCase();
+        }
+
+        // Enabled switcher modes — bitmask: bit0=LineA, bit1=Parallel, bit2=LineB
+        // Default: all three enabled (7 = 0b111)
+        int getSwitcherModes()
+        {
+            const auto val = getString(switcherModesKey, "7");
+            int modes = val.getIntValue();
+            // Must have at least 2 modes enabled
+            int count = ((modes >> 0) & 1) + ((modes >> 1) & 1) + ((modes >> 2) & 1);
+            if (count < 2)
+                return 7;
+            return modes & 7;
+        }
+
+        void setSwitcherModes(int bitmask)
+        {
+            setString(switcherModesKey, juce::String(bitmask & 7));
+        }
+
+        bool isModeEnabled(int bitmask, Nova::SwitcherMode mode)
+        {
+            return (bitmask >> (int)mode) & 1;
+        }
+    }
+
+    juce::File getStartupPresetPointerFile()
+    {
+        auto directory = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+            .getChildFile("NOVA");
+
+        if (!directory.exists())
+            directory.createDirectory();
+
+        return directory.getChildFile("startup-preset.txt");
+    }
+
+    juce::String getStartupPresetName()
+    {
+        const auto pointerFile = getStartupPresetPointerFile();
+        if (!pointerFile.existsAsFile())
+            return {};
+
+        const auto presetFile = juce::File(pointerFile.loadFileAsString().trim());
+        return presetFile.existsAsFile() ? presetFile.getFileNameWithoutExtension() : juce::String{};
+    }
+
     struct PedalUIRegistrar
     {
         PedalUIRegistrar()
         {
             Nova::OverdriveUI::registerOverdriveThumbnail();
             Nova::OverdriveUI::registerOverdriveDashboard();
+            Nova::ReverbUI::registerReverbThumbnail();
+            Nova::ReverbUI::registerReverbDashboard();
         }
     };
     static PedalUIRegistrar sUIRegistrar;
@@ -84,7 +285,1448 @@ namespace
         const int maxRows = juce::jmax(1, (usableH + d.gapV) / (d.cardH + d.gapV));
         return { maxRows, cols, d.cardW, d.cardH, d.gapH, d.gapV, cols * maxRows };
     }
+
+    class SettingsLookAndFeel final : public juce::LookAndFeel_V4
+    {
+    public:
+        SettingsLookAndFeel()
+        {
+            setColour(juce::ResizableWindow::backgroundColourId, Nova::Colors::Panel);
+            setColour(juce::Label::textColourId, Nova::Colors::Text);
+            setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff182131"));
+            setColour(juce::TextButton::buttonOnColourId, Nova::Colors::Accent.withAlpha(0.18f));
+            setColour(juce::TextButton::textColourOffId, Nova::Colors::Text.withAlpha(0.88f));
+            setColour(juce::TextButton::textColourOnId, Nova::Colors::Text);
+            setColour(juce::ToggleButton::tickColourId, Nova::Colors::Accent);
+            setColour(juce::ComboBox::backgroundColourId, juce::Colour::fromString("ff101722"));
+            setColour(juce::ComboBox::textColourId, Nova::Colors::Text);
+            setColour(juce::ComboBox::outlineColourId, Nova::Colors::Border.withAlpha(0.75f));
+            setColour(juce::ComboBox::arrowColourId, Nova::Colors::Accent);
+            setColour(juce::PopupMenu::backgroundColourId, juce::Colour::fromString("ff101722"));
+            setColour(juce::PopupMenu::textColourId, Nova::Colors::Text);
+            setColour(juce::PopupMenu::highlightedBackgroundColourId, Nova::Colors::Accent.withAlpha(0.18f));
+            setColour(juce::PopupMenu::highlightedTextColourId, Nova::Colors::Text);
+            setColour(juce::TextEditor::backgroundColourId, juce::Colour::fromString("ff101722"));
+            setColour(juce::TextEditor::textColourId, Nova::Colors::Text);
+            setColour(juce::TextEditor::outlineColourId, Nova::Colors::Border.withAlpha(0.7f));
+            setColour(juce::ListBox::backgroundColourId, juce::Colour::fromString("ff101722"));
+            setColour(juce::ScrollBar::thumbColourId, Nova::Colors::Accent.withAlpha(0.55f));
+            setColour(juce::Slider::trackColourId, Nova::Colors::Accent);
+        }
+    };
+
+    void styleSettingsActionButton(juce::TextButton& button,
+        const juce::String& text,
+        bool secondary = false)
+    {
+        button.setButtonText(text);
+        button.setColour(juce::TextButton::buttonColourId,
+            secondary ? juce::Colour::fromString("ff172131") : Nova::Colors::Accent.withAlpha(0.18f));
+        button.setColour(juce::TextButton::textColourOffId,
+            secondary ? Nova::Colors::Text.withAlpha(0.85f) : Nova::Colors::Text);
+    }
+
+    void styleSettingsLabel(juce::Label& label,
+        float fontSize,
+        juce::Colour colour,
+        juce::Justification justification = juce::Justification::topLeft)
+    {
+        label.setColour(juce::Label::textColourId, colour);
+        label.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+        label.setColour(juce::Label::outlineColourId, juce::Colours::transparentBlack);
+        label.setFont(juce::Font(juce::FontOptions(fontSize)));
+        label.setJustificationType(justification);
+        label.setInterceptsMouseClicks(false, false);
+    }
+
+    void styleSettingsTabButton(juce::TextButton& button,
+        const juce::String& text)
+    {
+        button.setButtonText(text);
+        button.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff121A27"));
+        button.setColour(juce::TextButton::textColourOffId, Nova::Colors::Text.withAlpha(0.82f));
+    }
+
+    void setSettingsTabButtonActive(juce::TextButton& button, bool active)
+    {
+        button.setColour(juce::TextButton::buttonColourId,
+            active ? Nova::Colors::Accent.withAlpha(0.22f) : juce::Colour::fromString("ff121A27"));
+        button.setColour(juce::TextButton::textColourOffId,
+            active ? Nova::Colors::Text : Nova::Colors::Text.withAlpha(0.82f));
+    }
+
+    void paintSettingsContentSurface(juce::Graphics& g,
+        juce::Rectangle<int> bounds,
+        const juce::String& title,
+        const juce::String& subtitle)
+    {
+        auto rect = bounds.toFloat();
+        juce::ColourGradient fill(juce::Colour::fromString("ff162131"),
+            rect.getCentreX(), rect.getY(),
+            juce::Colour::fromString("ff0F1724"),
+            rect.getCentreX(), rect.getBottom(), false);
+        g.setGradientFill(fill);
+        g.fillRoundedRectangle(rect, 16.0f);
+
+        g.setColour(Nova::Colors::Border.withAlpha(0.65f));
+        g.drawRoundedRectangle(rect.reduced(0.5f), 16.0f, 1.0f);
+
+        auto header = bounds.reduced(20, 18);
+        g.setColour(Nova::Colors::Accent);
+        g.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)));
+        g.drawText(title, header.removeFromTop(22), juce::Justification::centredLeft);
+
+        g.setColour(Nova::Colors::TextDim);
+        g.setFont(juce::Font(juce::FontOptions(11.0f)));
+        g.drawFittedText(subtitle, header.removeFromTop(30), juce::Justification::centredLeft, 2);
+    }
+
+    class PlaceholderSettingsPage final : public juce::Component
+    {
+    public:
+        PlaceholderSettingsPage(juce::String pageTitle,
+            juce::String description,
+            juce::String footerText)
+            : title(std::move(pageTitle)),
+              body(std::move(description)),
+              footer(std::move(footerText))
+        {
+        }
+
+        void paint(juce::Graphics& g) override
+        {
+            auto area = getLocalBounds().reduced(10);
+            const int gap = 14;
+            const int topHeight = juce::jmax(140, (int)std::round((double)area.getHeight() * 0.44));
+            auto hero = area.removeFromTop(topHeight);
+            area.removeFromTop(gap);
+            auto details = area;
+
+            drawCard(g, hero, title, body,
+                "This category is already wired into the NOVA settings architecture.");
+            drawCard(g, details, "What Will Live Here", footer,
+                "For now it acts as a visible placeholder instead of a dead end.");
+        }
+
+    private:
+        static void drawCard(juce::Graphics& g,
+            juce::Rectangle<int> bounds,
+            const juce::String& heading,
+            const juce::String& paragraph,
+            const juce::String& note)
+        {
+            auto rect = bounds.toFloat();
+            juce::ColourGradient fill(juce::Colour::fromString("ff172131"),
+                rect.getCentreX(), rect.getY(),
+                juce::Colour::fromString("ff0F1622"),
+                rect.getCentreX(), rect.getBottom(), false);
+            g.setGradientFill(fill);
+            g.fillRoundedRectangle(rect, 18.0f);
+
+            g.setColour(Nova::Colors::Border.withAlpha(0.65f));
+            g.drawRoundedRectangle(rect.reduced(0.5f), 18.0f, 1.0f);
+
+            auto content = bounds.reduced(24, 22);
+            g.setColour(Nova::Colors::Accent);
+            g.setFont(juce::Font(juce::FontOptions(16.5f, juce::Font::bold)));
+            g.drawText(heading, content.removeFromTop(26), juce::Justification::centredLeft);
+
+            content.removeFromTop(10);
+            g.setColour(Nova::Colors::Text.withAlpha(0.86f));
+            g.setFont(juce::Font(juce::FontOptions(13.0f)));
+            const int paragraphHeight = juce::jmax(54, juce::jmin(88, bounds.getHeight() / 3));
+            g.drawFittedText(paragraph, content.removeFromTop(paragraphHeight), juce::Justification::topLeft, 5);
+
+            content.removeFromTop(12);
+            g.setColour(Nova::Colors::TextDim);
+            g.setFont(juce::Font(juce::FontOptions(11.5f, juce::Font::italic)));
+            g.drawFittedText(note, content, juce::Justification::topLeft, 4);
+        }
+
+        juce::String title;
+        juce::String body;
+        juce::String footer;
+    };
+
+    class GeneralSettingsPage final : public juce::Component
+    {
+    public:
+        struct Callbacks
+        {
+            std::function<void(bool)> onShowStatsChanged;
+            std::function<void(bool)> onOpenBrowserOnStartupChanged;
+            std::function<void(bool)> onOpenPresetsOnStartupChanged;
+            std::function<void()> onSwitcherConfigChanged;
+        };
+
+        explicit GeneralSettingsPage(Callbacks pageCallbacks)
+            : callbacks(std::move(pageCallbacks))
+        {
+            setLookAndFeel(&lookAndFeel);
+
+            configureTabButton(btnInterfaceTab, "Interface", [this] { setTab(Tab::Interface); });
+            configureTabButton(btnStartupTab, "Startup", [this] { setTab(Tab::Startup); });
+
+            // --- Interface tab controls ---
+            setupToggle(showStatsToggle, "Show performance stats");
+            addAndMakeVisible(showStatsToggle);
+            showStatsToggle.setTooltip("Show CPU, process time and buffer time in the header.");
+
+            // Shortcut key recorder button
+            addAndMakeVisible(btnShortcutKey);
+            refreshShortcutKeyLabel();
+            btnShortcutKey.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff101722"));
+            btnShortcutKey.setColour(juce::TextButton::textColourOffId, Nova::Colors::Text.withAlpha(0.92f));
+            btnShortcutKey.onClick = [this] { startRecordingKey(); };
+
+            // Reset shortcut button
+            addAndMakeVisible(btnResetShortcut);
+            btnResetShortcut.setButtonText("RESET");
+            btnResetShortcut.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff1A1420"));
+            btnResetShortcut.setColour(juce::TextButton::textColourOffId, Nova::Colors::TextDim);
+            btnResetShortcut.onClick = [this]
+            {
+                EditorPrefs::setSwitcherKeyCode(juce::KeyPress::spaceKey);
+                recordingKey = false;
+                refreshShortcutKeyLabel();
+                repaint();
+            };
+
+            // Mode toggle chips
+            switcherModes = EditorPrefs::getSwitcherModes();
+            for (int i = 0; i < 3; ++i)
+            {
+                addAndMakeVisible(modeChips[i]);
+                modeChips[i].setClickingTogglesState(true);
+                modeChips[i].setToggleState((switcherModes >> i) & 1, juce::dontSendNotification);
+                modeChips[i].onClick = [this, i] { onModeChipClicked(i); };
+            }
+            modeChips[0].setButtonText("LINE A");
+            modeChips[1].setButtonText("PARALLEL");
+            modeChips[2].setButtonText("LINE B");
+            updateModeChipColors();
+
+            // --- Startup tab controls ---
+            setupToggle(openBrowserToggle, "Open Quick Add at startup");
+            setupToggle(openPresetsToggle, "Open Presets at startup");
+            setupToggle(confirmClearToggle, "Confirm before clearing rig");
+            addAndMakeVisible(openBrowserToggle);
+            addAndMakeVisible(openPresetsToggle);
+            addAndMakeVisible(confirmClearToggle);
+
+            openBrowserToggle.setTooltip("Open the Quick Add drawer automatically when the editor starts.");
+            openPresetsToggle.setTooltip("Open the Presets drawer automatically when the editor starts.");
+            confirmClearToggle.setTooltip("Ask before clearing the active rig and preset state.");
+
+            startupModeBox.addItem("Remember last context", 1);
+            startupModeBox.addItem("Open clean rig", 2);
+            startupModeBox.addItem("Open startup preset", 3);
+            addAndMakeVisible(startupModeBox);
+
+            // Load state
+            showStatsToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::showStatsKey, true), juce::dontSendNotification);
+            openBrowserToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::openBrowserOnStartupKey, false), juce::dontSendNotification);
+            openPresetsToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::openPresetsOnStartupKey, false), juce::dontSendNotification);
+            confirmClearToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::confirmBeforeClearKey, true), juce::dontSendNotification);
+            startupModeBox.setText(EditorPrefs::getString(EditorPrefs::startupModeKey, "Remember last context"),
+                juce::dontSendNotification);
+
+            // Wire callbacks
+            showStatsToggle.onClick = [this]
+            {
+                const bool enabled = showStatsToggle.getToggleState();
+                EditorPrefs::setBool(EditorPrefs::showStatsKey, enabled);
+                if (callbacks.onShowStatsChanged)
+                    callbacks.onShowStatsChanged(enabled);
+            };
+
+            openBrowserToggle.onClick = [this]
+            {
+                const bool enabled = openBrowserToggle.getToggleState();
+                EditorPrefs::setBool(EditorPrefs::openBrowserOnStartupKey, enabled);
+                if (callbacks.onOpenBrowserOnStartupChanged)
+                    callbacks.onOpenBrowserOnStartupChanged(enabled);
+            };
+
+            openPresetsToggle.onClick = [this]
+            {
+                const bool enabled = openPresetsToggle.getToggleState();
+                EditorPrefs::setBool(EditorPrefs::openPresetsOnStartupKey, enabled);
+                if (callbacks.onOpenPresetsOnStartupChanged)
+                    callbacks.onOpenPresetsOnStartupChanged(enabled);
+            };
+
+            confirmClearToggle.onClick = [this]
+            {
+                EditorPrefs::setBool(EditorPrefs::confirmBeforeClearKey, confirmClearToggle.getToggleState());
+            };
+
+            startupModeBox.onChange = [this]
+            {
+                EditorPrefs::setString(EditorPrefs::startupModeKey, startupModeBox.getText());
+            };
+
+            setTab(Tab::Interface);
+        }
+
+        ~GeneralSettingsPage() override
+        {
+            setLookAndFeel(nullptr);
+        }
+
+        bool keyPressed(const juce::KeyPress& key) override
+        {
+            if (recordingKey)
+            {
+                const int code = key.getKeyCode();
+                if (code == juce::KeyPress::escapeKey)
+                {
+                    recordingKey = false;
+                    refreshShortcutKeyLabel();
+                    repaint();
+                    return true;
+                }
+
+                EditorPrefs::setSwitcherKeyCode(code);
+                recordingKey = false;
+                refreshShortcutKeyLabel();
+                repaint();
+                fireSwitcherConfigChanged();
+                return true;
+            }
+            return false;
+        }
+
+        void paint(juce::Graphics& g) override
+        {
+            juce::String title;
+            juce::String subtitle;
+
+            switch (selectedTab)
+            {
+                case Tab::Interface:
+                    title = "Interface";
+                    subtitle = "Visual preferences and routing shortcut configuration.";
+                    break;
+                case Tab::Startup:
+                    title = "Startup";
+                    subtitle = "Decide what opens automatically and how NOVA should behave on launch.";
+                    break;
+            }
+
+            paintSettingsContentSurface(g, contentBounds, title, subtitle);
+
+            if (selectedTab == Tab::Interface)
+                paintInterfaceContent(g);
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced(10);
+            tabsBounds = area.removeFromTop(34);
+            area.removeFromTop(12);
+            contentBounds = area;
+
+            auto tabRow = tabsBounds;
+            const int gap = 8;
+            const int tabW = (tabRow.getWidth() - gap) / 2;
+            btnInterfaceTab.setBounds(tabRow.removeFromLeft(tabW));
+            tabRow.removeFromLeft(gap);
+            btnStartupTab.setBounds(tabRow);
+
+            auto content = contentBounds.reduced(22, 18);
+            content.removeFromTop(44);
+
+            if (selectedTab == Tab::Interface)
+            {
+                showStatsToggle.setBounds(content.removeFromTop(30));
+                content.removeFromTop(20);
+
+                // Section: Routing Shortcut
+                routingSectionY = content.getY();
+                content.removeFromTop(26); // section title
+
+                // Shortcut key row
+                auto keyRow = content.removeFromTop(34);
+                shortcutLabelBounds = keyRow.removeFromLeft(110);
+                btnShortcutKey.setBounds(keyRow.removeFromLeft(140));
+                keyRow.removeFromLeft(8);
+                btnResetShortcut.setBounds(keyRow.removeFromLeft(64));
+                content.removeFromTop(16);
+
+                // Mode chips row
+                auto modesRow = content.removeFromTop(34);
+                modesLabelBounds = modesRow.removeFromLeft(110);
+                const int chipW = 96;
+                const int chipGap = 8;
+                for (int i = 0; i < 3; ++i)
+                {
+                    modeChips[i].setBounds(modesRow.removeFromLeft(chipW));
+                    modesRow.removeFromLeft(chipGap);
+                }
+                content.removeFromTop(16);
+
+                // Cycle preview area
+                cyclePreviewBounds = content.removeFromTop(44);
+            }
+            else
+            {
+                openBrowserToggle.setBounds(content.removeFromTop(34));
+                content.removeFromTop(12);
+                openPresetsToggle.setBounds(content.removeFromTop(34));
+                content.removeFromTop(12);
+                startupModeBox.setBounds(content.removeFromTop(34));
+                content.removeFromTop(12);
+                confirmClearToggle.setBounds(content.removeFromTop(34));
+            }
+        }
+
+    private:
+        enum class Tab { Interface, Startup };
+
+        static juce::Colour getModeColor(int index)
+        {
+            if (index == 0) return juce::Colour(0xff60A5FA);
+            if (index == 1) return juce::Colour(0xffFBBF24);
+            return juce::Colour(0xffF97316);
+        }
+
+        juce::String getModeName(int index) const
+        {
+            if (index == 0) return "LINE A";
+            if (index == 1) return "PARALLEL";
+            return "LINE B";
+        }
+
+        void paintInterfaceContent(juce::Graphics& g)
+        {
+            auto content = contentBounds.reduced(22, 18);
+
+            // Section title
+            g.setColour(Nova::Colors::Accent);
+            g.setFont(juce::Font(juce::FontOptions(13.0f, juce::Font::bold)));
+            g.drawText("ROUTING SHORTCUT", content.getX(), routingSectionY,
+                content.getWidth(), 20, juce::Justification::centredLeft);
+
+            g.setColour(Nova::Colors::Border.withAlpha(0.5f));
+            g.drawHorizontalLine(routingSectionY + 22,
+                (float)content.getX(), (float)(content.getX() + content.getWidth()));
+
+            // Labels
+            g.setColour(Nova::Colors::Text.withAlpha(0.8f));
+            g.setFont(juce::Font(juce::FontOptions(12.0f)));
+            g.drawText("Shortcut key", shortcutLabelBounds, juce::Justification::centredLeft);
+            g.drawText("Cycle modes", modesLabelBounds, juce::Justification::centredLeft);
+
+            // Recording pulse
+            if (recordingKey)
+            {
+                const float pulse = 0.5f + 0.5f * std::sin((float)juce::Time::getMillisecondCounter() * 0.006f);
+                auto keyBounds = btnShortcutKey.getBounds().toFloat();
+                g.setColour(Nova::Colors::Accent.withAlpha(0.15f + 0.15f * pulse));
+                g.fillRoundedRectangle(keyBounds.expanded(4.0f), 8.0f);
+                g.setColour(Nova::Colors::Accent.withAlpha(0.6f + 0.3f * pulse));
+                g.drawRoundedRectangle(keyBounds.expanded(2.0f), 8.0f, 1.5f);
+            }
+
+            // Cycle preview
+            if (!cyclePreviewBounds.isEmpty())
+                paintCyclePreview(g);
+        }
+
+        void paintCyclePreview(juce::Graphics& g)
+        {
+            auto area = cyclePreviewBounds;
+
+            // Background surface
+            auto rect = area.toFloat();
+            g.setColour(juce::Colour::fromString("ff0D1520").withAlpha(0.7f));
+            g.fillRoundedRectangle(rect, 10.0f);
+            g.setColour(Nova::Colors::Border.withAlpha(0.4f));
+            g.drawRoundedRectangle(rect.reduced(0.5f), 10.0f, 1.0f);
+
+            // Collect enabled modes
+            std::vector<int> enabled;
+            for (int i = 0; i < 3; ++i)
+                if ((switcherModes >> i) & 1)
+                    enabled.push_back(i);
+
+            if (enabled.empty())
+                return;
+
+            const int count = (int)enabled.size();
+            const int chipH = 26;
+            const int chipW = 80;
+            const int arrowW = 24;
+            const int totalW = count * chipW + (count) * arrowW; // arrows loop back
+            const int startX = area.getCentreX() - totalW / 2;
+            const int chipY = area.getCentreY() - chipH / 2;
+
+            for (int i = 0; i < count; ++i)
+            {
+                const int idx = enabled[(size_t)i];
+                const int x = startX + i * (chipW + arrowW);
+
+                // Mode chip
+                auto chipRect = juce::Rectangle<float>((float)x, (float)chipY, (float)chipW, (float)chipH);
+                auto color = getModeColor(idx);
+                g.setColour(color.withAlpha(0.18f));
+                g.fillRoundedRectangle(chipRect, 6.0f);
+                g.setColour(color.withAlpha(0.7f));
+                g.drawRoundedRectangle(chipRect.reduced(0.5f), 6.0f, 1.2f);
+
+                g.setColour(color);
+                g.setFont(juce::Font(juce::FontOptions(10.5f, juce::Font::bold)));
+                g.drawText(getModeName(idx), chipRect, juce::Justification::centred);
+
+                // Arrow to next (wraps around)
+                const float arrowStartX = chipRect.getRight() + 4.0f;
+                const float arrowEndX = arrowStartX + (float)arrowW - 8.0f;
+                const float arrowCY = chipRect.getCentreY();
+
+                auto nextColor = getModeColor(enabled[(size_t)((i + 1) % count)]);
+                g.setColour(nextColor.withAlpha(0.55f));
+                g.drawArrow(juce::Line<float>(arrowStartX, arrowCY, arrowEndX, arrowCY), 1.2f, 6.0f, 6.0f);
+            }
+        }
+
+        void configureTabButton(juce::TextButton& button,
+            const juce::String& text,
+            std::function<void()> onClick)
+        {
+            addAndMakeVisible(button);
+            styleSettingsTabButton(button, text);
+            button.onClick = std::move(onClick);
+        }
+
+        void setTab(Tab newTab)
+        {
+            selectedTab = newTab;
+
+            setSettingsTabButtonActive(btnInterfaceTab, selectedTab == Tab::Interface);
+            setSettingsTabButtonActive(btnStartupTab, selectedTab == Tab::Startup);
+
+            const bool interfaceVisible = selectedTab == Tab::Interface;
+            const bool startupVisible = selectedTab == Tab::Startup;
+
+            showStatsToggle.setVisible(interfaceVisible);
+            btnShortcutKey.setVisible(interfaceVisible);
+            btnResetShortcut.setVisible(interfaceVisible);
+            for (auto& chip : modeChips) chip.setVisible(interfaceVisible);
+
+            openBrowserToggle.setVisible(startupVisible);
+            openPresetsToggle.setVisible(startupVisible);
+            startupModeBox.setVisible(startupVisible);
+            confirmClearToggle.setVisible(startupVisible);
+
+            if (recordingKey)
+            {
+                recordingKey = false;
+                refreshShortcutKeyLabel();
+            }
+
+            resized();
+            repaint();
+        }
+
+        void startRecordingKey()
+        {
+            recordingKey = true;
+            btnShortcutKey.setButtonText("Press a key...");
+            btnShortcutKey.setColour(juce::TextButton::buttonColourId, Nova::Colors::Accent.withAlpha(0.14f));
+            btnShortcutKey.setColour(juce::TextButton::textColourOffId, Nova::Colors::Accent);
+            getTopLevelComponent()->grabKeyboardFocus();
+            grabKeyboardFocus();
+            repaint();
+        }
+
+        void refreshShortcutKeyLabel()
+        {
+            const int code = EditorPrefs::getSwitcherKeyCode();
+            btnShortcutKey.setButtonText(EditorPrefs::keyCodeToDisplayName(code));
+            btnShortcutKey.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff101722"));
+            btnShortcutKey.setColour(juce::TextButton::textColourOffId, Nova::Colors::Text.withAlpha(0.92f));
+        }
+
+        void onModeChipClicked(int chipIndex)
+        {
+            // Count how many are currently on
+            int tempModes = 0;
+            for (int i = 0; i < 3; ++i)
+                if (modeChips[i].getToggleState())
+                    tempModes |= (1 << i);
+
+            int count = ((tempModes >> 0) & 1) + ((tempModes >> 1) & 1) + ((tempModes >> 2) & 1);
+
+            if (count < 2)
+            {
+                // Revert: can't disable — need at least 2
+                modeChips[chipIndex].setToggleState(true, juce::dontSendNotification);
+                return;
+            }
+
+            switcherModes = tempModes;
+            EditorPrefs::setSwitcherModes(switcherModes);
+            updateModeChipColors();
+            repaint();
+            fireSwitcherConfigChanged();
+        }
+
+        void updateModeChipColors()
+        {
+            for (int i = 0; i < 3; ++i)
+            {
+                const bool on = (switcherModes >> i) & 1;
+                auto color = getModeColor(i);
+                modeChips[i].setColour(juce::TextButton::buttonColourId,
+                    on ? color.withAlpha(0.18f) : juce::Colour::fromString("ff0D1520"));
+                modeChips[i].setColour(juce::TextButton::buttonOnColourId,
+                    on ? color.withAlpha(0.28f) : juce::Colour::fromString("ff0D1520"));
+                modeChips[i].setColour(juce::TextButton::textColourOffId,
+                    on ? color : Nova::Colors::TextDim.withAlpha(0.4f));
+                modeChips[i].setColour(juce::TextButton::textColourOnId,
+                    on ? color : Nova::Colors::TextDim.withAlpha(0.4f));
+            }
+        }
+
+        void fireSwitcherConfigChanged()
+        {
+            if (callbacks.onSwitcherConfigChanged)
+                callbacks.onSwitcherConfigChanged();
+        }
+
+        static void setupToggle(juce::ToggleButton& toggle, const juce::String& text)
+        {
+            toggle.setButtonText(text);
+            toggle.setColour(juce::ToggleButton::textColourId, Nova::Colors::Text.withAlpha(0.9f));
+        }
+
+        Callbacks callbacks;
+        SettingsLookAndFeel lookAndFeel;
+        juce::TextButton btnInterfaceTab;
+        juce::TextButton btnStartupTab;
+
+        // Interface tab
+        juce::ToggleButton showStatsToggle;
+        juce::TextButton btnShortcutKey;
+        juce::TextButton btnResetShortcut;
+        juce::TextButton modeChips[3];
+        int switcherModes = 7;
+        bool recordingKey = false;
+        int routingSectionY = 0;
+        juce::Rectangle<int> shortcutLabelBounds;
+        juce::Rectangle<int> modesLabelBounds;
+        juce::Rectangle<int> cyclePreviewBounds;
+
+        // Startup tab
+        juce::ToggleButton openBrowserToggle;
+        juce::ToggleButton openPresetsToggle;
+        juce::ToggleButton confirmClearToggle;
+        juce::ComboBox startupModeBox;
+
+        juce::Rectangle<int> tabsBounds;
+        juce::Rectangle<int> contentBounds;
+        Tab selectedTab = Tab::Interface;
+    };
+
+    class AudioSettingsPage final : public juce::Component,
+        private juce::Timer
+    {
+    public:
+        explicit AudioSettingsPage(NOVAAudioProcessor& processor)
+            : audioProcessor(processor)
+        {
+            setLookAndFeel(&lookAndFeel);
+
+            configureTabButton(btnSessionTab, "Session", [this] { setTab(Tab::Session); });
+            configureTabButton(btnDefaultsTab, "Defaults", [this] { setTab(Tab::Defaults); });
+            configureTabButton(btnDeviceTab, "Device", [this] { setTab(Tab::Device); });
+
+            addAndMakeVisible(summaryLabel);
+            summaryLabel.setColour(juce::Label::textColourId, Nova::Colors::Text.withAlpha(0.88f));
+            summaryLabel.setFont(juce::Font(juce::FontOptions(13.0f)));
+            summaryLabel.setJustificationType(juce::Justification::topLeft);
+            summaryLabel.setMinimumHorizontalScale(0.75f);
+
+            addAndMakeVisible(hintLabel);
+            hintLabel.setColour(juce::Label::textColourId, Nova::Colors::TextDim);
+            hintLabel.setFont(juce::Font(juce::FontOptions(11.5f)));
+            hintLabel.setJustificationType(juce::Justification::topLeft);
+            hintLabel.setMinimumHorizontalScale(0.8f);
+            hintLabel.setText("NOVA keeps using the same JUCE audio device manager that already works in standalone.",
+                juce::dontSendNotification);
+
+            addAndMakeVisible(deviceHintLabel);
+            deviceHintLabel.setColour(juce::Label::textColourId, Nova::Colors::Text.withAlpha(0.88f));
+            deviceHintLabel.setFont(juce::Font(juce::FontOptions(13.0f)));
+            deviceHintLabel.setJustificationType(juce::Justification::topLeft);
+            deviceHintLabel.setMinimumHorizontalScale(0.78f);
+
+            tunerReferenceBox.addItem("A = 440 Hz", 1);
+            tunerReferenceBox.addItem("A = 442 Hz", 2);
+            tunerReferenceBox.addItem("A = 432 Hz", 3);
+            tunerReferenceBox.setText(EditorPrefs::getString(EditorPrefs::tunerReferenceKey, "A = 440 Hz"),
+                juce::dontSendNotification);
+            tunerReferenceBox.onChange = [this]
+            {
+                const auto text = tunerReferenceBox.getText();
+                EditorPrefs::setString(EditorPrefs::tunerReferenceKey, text);
+                audioProcessor.getAudioEngine().setTunerReferencePitch(EditorPrefs::parseTunerReference());
+            };
+            addAndMakeVisible(tunerReferenceBox);
+
+            latencyTipsToggle.setButtonText("Warn about high-latency audio setup");
+            latencyTipsToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::showLatencyTipsKey, true), juce::dontSendNotification);
+            latencyTipsToggle.onClick = [this]
+            {
+                EditorPrefs::setBool(EditorPrefs::showLatencyTipsKey, latencyTipsToggle.getToggleState());
+            };
+            addAndMakeVisible(latencyTipsToggle);
+            latencyTipsToggle.setTooltip("Warn when buffer size or device settings may hurt live playability.");
+
+#if JucePlugin_Build_Standalone
+            if (auto* holder = juce::StandalonePluginHolder::getInstance())
+            {
+                const int maxInputs = juce::jmax(2, audioProcessor.getMainBusNumInputChannels());
+                const int maxOutputs = juce::jmax(2, audioProcessor.getMainBusNumOutputChannels());
+
+                audioSelector = std::make_unique<juce::AudioDeviceSelectorComponent>(
+                    holder->deviceManager,
+                    0, maxInputs,
+                    0, maxOutputs,
+                    true,
+                    audioProcessor.producesMidi(),
+                    true,
+                    false);
+
+                audioSelector->setItemHeight(30);
+                audioSelector->setLookAndFeel(&lookAndFeel);
+                addAndMakeVisible(audioSelector.get());
+            }
+#endif
+
+            refreshSummary();
+            startTimerHz(2);
+            setTab(Tab::Session);
+        }
+
+        ~AudioSettingsPage() override
+        {
+            stopTimer();
+            if (audioSelector != nullptr)
+                audioSelector->setLookAndFeel(nullptr);
+            setLookAndFeel(nullptr);
+        }
+
+        void paint(juce::Graphics& g) override
+        {
+            juce::String title;
+            juce::String subtitle;
+
+            switch (selectedTab)
+            {
+                case Tab::Session:
+                    title = "Current Audio Session";
+                    subtitle = "A live view of the device configuration that NOVA is currently using.";
+                    break;
+                case Tab::Defaults:
+                    title = "Audio Defaults";
+                    subtitle = "Tuning reference and latency preferences for your setup.";
+                    break;
+                case Tab::Device:
+                    title = "Audio Device Manager";
+                    subtitle = "Direct access to the embedded JUCE device setup.";
+                    break;
+            }
+
+            paintSettingsContentSurface(g, contentBounds, title, subtitle);
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced(10);
+            tabsBounds = area.removeFromTop(34);
+            area.removeFromTop(12);
+            contentBounds = area;
+
+            auto tabRow = tabsBounds;
+            const int gap = 8;
+            const int tabW = (tabRow.getWidth() - gap * 2) / 3;
+            btnSessionTab.setBounds(tabRow.removeFromLeft(tabW));
+            tabRow.removeFromLeft(gap);
+            btnDefaultsTab.setBounds(tabRow.removeFromLeft(tabW));
+            tabRow.removeFromLeft(gap);
+            btnDeviceTab.setBounds(tabRow);
+
+            auto content = contentBounds.reduced(22, 18);
+            content.removeFromTop(44);
+
+            if (selectedTab == Tab::Session)
+            {
+                summaryLabel.setBounds(content.removeFromTop(64));
+                content.removeFromTop(10);
+                hintLabel.setBounds(content.removeFromTop(34));
+            }
+            else if (selectedTab == Tab::Defaults)
+            {
+                tunerReferenceBox.setBounds(content.removeFromTop(34));
+                content.removeFromTop(12);
+                latencyTipsToggle.setBounds(content.removeFromTop(34));
+            }
+            else
+            {
+                deviceHintLabel.setBounds(content.removeFromTop(40));
+                content.removeFromTop(12);
+                if (audioSelector != nullptr)
+                    audioSelector->setBounds(content);
+            }
+        }
+
+    private:
+        enum class Tab
+        {
+            Session,
+            Defaults,
+            Device
+        };
+
+        void timerCallback() override
+        {
+            refreshSummary();
+        }
+
+        void configureTabButton(juce::TextButton& button,
+            const juce::String& text,
+            std::function<void()> onClick)
+        {
+            addAndMakeVisible(button);
+            styleSettingsTabButton(button, text);
+            button.onClick = std::move(onClick);
+        }
+
+        void setTab(Tab newTab)
+        {
+            selectedTab = newTab;
+
+            setSettingsTabButtonActive(btnSessionTab, selectedTab == Tab::Session);
+            setSettingsTabButtonActive(btnDefaultsTab, selectedTab == Tab::Defaults);
+            setSettingsTabButtonActive(btnDeviceTab, selectedTab == Tab::Device);
+
+            const bool sessionVisible = selectedTab == Tab::Session;
+            const bool defaultsVisible = selectedTab == Tab::Defaults;
+            const bool deviceVisible = selectedTab == Tab::Device;
+
+            summaryLabel.setVisible(sessionVisible);
+            hintLabel.setVisible(sessionVisible);
+
+            tunerReferenceBox.setVisible(defaultsVisible);
+            latencyTipsToggle.setVisible(defaultsVisible);
+
+            if (audioSelector != nullptr)
+                audioSelector->setVisible(deviceVisible);
+            deviceHintLabel.setVisible(deviceVisible);
+
+            resized();
+            repaint();
+        }
+
+        void refreshSummary()
+        {
+#if JucePlugin_Build_Standalone
+            if (auto* holder = juce::StandalonePluginHolder::getInstance())
+            {
+                juce::AudioDeviceManager::AudioDeviceSetup setup;
+                holder->deviceManager.getAudioDeviceSetup(setup);
+
+                if (auto* currentDevice = holder->deviceManager.getCurrentAudioDevice())
+                {
+                    const auto sampleRate = juce::String(currentDevice->getCurrentSampleRate(), 0);
+                    const auto bufferSize = juce::String(currentDevice->getCurrentBufferSizeSamples());
+                    const auto inputName = setup.inputDeviceName.isNotEmpty() ? setup.inputDeviceName : "Default Input";
+                    const auto outputName = setup.outputDeviceName.isNotEmpty() ? setup.outputDeviceName : "Default Output";
+                    const auto tunerReference = EditorPrefs::getString(EditorPrefs::tunerReferenceKey, "A = 440 Hz");
+
+                    summaryLabel.setText(
+                        "Driver: " + currentDevice->getTypeName()
+                        + "    |    Sample Rate: " + sampleRate + " Hz"
+                        + "    |    Buffer: " + bufferSize + " samples\n"
+                        + "Input: " + inputName + "\n"
+                        + "Output: " + outputName + "\n"
+                        + "Tuner Reference: " + tunerReference,
+                        juce::dontSendNotification);
+                    deviceHintLabel.setText("Use this tab for direct interface, driver and buffer selection.",
+                        juce::dontSendNotification);
+                    return;
+                }
+
+                summaryLabel.setText("No active audio device is currently open.", juce::dontSendNotification);
+                deviceHintLabel.setText("No audio device is currently open.", juce::dontSendNotification);
+                return;
+            }
+#endif
+
+            summaryLabel.setText(
+                "Audio device setup is controlled by the host in plugin formats.\n"
+                "Open NOVA Standalone to manage interfaces, drivers and direct monitoring locally.",
+                juce::dontSendNotification);
+            deviceHintLabel.setText(
+                "This instance is hosted by a DAW. Use NOVA Standalone for direct device configuration.",
+                juce::dontSendNotification);
+        }
+
+        NOVAAudioProcessor& audioProcessor;
+        SettingsLookAndFeel lookAndFeel;
+        juce::TextButton btnSessionTab;
+        juce::TextButton btnDefaultsTab;
+        juce::TextButton btnDeviceTab;
+        juce::Label summaryLabel;
+        juce::Label hintLabel;
+        juce::Label deviceHintLabel;
+        juce::ComboBox tunerReferenceBox;
+        juce::ToggleButton latencyTipsToggle;
+        std::unique_ptr<juce::AudioDeviceSelectorComponent> audioSelector;
+        juce::Rectangle<int> tabsBounds;
+        juce::Rectangle<int> contentBounds;
+        Tab selectedTab = Tab::Session;
+    };
+
+    class LibrarySettingsPage final : public juce::Component
+    {
+    public:
+        struct Callbacks
+        {
+            std::function<juce::String()> getCurrentPresetName;
+            std::function<juce::String()> getStartupPresetName;
+            std::function<juce::File()> getPresetDirectory;
+            std::function<void()> onSetCurrentPresetAsStartup;
+            std::function<void()> onClearStartupPreset;
+        };
+
+        explicit LibrarySettingsPage(Callbacks pageCallbacks)
+            : callbacks(std::move(pageCallbacks))
+        {
+            setLookAndFeel(&lookAndFeel);
+
+            configureTabButton(btnStatusTab, "Status", [this] { setTab(Tab::Status); });
+            configureTabButton(btnDefaultsTab, "Defaults", [this] { setTab(Tab::Defaults); });
+
+            styleSettingsLabel(currentPresetLabel, 13.0f, Nova::Colors::Text.withAlpha(0.88f));
+            styleSettingsLabel(startupPresetLabel, 13.0f, Nova::Colors::Text.withAlpha(0.88f));
+            currentPresetLabel.setMinimumHorizontalScale(0.75f);
+            startupPresetLabel.setMinimumHorizontalScale(0.75f);
+            addAndMakeVisible(currentPresetLabel);
+            addAndMakeVisible(startupPresetLabel);
+
+            libraryViewBox.addItem("All presets", 1);
+            libraryViewBox.addItem("Favorites first", 2);
+            libraryViewBox.addItem("Recent first", 3);
+            libraryViewBox.setText(EditorPrefs::getString(EditorPrefs::libraryViewKey, "All presets"),
+                juce::dontSendNotification);
+            libraryViewBox.onChange = [this]
+            {
+                EditorPrefs::setString(EditorPrefs::libraryViewKey, libraryViewBox.getText());
+            };
+            addAndMakeVisible(libraryViewBox);
+
+            favoritesFirstToggle.setButtonText("Show favorites first");
+            favoritesFirstToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::favoritesFirstKey, false), juce::dontSendNotification);
+            favoritesFirstToggle.onClick = [this]
+            {
+                EditorPrefs::setBool(EditorPrefs::favoritesFirstKey, favoritesFirstToggle.getToggleState());
+            };
+            addAndMakeVisible(favoritesFirstToggle);
+            favoritesFirstToggle.setTooltip("Prefer favorite presets near the top of the browser.");
+
+            styleSettingsActionButton(btnSetStartup, "Use Current on Start");
+            btnSetStartup.onClick = [this]
+            {
+                if (callbacks.onSetCurrentPresetAsStartup)
+                    callbacks.onSetCurrentPresetAsStartup();
+                refreshSummary();
+            };
+            addAndMakeVisible(btnSetStartup);
+            btnSetStartup.setTooltip("Use the current saved preset when NOVA starts.");
+
+            styleSettingsActionButton(btnClearStartup, "Clear Startup", true);
+            btnClearStartup.onClick = [this]
+            {
+                if (callbacks.onClearStartupPreset)
+                    callbacks.onClearStartupPreset();
+                refreshSummary();
+            };
+            addAndMakeVisible(btnClearStartup);
+            btnClearStartup.setTooltip("Remove the preset currently assigned for startup.");
+
+            styleSettingsActionButton(btnOpenFolder, "Open Preset Folder", true);
+            btnOpenFolder.onClick = [this]
+            {
+                if (callbacks.getPresetDirectory)
+                    callbacks.getPresetDirectory().revealToUser();
+            };
+            addAndMakeVisible(btnOpenFolder);
+            btnOpenFolder.setTooltip("Open the local preset folder in the file explorer.");
+
+            refreshSummary();
+            setTab(Tab::Status);
+        }
+
+        ~LibrarySettingsPage() override
+        {
+            setLookAndFeel(nullptr);
+        }
+
+        void paint(juce::Graphics& g) override
+        {
+            juce::String title;
+            juce::String subtitle;
+
+            switch (selectedTab)
+            {
+                case Tab::Status:
+                    title = "Library Status";
+                    subtitle = "Quick access to the current preset, startup preset and local preset folder.";
+                    break;
+                case Tab::Defaults:
+                    title = "Library Defaults";
+                    subtitle = "Behavior that shapes how presets are surfaced and remembered.";
+                    break;
+            }
+
+            paintSettingsContentSurface(g, contentBounds, title, subtitle);
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced(10);
+            tabsBounds = area.removeFromTop(34);
+            area.removeFromTop(12);
+            contentBounds = area;
+
+            auto tabRow = tabsBounds;
+            const int gap = 8;
+            const int tabW = (tabRow.getWidth() - gap) / 2;
+            btnStatusTab.setBounds(tabRow.removeFromLeft(tabW));
+            tabRow.removeFromLeft(gap);
+            btnDefaultsTab.setBounds(tabRow);
+
+            auto content = contentBounds.reduced(22, 18);
+            content.removeFromTop(44);
+
+            if (selectedTab == Tab::Status)
+            {
+                currentPresetLabel.setBounds(content.removeFromTop(28));
+                content.removeFromTop(8);
+                startupPresetLabel.setBounds(content.removeFromTop(28));
+                content.removeFromTop(12);
+                auto topButtons = content.removeFromTop(34);
+                const int buttonGap = 10;
+                const int buttonW = (topButtons.getWidth() - buttonGap) / 2;
+                btnSetStartup.setBounds(topButtons.removeFromLeft(buttonW));
+                topButtons.removeFromLeft(buttonGap);
+                btnClearStartup.setBounds(topButtons);
+                content.removeFromTop(12);
+                btnOpenFolder.setBounds(content.removeFromTop(34));
+            }
+            else
+            {
+                favoritesFirstToggle.setBounds(content.removeFromTop(34));
+                content.removeFromTop(12);
+                libraryViewBox.setBounds(content.removeFromTop(34));
+            }
+        }
+
+    private:
+        enum class Tab
+        {
+            Status,
+            Defaults
+        };
+
+        void configureTabButton(juce::TextButton& button,
+            const juce::String& text,
+            std::function<void()> onClick)
+        {
+            addAndMakeVisible(button);
+            styleSettingsTabButton(button, text);
+            button.onClick = std::move(onClick);
+        }
+
+        void setTab(Tab newTab)
+        {
+            selectedTab = newTab;
+
+            setSettingsTabButtonActive(btnStatusTab, selectedTab == Tab::Status);
+            setSettingsTabButtonActive(btnDefaultsTab, selectedTab == Tab::Defaults);
+
+            const bool statusVisible = selectedTab == Tab::Status;
+            const bool defaultsVisible = selectedTab == Tab::Defaults;
+
+            currentPresetLabel.setVisible(statusVisible);
+            startupPresetLabel.setVisible(statusVisible);
+            btnSetStartup.setVisible(statusVisible);
+            btnClearStartup.setVisible(statusVisible);
+            btnOpenFolder.setVisible(statusVisible);
+
+            favoritesFirstToggle.setVisible(defaultsVisible);
+            libraryViewBox.setVisible(defaultsVisible);
+
+            resized();
+            repaint();
+        }
+
+        void refreshSummary()
+        {
+            const auto currentPreset = callbacks.getCurrentPresetName ? callbacks.getCurrentPresetName() : juce::String{};
+            const auto startupPreset = callbacks.getStartupPresetName ? callbacks.getStartupPresetName() : juce::String{};
+
+            const auto currentText = "Current preset: "
+                + (currentPreset.isNotEmpty() ? currentPreset : "No preset selected");
+            const auto startupText = "Startup preset: "
+                + (startupPreset.isNotEmpty() ? startupPreset : "None");
+
+            currentPresetLabel.setText(currentText, juce::dontSendNotification);
+            startupPresetLabel.setText(startupText, juce::dontSendNotification);
+            currentPresetLabel.setTooltip(currentText);
+            startupPresetLabel.setTooltip(startupText);
+        }
+
+        Callbacks callbacks;
+        SettingsLookAndFeel lookAndFeel;
+        juce::TextButton btnStatusTab;
+        juce::TextButton btnDefaultsTab;
+        juce::Label currentPresetLabel;
+        juce::Label startupPresetLabel;
+        juce::ComboBox libraryViewBox;
+        juce::ToggleButton favoritesFirstToggle;
+        juce::TextButton btnSetStartup;
+        juce::TextButton btnClearStartup;
+        juce::TextButton btnOpenFolder;
+        juce::Rectangle<int> tabsBounds;
+        juce::Rectangle<int> contentBounds;
+        Tab selectedTab = Tab::Status;
+    };
+
+    // Controllers, Profile and Cloud are planned features — show clean placeholders
+
+    class SettingsOverlay final : public juce::Component
+    {
+    public:
+        SettingsOverlay(NOVAAudioProcessor& processor,
+            std::function<void(bool)> onShowStatsChanged,
+            std::function<void(bool)> onOpenBrowserOnStartupChanged,
+            std::function<void(bool)> onOpenPresetsOnStartupChanged,
+            std::function<void()> onSwitcherConfigChangedFn,
+            LibrarySettingsPage::Callbacks libraryCallbacks,
+            std::function<void(int)> onLaunchWizardFn,
+            std::function<void()> onCloseFn)
+            : onClose(std::move(onCloseFn)),
+              onLaunchWizard(std::move(onLaunchWizardFn))
+        {
+            setWantsKeyboardFocus(true);
+
+            addAndMakeVisible(closeButton);
+            closeButton.setButtonText("CLOSE");
+            closeButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff2A1418"));
+            closeButton.setColour(juce::TextButton::textColourOffId, Nova::Colors::Text.withAlpha(0.88f));
+            closeButton.onClick = [this]
+            {
+                if (onClose)
+                    onClose();
+            };
+
+            configureCategoryButton(btnGeneral, "GENERAL", [this] { setCategory(Category::General); });
+            configureCategoryButton(btnAudio, "AUDIO", [this] { setCategory(Category::Audio); });
+            configureCategoryButton(btnLibrary, "LIBRARY", [this] { setCategory(Category::Library); });
+            configureCategoryButton(btnControllers, "CONTROLLERS", [this] { setCategory(Category::Controllers); });
+            configureCategoryButton(btnProfile, "PROFILE", [this] { setCategory(Category::Profile); });
+            configureCategoryButton(btnCloud, "CLOUD", [this] { setCategory(Category::Cloud); });
+
+            // --- Wizard launch buttons in the rail ---
+            configureWizardButton(btnWizardAudio, "Audio Setup", [this] { fireWizard(0); });
+            configureWizardButton(btnWizardStart, "Start Wizard", [this] { fireWizard(1); });
+            configureWizardButton(btnWizardPreset, "Preset Finder", [this] { fireWizard(2); });
+
+            generalPage = std::make_unique<GeneralSettingsPage>(GeneralSettingsPage::Callbacks{
+                std::move(onShowStatsChanged),
+                std::move(onOpenBrowserOnStartupChanged),
+                std::move(onOpenPresetsOnStartupChanged),
+                std::move(onSwitcherConfigChangedFn)
+            });
+
+            audioPage = std::make_unique<AudioSettingsPage>(processor);
+            libraryPage = std::make_unique<LibrarySettingsPage>(std::move(libraryCallbacks));
+
+            controllersPage = std::make_unique<PlaceholderSettingsPage>(
+                "Controllers & MIDI",
+                "MIDI learn, footswitch mapping, expression pedal configuration and scene switching "
+                "will live here once the controller subsystem ships.",
+                "Setup wizards for MIDI, footswitches and expression pedals will guide "
+                "first-time configuration when this section becomes active.");
+
+            profilePage = std::make_unique<PlaceholderSettingsPage>(
+                "Player Profile",
+                "Player identity, skill level, genre preferences and personalized tone "
+                "recommendations will live here once the recommendation engine ships.",
+                "Personalization and tone preference wizards will help build a profile "
+                "tailored to each player's style and needs.");
+
+            cloudPage = std::make_unique<PlaceholderSettingsPage>(
+                "Cloud & Account",
+                "Account login, preset sync, cloud backup and multi-device restore "
+                "will live here once online services are available.",
+                "Login, sync and restore wizards will guide account setup and "
+                "cloud operations when the backend ships.");
+
+            addAndMakeVisible(*generalPage);
+            addAndMakeVisible(*audioPage);
+            addAndMakeVisible(*libraryPage);
+            addAndMakeVisible(*controllersPage);
+            addAndMakeVisible(*profilePage);
+            addAndMakeVisible(*cloudPage);
+
+            setCategory(Category::General);
+        }
+
+        bool keyPressed(const juce::KeyPress& key) override
+        {
+            if (key == juce::KeyPress::escapeKey)
+            {
+                if (onClose)
+                    onClose();
+                return true;
+            }
+
+            return false;
+        }
+
+        void mouseUp(const juce::MouseEvent& e) override
+        {
+            if (!panelBounds.contains(e.getPosition()))
+            {
+                if (onClose)
+                    onClose();
+            }
+        }
+
+        void paint(juce::Graphics& g) override
+        {
+            g.fillAll(juce::Colours::black.withAlpha(0.88f));
+
+            const auto pf = panelBounds.toFloat();
+            juce::ColourGradient fill(juce::Colour::fromString("ff121A27"),
+                pf.getCentreX(), pf.getY(),
+                juce::Colour::fromString("ff0B0E14"),
+                pf.getCentreX(), pf.getBottom(), false);
+            g.setGradientFill(fill);
+            g.fillRoundedRectangle(pf, 22.0f);
+
+            g.setColour(Nova::Colors::Border.withAlpha(0.85f));
+            g.drawRoundedRectangle(pf.reduced(0.5f), 22.0f, 1.0f);
+
+            g.setColour(Nova::Colors::Accent.withAlpha(0.07f));
+            g.fillRoundedRectangle(pf.reduced(1.0f).removeFromTop(84.0f), 22.0f);
+
+            auto rail = leftRailBounds.toFloat();
+            juce::ColourGradient railFill(juce::Colour::fromString("ff1A2332"),
+                rail.getCentreX(), rail.getY(),
+                juce::Colour::fromString("ff101722"),
+                rail.getCentreX(), rail.getBottom(), false);
+            g.setGradientFill(railFill);
+            g.fillRoundedRectangle(rail, 20.0f);
+
+            g.setColour(Nova::Colors::Border.withAlpha(0.6f));
+            g.drawVerticalLine(leftRailBounds.getRight(), (float)(leftRailBounds.getY() + 24), (float)(leftRailBounds.getBottom() - 24));
+            g.drawHorizontalLine(headerBounds.getBottom(), (float)contentAreaBounds.getX(), (float)panelBounds.getRight() - 24.0f);
+
+            auto titleArea = headerBounds;
+            g.setColour(Nova::Colors::Accent);
+            g.setFont(juce::Font(juce::FontOptions(21.0f, juce::Font::bold)));
+            g.drawText("NOVA SETTINGS", titleArea.removeFromTop(24), juce::Justification::centredLeft);
+
+            g.setColour(Nova::Colors::TextDim);
+            g.setFont(juce::Font(juce::FontOptions(11.0f)));
+            g.drawFittedText("One home for audio, workflow, library, control and future account setup.",
+                titleArea, juce::Justification::centredLeft, 2);
+
+            // "WIZARDS" label above wizard buttons in rail
+            if (btnWizardAudio.getY() > 0)
+            {
+                g.setColour(Nova::Colors::TextDim.withAlpha(0.6f));
+                g.setFont(juce::Font(juce::FontOptions(9.5f, juce::Font::bold)));
+                g.drawText("WIZARDS", btnWizardAudio.getX(), btnWizardAudio.getY() - 18,
+                           btnWizardAudio.getWidth(), 14, juce::Justification::centredLeft);
+
+                g.setColour(Nova::Colors::Border.withAlpha(0.4f));
+                g.drawHorizontalLine(btnWizardAudio.getY() - 22,
+                    (float)(leftRailBounds.getX() + 14), (float)(leftRailBounds.getRight() - 14));
+            }
+        }
+
+        void resized() override
+        {
+            const int modalW = juce::jlimit(760, 1120, (int)std::round((double)getWidth() * 0.66));
+            const int modalH = juce::jlimit(560, 780, (int)std::round((double)getHeight() * 0.72));
+            panelBounds = juce::Rectangle<int>(0, 0, modalW, modalH).withCentre(getLocalBounds().getCentre());
+
+            const int outerPad = 18;
+            const int railWidth = 188;
+            const int contentGap = 22;
+            const int headerHeight = 62;
+
+            leftRailBounds = juce::Rectangle<int>(panelBounds.getX() + outerPad,
+                panelBounds.getY() + outerPad,
+                railWidth,
+                panelBounds.getHeight() - outerPad * 2);
+
+            contentAreaBounds = juce::Rectangle<int>(leftRailBounds.getRight() + contentGap,
+                panelBounds.getY() + outerPad,
+                panelBounds.getRight() - leftRailBounds.getRight() - contentGap - outerPad,
+                panelBounds.getHeight() - outerPad * 2);
+
+            headerBounds = contentAreaBounds.removeFromTop(headerHeight);
+            contentAreaBounds.removeFromTop(16);
+            contentBounds = contentAreaBounds;
+
+            closeButton.setBounds(panelBounds.getRight() - 100, panelBounds.getY() + 18, 82, 28);
+
+            auto nav = leftRailBounds.reduced(14, 16);
+            auto brand = nav.removeFromTop(56);
+            juce::ignoreUnused(brand);
+            const int buttonH = 32;
+            const int buttonGap = 8;
+            btnGeneral.setBounds(nav.removeFromTop(buttonH));
+            nav.removeFromTop(buttonGap);
+            btnAudio.setBounds(nav.removeFromTop(buttonH));
+            nav.removeFromTop(buttonGap);
+            btnLibrary.setBounds(nav.removeFromTop(buttonH));
+            nav.removeFromTop(buttonGap);
+            btnControllers.setBounds(nav.removeFromTop(buttonH));
+            nav.removeFromTop(buttonGap);
+            btnProfile.setBounds(nav.removeFromTop(buttonH));
+            nav.removeFromTop(buttonGap);
+            btnCloud.setBounds(nav.removeFromTop(buttonH));
+
+            // Wizard buttons at bottom of rail
+            {
+                const int wizBtnH = 28;
+                const int wizGap = 6;
+                auto wizArea = leftRailBounds.reduced(14, 0);
+                wizArea = wizArea.removeFromBottom(wizBtnH * 3 + wizGap * 2 + 16);
+                wizArea.removeFromTop(8);
+                btnWizardAudio.setBounds(wizArea.removeFromTop(wizBtnH));
+                wizArea.removeFromTop(wizGap);
+                btnWizardStart.setBounds(wizArea.removeFromTop(wizBtnH));
+                wizArea.removeFromTop(wizGap);
+                btnWizardPreset.setBounds(wizArea.removeFromTop(wizBtnH));
+            }
+
+            if (generalPage != nullptr) generalPage->setBounds(contentBounds);
+            if (audioPage != nullptr) audioPage->setBounds(contentBounds);
+            if (libraryPage != nullptr) libraryPage->setBounds(contentBounds);
+            if (controllersPage != nullptr) controllersPage->setBounds(contentBounds);
+            if (profilePage != nullptr) profilePage->setBounds(contentBounds);
+            if (cloudPage != nullptr) cloudPage->setBounds(contentBounds);
+        }
+
+    private:
+        enum class Category
+        {
+            General,
+            Audio,
+            Library,
+            Controllers,
+            Profile,
+            Cloud
+        };
+
+        void configureCategoryButton(juce::TextButton& button,
+            const juce::String& text,
+            std::function<void()> onClick)
+        {
+            addAndMakeVisible(button);
+            button.setButtonText(text);
+            button.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff121A27"));
+            button.setColour(juce::TextButton::textColourOffId, Nova::Colors::Text.withAlpha(0.82f));
+            button.onClick = std::move(onClick);
+        }
+
+        void configureWizardButton(juce::TextButton& button,
+            const juce::String& text,
+            std::function<void()> onClick)
+        {
+            addAndMakeVisible(button);
+            button.setButtonText(text);
+            button.setColour(juce::TextButton::buttonColourId, Nova::Colors::Accent.withAlpha(0.10f));
+            button.setColour(juce::TextButton::textColourOffId, Nova::Colors::Accent.withAlpha(0.85f));
+            button.onClick = std::move(onClick);
+        }
+
+        void fireWizard(int id)
+        {
+            if (onClose) onClose();
+            if (onLaunchWizard) onLaunchWizard(id);
+        }
+
+        void setCategory(Category newCategory)
+        {
+            selectedCategory = newCategory;
+
+            auto setButtonState = [](juce::TextButton& button, bool active)
+            {
+                button.setColour(juce::TextButton::buttonColourId,
+                    active ? Nova::Colors::Accent.withAlpha(0.22f) : juce::Colour::fromString("ff121A27"));
+                button.setColour(juce::TextButton::textColourOffId,
+                    active ? Nova::Colors::Text : Nova::Colors::Text.withAlpha(0.82f));
+            };
+
+            setButtonState(btnGeneral, selectedCategory == Category::General);
+            setButtonState(btnAudio, selectedCategory == Category::Audio);
+            setButtonState(btnLibrary, selectedCategory == Category::Library);
+            setButtonState(btnControllers, selectedCategory == Category::Controllers);
+            setButtonState(btnProfile, selectedCategory == Category::Profile);
+            setButtonState(btnCloud, selectedCategory == Category::Cloud);
+
+            if (generalPage != nullptr) generalPage->setVisible(selectedCategory == Category::General);
+            if (audioPage != nullptr) audioPage->setVisible(selectedCategory == Category::Audio);
+            if (libraryPage != nullptr) libraryPage->setVisible(selectedCategory == Category::Library);
+            if (controllersPage != nullptr) controllersPage->setVisible(selectedCategory == Category::Controllers);
+            if (profilePage != nullptr) profilePage->setVisible(selectedCategory == Category::Profile);
+            if (cloudPage != nullptr) cloudPage->setVisible(selectedCategory == Category::Cloud);
+
+            repaint();
+        }
+
+        std::function<void()> onClose;
+        std::function<void(int)> onLaunchWizard;
+        juce::Rectangle<int> panelBounds;
+        juce::Rectangle<int> leftRailBounds;
+        juce::Rectangle<int> headerBounds;
+        juce::Rectangle<int> contentAreaBounds;
+        juce::Rectangle<int> contentBounds;
+        juce::TextButton closeButton;
+        juce::TextButton btnGeneral;
+        juce::TextButton btnAudio;
+        juce::TextButton btnLibrary;
+        juce::TextButton btnControllers;
+        juce::TextButton btnProfile;
+        juce::TextButton btnCloud;
+        juce::TextButton btnWizardAudio;
+        juce::TextButton btnWizardStart;
+        juce::TextButton btnWizardPreset;
+        std::unique_ptr<GeneralSettingsPage> generalPage;
+        std::unique_ptr<AudioSettingsPage> audioPage;
+        std::unique_ptr<LibrarySettingsPage> libraryPage;
+        std::unique_ptr<PlaceholderSettingsPage> controllersPage;
+        std::unique_ptr<PlaceholderSettingsPage> profilePage;
+        std::unique_ptr<PlaceholderSettingsPage> cloudPage;
+        Category selectedCategory = Category::General;
+    };
 }
+
+// Wizard headers — included after EditorPrefs namespace so inline methods can access it
+#include "../GUI/Wizards/AudioSetupWizard.h"
+#include "../GUI/Wizards/StartWizard.h"
+#include "../GUI/Wizards/PresetFinderWizard.h"
 
 class PedalEditorOverlay final : public juce::Component
 {
@@ -581,6 +2223,12 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     btnToggleRight.setColour(juce::TextButton::textColourOffId, Nova::Colors::Accent);
     btnToggleRight.onClick = [this] { toggleRightPanel(); };
 
+    addAndMakeVisible(btnSettings);
+    btnSettings.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff1A2332"));
+    btnSettings.setColour(juce::TextButton::textColourOffId, Nova::Colors::Accent);
+    btnSettings.setTooltip("Open NOVA settings");
+    btnSettings.onClick = [this] { openSettingsOverlay(); };
+
     // -----------------------
     // BROWSER (inside left drawer)
     // -----------------------
@@ -635,7 +2283,7 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
 
     addAndMakeVisible(btnSwitcher);
     btnSwitcher.setVisible(false);
-    btnSwitcher.onClick = [this] { audioProcessor.cycleSwitcher(); };
+    btnSwitcher.onClick = [this] { audioProcessor.cycleSwitcherWithMask(EditorPrefs::getSwitcherModes()); };
 
     addAndMakeVisible(btnRouteA);
     btnRouteA.setButtonText("LINE A");
@@ -757,11 +2405,14 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     // Valores iniciales
     syncControlsFromState();
 
-    const auto startupPointer = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-        .getChildFile("NOVA")
-        .getChildFile("startup-preset.txt");
+    const auto startupMode = EditorPrefs::getString(EditorPrefs::startupModeKey, "Remember last context");
+    const auto startupPointer = getStartupPresetPointerFile();
 
-    if (startupPointer.existsAsFile())
+    if (startupMode == "Open clean rig")
+    {
+        setCurrentPreset("No Preset");
+    }
+    else if (startupPointer.existsAsFile())
     {
         const auto presetPath = startupPointer.loadFileAsString().trim();
         const auto startupPreset = juce::File(presetPath);
@@ -780,6 +2431,12 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
 
     updateSwitcherState();
     updatePedalGui();
+
+    showPerformanceStats = EditorPrefs::getBool(EditorPrefs::showStatsKey, true);
+    openQuickAddOnStartup = EditorPrefs::getBool(EditorPrefs::openBrowserOnStartupKey, false);
+    openPresetsOnStartup = EditorPrefs::getBool(EditorPrefs::openPresetsOnStartupKey, false);
+    audioProcessor.getAudioEngine().setTunerReferencePitch(EditorPrefs::parseTunerReference());
+    applyEditorPreferences(true);
 
     statsTimer = std::make_unique<StatsTimer>(*this);
 }
@@ -1052,15 +2709,40 @@ void NOVAAudioProcessorEditor::loadSelectedPreset()
 
 void NOVAAudioProcessorEditor::clearPresetAndSession()
 {
-    audioProcessor.clearSessionAndForgetStartupPreset();
+    const auto performClear = [this]()
+    {
+        audioProcessor.clearSessionAndForgetStartupPreset();
 
-    setCurrentPreset("No Preset");
-    presetSelector.setSelectedId(0, juce::dontSendNotification);
-    syncControlsFromState();
-    refreshPresetList();
-    updateSwitcherState();
-    updatePedalGui();
-    repaint();
+        setCurrentPreset("No Preset");
+        presetSelector.setSelectedId(0, juce::dontSendNotification);
+        syncControlsFromState();
+        refreshPresetList();
+        updateSwitcherState();
+        updatePedalGui();
+        repaint();
+    };
+
+    if (!EditorPrefs::getBool(EditorPrefs::confirmBeforeClearKey, true))
+    {
+        performClear();
+        return;
+    }
+
+    auto* alert = new juce::AlertWindow("Clear Current Rig",
+        "This will remove the current preset selection and clear the active session state.",
+        juce::AlertWindow::WarningIcon);
+    alert->addButton("Clear", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+    juce::Component::SafePointer<NOVAAudioProcessorEditor> safeThis(this);
+    alert->enterModalState(true, juce::ModalCallbackFunction::create(
+        [safeThis, performClear](int result)
+        {
+            if (safeThis == nullptr || result != 1)
+                return;
+
+            performClear();
+        }), true);
 }
 
 
@@ -1087,7 +2769,7 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
 
     auto drawRouteButtonGlow = [&](const juce::TextButton& button, bool active, juce::Colour colour)
     {
-        if (!on || !active || button.getBounds().isEmpty())
+        if (!on || !active || !button.isVisible() || button.getBounds().isEmpty())
             return;
 
         const auto buttonBounds = button.getBounds().toFloat();
@@ -1173,12 +2855,17 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
         g.drawRoundedRectangle(waveBounds.expanded(6.0f, 4.0f), 10.0f, 1.0f);
     }
 
-    auto metricsBounds = lblCpu.getBounds()
-        .getUnion(lblProc.getBounds())
-        .getUnion(lblBuf.getBounds());
+    juce::Rectangle<int> metricsBounds;
+
+    if (showPerformanceStats)
+    {
+        metricsBounds = lblCpu.getBounds()
+            .getUnion(lblProc.getBounds())
+            .getUnion(lblBuf.getBounds());
+    }
 
     if (!lblStats.getText().isEmpty())
-        metricsBounds = metricsBounds.getUnion(lblStats.getBounds());
+        metricsBounds = metricsBounds.isEmpty() ? lblStats.getBounds() : metricsBounds.getUnion(lblStats.getBounds());
 
     auto metricsBoundsF = metricsBounds.expanded(12, 8).toFloat();
 
@@ -1193,15 +2880,18 @@ void NOVAAudioProcessorEditor::paint(juce::Graphics& g)
         g.setColour(Nova::Colors::Border.withAlpha(0.8f));
         g.drawRoundedRectangle(metricsBoundsF, 12.0f, 1.0f);
 
-        const auto cpuBounds = lblCpu.getBounds();
-        const auto procBounds = lblProc.getBounds();
-        const auto bufBounds = lblBuf.getBounds();
-        const int sepTop = juce::jmin(cpuBounds.getY(), juce::jmin(procBounds.getY(), bufBounds.getY())) + 4;
-        const int sepBottom = juce::jmax(cpuBounds.getBottom(), juce::jmax(procBounds.getBottom(), bufBounds.getBottom())) - 4;
+        if (showPerformanceStats)
+        {
+            const auto cpuBounds = lblCpu.getBounds();
+            const auto procBounds = lblProc.getBounds();
+            const auto bufBounds = lblBuf.getBounds();
+            const int sepTop = juce::jmin(cpuBounds.getY(), juce::jmin(procBounds.getY(), bufBounds.getY())) + 4;
+            const int sepBottom = juce::jmax(cpuBounds.getBottom(), juce::jmax(procBounds.getBottom(), bufBounds.getBottom())) - 4;
 
-        g.setColour(Nova::Colors::Border.withAlpha(0.5f));
-        g.drawVerticalLine(cpuBounds.getRight() + 4, (float)sepTop, (float)sepBottom);
-        g.drawVerticalLine(procBounds.getRight() + 4, (float)sepTop, (float)sepBottom);
+            g.setColour(Nova::Colors::Border.withAlpha(0.5f));
+            g.drawVerticalLine(cpuBounds.getRight() + 4, (float)sepTop, (float)sepBottom);
+            g.drawVerticalLine(procBounds.getRight() + 4, (float)sepTop, (float)sepBottom);
+        }
 
         if (!lblStats.getText().isEmpty())
         {
@@ -1509,21 +3199,39 @@ void NOVAAudioProcessorEditor::resized()
     const int infoSize = 16;
     const int infoGap = 10;
     const int rowY = header.getCentreY() - routeH / 2;
-    const int routeGroupW = routeButtonW * 3 + routeButtonGap * 2;
+
+    // Dynamic route group width based on visible buttons
+    const int enabledModes = EditorPrefs::getSwitcherModes();
+    const int visibleRouteCount = ((enabledModes >> 0) & 1) + ((enabledModes >> 1) & 1) + ((enabledModes >> 2) & 1);
+    const int routeGroupW = routeButtonW * visibleRouteCount
+        + routeButtonGap * juce::jmax(0, visibleRouteCount - 1);
+
     const int clusterW = tunerW + clusterGap + routeGroupW + infoGap + infoSize + clusterGap + powerW;
     int clusterX = headerCentreX - clusterW / 2;
 
     btnToggleLeft.setBounds(header.getX() + 10, header.getCentreY() - 15, 36, 30);
-    btnToggleRight.setBounds(header.getRight() - 90, header.getCentreY() - 15, 80, 30);
+    btnSettings.setBounds(header.getRight() - 190, header.getCentreY() - 15, 92, 30);
+    btnToggleRight.setBounds(header.getRight() - 92, header.getCentreY() - 15, 82, 30);
     btnTuner.setBounds(clusterX, rowY + (routeH - tunerH) / 2, tunerW, tunerH);
     clusterX += tunerW + clusterGap;
 
-    btnRouteA.setBounds(clusterX, rowY, routeButtonW, routeH);
-    clusterX += routeButtonW + routeButtonGap;
-    btnRoutePar.setBounds(clusterX, rowY, routeButtonW, routeH);
-    clusterX += routeButtonW + routeButtonGap;
-    btnRouteB.setBounds(clusterX, rowY, routeButtonW, routeH);
-    clusterX += routeButtonW + infoGap;
+    // Only layout visible route buttons — clear bounds on hidden ones
+    juce::TextButton* routeButtons[] = { &btnRouteA, &btnRoutePar, &btnRouteB };
+    for (int i = 0; i < 3; ++i)
+    {
+        if (EditorPrefs::isModeEnabled(enabledModes, static_cast<Nova::SwitcherMode>(i)))
+        {
+            routeButtons[i]->setVisible(true);
+            routeButtons[i]->setBounds(clusterX, rowY, routeButtonW, routeH);
+            clusterX += routeButtonW + routeButtonGap;
+        }
+        else
+        {
+            routeButtons[i]->setVisible(false);
+            routeButtons[i]->setBounds(0, 0, 0, 0);
+        }
+    }
+    clusterX += infoGap - routeButtonGap; // adjust: last button has no trailing gap
 
     routeInfoIconBounds = juce::Rectangle<float>((float)clusterX,
         (float)(header.getCentreY() - infoSize / 2),
@@ -1705,28 +3413,227 @@ void NOVAAudioProcessorEditor::resized()
 // CONTROL LOGIC
 // ==============================================================================
 
-void NOVAAudioProcessorEditor::toggleLeftPanel()
+void NOVAAudioProcessorEditor::refreshDrawerButtons()
 {
-    leftPanelOpen = !leftPanelOpen;
-    leftDrawer.setVisible(leftPanelOpen);
-
     btnToggleLeft.setColour(juce::TextButton::buttonColourId,
         leftPanelOpen ? Nova::Colors::Accent.withAlpha(0.28f) : juce::Colour::fromString("ff1A2332"));
+
+    btnToggleRight.setColour(juce::TextButton::buttonColourId,
+        rightPanelOpen ? Nova::Colors::Accent.withAlpha(0.28f) : juce::Colour::fromString("ff1A2332"));
+}
+
+void NOVAAudioProcessorEditor::setLeftPanelOpen(bool shouldOpen)
+{
+    leftPanelOpen = shouldOpen;
+    leftDrawer.setVisible(leftPanelOpen);
+    refreshDrawerButtons();
+    resized();
+    repaint();
+}
+
+void NOVAAudioProcessorEditor::setRightPanelOpen(bool shouldOpen)
+{
+    rightPanelOpen = shouldOpen;
+    rightDrawer.setVisible(rightPanelOpen);
+    refreshDrawerButtons();
+    resized();
+    repaint();
+}
+
+void NOVAAudioProcessorEditor::applyEditorPreferences(bool applyStartupPanels)
+{
+    lblCpu.setVisible(showPerformanceStats);
+    lblProc.setVisible(showPerformanceStats);
+    lblBuf.setVisible(showPerformanceStats);
+
+    // Update route info tooltip with configured shortcut
+    const int keyCode = EditorPrefs::getSwitcherKeyCode();
+    routeInfoText = "Shortcut: " + EditorPrefs::keyCodeToDisplayName(keyCode)
+        + ". Configure in Settings > General > Interface.";
+
+    if (applyStartupPanels)
+    {
+        leftPanelOpen = openQuickAddOnStartup;
+        rightPanelOpen = openPresetsOnStartup;
+        leftDrawer.setVisible(leftPanelOpen);
+        rightDrawer.setVisible(rightPanelOpen);
+        refreshDrawerButtons();
+    }
 
     resized();
     repaint();
 }
 
+void NOVAAudioProcessorEditor::openSettingsOverlay()
+{
+    auto overlay = std::make_unique<SettingsOverlay>(
+        audioProcessor,
+        [this](bool enabled)
+        {
+            showPerformanceStats = enabled;
+            applyEditorPreferences(false);
+        },
+        [this](bool enabled)
+        {
+            openQuickAddOnStartup = enabled;
+        },
+        [this](bool enabled)
+        {
+            openPresetsOnStartup = enabled;
+        },
+        [this]()
+        {
+            // Switcher config changed — update route info tooltip and force relayout
+            const int keyCode = EditorPrefs::getSwitcherKeyCode();
+            routeInfoText = "Shortcut: " + EditorPrefs::keyCodeToDisplayName(keyCode)
+                + ". Configure in Settings > General > Interface.";
+
+            // If current mode is now disabled, switch to first enabled mode
+            const int modes = EditorPrefs::getSwitcherModes();
+            const int current = (int)audioProcessor.getSwitcherMode();
+            if (!((modes >> current) & 1))
+            {
+                for (int i = 0; i < 3; ++i)
+                {
+                    if ((modes >> i) & 1)
+                    {
+                        audioProcessor.setSwitcherMode(static_cast<Nova::SwitcherMode>(i));
+                        break;
+                    }
+                }
+            }
+
+            resized();
+            repaint();
+        },
+        LibrarySettingsPage::Callbacks{
+            [this]()
+            {
+                return currentPresetName == "No Preset" ? juce::String{} : currentPresetName;
+            },
+            []()
+            {
+                return getStartupPresetName();
+            },
+            [this]()
+            {
+                return getPresetDirectory();
+            },
+            [this]()
+            {
+                if (currentPresetName == "No Preset")
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                        "Startup Preset",
+                        "Load or save a preset first before setting a startup preset.");
+                    return;
+                }
+
+                const auto presetFile = getPresetFileForName(currentPresetName);
+                if (!presetFile.existsAsFile())
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                        "Startup Preset",
+                        "The current preset has not been saved to disk yet.");
+                    return;
+                }
+
+                getStartupPresetPointerFile().replaceWithText(presetFile.getFullPathName());
+            },
+            []()
+            {
+                const auto pointerFile = getStartupPresetPointerFile();
+                if (pointerFile.existsAsFile())
+                    pointerFile.deleteFile();
+            }
+        },
+        [this](int wizardID)
+        {
+            juce::MessageManager::callAsync([this, wizardID]()
+            {
+                launchWizard(wizardID);
+            });
+        },
+        [this]()
+        {
+            juce::MessageManager::callAsync([this]()
+            {
+                currentOverlay.reset();
+                resized();
+            });
+        });
+
+    addAndMakeVisible(overlay.get());
+    overlay->setBounds(getLocalBounds());
+    overlay->toFront(true);
+    overlay->grabKeyboardFocus();
+    currentOverlay = std::move(overlay);
+}
+
+void NOVAAudioProcessorEditor::launchWizard(int wizardID)
+{
+    auto closeFn = [this]()
+    {
+        juce::MessageManager::callAsync([this]()
+        {
+            currentOverlay.reset();
+            resized();
+        });
+    };
+
+    std::unique_ptr<juce::Component> wizard;
+
+    switch (wizardID)
+    {
+        case 0: // Audio Setup
+            wizard = std::make_unique<AudioSetupWizard>(audioProcessor, closeFn);
+            break;
+
+        case 1: // Start / Launcher
+            wizard = std::make_unique<StartWizard>(
+                closeFn,
+                [this] { launchWizard(0); },  // link to Audio Setup
+                [this] { launchWizard(2); }); // link to Preset Finder
+            break;
+
+        case 2: // Preset Finder
+        {
+            PresetFinderWizard::Callbacks pfCallbacks;
+            pfCallbacks.getPresetDirectory = [this]() { return getPresetDirectory(); };
+            pfCallbacks.loadPresetFile = [this](const juce::File& f)
+            {
+                if (audioProcessor.loadPresetFromFile(f))
+                {
+                    setCurrentPreset(f.getFileNameWithoutExtension());
+                    refreshPresetList();
+                }
+            };
+            pfCallbacks.addPedal = [this](const juce::String& typeID, Nova::ChainID chain, Nova::ZoneID zone)
+            {
+                audioProcessor.requestAddPedal(typeID, chain, zone);
+            };
+            wizard = std::make_unique<PresetFinderWizard>(std::move(pfCallbacks), closeFn);
+            break;
+        }
+
+        default: return;
+    }
+
+    addAndMakeVisible(wizard.get());
+    wizard->setBounds(getLocalBounds());
+    wizard->toFront(true);
+    wizard->grabKeyboardFocus();
+    currentOverlay = std::move(wizard);
+}
+
+void NOVAAudioProcessorEditor::toggleLeftPanel()
+{
+    setLeftPanelOpen(!leftPanelOpen);
+}
+
 void NOVAAudioProcessorEditor::toggleRightPanel()
 {
-    rightPanelOpen = !rightPanelOpen;
-    rightDrawer.setVisible(rightPanelOpen);
-
-    btnToggleRight.setColour(juce::TextButton::buttonColourId,
-        rightPanelOpen ? Nova::Colors::Accent.withAlpha(0.28f) : juce::Colour::fromString("ff1A2332"));
-
-    resized();
-    repaint();
+    setRightPanelOpen(!rightPanelOpen);
 }
 
 void NOVAAudioProcessorEditor::toggleTuner()
@@ -2009,6 +3916,7 @@ void NOVAAudioProcessorEditor::updateSwitcherState()
     const bool on = audioProcessor.isEngineOn();
     const int mode = (int)audioProcessor.getSwitcherMode();
     const bool dualParallel = (mode == (int)Nova::SwitcherMode::Dual_Parallel);
+    const int enabledModes = EditorPrefs::getSwitcherModes();
 
     btnStartStop.setButtonText(on ? "POWER ON" : "POWER OFF");
     btnStartStop.setColour(juce::TextButton::buttonColourId,
@@ -2058,12 +3966,24 @@ void NOVAAudioProcessorEditor::updateSwitcherState()
             active ? juce::Colours::white.withAlpha(on ? 0.98f : 0.65f) : Nova::Colors::TextDim.withAlpha(0.88f));
     };
 
-    applyRouteState(btnRouteA, mode == (int)Nova::SwitcherMode::LineA_Only, Nova::Colors::CableOnA);
-    applyRouteState(btnRoutePar, mode == (int)Nova::SwitcherMode::Dual_Parallel, Nova::Colors::Accent);
-    applyRouteState(btnRouteB, mode == (int)Nova::SwitcherMode::LineB_Only, Nova::Colors::CableOnB);
+    if (btnRouteA.isVisible())
+        applyRouteState(btnRouteA, mode == (int)Nova::SwitcherMode::LineA_Only, Nova::Colors::CableOnA);
+    if (btnRoutePar.isVisible())
+        applyRouteState(btnRoutePar, mode == (int)Nova::SwitcherMode::Dual_Parallel, Nova::Colors::Accent);
+    if (btnRouteB.isVisible())
+        applyRouteState(btnRouteB, mode == (int)Nova::SwitcherMode::LineB_Only, Nova::Colors::CableOnB);
+
+    // Check if route button layout needs updating (visibility is managed by resized())
+    const bool showA   = EditorPrefs::isModeEnabled(enabledModes, Nova::SwitcherMode::LineA_Only);
+    const bool showPar = EditorPrefs::isModeEnabled(enabledModes, Nova::SwitcherMode::Dual_Parallel);
+    const bool showB   = EditorPrefs::isModeEnabled(enabledModes, Nova::SwitcherMode::LineB_Only);
+
+    bool routeLayoutChanged = (btnRouteA.isVisible() != showA)
+                           || (btnRoutePar.isVisible() != showPar)
+                           || (btnRouteB.isVisible() != showB);
 
     // Show only the active line(s) — single-line modes get full vertical space
-    bool layoutChanged = false;
+    bool layoutChanged = routeLayoutChanged;
 
     if (laneA && laneA->isVisible() != aActive)
     {
@@ -2147,9 +4067,11 @@ void NOVAAudioProcessorEditor::mouseExit(const juce::MouseEvent&)
 
 bool NOVAAudioProcessorEditor::keyPressed(const juce::KeyPress& key)
 {
-    if (key == juce::KeyPress::spaceKey)
+    const int configuredKey = EditorPrefs::getSwitcherKeyCode();
+    if (key.getKeyCode() == configuredKey)
     {
-        audioProcessor.cycleSwitcher();
+        const int modes = EditorPrefs::getSwitcherModes();
+        audioProcessor.cycleSwitcherWithMask(modes);
         return true;
     }
     return false;

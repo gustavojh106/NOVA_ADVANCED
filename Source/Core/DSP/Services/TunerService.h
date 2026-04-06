@@ -26,6 +26,8 @@ public:
 
     void reset();
     void setSampleRate(double rate) { sampleRate = rate; }
+    void setReferencePitch(float hz) { referencePitch.store(juce::jlimit(400.0f, 480.0f, hz)); }
+    float getReferencePitch() const { return referencePitch.load(std::memory_order_relaxed); }
 
 private:
     std::pair<float, float> calculateFrequencyWithClarity(const float* signal, int numSamples);
@@ -33,6 +35,7 @@ private:
 private:
     // Config
     double sampleRate = 44100.0;
+    std::atomic<float> referencePitch{ 440.0f };
 
     // FIFO + buffers
     juce::AbstractFifo tunerFifo{ Nova::Config::TUNER_FIFO_SIZE };

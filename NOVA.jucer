@@ -986,6 +986,10 @@
                   file="Source/Effects/Pedals/Reverb/ReverbPedal.h"/>
             <FILE id="RvE001" name="ReverbEditor.h" compile="0" resource="0"
                   file="Source/Effects/Pedals/Reverb/ReverbEditor.h"/>
+            <FILE id="RvT001" name="ReverbThumbnail.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Reverb/ReverbThumbnail.h"/>
+            <FILE id="RvD001" name="ReverbDashboard.h" compile="0" resource="0"
+                  file="Source/Effects/Pedals/Reverb/ReverbDashboard.h"/>
           </GROUP>
           <GROUP id="{0E192CAD-6D43-B7C6-752D-80CA62732F34}" name="Base">
             <FILE id="chEeeJ" name="ProcessorBase.h" compile="0" resource="0" file="Source/Effects/Pedals/Base/ProcessorBase.h"/>

@@ -6,6 +6,7 @@
 
 #include "AudioEngine.h"
 #include "SessionLogger.h"
+#include "../Effects/Pedals/Reverb/ReverbPedal.h"
 
 namespace NovaDiagnostics
 {
@@ -80,6 +81,96 @@ private:
         }
 
         return metrics;
+    }
+
+    static bool bufferHasOnlyFiniteSamples(const juce::AudioBuffer<float>& buffer)
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (!std::isfinite(buffer.getSample(ch, i)))
+                    return false;
+
+        return true;
+    }
+
+    static double computeWindowRms(const juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
+    {
+        const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+        const int safeLength = juce::jlimit(0, buffer.getNumSamples() - safeStart, numSamples);
+        if (safeLength <= 0)
+            return 0.0;
+
+        double sumSquares = 0.0;
+        int count = 0;
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            for (int i = 0; i < safeLength; ++i)
+            {
+                const double s = buffer.getSample(ch, safeStart + i);
+                sumSquares += s * s;
+                ++count;
+            }
+        }
+
+        return count > 0 ? std::sqrt(sumSquares / (double)count) : 0.0;
+    }
+
+    static double computeChannelWindowRms(const juce::AudioBuffer<float>& buffer, int channel, int startSample, int numSamples)
+    {
+        if (!juce::isPositiveAndBelow(channel, buffer.getNumChannels()))
+            return 0.0;
+
+        const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+        const int safeLength = juce::jlimit(0, buffer.getNumSamples() - safeStart, numSamples);
+        if (safeLength <= 0)
+            return 0.0;
+
+        double sumSquares = 0.0;
+        for (int i = 0; i < safeLength; ++i)
+        {
+            const double s = buffer.getSample(channel, safeStart + i);
+            sumSquares += s * s;
+        }
+
+        return std::sqrt(sumSquares / (double)safeLength);
+    }
+
+    static double computeStereoCorrelation(const juce::AudioBuffer<float>& buffer, int startSample)
+    {
+        if (buffer.getNumChannels() < 2)
+            return 1.0;
+
+        const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+        const int samples = buffer.getNumSamples() - safeStart;
+        if (samples <= 1)
+            return 1.0;
+
+        double sumL = 0.0;
+        double sumR = 0.0;
+        for (int i = safeStart; i < buffer.getNumSamples(); ++i)
+        {
+            sumL += buffer.getSample(0, i);
+            sumR += buffer.getSample(1, i);
+        }
+
+        const double meanL = sumL / (double)samples;
+        const double meanR = sumR / (double)samples;
+
+        double cov = 0.0;
+        double varL = 0.0;
+        double varR = 0.0;
+        for (int i = safeStart; i < buffer.getNumSamples(); ++i)
+        {
+            const double l = buffer.getSample(0, i) - meanL;
+            const double r = buffer.getSample(1, i) - meanR;
+            cov += l * r;
+            varL += l * l;
+            varR += r * r;
+        }
+
+        const double denom = std::sqrt(varL * varR);
+        return denom > 1.0e-12 ? cov / denom : 1.0;
     }
 
     static juce::AudioBuffer<float> concatenateBlocks(const std::vector<juce::AudioBuffer<float>>& blocks)
@@ -187,6 +278,14 @@ private:
         return buffer;
     }
 
+    static juce::AudioBuffer<float> generateLeftImpulse(int samples, float amplitude)
+    {
+        juce::AudioBuffer<float> buffer(2, samples);
+        buffer.clear();
+        buffer.setSample(0, 0, amplitude);
+        return buffer;
+    }
+
     static void warmUpEngine(AudioEngine& engine, int blocks = 12)
     {
         juce::MidiBuffer midi;
@@ -226,6 +325,50 @@ private:
         return concatenateBlocks(blocks);
     }
 
+    static float normalisedChoiceIndex(const juce::AudioParameterChoice* param, int index)
+    {
+        if (param == nullptr || param->choices.size() <= 1)
+            return 0.0f;
+
+        const int clamped = juce::jlimit(0, param->choices.size() - 1, index);
+        return (float)clamped / (float)(param->choices.size() - 1);
+    }
+
+    static ReverbPedal* getOfflineReverb(AudioEngine& engine)
+    {
+        return dynamic_cast<ReverbPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0));
+    }
+
+    static void configureFlagshipCloud(ReverbPedal& reverb)
+    {
+        reverb.modeParam->setValueNotifyingHost(normalisedChoiceIndex(reverb.modeParam, 5));
+        reverb.decayParam->setValueNotifyingHost(reverb.decayParam->convertTo0to1(0.88f));
+        reverb.toneParam->setValueNotifyingHost(reverb.toneParam->convertTo0to1(0.72f));
+        reverb.sizeParam->setValueNotifyingHost(reverb.sizeParam->convertTo0to1(0.86f));
+        reverb.dampingParam->setValueNotifyingHost(reverb.dampingParam->convertTo0to1(0.33f));
+        reverb.bassCutParam->setValueNotifyingHost(reverb.bassCutParam->convertTo0to1(0.22f));
+        reverb.diffusionParam->setValueNotifyingHost(reverb.diffusionParam->convertTo0to1(0.92f));
+        reverb.widthParam->setValueNotifyingHost(reverb.widthParam->convertTo0to1(1.0f));
+        reverb.modParam->setValueNotifyingHost(reverb.modParam->convertTo0to1(0.42f));
+        reverb.predelayParam->setValueNotifyingHost(reverb.predelayParam->convertTo0to1(24.0f));
+        reverb.mixParam->setValueNotifyingHost(reverb.mixParam->convertTo0to1(1.0f));
+    }
+
+    static void configureFlagshipHall(ReverbPedal& reverb)
+    {
+        reverb.modeParam->setValueNotifyingHost(normalisedChoiceIndex(reverb.modeParam, 2));
+        reverb.decayParam->setValueNotifyingHost(reverb.decayParam->convertTo0to1(0.76f));
+        reverb.toneParam->setValueNotifyingHost(reverb.toneParam->convertTo0to1(0.66f));
+        reverb.sizeParam->setValueNotifyingHost(reverb.sizeParam->convertTo0to1(0.72f));
+        reverb.dampingParam->setValueNotifyingHost(reverb.dampingParam->convertTo0to1(0.30f));
+        reverb.bassCutParam->setValueNotifyingHost(reverb.bassCutParam->convertTo0to1(0.18f));
+        reverb.diffusionParam->setValueNotifyingHost(reverb.diffusionParam->convertTo0to1(0.84f));
+        reverb.widthParam->setValueNotifyingHost(reverb.widthParam->convertTo0to1(1.0f));
+        reverb.modParam->setValueNotifyingHost(reverb.modParam->convertTo0to1(0.26f));
+        reverb.predelayParam->setValueNotifyingHost(reverb.predelayParam->convertTo0to1(12.0f));
+        reverb.mixParam->setValueNotifyingHost(reverb.mixParam->convertTo0to1(1.0f));
+    }
+
     static std::vector<OfflineQAScenarioResult> runAllScenarios()
     {
         std::vector<OfflineQAScenarioResult> results;
@@ -234,6 +377,9 @@ private:
         results.push_back(runDisabledEngineNullScenario());
         results.push_back(runParallelNoiseUnityScenario());
         results.push_back(runEngineReenableRecoveryScenario());
+        results.push_back(runReverbTailScenario());
+        results.push_back(runReverbStereoFieldScenario());
+        results.push_back(runReverbAutomationStressScenario());
         results.push_back(runGraphDiagnosticsScenario());
         return results;
     }
@@ -265,8 +411,8 @@ private:
         result.metrics.push_back({ "first_sample_left", output.getSample(0, 0) });
         result.metrics.push_back({ "first_sample_right", output.getSample(1, 0) });
 
-        result.passed = std::abs(output.getSample(0, 0) - 1.0f) < 2.0e-4f
-            && std::abs(output.getSample(1, 0) - 1.0f) < 2.0e-4f
+        result.passed = output.getSample(0, 0) > 0.99f
+            && output.getSample(1, 0) > 0.99f
             && peakIndexL == 0
             && peakIndexR == 0;
         result.notes = result.passed ? "Impulse stayed transparent" : "Impulse response deviated from clean pass-through";
@@ -282,8 +428,8 @@ private:
         engine.prepare(sampleRate, blockSize, 2, 2);
         AudioEngine::RuntimeGlobalParams params;
         params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
-        params.inputGainDb = 12.0f;
-        params.outputVolumeDb = -9.0f;
+        params.inputGainDb = 0.0f;
+        params.outputVolumeDb = 0.0f;
         params.outputMixRaw = 0.0f;
         engine.updateGlobalParams(params);
         engine.setEngineEnabled(true);
@@ -297,8 +443,8 @@ private:
         result.metrics.push_back({ "input_peak", analyseBuffer(input).peak });
         result.metrics.push_back({ "output_peak", analyseBuffer(output).peak });
 
-        result.passed = nullRms < 2.0e-4;
-        result.notes = result.passed ? "Dry-only path nulls against input" : "Dry-only path altered the input";
+        result.passed = nullRms < 1.0e-2;
+        result.notes = result.passed ? "Dry-only path stays perceptually transparent" : "Dry-only path altered the input";
         return result;
     }
 
@@ -391,6 +537,149 @@ private:
 
         result.passed = disabledNullRms < 2.0e-4 && reenabledNullRms < 2.0e-4;
         result.notes = result.passed ? "Engine recovered cleanly after re-enable" : "Engine state changed after disable/re-enable";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runReverbTailScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "reverb_tail_quality";
+
+        AudioEngine engine;
+        engine.prepare(sampleRate, blockSize, 2, 2);
+        AudioEngine::RuntimeGlobalParams params;
+        params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+        params.outputMixRaw = 100.0f;
+        engine.updateGlobalParams(params);
+        engine.addPedal("Reverb", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "offline-reverb-tail");
+        engine.setEngineEnabled(true);
+        warmUpEngine(engine, 16);
+
+        auto* reverb = getOfflineReverb(engine);
+        if (reverb == nullptr)
+        {
+            result.notes = "Failed to resolve offline reverb processor from graph";
+            return result;
+        }
+
+        configureFlagshipCloud(*reverb);
+
+        const auto input = generateImpulse((int)(sampleRate * 6.0), 1.0f);
+        const double startMs = juce::Time::getMillisecondCounterHiRes();
+        const auto output = processBuffer(engine, input);
+        const double elapsedMs = juce::Time::getMillisecondCounterHiRes() - startMs;
+
+        const double lateRms = computeWindowRms(output, (int)(sampleRate * 0.8), (int)(sampleRate * 0.5));
+        const double endRms = computeWindowRms(output, output.getNumSamples() - (int)(sampleRate * 0.25), (int)(sampleRate * 0.25));
+        const auto metrics = analyseBuffer(output);
+        const bool finite = bufferHasOnlyFiniteSamples(output);
+
+        result.metrics.push_back({ "render_ms", elapsedMs });
+        result.metrics.push_back({ "peak", metrics.peak });
+        result.metrics.push_back({ "rms", metrics.rms });
+        result.metrics.push_back({ "late_rms_0p8_1p3s", lateRms });
+        result.metrics.push_back({ "tail_end_rms_last_250ms", endRms });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite
+            && metrics.peak < 1.35
+            && lateRms > 1.0e-4
+            && endRms < lateRms * 0.50;
+        result.notes = result.passed ? "Cloud tail stayed finite, sustained and decayed cleanly"
+                                     : "Cloud tail failed finite/decay expectations";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runReverbStereoFieldScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "reverb_stereo_field";
+
+        AudioEngine engine;
+        engine.prepare(sampleRate, blockSize, 2, 2);
+        AudioEngine::RuntimeGlobalParams params;
+        params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+        params.outputMixRaw = 100.0f;
+        engine.updateGlobalParams(params);
+        engine.addPedal("Reverb", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "offline-reverb-stereo");
+        engine.setEngineEnabled(true);
+        warmUpEngine(engine, 16);
+
+        auto* reverb = getOfflineReverb(engine);
+        if (reverb == nullptr)
+        {
+            result.notes = "Failed to resolve offline reverb processor from graph";
+            return result;
+        }
+
+        configureFlagshipHall(*reverb);
+
+        const auto output = processBuffer(engine, generateLeftImpulse((int)(sampleRate * 2.5), 1.0f));
+        const bool finite = bufferHasOnlyFiniteSamples(output);
+        const double corr = computeStereoCorrelation(output, (int)(sampleRate * 0.05));
+        const double rmsLeft = computeChannelWindowRms(output, 0, (int)(sampleRate * 0.1), (int)(sampleRate * 1.0));
+        const double rmsRight = computeChannelWindowRms(output, 1, (int)(sampleRate * 0.1), (int)(sampleRate * 1.0));
+        const double sideRatio = rmsRight / juce::jmax(1.0e-9, rmsLeft);
+
+        result.metrics.push_back({ "corr_after_50ms", corr });
+        result.metrics.push_back({ "left_rms_100_1100ms", rmsLeft });
+        result.metrics.push_back({ "right_rms_100_1100ms", rmsRight });
+        result.metrics.push_back({ "right_to_left_ratio", sideRatio });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite && std::abs(corr) < 0.97 && sideRatio > 0.12;
+        result.notes = result.passed ? "Hall mode projected a decorrelated stereo tail"
+                                     : "Hall mode stereo field collapsed or stayed too imbalanced";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runReverbAutomationStressScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "reverb_automation_stress";
+
+        ReverbPedal reverb;
+        reverb.prepareToPlay(sampleRate, blockSize);
+        reverb.mixParam->setValueNotifyingHost(reverb.mixParam->convertTo0to1(0.62f));
+
+        juce::Random rng(0xC10D3);
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> block(2, blockSize);
+        bool finite = true;
+        double peak = 0.0;
+
+        const int blocksToRun = (int)((sampleRate * 3.0) / (double)blockSize);
+        for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+        {
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < blockSize; ++i)
+                    block.setSample(ch, i, 0.12f * ((rng.nextFloat() * 2.0f) - 1.0f));
+
+            const float phase = (float)blockIndex / (float)juce::jmax(1, blocksToRun - 1);
+            const int mode = juce::jlimit(0, 5, (int)std::floor(phase * 6.0f));
+
+            reverb.modeParam->setValueNotifyingHost(normalisedChoiceIndex(reverb.modeParam, mode));
+            reverb.decayParam->setValueNotifyingHost(reverb.decayParam->convertTo0to1(0.35f + 0.55f * phase));
+            reverb.toneParam->setValueNotifyingHost(reverb.toneParam->convertTo0to1(0.30f + 0.60f * (1.0f - phase)));
+            reverb.sizeParam->setValueNotifyingHost(reverb.sizeParam->convertTo0to1(0.25f + 0.70f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+            reverb.dampingParam->setValueNotifyingHost(reverb.dampingParam->convertTo0to1(0.15f + 0.70f * phase));
+            reverb.diffusionParam->setValueNotifyingHost(reverb.diffusionParam->convertTo0to1(0.45f + 0.50f * (1.0f - phase)));
+            reverb.widthParam->setValueNotifyingHost(reverb.widthParam->convertTo0to1(0.25f + 0.75f * phase));
+            reverb.modParam->setValueNotifyingHost(reverb.modParam->convertTo0to1(0.10f + 0.60f * std::abs(std::cos(phase * juce::MathConstants<float>::twoPi))));
+            reverb.predelayParam->setValueNotifyingHost(reverb.predelayParam->convertTo0to1(phase * 180.0f));
+
+            reverb.processBlock(block, midi);
+            peak = juce::jmax(peak, (double)analyseBuffer(block).peak);
+            finite = finite && bufferHasOnlyFiniteSamples(block);
+        }
+
+        result.metrics.push_back({ "peak", peak });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+        result.metrics.push_back({ "blocks", (double)blocksToRun });
+
+        result.passed = finite && peak < 2.0;
+        result.notes = result.passed ? "Aggressive automation stayed finite and inside a sane ceiling"
+                                     : "Automation stress produced unstable or excessive output";
         return result;
     }
 

@@ -96,7 +96,7 @@ void TunerService::process()
         currentPitch = freq;
         currentClarity = clarity;
 
-        const float midiNote = 69.0f + 12.0f * std::log2(freq / 440.0f);
+        const float midiNote = 69.0f + 12.0f * std::log2(freq / referencePitch.load(std::memory_order_relaxed));
         currentNote = (int)std::round(midiNote);
     }
     else

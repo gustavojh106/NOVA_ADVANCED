@@ -160,7 +160,8 @@ void TunerOverlay::timerCallback()
     const float clarity = engine.getTunerClarity();
     const float rms = engine.getTunerRMS();
 
-    const float targetFreq = presets[currentPresetIndex].frequencies[currentStringIndex];
+    const float refRatio = engine.getTunerReferencePitch() / 440.0f;
+    const float targetFreq = presets[currentPresetIndex].frequencies[currentStringIndex] * refRatio;
 
     float rawCentsError = 0.0f;
     bool signalIsValid = false;

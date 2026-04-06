@@ -81,6 +81,8 @@ public:
     float getTunerPitch() const { return audioPlane.tunerService.getCurrentPitch(); }
     float getTunerClarity() const { return audioPlane.tunerService.getCurrentClarity(); }
     float getTunerRMS() const { return audioPlane.tunerService.getCurrentRMS(); }
+    void  setTunerReferencePitch(float hz) { audioPlane.tunerService.setReferencePitch(hz); }
+    float getTunerReferencePitch() const { return audioPlane.tunerService.getReferencePitch(); }
 
     void setPedalBypassed(Nova::ChainID chain, int index, bool bypassed);
     void synchronizeProcessingState();

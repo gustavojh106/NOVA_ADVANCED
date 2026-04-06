@@ -60,7 +60,13 @@
       "Bash(ls:*)",
       "Bash(powershell -ExecutionPolicy Bypass -Command \"& { $vswhere = ''C:/Program Files \\(x86\\)/Microsoft Visual Studio/Installer/vswhere.exe''; $msb = & $vswhere -latest -requires Microsoft.Component.MSBuild -find ''MSBuild/**/Bin/MSBuild.exe'' | Select-Object -First 1; & $msb NOVA_SharedCode.vcxproj -p:Configuration=Debug -p:Platform=x64 -t:Rebuild -v:minimal -noLogo 2>&1 | Select-Object -Last 15 }\")",
       "Bash(find C:UsersgustaOneDriveDesktopULTIMATENOVASourceEffectsPedalsEQ -type f -o -name *EQ*)",
-      "Bash(powershell -ExecutionPolicy Bypass -Command \"& { $vswhere = ''C:/Program Files \\(x86\\)/Microsoft Visual Studio/Installer/vswhere.exe''; $msb = & $vswhere -latest -requires Microsoft.Component.MSBuild -find ''MSBuild/**/Bin/MSBuild.exe'' | Select-Object -First 1; & $msb NOVA_SharedCode.vcxproj -p:Configuration=Debug -p:Platform=x64 -t:Rebuild -v:minimal -noLogo 2>&1 | Select-Object -Last 20 }\")"
+      "Bash(powershell -ExecutionPolicy Bypass -Command \"& { $vswhere = ''C:/Program Files \\(x86\\)/Microsoft Visual Studio/Installer/vswhere.exe''; $msb = & $vswhere -latest -requires Microsoft.Component.MSBuild -find ''MSBuild/**/Bin/MSBuild.exe'' | Select-Object -First 1; & $msb NOVA_SharedCode.vcxproj -p:Configuration=Debug -p:Platform=x64 -t:Rebuild -v:minimal -noLogo 2>&1 | Select-Object -Last 20 }\")",
+      "Bash(python3:*)",
+      "Bash(grep -n \"cycleSwitcher\\\\|setSwitcherMode\\\\|getSwitcherMode\" /c/Users/gusta/OneDrive/Desktop/ULTIMATE/NOVA/Source/Core/*.h /c/Users/gusta/OneDrive/Desktop/ULTIMATE/NOVA/Source/Core/*.cpp)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Clean)",
+      "Bash(touch:*)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/amd64/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA.sln\" /t:NOVA_SharedCode:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:minimal)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/amd64/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA_SharedCode.vcxproj\" -t:Rebuild -p:Configuration=Debug -p:Platform=x64 -v:minimal)"
     ]
   }
 }
