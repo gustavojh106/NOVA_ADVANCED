@@ -205,56 +205,86 @@ struct TwoBandDamper
     void reset() { lpState = 0.0f; }
 };
 
-// Grain-based pitch shifter — octave-up for shimmer feedback
+// Grain-based pitch shifter — multi-ratio shimmer feedback
+// 4 overlapping grains with adaptive grain size for clean transposition
 struct GrainPitchShifter
 {
+    static constexpr int NUM_GRAINS = 4;
+
     std::vector<float> buf;
     int   writePos   = 0;
     int   bufSize    = 1;
+    float baseGrainSize = 2048.0f;
     float grainSize  = 2048.0f;
-    float delay_[2]  = { 0.0f, 0.0f };
+    float delay_[NUM_GRAINS] = {};
     float pitchRatio = 2.0f;
     float targetRatio = 2.0f;
+    float smoothCoeff = 0.0005f;       // ~40ms convergence at 48 kHz
     OnePoleLP smoothLP;
+    double sampleRate = 48000.0;
 
     void prepare(double sr)
     {
-        bufSize   = (int)(sr * 0.25) + 64;
+        sampleRate = sr;
+        bufSize   = (int)(sr * 0.35) + 64;
         buf.assign((size_t)bufSize, 0.0f);
-        grainSize = (float)(sr * 0.038);          // ~38 ms grains
-        delay_[0] = grainSize;
-        delay_[1] = grainSize * 0.5f;
-        smoothLP.setCutoff(6000.0f, sr);           // de-alias filter
+        baseGrainSize = (float)(sr * 0.042);     // ~42 ms base grains
+        grainSize = baseGrainSize;
+        smoothCoeff = (float)(1.0 / (sr * 0.04));  // 40ms time constant
+        smoothLP.setCutoff(8000.0f, sr);
         smoothLP.reset();
+        resetGrainPhases();
     }
 
     void setPitchRatio(float ratio) { targetRatio = juce::jlimit(0.5f, 4.0f, ratio); }
 
+    void resetGrainPhases()
+    {
+        // Evenly-spaced grain phases for maximum overlap coverage
+        for (int g = 0; g < NUM_GRAINS; ++g)
+            delay_[g] = grainSize * ((float)g / (float)NUM_GRAINS);
+    }
+
     void reset()
     {
         std::fill(buf.begin(), buf.end(), 0.0f);
-        writePos   = 0;
-        delay_[0]  = grainSize;
-        delay_[1]  = grainSize * 0.5f;
+        writePos = 0;
         pitchRatio = targetRatio;
+        updateGrainSize();
+        resetGrainPhases();
         smoothLP.reset();
+    }
+
+    void updateGrainSize()
+    {
+        // Adapt grain size to pitch ratio — longer grains for subtle shifts,
+        // shorter for extreme ratios to reduce latency and improve tracking
+        float ratioFactor = (pitchRatio <= 2.0f)
+            ? 1.0f
+            : 1.0f / std::sqrt(pitchRatio * 0.5f);  // compress for high ratios
+        grainSize = juce::jlimit(baseGrainSize * 0.5f, baseGrainSize * 1.5f,
+            baseGrainSize * ratioFactor);
     }
 
     float process(float input) noexcept
     {
-        // Smooth pitch ratio changes (one-pole, ~5ms)
-        pitchRatio += 0.002f * (targetRatio - pitchRatio);
+        // Smooth pitch ratio changes
+        pitchRatio += smoothCoeff * (targetRatio - pitchRatio);
 
         buf[(size_t)writePos] = input;
 
-        float output  = 0.0f;
+        float output = 0.0f;
         const float advance = pitchRatio - 1.0f;
+        const float invGrainSize = 1.0f / grainSize;
 
-        for (int g = 0; g < 2; ++g)
+        for (int g = 0; g < NUM_GRAINS; ++g)
         {
-            float pos    = 1.0f - delay_[g] / grainSize;
+            // Normalized position within grain [0, 1)
+            float pos = 1.0f - delay_[g] * invGrainSize;
+            // Hanning window — smooth overlap-add
             float window = 0.5f * (1.0f - std::cos(kTwoPi * pos));
 
+            // Read from circular buffer with linear interpolation
             float rd = juce::jlimit(1.0f, (float)(bufSize - 2), delay_[g]);
             float rp = (float)writePos - rd;
             if (rp < 0.0f) rp += (float)bufSize;
@@ -266,7 +296,12 @@ struct GrainPitchShifter
             delay_[g] -= advance;
             if (delay_[g] <= 0.0f)
                 delay_[g] += grainSize;
+            else if (delay_[g] >= grainSize)
+                delay_[g] -= grainSize;
         }
+
+        // Normalize by number of grains / 2 (Hanning overlap-add gain)
+        output *= (2.0f / (float)NUM_GRAINS);
 
         if (++writePos >= bufSize) writePos = 0;
         return smoothLP.process(output);
@@ -458,7 +493,7 @@ static const ModeTuning kShimmer = {
     2000.0f, 7500.0f,
     0.55f, 0.92f, 0.88f,
     8.0f, 0.5f, 1.8f,
-    false, true, 0.45f, 2.0f,
+    false, true, 0.62f, 2.0f,       // shimmerMix bumped: 0.45 → 0.62 for clear pitch distinction
     kHallER, kHallERCount
 };
 
@@ -674,8 +709,11 @@ public:
         // ---- Shimmer ----
         useShimmer  = t.useShimmer;
         shimmerMix_ = t.shimmerMix;
-        shimmer.setPitchRatio(t.shimmerRatio);
-        shimmerLP.setCutoff(lerp(3500.0f, 8200.0f, tone01), sr);
+        // NOTE: shimmer pitch ratio is set externally by the user parameter,
+        // NOT by mode tuning — avoids fighting between configure() and the override.
+        shimmer.updateGrainSize();
+        // Higher LP cutoff lets the pitch-shifted harmonics through clearly
+        shimmerLP.setCutoff(lerp(5000.0f, 12000.0f, tone01), sr);
         outToneHzSmooth.setTargetValue(lerp(2800.0f, t.dampLpMin * 1.15f, tone01));
     }
 
