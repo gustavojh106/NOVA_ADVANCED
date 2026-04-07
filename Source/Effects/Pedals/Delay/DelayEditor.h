@@ -12,11 +12,9 @@ public:
     ~DelayEditor() override
     {
         stopTimer();
-        sldTime.setLookAndFeel(nullptr);
-        sldFeedback.setLookAndFeel(nullptr);
-        sldTone.setLookAndFeel(nullptr);
-        sldSpread.setLookAndFeel(nullptr);
-        sldMix.setLookAndFeel(nullptr);
+        for (auto* slider : sliders)
+            if (slider != nullptr)
+                slider->setLookAndFeel(nullptr);
     }
 
     void paint(juce::Graphics& g) override;
@@ -24,81 +22,99 @@ public:
 
 private:
     void timerCallback() override;
-    void paintEchoViz(juce::Graphics& g, juce::Rectangle<float> bounds);
+    void paintDelayViz(juce::Graphics& g, juce::Rectangle<float> bounds);
+    void syncModeFromProcessor();
+    void syncFreezeFromProcessor();
+    juce::String describeTexture(float amount) const;
 
     DelayPedal& proc;
 
-    static constexpr int kWidth  = 660;
-    static constexpr int kHeight = 420;
+    static constexpr int kWidth = 780;
+    static constexpr int kHeight = 520;
 
-    // Blue accent (from catalog)
-    const juce::Colour accent     = juce::Colour::fromString("ff60A5FA");
-    const juce::Colour accentDim  = juce::Colour::fromString("ff3B82F6");
+    const juce::Colour accent = juce::Colour::fromString("ff60A5FA");
     const juce::Colour accentGlow = juce::Colour::fromString("ff93C5FD");
-    const juce::Colour bgDark     = juce::Colour(0xff0B0E14);
-    const juce::Colour bgPanel    = juce::Colour(0xff111827);
-    const juce::Colour textBright = juce::Colour(0xffF0EDE8);
-    const juce::Colour textDim    = juce::Colour(0xff7B8BA0);
+    const juce::Colour accentDim = juce::Colour::fromString("ff3B82F6");
+    const juce::Colour bgDark = juce::Colour(0xff09111A);
+    const juce::Colour bgPanel = juce::Colour(0xff111827);
+    const juce::Colour bgCard = juce::Colour(0xff0B1320);
+    const juce::Colour textBright = juce::Colour(0xffF3F4F6);
+    const juce::Colour textDim = juce::Colour(0xff8AA0B8);
 
-    // Knobs
-    juce::Slider sldTime, sldFeedback, sldTone, sldSpread, sldMix;
-    juce::Label lblTime, lblFeedback, lblTone, lblSpread, lblMix;
-    juce::Label valTime, valFeedback, valTone, valSpread, valMix;
+    juce::ComboBox modeBox;
+    juce::Label modeLabel;
+    juce::TextButton freezeButton{ "FREEZE" };
 
-    // Visualization
+    juce::Slider sldTime, sldFeedback, sldTone, sldSpread, sldTexture;
+    juce::Slider sldDuck, sldSwell, sldReverse, sldMix;
+    juce::Label lblTime, lblFeedback, lblTone, lblSpread, lblTexture;
+    juce::Label lblDuck, lblSwell, lblReverse, lblMix;
+    juce::Label valTime, valFeedback, valTone, valSpread, valTexture;
+    juce::Label valDuck, valSwell, valReverse, valMix;
+
+    std::array<juce::Slider*, 9> sliders
+    {
+        &sldTime, &sldFeedback, &sldTone, &sldSpread, &sldTexture,
+        &sldDuck, &sldSwell, &sldReverse, &sldMix
+    };
+
+    std::array<juce::Label*, 9> valueLabels
+    {
+        &valTime, &valFeedback, &valTone, &valSpread, &valTexture,
+        &valDuck, &valSwell, &valReverse, &valMix
+    };
+
     juce::Rectangle<float> vizBounds;
     float animPhase = 0.0f;
 
     struct DelayKnobLnF : public juce::LookAndFeel_V4
     {
-        juce::Colour kAccent     = juce::Colour::fromString("ff60A5FA");
+        juce::Colour kAccent = juce::Colour::fromString("ff60A5FA");
         juce::Colour kAccentGlow = juce::Colour::fromString("ff93C5FD");
 
-        void drawRotarySlider(juce::Graphics& g, int x, int y, int w, int h,
-            float sliderPos, float startAngle, float endAngle,
+        void drawRotarySlider(juce::Graphics& g,
+            int x,
+            int y,
+            int w,
+            int h,
+            float sliderPos,
+            float startAngle,
+            float endAngle,
             juce::Slider&) override
         {
-            const auto area = juce::Rectangle<int>(x, y, w, h).toFloat().reduced(6.0f);
-            const float r = juce::jmin(area.getWidth(), area.getHeight()) * 0.5f;
+            const auto area = juce::Rectangle<int>(x, y, w, h).toFloat().reduced(7.0f);
+            const float radius = juce::jmin(area.getWidth(), area.getHeight()) * 0.5f;
             const float cx = area.getCentreX();
             const float cy = area.getCentreY();
             const float angle = startAngle + sliderPos * (endAngle - startAngle);
-            const float arcR = r - 4.0f;
+            const float arcRadius = radius - 4.0f;
 
-            // Track
-            {
-                juce::Path track;
-                track.addCentredArc(cx, cy, arcR, arcR, 0.0f, startAngle, endAngle, true);
-                g.setColour(juce::Colour(0xff1E2A3A));
-                g.strokePath(track, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved));
-            }
+            juce::Path track;
+            track.addCentredArc(cx, cy, arcRadius, arcRadius, 0.0f, startAngle, endAngle, true);
+            g.setColour(juce::Colour(0xff1D2A3C));
+            g.strokePath(track, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved));
 
-            // Value arc
-            if (sliderPos > 0.005f)
+            if (sliderPos > 0.002f)
             {
                 juce::Path arc;
-                arc.addCentredArc(cx, cy, arcR, arcR, 0.0f, startAngle, angle, true);
-                g.setColour(kAccent.withAlpha(0.10f));
+                arc.addCentredArc(cx, cy, arcRadius, arcRadius, 0.0f, startAngle, angle, true);
+                g.setColour(kAccent.withAlpha(0.12f));
                 g.strokePath(arc, juce::PathStrokeType(10.0f, juce::PathStrokeType::curved));
                 g.setColour(kAccent);
-                g.strokePath(arc, juce::PathStrokeType(3.5f, juce::PathStrokeType::curved));
+                g.strokePath(arc, juce::PathStrokeType(3.6f, juce::PathStrokeType::curved));
             }
 
-            // Body
-            const float kr = r * 0.56f;
-            {
-                juce::ColourGradient grad(juce::Colour(0xff1C2838), cx, cy - kr,
-                    juce::Colour(0xff0D1520), cx, cy + kr, false);
-                g.setGradientFill(grad);
-                g.fillEllipse(cx - kr, cy - kr, kr * 2.0f, kr * 2.0f);
-                g.setColour(juce::Colour(0xff2A3A4C));
-                g.drawEllipse(cx - kr, cy - kr, kr * 2.0f, kr * 2.0f, 1.0f);
-            }
+            const float knobRadius = radius * 0.57f;
+            juce::ColourGradient body(juce::Colour(0xff192433), cx, cy - knobRadius,
+                juce::Colour(0xff0B1119), cx, cy + knobRadius, false);
+            g.setGradientFill(body);
+            g.fillEllipse(cx - knobRadius, cy - knobRadius, knobRadius * 2.0f, knobRadius * 2.0f);
+            g.setColour(juce::Colour(0xff2B3F55));
+            g.drawEllipse(cx - knobRadius, cy - knobRadius, knobRadius * 2.0f, knobRadius * 2.0f, 1.0f);
 
-            // Pointer
-            const float pLen = kr * 0.70f;
-            const float px = cx + std::sin(angle) * pLen;
-            const float py = cy - std::cos(angle) * pLen;
+            const float pointerLength = knobRadius * 0.70f;
+            const float px = cx + std::sin(angle) * pointerLength;
+            const float py = cy - std::cos(angle) * pointerLength;
             g.setColour(kAccentGlow);
             g.drawLine(cx, cy, px, py, 2.0f);
             g.fillEllipse(px - 3.0f, py - 3.0f, 6.0f, 6.0f);
@@ -108,299 +124,351 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DelayEditor)
 };
 
-// ============================================================================
-//  Inline implementation
-// ============================================================================
-
 inline DelayEditor::DelayEditor(DelayPedal& pedal)
     : juce::AudioProcessorEditor(pedal), proc(pedal)
 {
     setSize(kWidth, kHeight);
 
-    auto initKnob = [this](juce::Slider& s, juce::Label& lbl, juce::Label& val,
-        const juce::String& name, float min, float max, float def, float step = 0.01f)
+    auto initKnob = [this](juce::Slider& slider,
+        juce::Label& label,
+        juce::Label& value,
+        const juce::String& name,
+        double min,
+        double max,
+        double def,
+        double step)
     {
-        s.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-        s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-        s.setRange(min, max, step);
-        s.setValue(def, juce::dontSendNotification);
-        s.setLookAndFeel(&knobLnF);
-        addAndMakeVisible(s);
+        slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+        slider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+        slider.setRange(min, max, step);
+        slider.setValue(def, juce::dontSendNotification);
+        slider.setLookAndFeel(&knobLnF);
+        addAndMakeVisible(slider);
 
-        lbl.setText(name, juce::dontSendNotification);
-        lbl.setJustificationType(juce::Justification::centred);
-        lbl.setFont(juce::Font(11.0f, juce::Font::bold));
-        lbl.setColour(juce::Label::textColourId, textDim);
-        addAndMakeVisible(lbl);
+        label.setText(name, juce::dontSendNotification);
+        label.setJustificationType(juce::Justification::centred);
+        label.setFont(juce::Font(11.0f, juce::Font::bold));
+        label.setColour(juce::Label::textColourId, textDim);
+        addAndMakeVisible(label);
 
-        val.setJustificationType(juce::Justification::centred);
-        val.setFont(juce::Font(11.0f));
-        val.setColour(juce::Label::textColourId, accentGlow);
-        addAndMakeVisible(val);
+        value.setJustificationType(juce::Justification::centred);
+        value.setFont(juce::Font(11.0f));
+        value.setColour(juce::Label::textColourId, accentGlow);
+        addAndMakeVisible(value);
     };
 
-    initKnob(sldTime,     lblTime,     valTime,     "TIME",     40.0f, 1400.0f, 420.0f, 1.0f);
-    initKnob(sldFeedback, lblFeedback, valFeedback, "FEEDBACK", 0.0f,  0.95f,   0.42f);
-    initKnob(sldTone,     lblTone,     valTone,     "TONE",     600.0f, 12000.0f, 4800.0f, 1.0f);
-    initKnob(sldSpread,   lblSpread,   valSpread,   "SPREAD",   0.0f,  1.0f,    0.42f);
-    initKnob(sldMix,      lblMix,      valMix,      "MIX",      0.0f,  1.0f,    0.3f);
+    initKnob(sldTime, lblTime, valTime, "TIME", 35.0, 2500.0, 480.0, 1.0);
+    initKnob(sldFeedback, lblFeedback, valFeedback, "FEEDBACK", 0.0, 0.97, 0.46, 0.001);
+    initKnob(sldTone, lblTone, valTone, "TONE", 600.0, 14000.0, 5800.0, 1.0);
+    initKnob(sldSpread, lblSpread, valSpread, "SPREAD", 0.0, 1.0, 0.42, 0.001);
+    initKnob(sldTexture, lblTexture, valTexture, "TEXTURE", 0.0, 1.0, 0.45, 0.001);
+    initKnob(sldDuck, lblDuck, valDuck, "DUCK", 0.0, 1.0, 0.0, 0.001);
+    initKnob(sldSwell, lblSwell, valSwell, "SWELL", 0.0, 1.0, 0.0, 0.001);
+    initKnob(sldReverse, lblReverse, valReverse, "REVERSE", 0.0, 1.0, 0.0, 0.001);
+    initKnob(sldMix, lblMix, valMix, "MIX", 0.0, 1.0, 0.32, 0.001);
 
-    auto wireParam = [](juce::Slider& s, juce::AudioParameterFloat* p)
+    auto wireFloat = [](juce::Slider& slider, juce::AudioParameterFloat* param)
     {
-        if (p == nullptr) return;
-        s.setValue(p->get(), juce::dontSendNotification);
-        s.onValueChange = [&s, p]
+        if (param == nullptr)
+            return;
+
+        slider.setValue(param->get(), juce::dontSendNotification);
+        slider.onValueChange = [&slider, param]
         {
-            p->beginChangeGesture();
-            *p = (float)s.getValue();
-            p->endChangeGesture();
+            param->beginChangeGesture();
+            param->setValueNotifyingHost(param->convertTo0to1((float) slider.getValue()));
+            param->endChangeGesture();
         };
     };
-    wireParam(sldTime,     proc.timeParam);
-    wireParam(sldFeedback, proc.feedbackParam);
-    wireParam(sldTone,     proc.toneParam);
-    wireParam(sldSpread,   proc.spreadParam);
-    wireParam(sldMix,      proc.mixParam);
+
+    wireFloat(sldTime, proc.timeParam);
+    wireFloat(sldFeedback, proc.feedbackParam);
+    wireFloat(sldTone, proc.toneParam);
+    wireFloat(sldSpread, proc.spreadParam);
+    wireFloat(sldTexture, proc.textureParam);
+    wireFloat(sldDuck, proc.duckParam);
+    wireFloat(sldSwell, proc.swellParam);
+    wireFloat(sldReverse, proc.reverseParam);
+    wireFloat(sldMix, proc.mixParam);
+
+    modeLabel.setText("MODE", juce::dontSendNotification);
+    modeLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    modeLabel.setColour(juce::Label::textColourId, textDim);
+    addAndMakeVisible(modeLabel);
+
+    modeBox.addItemList(proc.modeParam != nullptr ? proc.modeParam->choices : juce::StringArray{ "Analog" }, 1);
+    modeBox.setColour(juce::ComboBox::backgroundColourId, bgCard);
+    modeBox.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff243447));
+    modeBox.setColour(juce::ComboBox::textColourId, textBright);
+    modeBox.setColour(juce::ComboBox::arrowColourId, accentGlow);
+    modeBox.onChange = [this]
+    {
+        if (proc.modeParam == nullptr)
+            return;
+
+        proc.modeParam->beginChangeGesture();
+        proc.modeParam->setValueNotifyingHost((float) (modeBox.getSelectedItemIndex())
+            / (float) juce::jmax(1, proc.modeParam->choices.size() - 1));
+        proc.modeParam->endChangeGesture();
+    };
+    addAndMakeVisible(modeBox);
+    syncModeFromProcessor();
+
+    freezeButton.setClickingTogglesState(true);
+    freezeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff152130));
+    freezeButton.setColour(juce::TextButton::buttonOnColourId, accentDim);
+    freezeButton.setColour(juce::TextButton::textColourOffId, textDim);
+    freezeButton.setColour(juce::TextButton::textColourOnId, textBright);
+    freezeButton.onClick = [this]
+    {
+        if (proc.freezeParam == nullptr)
+            return;
+
+        proc.freezeParam->beginChangeGesture();
+        proc.freezeParam->setValueNotifyingHost(freezeButton.getToggleState() ? 1.0f : 0.0f);
+        proc.freezeParam->endChangeGesture();
+    };
+    addAndMakeVisible(freezeButton);
+    syncFreezeFromProcessor();
 
     startTimerHz(30);
 }
 
 inline void DelayEditor::timerCallback()
 {
-    auto syncSlider = [](juce::Slider& s, juce::AudioParameterFloat* p)
+    auto syncSlider = [](juce::Slider& slider, juce::AudioParameterFloat* param)
     {
-        if (p != nullptr)
-            s.setValue(p->get(), juce::dontSendNotification);
+        if (param != nullptr)
+            slider.setValue(param->get(), juce::dontSendNotification);
     };
-    syncSlider(sldTime,     proc.timeParam);
+
+    syncSlider(sldTime, proc.timeParam);
     syncSlider(sldFeedback, proc.feedbackParam);
-    syncSlider(sldTone,     proc.toneParam);
-    syncSlider(sldSpread,   proc.spreadParam);
-    syncSlider(sldMix,      proc.mixParam);
+    syncSlider(sldTone, proc.toneParam);
+    syncSlider(sldSpread, proc.spreadParam);
+    syncSlider(sldTexture, proc.textureParam);
+    syncSlider(sldDuck, proc.duckParam);
+    syncSlider(sldSwell, proc.swellParam);
+    syncSlider(sldReverse, proc.reverseParam);
+    syncSlider(sldMix, proc.mixParam);
 
-    // Value readouts
-    {
-        float ms = (float)sldTime.getValue();
-        if (ms >= 1000.0f)
-            valTime.setText(juce::String(ms * 0.001f, 2) + " s", juce::dontSendNotification);
-        else
-            valTime.setText(juce::String((int)ms) + " ms", juce::dontSendNotification);
-    }
-    valFeedback.setText(juce::String((int)(sldFeedback.getValue() / 0.95f * 100.0f)) + "%", juce::dontSendNotification);
-    {
-        float hz = (float)sldTone.getValue();
-        if (hz >= 1000.0f)
-            valTone.setText(juce::String(hz * 0.001f, 1) + " kHz", juce::dontSendNotification);
-        else
-            valTone.setText(juce::String((int)hz) + " Hz", juce::dontSendNotification);
-    }
-    {
-        float sp = (float)sldSpread.getValue();
-        juce::String mode = sp < 0.3f ? "Mono" : (sp < 0.7f ? "Stereo" : "Ping-Pong");
-        valSpread.setText(mode, juce::dontSendNotification);
-    }
-    valMix.setText(juce::String((int)(sldMix.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    syncModeFromProcessor();
+    syncFreezeFromProcessor();
 
-    // Advance animation phase
-    animPhase += 0.03f;
-    if (animPhase >= 1.0f) animPhase -= 1.0f;
+    const float timeMs = (float) sldTime.getValue();
+    valTime.setText(timeMs >= 1000.0f ? juce::String(timeMs * 0.001f, 2) + " s"
+                                      : juce::String((int) timeMs) + " ms",
+        juce::dontSendNotification);
+    valFeedback.setText(juce::String((int) std::round(sldFeedback.getValue() / 0.97 * 100.0)) + "%",
+        juce::dontSendNotification);
+
+    const float toneHz = (float) sldTone.getValue();
+    valTone.setText(toneHz >= 1000.0f ? juce::String(toneHz * 0.001f, 1) + " kHz"
+                                      : juce::String((int) toneHz) + " Hz",
+        juce::dontSendNotification);
+
+    const float spread = (float) sldSpread.getValue();
+    valSpread.setText(spread < 0.25f ? "Mono"
+                    : (spread < 0.65f ? "Stereo" : "Ping-Pong"),
+        juce::dontSendNotification);
+
+    valTexture.setText(describeTexture((float) sldTexture.getValue()), juce::dontSendNotification);
+    valDuck.setText(juce::String((int) std::round(sldDuck.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    valSwell.setText(juce::String((int) std::round(sldSwell.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    valReverse.setText(juce::String((int) std::round(sldReverse.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    valMix.setText(juce::String((int) std::round(sldMix.getValue() * 100.0)) + "%", juce::dontSendNotification);
+
+    animPhase += 0.025f;
+    if (animPhase >= 1.0f)
+        animPhase -= 1.0f;
 
     repaint(vizBounds.toNearestInt());
 }
 
 inline void DelayEditor::paint(juce::Graphics& g)
 {
-    // Background gradient
-    {
-        juce::ColourGradient bg(juce::Colour(0xff0E1219), 0.0f, 0.0f,
-            bgDark, 0.0f, (float)getHeight(), false);
-        g.setGradientFill(bg);
-        g.fillAll();
-    }
+    juce::ColourGradient bg(juce::Colour(0xff0B1320), 0.0f, 0.0f,
+        bgDark, 0.0f, (float) getHeight(), false);
+    g.setGradientFill(bg);
+    g.fillAll();
 
     g.setColour(accent.withAlpha(0.12f));
-    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f, 1.0f);
+    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 8.0f, 1.0f);
 
-    // Top glow accent line
-    {
-        juce::ColourGradient glow(accent.withAlpha(0.30f), (float)getWidth() * 0.2f, 0.0f,
-            accent.withAlpha(0.0f), (float)getWidth() * 0.8f, 0.0f, false);
-        g.setGradientFill(glow);
-        g.fillRect(0.0f, 0.0f, (float)getWidth(), 2.0f);
-    }
+    juce::ColourGradient topGlow(accent.withAlpha(0.28f), (float) getWidth() * 0.18f, 0.0f,
+        accent.withAlpha(0.0f), (float) getWidth() * 0.82f, 0.0f, false);
+    g.setGradientFill(topGlow);
+    g.fillRect(0.0f, 0.0f, (float) getWidth(), 2.0f);
 
-    // Header
     g.setColour(textBright);
-    g.setFont(juce::Font(22.0f, juce::Font::bold));
-    g.drawText("DELAY", 28, 10, 200, 28, juce::Justification::centredLeft);
+    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.drawText("DELAY", 28, 12, 240, 30, juce::Justification::centredLeft);
     g.setColour(accent);
     g.setFont(juce::Font(13.0f));
-    g.drawText("Orbit", 28, 33, 200, 18, juce::Justification::centredLeft);
+    g.drawText("Orbit Flagship Series", 28, 38, 240, 18, juce::Justification::centredLeft);
 
-    // Echo visualization
-    paintEchoViz(g, vizBounds);
+    g.setColour(textDim);
+    g.setFont(juce::Font(11.0f));
+    g.drawText("Four hero voices with duck, swell, reverse and freeze", 28, 56, 360, 16, juce::Justification::centredLeft);
+
+    paintDelayViz(g, vizBounds);
 }
 
-inline void DelayEditor::paintEchoViz(juce::Graphics& g, juce::Rectangle<float> bounds)
+inline void DelayEditor::paintDelayViz(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    // Panel background
-    g.setColour(juce::Colour(0xff080C12));
-    g.fillRoundedRectangle(bounds, 6.0f);
-    g.setColour(juce::Colour(0xff1E2A3A));
-    g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
+    g.setColour(bgCard);
+    g.fillRoundedRectangle(bounds, 8.0f);
+    g.setColour(juce::Colour(0xff1D3044));
+    g.drawRoundedRectangle(bounds, 8.0f, 1.0f);
 
-    auto inner = bounds.reduced(14.0f, 10.0f);
-    const float w = inner.getWidth();
-    const float h = inner.getHeight();
+    auto inner = bounds.reduced(16.0f, 14.0f);
+    const float width = inner.getWidth();
+    const float height = inner.getHeight();
     const float baseY = inner.getBottom();
-    const float midX = inner.getX();
 
-    const float feedback = (float)sldFeedback.getValue();
-    const float spread   = (float)sldSpread.getValue();
-    const float timeMs   = (float)sldTime.getValue();
-    const float toneNorm = ((float)sldTone.getValue() - 600.0f) / 11400.0f; // 0-1
+    const float feedback = (float) sldFeedback.getValue();
+    const float spread = (float) sldSpread.getValue();
+    const float texture = (float) sldTexture.getValue();
+    const float duck = (float) sldDuck.getValue();
+    const float swell = (float) sldSwell.getValue();
+    const float reverse = (float) sldReverse.getValue();
+    const float timeMs = (float) sldTime.getValue();
+    const bool frozen = freezeButton.getToggleState();
 
-    // Number of visible taps (show until amplitude < 5%)
-    const int maxTaps = 10;
-    int numTaps = 0;
-    for (int i = 1; i <= maxTaps; ++i)
+    g.setColour(juce::Colour(0xff172434));
+    g.drawLine(inner.getX(), baseY - height * 0.48f, inner.getRight(), baseY - height * 0.48f, 0.6f);
+
+    const int maxTaps = frozen ? 14 : 12;
+    const float totalMs = timeMs * (float) juce::jmax(3, maxTaps);
+    const float barWidth = juce::jmin(width / (float) (maxTaps + 2) * 0.42f, 22.0f);
+
+    for (int tap = 1; tap <= maxTaps; ++tap)
     {
-        if (std::pow(feedback, (float)i) < 0.05f) break;
-        numTaps = i;
-    }
-    if (numTaps < 2) numTaps = 2;
+        const float x = inner.getX() + (timeMs * (float) tap / totalMs) * width;
+        const float decay = std::pow(juce::jlimit(0.05f, 0.995f, feedback), (float) tap);
+        float amplitude = decay;
+        amplitude *= 1.0f - duck * juce::jlimit(0.0f, 0.72f, 0.85f - 0.06f * (float) tap);
+        amplitude *= 1.0f - swell * juce::jlimit(0.0f, 0.82f, 0.90f - 0.12f * (float) tap);
+        amplitude *= 0.78f + texture * 0.25f;
+        if (tap >= 3)
+            amplitude = juce::jmin(amplitude * (1.0f + reverse * 0.20f), 1.0f);
 
-    // Total time span for visualization
-    const float totalMs = timeMs * (float)(numTaps + 1);
-    const float barWidth = juce::jmin(w / (float)(numTaps + 2) * 0.45f, 24.0f);
+        const float reverseShift = reverse * juce::jmin(width * 0.10f, (float) tap * 4.5f);
+        const float pingPongOffset = spread > 0.35f ? (tap % 2 == 0 ? 1.0f : -1.0f) * barWidth * (0.5f + spread * 0.9f) : 0.0f;
+        const float barX = x + pingPongOffset + reverseShift - barWidth * 0.5f;
+        const float barH = height * 0.76f * amplitude;
+        const float barY = baseY - barH;
+        const float glowAlpha = juce::jlimit(0.06f, 0.28f, amplitude * (0.20f + texture * 0.16f));
 
-    // Center line
-    g.setColour(juce::Colour(0xff1A2535));
-    g.drawLine(inner.getX(), baseY - h * 0.5f, inner.getRight(), baseY - h * 0.5f, 0.5f);
+        juce::ColourGradient glow(accent.withAlpha(glowAlpha), barX + barWidth * 0.5f, barY,
+            accent.withAlpha(0.0f), barX + barWidth * 0.5f, baseY, false);
+        g.setGradientFill(glow);
+        g.fillRoundedRectangle(barX - 4.0f, barY, barWidth + 8.0f, barH, 4.0f);
 
-    // Draw echo taps
-    for (int tap = 1; tap <= numTaps; ++tap)
-    {
-        float tapMs = timeMs * (float)tap;
-        float x = midX + (tapMs / totalMs) * w;
-        float amplitude = std::pow(feedback, (float)tap);
+        juce::ColourGradient fill(accentGlow.withAlpha(0.85f * amplitude), barX, barY,
+            accent.withAlpha(0.40f + 0.30f * amplitude), barX, baseY, false);
+        g.setGradientFill(fill);
+        g.fillRoundedRectangle(barX, barY, barWidth, barH, 3.0f);
 
-        // Tone darkening effect: each repeat loses highs, shown as alpha reduction
-        float toneFade = 1.0f - (1.0f - toneNorm) * (float)tap * 0.08f;
-        toneFade = juce::jmax(0.3f, toneFade);
-
-        float barH = h * 0.85f * amplitude;
-        float alpha = amplitude * toneFade;
-
-        // Ping-pong: odd taps lean left, even taps lean right
-        float pingPongOffset = 0.0f;
-        if (spread > 0.3f)
-        {
-            float ppAmount = juce::jmin(1.0f, (spread - 0.3f) / 0.7f);
-            pingPongOffset = (tap % 2 == 0 ? 1.0f : -1.0f) * barWidth * 0.8f * ppAmount;
-        }
-
-        float barX = x + pingPongOffset - barWidth * 0.5f;
-        float barY = baseY - barH;
-
-        // Glow behind bar
-        {
-            juce::ColourGradient glow(accent.withAlpha(alpha * 0.15f), barX + barWidth * 0.5f, barY,
-                accent.withAlpha(0.0f), barX + barWidth * 0.5f, baseY, false);
-            g.setGradientFill(glow);
-            g.fillRoundedRectangle(barX - 4.0f, barY, barWidth + 8.0f, barH, 3.0f);
-        }
-
-        // Bar body
-        {
-            juce::ColourGradient barGrad(accentGlow.withAlpha(alpha * 0.9f), barX, barY,
-                accent.withAlpha(alpha * 0.5f), barX, baseY, false);
-            g.setGradientFill(barGrad);
-            g.fillRoundedRectangle(barX, barY, barWidth, barH, 2.0f);
-        }
-
-        // Bar border
-        g.setColour(accent.withAlpha(alpha * 0.4f));
-        g.drawRoundedRectangle(barX, barY, barWidth, barH, 2.0f, 0.8f);
-
-        // Tap number
-        if (barWidth > 10.0f)
-        {
-            g.setColour(textDim.withAlpha(alpha * 0.6f));
-            g.setFont(juce::Font(8.0f));
-            g.drawText(juce::String(tap), (int)(barX), (int)(baseY + 2.0f),
-                (int)barWidth, 10, juce::Justification::centred);
-        }
-
-        // L/R labels for ping-pong
-        if (spread > 0.5f && tap <= 4)
-        {
-            g.setFont(juce::Font(7.0f, juce::Font::bold));
-            g.setColour(accent.withAlpha(alpha * 0.4f));
-            const char* ch = (tap % 2 == 1) ? "L" : "R";
-            g.drawText(ch, (int)(barX), (int)(barY - 10.0f),
-                (int)barWidth, 10, juce::Justification::centred);
-        }
+        g.setColour(accent.withAlpha(0.32f + 0.20f * amplitude));
+        g.drawRoundedRectangle(barX, barY, barWidth, barH, 3.0f, 0.9f);
     }
 
-    // "DRY" label at origin
+    if (frozen)
+    {
+        const float padHeight = 18.0f + 8.0f * (0.5f + 0.5f * std::sin(animPhase * juce::MathConstants<float>::twoPi));
+        g.setColour(accent.withAlpha(0.12f));
+        g.fillRoundedRectangle(inner.getX() + 10.0f, inner.getY() + 12.0f, width - 20.0f, padHeight, 5.0f);
+        g.setColour(accentGlow.withAlpha(0.72f));
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText("HOLD", inner.toNearestInt().removeFromTop(28), juce::Justification::centred);
+    }
+
     g.setFont(juce::Font(8.0f, juce::Font::bold));
-    g.setColour(textDim.withAlpha(0.5f));
-    g.drawText("DRY", (int)inner.getX(), (int)(baseY + 2.0f), 28, 10, juce::Justification::centredLeft);
+    g.setColour(textDim.withAlpha(0.55f));
+    g.drawText("DRY", (int) inner.getX(), (int) (baseY + 4.0f), 30, 10, juce::Justification::centredLeft);
+    g.drawText(proc.modeParam != nullptr ? proc.modeParam->choices[proc.modeParam->getIndex()] : juce::String("Mode"),
+        (int) inner.getRight() - 80, (int) (baseY + 4.0f), 80, 10, juce::Justification::centredRight);
+}
 
-    // Time axis label
-    g.setFont(juce::Font(8.0f));
-    g.setColour(textDim.withAlpha(0.35f));
-    juce::String timeLabel;
-    if (totalMs >= 1000.0f)
-        timeLabel = juce::String(totalMs * 0.001f, 1) + "s";
-    else
-        timeLabel = juce::String((int)totalMs) + "ms";
-    g.drawText(timeLabel, (int)inner.getRight() - 40, (int)(baseY + 2.0f), 40, 10, juce::Justification::centredRight);
+inline juce::String DelayEditor::describeTexture(float amount) const
+{
+    if (amount < 0.22f)
+        return "Clean";
+    if (amount < 0.48f)
+        return "Warm";
+    if (amount < 0.72f)
+        return "Worn";
+    return "Bloom";
+}
 
-    // Animated pulse on first tap (subtle glow)
-    if (numTaps >= 1)
-    {
-        float pulseAlpha = (std::sin(animPhase * juce::MathConstants<float>::twoPi) + 1.0f) * 0.5f;
-        float firstX = midX + (timeMs / totalMs) * w;
-        g.setColour(accentGlow.withAlpha(0.08f * pulseAlpha));
-        g.fillEllipse(firstX - 16.0f, baseY - h * 0.85f * feedback - 16.0f, 32.0f, 32.0f);
-    }
+inline void DelayEditor::syncModeFromProcessor()
+{
+    if (proc.modeParam == nullptr)
+        return;
+
+    modeBox.setSelectedItemIndex(proc.modeParam->getIndex(), juce::dontSendNotification);
+}
+
+inline void DelayEditor::syncFreezeFromProcessor()
+{
+    if (proc.freezeParam == nullptr)
+        return;
+
+    freezeButton.setToggleState(proc.freezeParam->get(), juce::dontSendNotification);
 }
 
 inline void DelayEditor::resized()
 {
     const int w = getWidth();
 
-    // Viz panel
-    vizBounds = juce::Rectangle<float>(28.0f, 58.0f, (float)(w - 56), 140.0f);
+    vizBounds = juce::Rectangle<float>(28.0f, 92.0f, (float) (w - 56), 178.0f);
 
-    // Knobs
-    const int knobSize = 80;
-    const int knobY = 218;
+    modeLabel.setBounds(28, 286, 70, 20);
+    modeBox.setBounds(28, 308, 180, 28);
+    freezeButton.setBounds(w - 156, 304, 128, 34);
+
+    const int knobSize = 82;
     const int labelH = 16;
-    const int valH = 16;
+    const int valueH = 16;
+    const int topY = 352;
+    const int bottomY = 438;
     const int slotW = w / 5;
 
-    struct KnobGroup { juce::Slider& s; juce::Label& lbl; juce::Label& val; };
-    KnobGroup knobs[] = {
-        { sldTime,     lblTime,     valTime },
+    struct KnobGroup { juce::Slider& slider; juce::Label& label; juce::Label& value; };
+    std::array<KnobGroup, 5> topKnobs
+    {{
+        { sldTime, lblTime, valTime },
         { sldFeedback, lblFeedback, valFeedback },
-        { sldTone,     lblTone,     valTone },
-        { sldSpread,   lblSpread,   valSpread },
-        { sldMix,      lblMix,      valMix }
-    };
+        { sldTone, lblTone, valTone },
+        { sldSpread, lblSpread, valSpread },
+        { sldTexture, lblTexture, valTexture }
+    }};
+    std::array<KnobGroup, 4> bottomKnobs
+    {{
+        { sldDuck, lblDuck, valDuck },
+        { sldSwell, lblSwell, valSwell },
+        { sldReverse, lblReverse, valReverse },
+        { sldMix, lblMix, valMix }
+    }};
 
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < (int) topKnobs.size(); ++i)
     {
-        int cx = slotW * i + slotW / 2;
-        knobs[i].lbl.setBounds(cx - 50, knobY, 100, labelH);
-        knobs[i].s.setBounds(cx - knobSize / 2, knobY + labelH + 4, knobSize, knobSize);
-        knobs[i].val.setBounds(cx - 50, knobY + labelH + 4 + knobSize + 2, 100, valH);
+        const int cx = slotW * i + slotW / 2;
+        topKnobs[(size_t) i].label.setBounds(cx - 54, topY, 108, labelH);
+        topKnobs[(size_t) i].slider.setBounds(cx - knobSize / 2, topY + labelH + 4, knobSize, knobSize);
+        topKnobs[(size_t) i].value.setBounds(cx - 54, topY + labelH + 4 + knobSize + 2, 108, valueH);
+    }
+
+    for (int i = 0; i < (int) bottomKnobs.size(); ++i)
+    {
+        const int cx = slotW * i + slotW / 2;
+        bottomKnobs[(size_t) i].label.setBounds(cx - 54, bottomY, 108, labelH);
+        bottomKnobs[(size_t) i].slider.setBounds(cx - knobSize / 2, bottomY + labelH + 4, knobSize, knobSize);
+        bottomKnobs[(size_t) i].value.setBounds(cx - 54, bottomY + labelH + 4 + knobSize + 2, 108, valueH);
     }
 }
 
-// ---- Wire createEditor ----
 inline juce::AudioProcessorEditor* DelayPedal::createEditor()
 {
     return new DelayEditor(*this);

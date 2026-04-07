@@ -6,6 +6,7 @@
 
 #include "AudioEngine.h"
 #include "SessionLogger.h"
+#include "../Effects/Pedals/Delay/DelayPedal.h"
 #include "../Effects/Pedals/Reverb/ReverbPedal.h"
 
 namespace NovaDiagnostics
@@ -353,6 +354,11 @@ private:
         return dynamic_cast<ReverbPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0));
     }
 
+    static DelayPedal* getOfflineDelay(AudioEngine& engine)
+    {
+        return dynamic_cast<DelayPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0));
+    }
+
     static void configureFlagshipCloud(ReverbPedal& reverb)
     {
         reverb.modeParam->setValueNotifyingHost(normalisedChoiceIndex(reverb.modeParam, 5));
@@ -393,6 +399,93 @@ private:
         reverb.freezeParam->setValueNotifyingHost(0.0f);
     }
 
+    static void configureFlagshipDelayAnalog(DelayPedal& delay)
+    {
+        delay.modeParam->setValueNotifyingHost(normalisedChoiceIndex(delay.modeParam, 0));
+        delay.timeParam->setValueNotifyingHost(delay.timeParam->convertTo0to1(390.0f));
+        delay.feedbackParam->setValueNotifyingHost(delay.feedbackParam->convertTo0to1(0.70f));
+        delay.toneParam->setValueNotifyingHost(delay.toneParam->convertTo0to1(5200.0f));
+        delay.spreadParam->setValueNotifyingHost(delay.spreadParam->convertTo0to1(0.62f));
+        delay.textureParam->setValueNotifyingHost(delay.textureParam->convertTo0to1(0.66f));
+        delay.mixParam->setValueNotifyingHost(delay.mixParam->convertTo0to1(1.0f));
+        delay.duckParam->setValueNotifyingHost(delay.duckParam->convertTo0to1(0.0f));
+        delay.swellParam->setValueNotifyingHost(delay.swellParam->convertTo0to1(0.0f));
+        delay.reverseParam->setValueNotifyingHost(delay.reverseParam->convertTo0to1(0.0f));
+        delay.freezeParam->setValueNotifyingHost(0.0f);
+    }
+
+    static void configureFlagshipDelayTape(DelayPedal& delay)
+    {
+        delay.modeParam->setValueNotifyingHost(normalisedChoiceIndex(delay.modeParam, 1));
+        delay.timeParam->setValueNotifyingHost(delay.timeParam->convertTo0to1(620.0f));
+        delay.feedbackParam->setValueNotifyingHost(delay.feedbackParam->convertTo0to1(0.84f));
+        delay.toneParam->setValueNotifyingHost(delay.toneParam->convertTo0to1(4800.0f));
+        delay.spreadParam->setValueNotifyingHost(delay.spreadParam->convertTo0to1(0.76f));
+        delay.textureParam->setValueNotifyingHost(delay.textureParam->convertTo0to1(0.82f));
+        delay.mixParam->setValueNotifyingHost(delay.mixParam->convertTo0to1(1.0f));
+        delay.duckParam->setValueNotifyingHost(delay.duckParam->convertTo0to1(0.0f));
+        delay.swellParam->setValueNotifyingHost(delay.swellParam->convertTo0to1(0.0f));
+        delay.reverseParam->setValueNotifyingHost(delay.reverseParam->convertTo0to1(0.0f));
+        delay.freezeParam->setValueNotifyingHost(0.0f);
+    }
+
+    static void configureFlagshipDelayDigital(DelayPedal& delay)
+    {
+        delay.modeParam->setValueNotifyingHost(normalisedChoiceIndex(delay.modeParam, 2));
+        delay.timeParam->setValueNotifyingHost(delay.timeParam->convertTo0to1(340.0f));
+        delay.feedbackParam->setValueNotifyingHost(delay.feedbackParam->convertTo0to1(0.68f));
+        delay.toneParam->setValueNotifyingHost(delay.toneParam->convertTo0to1(10400.0f));
+        delay.spreadParam->setValueNotifyingHost(delay.spreadParam->convertTo0to1(0.96f));
+        delay.textureParam->setValueNotifyingHost(delay.textureParam->convertTo0to1(0.30f));
+        delay.mixParam->setValueNotifyingHost(delay.mixParam->convertTo0to1(1.0f));
+        delay.duckParam->setValueNotifyingHost(delay.duckParam->convertTo0to1(0.0f));
+        delay.swellParam->setValueNotifyingHost(delay.swellParam->convertTo0to1(0.0f));
+        delay.reverseParam->setValueNotifyingHost(delay.reverseParam->convertTo0to1(0.0f));
+        delay.freezeParam->setValueNotifyingHost(0.0f);
+    }
+
+    static void configureFlagshipDelayReverse(DelayPedal& delay)
+    {
+        delay.modeParam->setValueNotifyingHost(normalisedChoiceIndex(delay.modeParam, 3));
+        delay.timeParam->setValueNotifyingHost(delay.timeParam->convertTo0to1(520.0f));
+        delay.feedbackParam->setValueNotifyingHost(delay.feedbackParam->convertTo0to1(0.76f));
+        delay.toneParam->setValueNotifyingHost(delay.toneParam->convertTo0to1(5600.0f));
+        delay.spreadParam->setValueNotifyingHost(delay.spreadParam->convertTo0to1(0.88f));
+        delay.textureParam->setValueNotifyingHost(delay.textureParam->convertTo0to1(0.80f));
+        delay.mixParam->setValueNotifyingHost(delay.mixParam->convertTo0to1(1.0f));
+        delay.duckParam->setValueNotifyingHost(delay.duckParam->convertTo0to1(0.0f));
+        delay.swellParam->setValueNotifyingHost(delay.swellParam->convertTo0to1(0.0f));
+        delay.reverseParam->setValueNotifyingHost(delay.reverseParam->convertTo0to1(0.0f));
+        delay.freezeParam->setValueNotifyingHost(0.0f);
+    }
+
+    template <typename Callback>
+    static juce::AudioBuffer<float> renderDelayPedalWithAutomation(DelayPedal& pedal,
+        const juce::AudioBuffer<float>& input,
+        Callback&& callback)
+    {
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> rendered(2, input.getNumSamples());
+        rendered.clear();
+        juce::AudioBuffer<float> block(2, blockSize);
+
+        for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+        {
+            const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+            block.clear();
+            for (int ch = 0; ch < 2; ++ch)
+                block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+            callback(offset);
+            pedal.processBlock(block, midi);
+
+            rendered.copyFrom(0, offset, block, 0, 0, numSamples);
+            rendered.copyFrom(1, offset, block, 1, 0, numSamples);
+        }
+
+        return rendered;
+    }
+
     static std::vector<OfflineQAScenarioResult> runAllScenarios()
     {
         std::vector<OfflineQAScenarioResult> results;
@@ -412,6 +505,15 @@ private:
         results.push_back(runReverbReverseSwellScenario());
         results.push_back(runReverbFreezeReverseScenario());
         results.push_back(runReverbAutomationStressScenario());
+        results.push_back(runDelayTailScenario());
+        results.push_back(runDelayStereoFieldScenario());
+        results.push_back(runDelayModeDistinctnessScenario());
+        results.push_back(runDelayFreezeScenario());
+        results.push_back(runDelayDuckingScenario());
+        results.push_back(runDelayReverseScenario());
+        results.push_back(runDelaySwellScenario());
+        results.push_back(runDelayReverseSwellScenario());
+        results.push_back(runDelayAutomationStressScenario());
         results.push_back(runGraphDiagnosticsScenario());
         return results;
     }
@@ -1222,6 +1324,426 @@ private:
         result.passed = finite && peak < 2.0;
         result.notes = result.passed ? "Aggressive automation stayed finite and inside a sane ceiling"
                                      : "Automation stress produced unstable or excessive output";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDelayTailScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_tail_decay";
+
+        AudioEngine engine;
+        engine.prepare(sampleRate, blockSize, 2, 2);
+        AudioEngine::RuntimeGlobalParams params;
+        params.switchMode = (int) Nova::SwitcherMode::LineA_Only;
+        params.outputMixRaw = 100.0f;
+        engine.updateGlobalParams(params);
+        engine.addPedal("Delay", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "offline-delay-tail");
+        engine.setEngineEnabled(true);
+        warmUpEngine(engine, 16);
+
+        auto* delay = getOfflineDelay(engine);
+        if (delay == nullptr)
+        {
+            result.notes = "Failed to resolve offline delay processor from graph";
+            return result;
+        }
+
+        configureFlagshipDelayTape(*delay);
+        const auto output = processBuffer(engine, generateImpulse((int) (sampleRate * 5.5), 1.0f));
+        const bool finite = bufferHasOnlyFiniteSamples(output);
+        const double lateRms = computeWindowRms(output, (int) (sampleRate * 1.0), (int) (sampleRate * 0.9));
+        const double endRms = computeWindowRms(output, output.getNumSamples() - (int) (sampleRate * 0.35), (int) (sampleRate * 0.3));
+        const auto metrics = analyseBuffer(output);
+
+        result.metrics.push_back({ "peak", metrics.peak });
+        result.metrics.push_back({ "late_rms_1p0_1p9s", lateRms });
+        result.metrics.push_back({ "end_rms_last_300ms", endRms });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite && metrics.peak < 1.35 && lateRms > 1.0e-4 && endRms < lateRms * 0.60;
+        result.notes = result.passed ? "Tape delay tail stayed finite and decayed cleanly"
+                                     : "Delay tail failed finite/decay expectations";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDelayStereoFieldScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_stereo_field";
+
+        AudioEngine engine;
+        engine.prepare(sampleRate, blockSize, 2, 2);
+        AudioEngine::RuntimeGlobalParams params;
+        params.switchMode = (int) Nova::SwitcherMode::LineA_Only;
+        params.outputMixRaw = 100.0f;
+        engine.updateGlobalParams(params);
+        engine.addPedal("Delay", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "offline-delay-stereo");
+        engine.setEngineEnabled(true);
+        warmUpEngine(engine, 16);
+
+        auto* delay = getOfflineDelay(engine);
+        if (delay == nullptr)
+        {
+            result.notes = "Failed to resolve offline delay processor from graph";
+            return result;
+        }
+
+        configureFlagshipDelayDigital(*delay);
+        const auto output = processBuffer(engine, generateLeftImpulse((int) (sampleRate * 2.4), 1.0f));
+        const bool finite = bufferHasOnlyFiniteSamples(output);
+        const double corr = computeStereoCorrelation(output, (int) (sampleRate * 0.08));
+        const double rmsLeft = computeChannelWindowRms(output, 0, (int) (sampleRate * 0.08), (int) (sampleRate * 1.1));
+        const double rmsRight = computeChannelWindowRms(output, 1, (int) (sampleRate * 0.08), (int) (sampleRate * 1.1));
+        const double sideRatio = rmsRight / juce::jmax(1.0e-9, rmsLeft);
+
+        result.metrics.push_back({ "corr_after_80ms", corr });
+        result.metrics.push_back({ "left_rms_80_1180ms", rmsLeft });
+        result.metrics.push_back({ "right_rms_80_1180ms", rmsRight });
+        result.metrics.push_back({ "right_to_left_ratio", sideRatio });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite && std::abs(corr) < 0.95 && sideRatio > 0.18;
+        result.notes = result.passed ? "Digital delay projected decorrelated stereo repeats"
+                                     : "Delay stereo field collapsed or stayed too imbalanced";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDelayModeDistinctnessScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_mode_distinctness";
+
+        auto renderMode = [](int modeIndex)
+        {
+            DelayPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+            pedal.timeParam->setValueNotifyingHost(pedal.timeParam->convertTo0to1(480.0f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.74f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(6200.0f));
+            pedal.spreadParam->setValueNotifyingHost(pedal.spreadParam->convertTo0to1(0.78f));
+            pedal.textureParam->setValueNotifyingHost(pedal.textureParam->convertTo0to1(0.62f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.reverseParam->setValueNotifyingHost(pedal.reverseParam->convertTo0to1(modeIndex == 3 ? 0.70f : 0.0f));
+
+            return renderDelayPedalWithAutomation(pedal, generateImpulse((int) (sampleRate * 2.2), 1.0f), [](int) {});
+        };
+
+        const auto analog = renderMode(0);
+        const auto tape = renderMode(1);
+        const auto digital = renderMode(2);
+        const auto reverse = renderMode(3);
+
+        const double analogTapeNull = computeNullRms(analog, tape);
+        const double tapeDigitalNull = computeNullRms(tape, digital);
+        const double digitalReverseNull = computeNullRms(digital, reverse);
+
+        result.metrics.push_back({ "analog_tape_null_rms", analogTapeNull });
+        result.metrics.push_back({ "tape_digital_null_rms", tapeDigitalNull });
+        result.metrics.push_back({ "digital_reverse_null_rms", digitalReverseNull });
+
+        result.passed = analogTapeNull > 9.0e-4
+            && tapeDigitalNull > 8.0e-4
+            && digitalReverseNull > 9.0e-4;
+        result.notes = result.passed ? "Analog, Tape, Digital and Reverse produce clearly separated repeat signatures"
+                                     : "Delay hero modes still overlap too much in their rendered repeats";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDelayFreezeScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_freeze_hold";
+
+        auto renderPedal = [](bool automateFreeze)
+        {
+            DelayPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            configureFlagshipDelayTape(pedal);
+
+            juce::AudioBuffer<float> input(2, (int) (sampleRate * 2.0));
+            input.clear();
+            const int burstSamples = (int) (sampleRate * 0.32);
+            for (int i = 0; i < burstSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 196.0f * (float) i / (float) sampleRate;
+                const float sample = 0.20f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderDelayPedalWithAutomation(pedal, input,
+                [&](int offset)
+                {
+                    pedal.freezeParam->setValueNotifyingHost(automateFreeze && offset >= (int) (sampleRate * 0.62) ? 1.0f : 0.0f);
+                });
+        };
+
+        const auto baselineOut = renderPedal(false);
+        const auto frozenOut = renderPedal(true);
+        const bool finite = bufferHasOnlyFiniteSamples(frozenOut);
+        const double captureRms = computeWindowRms(frozenOut, (int) (sampleRate * 0.78), (int) (sampleRate * 0.22));
+        const double heldRms = computeWindowRms(frozenOut, (int) (sampleRate * 1.45), (int) (sampleRate * 0.26));
+        const double baselineHeld = computeWindowRms(baselineOut, (int) (sampleRate * 1.45), (int) (sampleRate * 0.26));
+
+        result.metrics.push_back({ "capture_rms", captureRms });
+        result.metrics.push_back({ "held_rms", heldRms });
+        result.metrics.push_back({ "baseline_held_rms", baselineHeld });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite && heldRms > captureRms * 0.50 && heldRms > baselineHeld * 2.0;
+        result.notes = result.passed ? "Freeze captured and held a stable repeat bed"
+                                     : "Freeze failed to hold enough of the captured delay bed";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDelayDuckingScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_ducking_response";
+
+        auto configure = [](DelayPedal& pedal, float duckAmount)
+        {
+            pedal.prepareToPlay(sampleRate, blockSize);
+            configureFlagshipDelayDigital(pedal);
+            pedal.timeParam->setValueNotifyingHost(pedal.timeParam->convertTo0to1(410.0f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.70f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(9600.0f));
+            pedal.spreadParam->setValueNotifyingHost(pedal.spreadParam->convertTo0to1(0.74f));
+            pedal.textureParam->setValueNotifyingHost(pedal.textureParam->convertTo0to1(0.28f));
+            pedal.duckParam->setValueNotifyingHost(pedal.duckParam->convertTo0to1(duckAmount));
+        };
+
+        DelayPedal baseline;
+        configure(baseline, 0.0f);
+        DelayPedal ducked;
+        configure(ducked, 0.90f);
+
+        const auto input = generateSine((int) (sampleRate * 1.6), 220.0, 0.24f);
+        const auto baselineOut = renderDelayPedalWithAutomation(baseline, input, [](int) {});
+        const auto duckedOut = renderDelayPedalWithAutomation(ducked, input, [](int) {});
+        const bool finite = bufferHasOnlyFiniteSamples(duckedOut);
+        const double baselineRms = computeWindowRms(baselineOut, (int) (sampleRate * 0.65), (int) (sampleRate * 0.35));
+        const double duckedRms = computeWindowRms(duckedOut, (int) (sampleRate * 0.65), (int) (sampleRate * 0.35));
+
+        result.metrics.push_back({ "baseline_rms", baselineRms });
+        result.metrics.push_back({ "ducked_rms", duckedRms });
+        result.metrics.push_back({ "ratio", duckedRms / juce::jmax(1.0e-9, baselineRms) });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite && duckedRms < baselineRms * 0.78;
+        result.notes = result.passed ? "Ducking carved audible space while the source stayed active"
+                                     : "Ducking did not reduce the delay bed enough under sustained input";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDelayReverseScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_reverse_bloom";
+
+        auto renderPedal = [](float reverseAmount)
+        {
+            DelayPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            configureFlagshipDelayDigital(pedal);
+            pedal.timeParam->setValueNotifyingHost(pedal.timeParam->convertTo0to1(440.0f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.72f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(9400.0f));
+            pedal.spreadParam->setValueNotifyingHost(pedal.spreadParam->convertTo0to1(0.82f));
+            pedal.textureParam->setValueNotifyingHost(pedal.textureParam->convertTo0to1(0.48f));
+            pedal.reverseParam->setValueNotifyingHost(pedal.reverseParam->convertTo0to1(reverseAmount));
+
+            juce::AudioBuffer<float> input(2, (int) (sampleRate * 1.8));
+            input.clear();
+            const int burstSamples = (int) (sampleRate * 0.18);
+            for (int i = 0; i < burstSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 246.0f * (float) i / (float) sampleRate;
+                const float sample = 0.20f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderDelayPedalWithAutomation(pedal, input, [](int) {});
+        };
+
+        const auto baselineOut = renderPedal(0.0f);
+        const auto reverseOut = renderPedal(0.92f);
+        const bool finite = bufferHasOnlyFiniteSamples(reverseOut);
+        const double baselineEarly = computeWindowRms(baselineOut, (int) (sampleRate * 0.40), (int) (sampleRate * 0.14));
+        const double reverseEarly = computeWindowRms(reverseOut, (int) (sampleRate * 0.40), (int) (sampleRate * 0.14));
+        const double baselineLate = computeWindowRms(baselineOut, (int) (sampleRate * 0.54), (int) (sampleRate * 0.22));
+        const double reverseLate = computeWindowRms(reverseOut, (int) (sampleRate * 0.54), (int) (sampleRate * 0.22));
+
+        result.metrics.push_back({ "baseline_early_rms", baselineEarly });
+        result.metrics.push_back({ "reverse_early_rms", reverseEarly });
+        result.metrics.push_back({ "baseline_late_rms", baselineLate });
+        result.metrics.push_back({ "reverse_late_rms", reverseLate });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite
+            && reverseEarly < baselineEarly * 0.90
+            && reverseLate > reverseEarly * 0.68
+            && reverseLate > baselineLate * 0.70;
+        result.notes = result.passed ? "Reverse softened the early repeat body while keeping useful later energy"
+                                     : "Reverse did not keep a convincing later body";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDelaySwellScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_swell_bloom";
+
+        auto renderPedal = [](float swellAmount)
+        {
+            DelayPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            configureFlagshipDelayAnalog(pedal);
+            pedal.swellParam->setValueNotifyingHost(pedal.swellParam->convertTo0to1(swellAmount));
+
+            juce::AudioBuffer<float> input(2, (int) (sampleRate * 1.5));
+            input.clear();
+            const int burstSamples = (int) (sampleRate * 0.24);
+            for (int i = 0; i < burstSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 174.0f * (float) i / (float) sampleRate;
+                const float sample = 0.22f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderDelayPedalWithAutomation(pedal, input, [](int) {});
+        };
+
+        const auto baselineOut = renderPedal(0.0f);
+        const auto swelledOut = renderPedal(0.92f);
+        const bool finite = bufferHasOnlyFiniteSamples(swelledOut);
+        const double baselineEarly = computeWindowRms(baselineOut, (int) (sampleRate * 0.34), (int) (sampleRate * 0.14));
+        const double swelledEarly = computeWindowRms(swelledOut, (int) (sampleRate * 0.34), (int) (sampleRate * 0.14));
+        const double baselineBloom = computeWindowRms(baselineOut, (int) (sampleRate * 0.48), (int) (sampleRate * 0.18));
+        const double swelledBloom = computeWindowRms(swelledOut, (int) (sampleRate * 0.48), (int) (sampleRate * 0.18));
+
+        result.metrics.push_back({ "baseline_early_rms", baselineEarly });
+        result.metrics.push_back({ "swelled_early_rms", swelledEarly });
+        result.metrics.push_back({ "baseline_bloom_rms", baselineBloom });
+        result.metrics.push_back({ "swelled_bloom_rms", swelledBloom });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite
+            && swelledEarly < baselineEarly * 0.88
+            && swelledBloom > swelledEarly * 1.05
+            && swelledBloom > baselineBloom * 0.70;
+        result.notes = result.passed ? "Swell softened the early repeat onset and bloomed afterward"
+                                     : "Swell did not produce a clear delayed repeat bloom";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDelayReverseSwellScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_reverse_swell_combo";
+
+        auto renderPedal = [](float reverseAmount, float swellAmount)
+        {
+            DelayPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            configureFlagshipDelayDigital(pedal);
+            pedal.timeParam->setValueNotifyingHost(pedal.timeParam->convertTo0to1(460.0f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.72f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(9000.0f));
+            pedal.spreadParam->setValueNotifyingHost(pedal.spreadParam->convertTo0to1(0.84f));
+            pedal.textureParam->setValueNotifyingHost(pedal.textureParam->convertTo0to1(0.48f));
+            pedal.reverseParam->setValueNotifyingHost(pedal.reverseParam->convertTo0to1(reverseAmount));
+            pedal.swellParam->setValueNotifyingHost(pedal.swellParam->convertTo0to1(swellAmount));
+
+            juce::AudioBuffer<float> input(2, (int) (sampleRate * 1.9));
+            input.clear();
+            const int burstSamples = (int) (sampleRate * 0.16);
+            for (int i = 0; i < burstSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 196.0f * (float) i / (float) sampleRate;
+                const float sample = 0.20f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderDelayPedalWithAutomation(pedal, input, [](int) {});
+        };
+
+        const auto baselineOut = renderPedal(0.0f, 0.0f);
+        const auto comboOut = renderPedal(0.82f, 0.86f);
+        const bool finite = bufferHasOnlyFiniteSamples(comboOut);
+        const double baselineEarly = computeWindowRms(baselineOut, (int) (sampleRate * 0.40), (int) (sampleRate * 0.14));
+        const double comboEarly = computeWindowRms(comboOut, (int) (sampleRate * 0.40), (int) (sampleRate * 0.14));
+        const double baselineLate = computeWindowRms(baselineOut, (int) (sampleRate * 0.58), (int) (sampleRate * 0.24));
+        const double comboLate = computeWindowRms(comboOut, (int) (sampleRate * 0.58), (int) (sampleRate * 0.24));
+
+        result.metrics.push_back({ "baseline_early_rms", baselineEarly });
+        result.metrics.push_back({ "combo_early_rms", comboEarly });
+        result.metrics.push_back({ "baseline_late_rms", baselineLate });
+        result.metrics.push_back({ "combo_late_rms", comboLate });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite
+            && comboEarly < baselineEarly * 0.82
+            && comboLate > comboEarly * 0.52
+            && comboLate > baselineLate * 0.70;
+        result.notes = result.passed ? "Reverse+swell produced a later ambient body without collapsing the mix"
+                                     : "Reverse+swell did not hold together as a usable performance combo";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDelayAutomationStressScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_automation_stress";
+
+        DelayPedal delay;
+        delay.prepareToPlay(sampleRate, blockSize);
+        delay.mixParam->setValueNotifyingHost(delay.mixParam->convertTo0to1(0.62f));
+
+        juce::Random rng(0xD31A9);
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> block(2, blockSize);
+        bool finite = true;
+        double peak = 0.0;
+
+        const int blocksToRun = (int) ((sampleRate * 3.2) / (double) blockSize);
+        for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+        {
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < blockSize; ++i)
+                    block.setSample(ch, i, 0.16f * ((rng.nextFloat() * 2.0f) - 1.0f));
+
+            const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
+            const int mode = juce::jlimit(0, 3, (int) std::floor(phase * 4.0f));
+
+            delay.modeParam->setValueNotifyingHost(normalisedChoiceIndex(delay.modeParam, mode));
+            delay.timeParam->setValueNotifyingHost(delay.timeParam->convertTo0to1(120.0f + 1900.0f * phase));
+            delay.feedbackParam->setValueNotifyingHost(delay.feedbackParam->convertTo0to1(0.18f + 0.72f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+            delay.toneParam->setValueNotifyingHost(delay.toneParam->convertTo0to1(1800.0f + 10000.0f * (1.0f - phase)));
+            delay.spreadParam->setValueNotifyingHost(delay.spreadParam->convertTo0to1(0.10f + 0.90f * phase));
+            delay.textureParam->setValueNotifyingHost(delay.textureParam->convertTo0to1(0.15f + 0.80f * std::abs(std::cos(phase * juce::MathConstants<float>::twoPi))));
+            delay.duckParam->setValueNotifyingHost(delay.duckParam->convertTo0to1(0.85f * (1.0f - phase)));
+            delay.swellParam->setValueNotifyingHost(delay.swellParam->convertTo0to1(0.80f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+            delay.reverseParam->setValueNotifyingHost(delay.reverseParam->convertTo0to1(0.75f * phase));
+            delay.freezeParam->setValueNotifyingHost((blockIndex % 181) == 0 ? 1.0f : 0.0f);
+
+            delay.processBlock(block, midi);
+            peak = juce::jmax(peak, (double) analyseBuffer(block).peak);
+            finite = finite && bufferHasOnlyFiniteSamples(block);
+        }
+
+        result.metrics.push_back({ "peak", peak });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+        result.metrics.push_back({ "blocks", (double) blocksToRun });
+
+        result.passed = finite && peak < 2.1;
+        result.notes = result.passed ? "Aggressive delay automation stayed finite and inside a sane ceiling"
+                                     : "Delay automation stress produced unstable or excessive output";
         return result;
     }
 
