@@ -25,12 +25,15 @@ private:
     void paintDelayViz(juce::Graphics& g, juce::Rectangle<float> bounds);
     void syncModeFromProcessor();
     void syncFreezeFromProcessor();
+    void syncSyncFromProcessor();
+    void syncDivisionFromProcessor();
+    void syncFlagshipPresetButtons();
     juce::String describeTexture(float amount) const;
 
     DelayPedal& proc;
 
-    static constexpr int kWidth = 780;
-    static constexpr int kHeight = 520;
+    static constexpr int kWidth = 920;
+    static constexpr int kHeight = 706;
 
     const juce::Colour accent = juce::Colour::fromString("ff60A5FA");
     const juce::Colour accentGlow = juce::Colour::fromString("ff93C5FD");
@@ -44,24 +47,34 @@ private:
     juce::ComboBox modeBox;
     juce::Label modeLabel;
     juce::TextButton freezeButton{ "FREEZE" };
+    juce::TextButton syncButton{ "SYNC" };
+    juce::ComboBox divisionBox;
+    juce::Label divisionLabel;
+    juce::Label tempoStatusLabel;
+    juce::Label presetBankLabel;
+    juce::Label presetHintLabel;
+    std::array<juce::TextButton, 5> presetButtons
+    {{
+        juce::TextButton(), juce::TextButton(), juce::TextButton(), juce::TextButton(), juce::TextButton()
+    }};
 
-    juce::Slider sldTime, sldFeedback, sldTone, sldSpread, sldTexture;
-    juce::Slider sldDuck, sldSwell, sldReverse, sldMix;
-    juce::Label lblTime, lblFeedback, lblTone, lblSpread, lblTexture;
-    juce::Label lblDuck, lblSwell, lblReverse, lblMix;
-    juce::Label valTime, valFeedback, valTone, valSpread, valTexture;
-    juce::Label valDuck, valSwell, valReverse, valMix;
+    juce::Slider sldTime, sldFeedback, sldTone, sldLowCut, sldSpread, sldTexture;
+    juce::Slider sldModDepth, sldModRate, sldDuck, sldSwell, sldReverse, sldMix;
+    juce::Label lblTime, lblFeedback, lblTone, lblLowCut, lblSpread, lblTexture;
+    juce::Label lblModDepth, lblModRate, lblDuck, lblSwell, lblReverse, lblMix;
+    juce::Label valTime, valFeedback, valTone, valLowCut, valSpread, valTexture;
+    juce::Label valModDepth, valModRate, valDuck, valSwell, valReverse, valMix;
 
-    std::array<juce::Slider*, 9> sliders
+    std::array<juce::Slider*, 12> sliders
     {
-        &sldTime, &sldFeedback, &sldTone, &sldSpread, &sldTexture,
-        &sldDuck, &sldSwell, &sldReverse, &sldMix
+        &sldTime, &sldFeedback, &sldTone, &sldLowCut, &sldSpread, &sldTexture,
+        &sldModDepth, &sldModRate, &sldDuck, &sldSwell, &sldReverse, &sldMix
     };
 
-    std::array<juce::Label*, 9> valueLabels
+    std::array<juce::Label*, 12> valueLabels
     {
-        &valTime, &valFeedback, &valTone, &valSpread, &valTexture,
-        &valDuck, &valSwell, &valReverse, &valMix
+        &valTime, &valFeedback, &valTone, &valLowCut, &valSpread, &valTexture,
+        &valModDepth, &valModRate, &valDuck, &valSwell, &valReverse, &valMix
     };
 
     juce::Rectangle<float> vizBounds;
@@ -160,8 +173,11 @@ inline DelayEditor::DelayEditor(DelayPedal& pedal)
     initKnob(sldTime, lblTime, valTime, "TIME", 35.0, 2500.0, 480.0, 1.0);
     initKnob(sldFeedback, lblFeedback, valFeedback, "FEEDBACK", 0.0, 0.97, 0.46, 0.001);
     initKnob(sldTone, lblTone, valTone, "TONE", 600.0, 14000.0, 5800.0, 1.0);
+    initKnob(sldLowCut, lblLowCut, valLowCut, "LOW CUT", 20.0, 2200.0, 70.0, 1.0);
     initKnob(sldSpread, lblSpread, valSpread, "SPREAD", 0.0, 1.0, 0.42, 0.001);
     initKnob(sldTexture, lblTexture, valTexture, "TEXTURE", 0.0, 1.0, 0.45, 0.001);
+    initKnob(sldModDepth, lblModDepth, valModDepth, "MOD DEPTH", 0.0, 1.0, 0.42, 0.001);
+    initKnob(sldModRate, lblModRate, valModRate, "MOD RATE", 0.05, 6.0, 1.35, 0.001);
     initKnob(sldDuck, lblDuck, valDuck, "DUCK", 0.0, 1.0, 0.0, 0.001);
     initKnob(sldSwell, lblSwell, valSwell, "SWELL", 0.0, 1.0, 0.0, 0.001);
     initKnob(sldReverse, lblReverse, valReverse, "REVERSE", 0.0, 1.0, 0.0, 0.001);
@@ -184,8 +200,11 @@ inline DelayEditor::DelayEditor(DelayPedal& pedal)
     wireFloat(sldTime, proc.timeParam);
     wireFloat(sldFeedback, proc.feedbackParam);
     wireFloat(sldTone, proc.toneParam);
+    wireFloat(sldLowCut, proc.lowCutParam);
     wireFloat(sldSpread, proc.spreadParam);
     wireFloat(sldTexture, proc.textureParam);
+    wireFloat(sldModDepth, proc.modDepthParam);
+    wireFloat(sldModRate, proc.modRateParam);
     wireFloat(sldDuck, proc.duckParam);
     wireFloat(sldSwell, proc.swellParam);
     wireFloat(sldReverse, proc.reverseParam);
@@ -214,6 +233,46 @@ inline DelayEditor::DelayEditor(DelayPedal& pedal)
     addAndMakeVisible(modeBox);
     syncModeFromProcessor();
 
+    divisionLabel.setText("DIVISION", juce::dontSendNotification);
+    divisionLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    divisionLabel.setColour(juce::Label::textColourId, textDim);
+    addAndMakeVisible(divisionLabel);
+
+    divisionBox.addItemList(proc.syncDivisionParam != nullptr ? proc.syncDivisionParam->choices : juce::StringArray{ "1/4" }, 1);
+    divisionBox.setColour(juce::ComboBox::backgroundColourId, bgCard);
+    divisionBox.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff243447));
+    divisionBox.setColour(juce::ComboBox::textColourId, textBright);
+    divisionBox.setColour(juce::ComboBox::arrowColourId, accentGlow);
+    divisionBox.onChange = [this]
+    {
+        if (proc.syncDivisionParam == nullptr)
+            return;
+
+        proc.syncDivisionParam->beginChangeGesture();
+        proc.syncDivisionParam->setValueNotifyingHost((float) divisionBox.getSelectedItemIndex()
+            / (float) juce::jmax(1, proc.syncDivisionParam->choices.size() - 1));
+        proc.syncDivisionParam->endChangeGesture();
+    };
+    addAndMakeVisible(divisionBox);
+    syncDivisionFromProcessor();
+
+    syncButton.setClickingTogglesState(true);
+    syncButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff152130));
+    syncButton.setColour(juce::TextButton::buttonOnColourId, accentDim);
+    syncButton.setColour(juce::TextButton::textColourOffId, textDim);
+    syncButton.setColour(juce::TextButton::textColourOnId, textBright);
+    syncButton.onClick = [this]
+    {
+        if (proc.syncParam == nullptr)
+            return;
+
+        proc.syncParam->beginChangeGesture();
+        proc.syncParam->setValueNotifyingHost(syncButton.getToggleState() ? 1.0f : 0.0f);
+        proc.syncParam->endChangeGesture();
+    };
+    addAndMakeVisible(syncButton);
+    syncSyncFromProcessor();
+
     freezeButton.setClickingTogglesState(true);
     freezeButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff152130));
     freezeButton.setColour(juce::TextButton::buttonOnColourId, accentDim);
@@ -231,6 +290,40 @@ inline DelayEditor::DelayEditor(DelayPedal& pedal)
     addAndMakeVisible(freezeButton);
     syncFreezeFromProcessor();
 
+    tempoStatusLabel.setJustificationType(juce::Justification::centredRight);
+    tempoStatusLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    tempoStatusLabel.setColour(juce::Label::textColourId, accentGlow);
+    addAndMakeVisible(tempoStatusLabel);
+
+    presetBankLabel.setText("FLAGSHIP VOICES", juce::dontSendNotification);
+    presetBankLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    presetBankLabel.setColour(juce::Label::textColourId, textDim);
+    addAndMakeVisible(presetBankLabel);
+
+    presetHintLabel.setText("Commercial-ready contours with one click", juce::dontSendNotification);
+    presetHintLabel.setJustificationType(juce::Justification::centredRight);
+    presetHintLabel.setFont(juce::Font(11.0f));
+    presetHintLabel.setColour(juce::Label::textColourId, textDim.withAlpha(0.88f));
+    addAndMakeVisible(presetHintLabel);
+
+    for (int i = 0; i < DelayPedal::getNumFlagshipPresets(); ++i)
+    {
+        auto& button = presetButtons[(size_t) i];
+        button.setButtonText(DelayPedal::getFlagshipPresetShortName(i));
+        button.setTooltip(DelayPedal::getFlagshipPresetName(i));
+        button.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff132033));
+        button.setColour(juce::TextButton::textColourOffId, textDim);
+        button.setColour(juce::TextButton::buttonOnColourId, accentDim);
+        button.setColour(juce::TextButton::textColourOnId, textBright);
+        button.onClick = [this, i]
+        {
+            proc.applyFlagshipPreset(i);
+            syncFlagshipPresetButtons();
+        };
+        addAndMakeVisible(button);
+    }
+    syncFlagshipPresetButtons();
+
     startTimerHz(30);
 }
 
@@ -245,26 +338,68 @@ inline void DelayEditor::timerCallback()
     syncSlider(sldTime, proc.timeParam);
     syncSlider(sldFeedback, proc.feedbackParam);
     syncSlider(sldTone, proc.toneParam);
+    syncSlider(sldLowCut, proc.lowCutParam);
     syncSlider(sldSpread, proc.spreadParam);
     syncSlider(sldTexture, proc.textureParam);
+    syncSlider(sldModDepth, proc.modDepthParam);
+    syncSlider(sldModRate, proc.modRateParam);
     syncSlider(sldDuck, proc.duckParam);
     syncSlider(sldSwell, proc.swellParam);
     syncSlider(sldReverse, proc.reverseParam);
     syncSlider(sldMix, proc.mixParam);
 
     syncModeFromProcessor();
+    syncSyncFromProcessor();
+    syncDivisionFromProcessor();
     syncFreezeFromProcessor();
+    syncFlagshipPresetButtons();
 
+    const bool syncOn = proc.syncParam != nullptr && proc.syncParam->get();
     const float timeMs = (float) sldTime.getValue();
-    valTime.setText(timeMs >= 1000.0f ? juce::String(timeMs * 0.001f, 2) + " s"
-                                      : juce::String((int) timeMs) + " ms",
-        juce::dontSendNotification);
+    if (syncOn && proc.syncDivisionParam != nullptr)
+    {
+        const auto divisionToQuarterNotes = [](int divisionIndex) noexcept
+        {
+            switch (divisionIndex)
+            {
+                case 0:  return 0.125f;
+                case 1:  return 1.0f / 6.0f;
+                case 2:  return 0.25f;
+                case 3:  return 1.0f / 3.0f;
+                case 4:  return 0.5f;
+                case 5:  return 0.75f;
+                case 6:  return 2.0f / 3.0f;
+                case 7:  return 1.0f;
+                case 8:  return 1.5f;
+                case 9:  return 2.0f;
+                case 10: return 3.0f;
+                case 11: return 4.0f;
+                default: return 1.0f;
+            }
+        };
+
+        const float bpm = proc.isHostTempoValid() ? proc.getDisplayTempoBpm() : 120.0f;
+        const float syncedMs = (60000.0f / juce::jlimit(20.0f, 320.0f, bpm))
+            * divisionToQuarterNotes(proc.syncDivisionParam->getIndex());
+        valTime.setText(divisionBox.getText() + "  " + juce::String((int) std::round(syncedMs)) + " ms",
+            juce::dontSendNotification);
+    }
+    else
+    {
+        valTime.setText(timeMs >= 1000.0f ? juce::String(timeMs * 0.001f, 2) + " s"
+                                          : juce::String((int) timeMs) + " ms",
+            juce::dontSendNotification);
+    }
     valFeedback.setText(juce::String((int) std::round(sldFeedback.getValue() / 0.97 * 100.0)) + "%",
         juce::dontSendNotification);
 
     const float toneHz = (float) sldTone.getValue();
     valTone.setText(toneHz >= 1000.0f ? juce::String(toneHz * 0.001f, 1) + " kHz"
                                       : juce::String((int) toneHz) + " Hz",
+        juce::dontSendNotification);
+    valLowCut.setText((float) sldLowCut.getValue() >= 1000.0f
+            ? juce::String((float) sldLowCut.getValue() * 0.001f, 2) + " kHz"
+            : juce::String((int) std::round(sldLowCut.getValue())) + " Hz",
         juce::dontSendNotification);
 
     const float spread = (float) sldSpread.getValue();
@@ -273,10 +408,17 @@ inline void DelayEditor::timerCallback()
         juce::dontSendNotification);
 
     valTexture.setText(describeTexture((float) sldTexture.getValue()), juce::dontSendNotification);
+    valModDepth.setText(juce::String((int) std::round(sldModDepth.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    valModRate.setText(juce::String((float) sldModRate.getValue(), 2) + " Hz", juce::dontSendNotification);
     valDuck.setText(juce::String((int) std::round(sldDuck.getValue() * 100.0)) + "%", juce::dontSendNotification);
     valSwell.setText(juce::String((int) std::round(sldSwell.getValue() * 100.0)) + "%", juce::dontSendNotification);
     valReverse.setText(juce::String((int) std::round(sldReverse.getValue() * 100.0)) + "%", juce::dontSendNotification);
     valMix.setText(juce::String((int) std::round(sldMix.getValue() * 100.0)) + "%", juce::dontSendNotification);
+
+    const juce::String tempoText = proc.isHostTempoValid()
+        ? juce::String(proc.getDisplayTempoBpm(), 1) + " BPM" + (proc.isHostTransportPlaying() ? "  PLAY" : "  IDLE")
+        : "Internal 120 BPM";
+    tempoStatusLabel.setText(tempoText, juce::dontSendNotification);
 
     animPhase += 0.025f;
     if (animPhase >= 1.0f)
@@ -309,7 +451,20 @@ inline void DelayEditor::paint(juce::Graphics& g)
 
     g.setColour(textDim);
     g.setFont(juce::Font(11.0f));
-    g.drawText("Four hero voices with duck, swell, reverse and freeze", 28, 56, 360, 16, juce::Justification::centredLeft);
+    g.drawText("Host-sync premium delay with flagship voicings, modulation and performance shaping", 28, 56, 620, 16, juce::Justification::centredLeft);
+
+    const int activePreset = proc.getLastAppliedFlagshipPreset();
+    if (activePreset >= 0)
+    {
+        auto pill = juce::Rectangle<float>((float) getWidth() - 228.0f, 18.0f, 190.0f, 28.0f);
+        g.setColour(accent.withAlpha(0.12f));
+        g.fillRoundedRectangle(pill, 14.0f);
+        g.setColour(accent.withAlpha(0.34f));
+        g.drawRoundedRectangle(pill, 14.0f, 1.0f);
+        g.setColour(accentGlow);
+        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.drawText(DelayPedal::getFlagshipPresetName(activePreset), pill.toNearestInt(), juce::Justification::centred);
+    }
 
     paintDelayViz(g, vizBounds);
 }
@@ -410,6 +565,41 @@ inline void DelayEditor::syncModeFromProcessor()
     modeBox.setSelectedItemIndex(proc.modeParam->getIndex(), juce::dontSendNotification);
 }
 
+inline void DelayEditor::syncFlagshipPresetButtons()
+{
+    const int activePreset = proc.getLastAppliedFlagshipPreset();
+
+    for (int i = 0; i < DelayPedal::getNumFlagshipPresets(); ++i)
+    {
+        auto& button = presetButtons[(size_t) i];
+        const bool active = (i == activePreset);
+        button.setColour(juce::TextButton::buttonColourId, active ? accentDim : juce::Colour(0xff132033));
+        button.setColour(juce::TextButton::textColourOffId, active ? textBright : textDim);
+    }
+}
+
+inline void DelayEditor::syncSyncFromProcessor()
+{
+    if (proc.syncParam == nullptr)
+        return;
+
+    const bool syncOn = proc.syncParam->get();
+    syncButton.setToggleState(syncOn, juce::dontSendNotification);
+    divisionBox.setEnabled(syncOn);
+    divisionLabel.setAlpha(syncOn ? 1.0f : 0.45f);
+    sldTime.setAlpha(syncOn ? 0.45f : 1.0f);
+    lblTime.setAlpha(syncOn ? 0.45f : 1.0f);
+    valTime.setAlpha(syncOn ? 0.45f : 1.0f);
+}
+
+inline void DelayEditor::syncDivisionFromProcessor()
+{
+    if (proc.syncDivisionParam == nullptr)
+        return;
+
+    divisionBox.setSelectedItemIndex(proc.syncDivisionParam->getIndex(), juce::dontSendNotification);
+}
+
 inline void DelayEditor::syncFreezeFromProcessor()
 {
     if (proc.freezeParam == nullptr)
@@ -422,30 +612,52 @@ inline void DelayEditor::resized()
 {
     const int w = getWidth();
 
-    vizBounds = juce::Rectangle<float>(28.0f, 92.0f, (float) (w - 56), 178.0f);
+    presetBankLabel.setBounds(28, 88, 150, 18);
+    presetHintLabel.setBounds(w - 280, 88, 252, 18);
 
-    modeLabel.setBounds(28, 286, 70, 20);
-    modeBox.setBounds(28, 308, 180, 28);
-    freezeButton.setBounds(w - 156, 304, 128, 34);
+    const int presetRowY = 110;
+    const int presetGap = 10;
+    const int presetButtonWidth = (w - 56 - presetGap * (DelayPedal::getNumFlagshipPresets() - 1))
+        / DelayPedal::getNumFlagshipPresets();
+    int presetX = 28;
+    for (int i = 0; i < DelayPedal::getNumFlagshipPresets(); ++i)
+    {
+        presetButtons[(size_t) i].setBounds(presetX, presetRowY, presetButtonWidth, 30);
+        presetX += presetButtonWidth + presetGap;
+    }
+
+    vizBounds = juce::Rectangle<float>(28.0f, 154.0f, (float) (w - 56), 188.0f);
+
+    modeLabel.setBounds(28, 360, 70, 20);
+    modeBox.setBounds(28, 382, 180, 28);
+    divisionLabel.setBounds(228, 360, 88, 20);
+    divisionBox.setBounds(228, 382, 140, 28);
+    syncButton.setBounds(w - 316, 378, 128, 34);
+    freezeButton.setBounds(w - 172, 378, 128, 34);
+    tempoStatusLabel.setBounds(w - 320, 34, 292, 20);
 
     const int knobSize = 82;
     const int labelH = 16;
     const int valueH = 16;
-    const int topY = 352;
-    const int bottomY = 438;
-    const int slotW = w / 5;
+    const int topY = 438;
+    const int bottomY = 566;
+    const int contentWidth = w - 56;
+    const int slotW = contentWidth / 6;
 
     struct KnobGroup { juce::Slider& slider; juce::Label& label; juce::Label& value; };
-    std::array<KnobGroup, 5> topKnobs
+    std::array<KnobGroup, 6> topKnobs
     {{
         { sldTime, lblTime, valTime },
         { sldFeedback, lblFeedback, valFeedback },
         { sldTone, lblTone, valTone },
+        { sldLowCut, lblLowCut, valLowCut },
         { sldSpread, lblSpread, valSpread },
         { sldTexture, lblTexture, valTexture }
     }};
-    std::array<KnobGroup, 4> bottomKnobs
+    std::array<KnobGroup, 6> bottomKnobs
     {{
+        { sldModDepth, lblModDepth, valModDepth },
+        { sldModRate, lblModRate, valModRate },
         { sldDuck, lblDuck, valDuck },
         { sldSwell, lblSwell, valSwell },
         { sldReverse, lblReverse, valReverse },
@@ -454,7 +666,7 @@ inline void DelayEditor::resized()
 
     for (int i = 0; i < (int) topKnobs.size(); ++i)
     {
-        const int cx = slotW * i + slotW / 2;
+        const int cx = 28 + slotW * i + slotW / 2;
         topKnobs[(size_t) i].label.setBounds(cx - 54, topY, 108, labelH);
         topKnobs[(size_t) i].slider.setBounds(cx - knobSize / 2, topY + labelH + 4, knobSize, knobSize);
         topKnobs[(size_t) i].value.setBounds(cx - 54, topY + labelH + 4 + knobSize + 2, 108, valueH);
@@ -462,7 +674,7 @@ inline void DelayEditor::resized()
 
     for (int i = 0; i < (int) bottomKnobs.size(); ++i)
     {
-        const int cx = slotW * i + slotW / 2;
+        const int cx = 28 + slotW * i + slotW / 2;
         bottomKnobs[(size_t) i].label.setBounds(cx - 54, bottomY, 108, labelH);
         bottomKnobs[(size_t) i].slider.setBounds(cx - knobSize / 2, bottomY + labelH + 4, knobSize, knobSize);
         bottomKnobs[(size_t) i].value.setBounds(cx - 54, bottomY + labelH + 4 + knobSize + 2, 108, valueH);

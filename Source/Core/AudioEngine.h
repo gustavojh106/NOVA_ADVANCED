@@ -29,6 +29,9 @@ public:
         float gateThresholdDb = -100.0f;
         bool forceMono = false;
         int inputTranspose = 0;
+        float hostTempoBpm = 120.0f;
+        bool hostTempoValid = false;
+        bool hostTransportPlaying = false;
 
         float outputVolumeDb = 0.0f;
         float outputLimiterDb = 0.0f;
@@ -185,6 +188,7 @@ private:
         bool& resetRequested);
     void applyPendingGlobalParams();
     void applyGlobalParamsNow(const RuntimeGlobalParams& snapshot);
+    void propagateTempoContextToProcessors(const RuntimeGlobalParams& snapshot);
     void resetGraphStateNow();
     bool sanitizeAudioBuffer(juce::AudioBuffer<float>& buffer);
     void updateDryWetLatencyCompensation();

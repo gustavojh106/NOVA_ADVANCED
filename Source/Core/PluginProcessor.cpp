@@ -4,6 +4,7 @@
 #include "OfflineQADiagnostics.h"
 #include "PedalRegistry.h"
 #include "SessionLogger.h"
+#include "../Effects/Pedals/Delay/DelayPedal.h"
 
 #include <cmath>
 
@@ -97,6 +98,9 @@ bool runtimeParamsDiffer(const AudioEngine::RuntimeGlobalParams& lhs,
         || different(lhs.gateThresholdDb, rhs.gateThresholdDb)
         || lhs.forceMono != rhs.forceMono
         || lhs.inputTranspose != rhs.inputTranspose
+        || different(lhs.hostTempoBpm, rhs.hostTempoBpm)
+        || lhs.hostTempoValid != rhs.hostTempoValid
+        || lhs.hostTransportPlaying != rhs.hostTransportPlaying
         || different(lhs.outputVolumeDb, rhs.outputVolumeDb)
         || different(lhs.outputLimiterDb, rhs.outputLimiterDb)
         || different(lhs.outputMixRaw, rhs.outputMixRaw)
@@ -107,6 +111,122 @@ bool runtimeParamsDiffer(const AudioEngine::RuntimeGlobalParams& lhs,
         || different(lhs.gainB, rhs.gainB)
         || different(lhs.panB, rhs.panB)
         || different(lhs.widthB, rhs.widthB);
+}
+
+void applyHostTransportState(juce::AudioProcessor& processor, AudioEngine::RuntimeGlobalParams& snapshot)
+{
+    snapshot.hostTempoBpm = 120.0f;
+    snapshot.hostTempoValid = false;
+    snapshot.hostTransportPlaying = false;
+
+    auto* playHead = processor.getPlayHead();
+    if (playHead == nullptr)
+        return;
+
+    if (auto position = playHead->getPosition())
+    {
+        if (auto bpm = position->getBpm())
+        {
+            snapshot.hostTempoBpm = juce::jlimit(20.0f, 320.0f, (float)*bpm);
+            snapshot.hostTempoValid = true;
+        }
+
+        snapshot.hostTransportPlaying = position->getIsPlaying();
+    }
+}
+
+juce::String sanitisePresetStem(const juce::String& presetName)
+{
+    auto safe = presetName.trim()
+        .retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_");
+
+    if (safe.isEmpty())
+        safe = "Preset";
+
+    return safe;
+}
+
+juce::File getUserPresetDirectory()
+{
+    auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("NOVA")
+        .getChildFile("Presets");
+
+    if (!dir.exists())
+        dir.createDirectory();
+
+    return dir;
+}
+
+juce::ValueTree createFactoryDelayPresetState(int presetIndex)
+{
+    DelayPedal delay;
+    delay.applyFlagshipPreset(presetIndex);
+
+    juce::MemoryBlock pedalState;
+    delay.getStateInformation(pedalState);
+
+    juce::ValueTree state(Nova::IDs::MAIN_STATE);
+    PluginState::resetToCleanState(state);
+
+    if (auto settings = PluginState::getSettingsTree(state); settings.isValid())
+    {
+        settings.setProperty(Nova::IDs::ENGINE_ON, true, nullptr);
+        settings.setProperty(Nova::IDs::SWITCH_MODE, (int) Nova::SwitcherMode::LineA_Only, nullptr);
+        settings.setProperty(Nova::IDs::OUTPUT_MIX, 100.0f, nullptr);
+    }
+
+    if (auto lineA = PluginState::getLineTree(state, Nova::ChainID::LineA); lineA.isValid())
+    {
+        auto pedal = juce::ValueTree(Nova::IDs::PEDAL);
+        pedal.setProperty(Nova::IDs::PEDAL_ID, "factory-delay-" + juce::String(presetIndex), nullptr);
+        pedal.setProperty(Nova::IDs::PEDAL_TYPE, "Delay", nullptr);
+        pedal.setProperty(Nova::IDs::PEDAL_ZONE, (int) Nova::ZoneID::FX, nullptr);
+        pedal.setProperty(Nova::IDs::PEDAL_ENABLED, true, nullptr);
+
+        if (pedalState.getSize() > 0)
+        {
+            pedal.setProperty(Nova::IDs::PEDAL_STATE,
+                juce::Base64::toBase64(pedalState.getData(), pedalState.getSize()),
+                nullptr);
+        }
+
+        lineA.appendChild(pedal, nullptr);
+    }
+
+    PluginState::canonicalizeStateTree(state);
+    return state;
+}
+
+bool writePresetStateToFile(const juce::File& file, const juce::ValueTree& state)
+{
+    juce::MemoryOutputStream stream;
+    state.writeToStream(stream);
+    return file.replaceWithData(stream.getData(), stream.getDataSize());
+}
+
+void seedBundledDelayPresetsIfMissing()
+{
+    static bool attempted = false;
+    if (attempted)
+        return;
+
+    attempted = true;
+    const auto presetDirectory = getUserPresetDirectory();
+
+    for (int i = 0; i < DelayPedal::getNumFlagshipPresets(); ++i)
+    {
+        const auto presetName = "Factory - Orbit " + DelayPedal::getFlagshipPresetName(i);
+        const auto presetFile = presetDirectory.getChildFile(sanitisePresetStem(presetName) + ".nova-preset");
+
+        if (presetFile.existsAsFile())
+            continue;
+
+        const bool written = writePresetStateToFile(presetFile, createFactoryDelayPresetState(i));
+        NovaDiagnostics::SessionLogger::logEvent(
+            written ? "preset.seeded" : "preset.seed.failed",
+            presetName + (written ? " -> " : " !! ") + presetFile.getFullPathName());
+    }
 }
 }
 
@@ -148,6 +268,7 @@ NOVAAudioProcessor::NOVAAudioProcessor()
     for (auto* parameter : getParameters())
         parameter->addListener(this);
 
+    seedBundledDelayPresetsIfMissing();
     resetSessionState(false);
     restoreStartupPresetIfAvailable();
     logStateSnapshot("processor.constructed");
@@ -216,7 +337,9 @@ void NOVAAudioProcessor::parameterValueChanged(int parameterIndex, float newValu
 
 void NOVAAudioProcessor::refreshEngineGlobalParamsIfNeeded(bool force)
 {
-    const auto current = sessionCoordinator.getRuntimeGlobalParams();
+    auto current = sessionCoordinator.getRuntimeGlobalParams();
+    applyHostTransportState(*this, current);
+
     if (!force && hasPushedRuntimeGlobals && !runtimeParamsDiffer(current, lastRuntimeGlobalParams))
         return;
 

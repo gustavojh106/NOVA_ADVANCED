@@ -4,6 +4,12 @@
 #include <atomic>
 #include "../../../Core/Constants.h"
 
+struct TempoSyncable
+{
+    virtual ~TempoSyncable() = default;
+    virtual void setTempoSyncContext(float bpm, bool tempoValid, bool transportPlaying) = 0;
+};
+
 class ProcessorBase : public juce::AudioProcessor
 {
 public:

@@ -1,9 +1,11 @@
 #include "PluginEditor.h"
 
 #include "PedalCatalog.h"
+#include "PluginStateModel.h"
 #include "../GUI/Widgets/ChainLane.h"
 #include "../GUI/Widgets/AssetBrowserOverlay.h"
 #include "../Effects/Pedals/Base/PedalUIFactory.h"
+#include "../Effects/Pedals/Delay/DelayPedal.h"
 #include "../Effects/Pedals/Overdrive/OverdriveThumbnail.h"
 #include "../Effects/Pedals/Overdrive/OverdriveDashboard.h"
 #include "../Effects/Pedals/Reverb/ReverbThumbnail.h"
@@ -207,6 +209,76 @@ namespace
 
         const auto presetFile = juce::File(pointerFile.loadFileAsString().trim());
         return presetFile.existsAsFile() ? presetFile.getFileNameWithoutExtension() : juce::String{};
+    }
+
+    juce::String sanitiseFactoryPresetStem(const juce::String& presetName)
+    {
+        auto safe = presetName.trim()
+            .retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_");
+
+        if (safe.isEmpty())
+            safe = "Preset";
+
+        return safe;
+    }
+
+    juce::ValueTree createFactoryDelayPresetState(int presetIndex)
+    {
+        DelayPedal delay;
+        delay.applyFlagshipPreset(presetIndex);
+
+        juce::MemoryBlock pedalState;
+        delay.getStateInformation(pedalState);
+
+        juce::ValueTree state(Nova::IDs::MAIN_STATE);
+        Nova::PluginStateModel::resetToCleanState(state);
+
+        if (auto settings = Nova::PluginStateModel::getSettingsTree(state); settings.isValid())
+        {
+            settings.setProperty(Nova::IDs::ENGINE_ON, true, nullptr);
+            settings.setProperty(Nova::IDs::SWITCH_MODE, (int) Nova::SwitcherMode::LineA_Only, nullptr);
+            settings.setProperty(Nova::IDs::OUTPUT_MIX, 100.0f, nullptr);
+        }
+
+        if (auto lineA = Nova::PluginStateModel::getLineTree(state, Nova::ChainID::LineA); lineA.isValid())
+        {
+            auto pedal = juce::ValueTree(Nova::IDs::PEDAL);
+            pedal.setProperty(Nova::IDs::PEDAL_ID, "factory-delay-" + juce::String(presetIndex), nullptr);
+            pedal.setProperty(Nova::IDs::PEDAL_TYPE, "Delay", nullptr);
+            pedal.setProperty(Nova::IDs::PEDAL_ZONE, (int) Nova::ZoneID::FX, nullptr);
+            pedal.setProperty(Nova::IDs::PEDAL_ENABLED, true, nullptr);
+
+            if (pedalState.getSize() > 0)
+            {
+                pedal.setProperty(Nova::IDs::PEDAL_STATE,
+                    juce::Base64::toBase64(pedalState.getData(), pedalState.getSize()),
+                    nullptr);
+            }
+
+            lineA.appendChild(pedal, nullptr);
+        }
+
+        Nova::PluginStateModel::canonicalizeStateTree(state);
+        return state;
+    }
+
+    void ensureBundledDelayPresets(const juce::File& presetDirectory)
+    {
+        if (!presetDirectory.exists())
+            presetDirectory.createDirectory();
+
+        for (int i = 0; i < DelayPedal::getNumFlagshipPresets(); ++i)
+        {
+            const auto presetName = "Factory - Orbit " + DelayPedal::getFlagshipPresetName(i);
+            const auto presetFile = presetDirectory.getChildFile(sanitiseFactoryPresetStem(presetName) + ".nova-preset");
+
+            if (presetFile.existsAsFile())
+                continue;
+
+            juce::MemoryOutputStream stream;
+            createFactoryDelayPresetState(i).writeToStream(stream);
+            presetFile.replaceWithData(stream.getData(), stream.getDataSize());
+        }
     }
 
     struct PedalUIRegistrar
@@ -2599,6 +2671,8 @@ void NOVAAudioProcessorEditor::setCurrentPreset(const juce::String& presetName)
 
 void NOVAAudioProcessorEditor::refreshPresetList()
 {
+    ensureBundledDelayPresets(getPresetDirectory());
+
     juce::Array<juce::File> found;
     getPresetDirectory().findChildFiles(found, juce::File::TypesOfFileToFind::findFiles, false, "*.nova-preset");
 

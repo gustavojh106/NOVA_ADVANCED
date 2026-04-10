@@ -43,6 +43,9 @@ juce::String formatRuntimeParams(const AudioEngine::RuntimeGlobalParams& snapsho
         << ", gateThresholdDb=" << snapshot.gateThresholdDb
         << ", forceMono=" << boolToText(snapshot.forceMono)
         << ", inputTranspose=" << snapshot.inputTranspose
+        << ", hostTempoBpm=" << snapshot.hostTempoBpm
+        << ", hostTempoValid=" << boolToText(snapshot.hostTempoValid)
+        << ", hostTransportPlaying=" << boolToText(snapshot.hostTransportPlaying)
         << ", outputVolumeDb=" << snapshot.outputVolumeDb
         << ", outputLimiterDb=" << snapshot.outputLimiterDb
         << ", outputMixRaw=" << snapshot.outputMixRaw
@@ -469,6 +472,8 @@ void AudioEngine::applyPendingGlobalParams()
 
 void AudioEngine::applyGlobalParamsNow(const RuntimeGlobalParams& snapshot)
 {
+    propagateTempoContextToProcessors(snapshot);
+
     if (inputChainNode)
     {
         if (auto* p = dynamic_cast<InputChainProcessor*>(inputChainNode->getProcessor()))
@@ -534,6 +539,28 @@ void AudioEngine::applyGlobalParamsNow(const RuntimeGlobalParams& snapshot)
             p->setParams(gain, snapshot.panB, snapshot.widthB);
         }
     }
+}
+
+void AudioEngine::propagateTempoContextToProcessors(const RuntimeGlobalParams& snapshot)
+{
+    const auto applyToChain = [&snapshot](const std::vector<ChainNodeSlot>& chain)
+    {
+        for (const auto& slot : chain)
+        {
+            if (slot.node == nullptr)
+                continue;
+
+            if (auto* tempoSync = dynamic_cast<TempoSyncable*>(slot.node->getProcessor()))
+            {
+                tempoSync->setTempoSyncContext(snapshot.hostTempoBpm,
+                    snapshot.hostTempoValid,
+                    snapshot.hostTransportPlaying);
+            }
+        }
+    };
+
+    applyToChain(nodesChainA);
+    applyToChain(nodesChainB);
 }
 
 void AudioEngine::updateDryWetLatencyCompensation()

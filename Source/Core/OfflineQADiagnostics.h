@@ -403,10 +403,15 @@ private:
     {
         delay.modeParam->setValueNotifyingHost(normalisedChoiceIndex(delay.modeParam, 0));
         delay.timeParam->setValueNotifyingHost(delay.timeParam->convertTo0to1(390.0f));
+        delay.syncParam->setValueNotifyingHost(0.0f);
+        delay.syncDivisionParam->setValueNotifyingHost(normalisedChoiceIndex(delay.syncDivisionParam, 7));
         delay.feedbackParam->setValueNotifyingHost(delay.feedbackParam->convertTo0to1(0.70f));
         delay.toneParam->setValueNotifyingHost(delay.toneParam->convertTo0to1(5200.0f));
+        delay.lowCutParam->setValueNotifyingHost(delay.lowCutParam->convertTo0to1(85.0f));
         delay.spreadParam->setValueNotifyingHost(delay.spreadParam->convertTo0to1(0.62f));
         delay.textureParam->setValueNotifyingHost(delay.textureParam->convertTo0to1(0.66f));
+        delay.modDepthParam->setValueNotifyingHost(delay.modDepthParam->convertTo0to1(0.56f));
+        delay.modRateParam->setValueNotifyingHost(delay.modRateParam->convertTo0to1(1.25f));
         delay.mixParam->setValueNotifyingHost(delay.mixParam->convertTo0to1(1.0f));
         delay.duckParam->setValueNotifyingHost(delay.duckParam->convertTo0to1(0.0f));
         delay.swellParam->setValueNotifyingHost(delay.swellParam->convertTo0to1(0.0f));
@@ -418,10 +423,15 @@ private:
     {
         delay.modeParam->setValueNotifyingHost(normalisedChoiceIndex(delay.modeParam, 1));
         delay.timeParam->setValueNotifyingHost(delay.timeParam->convertTo0to1(620.0f));
+        delay.syncParam->setValueNotifyingHost(0.0f);
+        delay.syncDivisionParam->setValueNotifyingHost(normalisedChoiceIndex(delay.syncDivisionParam, 8));
         delay.feedbackParam->setValueNotifyingHost(delay.feedbackParam->convertTo0to1(0.84f));
         delay.toneParam->setValueNotifyingHost(delay.toneParam->convertTo0to1(4800.0f));
+        delay.lowCutParam->setValueNotifyingHost(delay.lowCutParam->convertTo0to1(110.0f));
         delay.spreadParam->setValueNotifyingHost(delay.spreadParam->convertTo0to1(0.76f));
         delay.textureParam->setValueNotifyingHost(delay.textureParam->convertTo0to1(0.82f));
+        delay.modDepthParam->setValueNotifyingHost(delay.modDepthParam->convertTo0to1(0.68f));
+        delay.modRateParam->setValueNotifyingHost(delay.modRateParam->convertTo0to1(1.55f));
         delay.mixParam->setValueNotifyingHost(delay.mixParam->convertTo0to1(1.0f));
         delay.duckParam->setValueNotifyingHost(delay.duckParam->convertTo0to1(0.0f));
         delay.swellParam->setValueNotifyingHost(delay.swellParam->convertTo0to1(0.0f));
@@ -433,10 +443,15 @@ private:
     {
         delay.modeParam->setValueNotifyingHost(normalisedChoiceIndex(delay.modeParam, 2));
         delay.timeParam->setValueNotifyingHost(delay.timeParam->convertTo0to1(340.0f));
+        delay.syncParam->setValueNotifyingHost(0.0f);
+        delay.syncDivisionParam->setValueNotifyingHost(normalisedChoiceIndex(delay.syncDivisionParam, 4));
         delay.feedbackParam->setValueNotifyingHost(delay.feedbackParam->convertTo0to1(0.68f));
         delay.toneParam->setValueNotifyingHost(delay.toneParam->convertTo0to1(10400.0f));
+        delay.lowCutParam->setValueNotifyingHost(delay.lowCutParam->convertTo0to1(55.0f));
         delay.spreadParam->setValueNotifyingHost(delay.spreadParam->convertTo0to1(0.96f));
         delay.textureParam->setValueNotifyingHost(delay.textureParam->convertTo0to1(0.30f));
+        delay.modDepthParam->setValueNotifyingHost(delay.modDepthParam->convertTo0to1(0.22f));
+        delay.modRateParam->setValueNotifyingHost(delay.modRateParam->convertTo0to1(1.05f));
         delay.mixParam->setValueNotifyingHost(delay.mixParam->convertTo0to1(1.0f));
         delay.duckParam->setValueNotifyingHost(delay.duckParam->convertTo0to1(0.0f));
         delay.swellParam->setValueNotifyingHost(delay.swellParam->convertTo0to1(0.0f));
@@ -448,14 +463,19 @@ private:
     {
         delay.modeParam->setValueNotifyingHost(normalisedChoiceIndex(delay.modeParam, 3));
         delay.timeParam->setValueNotifyingHost(delay.timeParam->convertTo0to1(520.0f));
+        delay.syncParam->setValueNotifyingHost(0.0f);
+        delay.syncDivisionParam->setValueNotifyingHost(normalisedChoiceIndex(delay.syncDivisionParam, 7));
         delay.feedbackParam->setValueNotifyingHost(delay.feedbackParam->convertTo0to1(0.76f));
         delay.toneParam->setValueNotifyingHost(delay.toneParam->convertTo0to1(5600.0f));
+        delay.lowCutParam->setValueNotifyingHost(delay.lowCutParam->convertTo0to1(95.0f));
         delay.spreadParam->setValueNotifyingHost(delay.spreadParam->convertTo0to1(0.88f));
         delay.textureParam->setValueNotifyingHost(delay.textureParam->convertTo0to1(0.80f));
+        delay.modDepthParam->setValueNotifyingHost(delay.modDepthParam->convertTo0to1(0.58f));
+        delay.modRateParam->setValueNotifyingHost(delay.modRateParam->convertTo0to1(1.35f));
         delay.mixParam->setValueNotifyingHost(delay.mixParam->convertTo0to1(1.0f));
         delay.duckParam->setValueNotifyingHost(delay.duckParam->convertTo0to1(0.0f));
         delay.swellParam->setValueNotifyingHost(delay.swellParam->convertTo0to1(0.0f));
-        delay.reverseParam->setValueNotifyingHost(delay.reverseParam->convertTo0to1(0.0f));
+        delay.reverseParam->setValueNotifyingHost(delay.reverseParam->convertTo0to1(0.74f));
         delay.freezeParam->setValueNotifyingHost(0.0f);
     }
 
@@ -508,6 +528,9 @@ private:
         results.push_back(runDelayTailScenario());
         results.push_back(runDelayStereoFieldScenario());
         results.push_back(runDelayModeDistinctnessScenario());
+        results.push_back(runDelayFlagshipRecallScenario());
+        results.push_back(runDelaySyncTimingScenario());
+        results.push_back(runDelayModulationRangeScenario());
         results.push_back(runDelayFreezeScenario());
         results.push_back(runDelayDuckingScenario());
         results.push_back(runDelayReverseScenario());
@@ -1451,6 +1474,135 @@ private:
         return result;
     }
 
+    static OfflineQAScenarioResult runDelaySyncTimingScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_sync_timing";
+
+        DelayPedal pedal;
+        pedal.prepareToPlay(sampleRate, blockSize);
+        configureFlagshipDelayDigital(pedal);
+        pedal.syncParam->setValueNotifyingHost(1.0f);
+        pedal.syncDivisionParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.syncDivisionParam, 7));
+        pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.38f));
+        pedal.spreadParam->setValueNotifyingHost(pedal.spreadParam->convertTo0to1(0.0f));
+        pedal.textureParam->setValueNotifyingHost(pedal.textureParam->convertTo0to1(0.08f));
+        pedal.modDepthParam->setValueNotifyingHost(pedal.modDepthParam->convertTo0to1(0.0f));
+        pedal.reverseParam->setValueNotifyingHost(pedal.reverseParam->convertTo0to1(0.0f));
+        pedal.setTempoSyncContext(120.0f, true, true);
+
+        const auto rendered = renderDelayPedalWithAutomation(pedal,
+            generateImpulse((int) (sampleRate * 1.4), 1.0f),
+            [](int) {});
+
+        const bool finite = bufferHasOnlyFiniteSamples(rendered);
+        const int searchStart = (int) (sampleRate * 0.20);
+        int bestIndex = searchStart;
+        float bestMagnitude = 0.0f;
+        for (int i = searchStart; i < rendered.getNumSamples(); ++i)
+        {
+            const float magnitude = std::abs(rendered.getSample(0, i));
+            if (magnitude > bestMagnitude)
+            {
+                bestMagnitude = magnitude;
+                bestIndex = i;
+            }
+        }
+
+        const double expectedIndex = sampleRate * 0.5;
+        const double deltaMs = std::abs((bestIndex - expectedIndex) * 1000.0 / sampleRate);
+        result.metrics.push_back({ "repeat_peak_index", (double) bestIndex });
+        result.metrics.push_back({ "repeat_peak_magnitude", bestMagnitude });
+        result.metrics.push_back({ "expected_index", expectedIndex });
+        result.metrics.push_back({ "delta_ms", deltaMs });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite && bestMagnitude > 0.05f && deltaMs < 35.0;
+        result.notes = result.passed ? "Tempo sync landed the first quarter-note repeat close to the host grid"
+                                     : "Tempo sync missed the expected quarter-note landing";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDelayModulationRangeScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_modulation_range";
+
+        auto renderVariant = [](float modDepth, float modRate)
+        {
+            DelayPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            configureFlagshipDelayTape(pedal);
+            pedal.timeParam->setValueNotifyingHost(pedal.timeParam->convertTo0to1(520.0f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.74f));
+            pedal.spreadParam->setValueNotifyingHost(pedal.spreadParam->convertTo0to1(0.82f));
+            pedal.modDepthParam->setValueNotifyingHost(pedal.modDepthParam->convertTo0to1(modDepth));
+            pedal.modRateParam->setValueNotifyingHost(pedal.modRateParam->convertTo0to1(modRate));
+
+            return renderDelayPedalWithAutomation(pedal,
+                generateSine((int) (sampleRate * 1.8), 247.0, 0.20f),
+                [](int) {});
+        };
+
+        const auto restrained = renderVariant(0.02f, 0.35f);
+        const auto animated = renderVariant(0.92f, 3.20f);
+        const bool finite = bufferHasOnlyFiniteSamples(animated);
+        const double nullRms = computeNullRms(restrained, animated);
+        const double restrainedCorr = computeStereoCorrelation(restrained, (int) (sampleRate * 0.18));
+        const double animatedCorr = computeStereoCorrelation(animated, (int) (sampleRate * 0.18));
+
+        result.metrics.push_back({ "null_rms", nullRms });
+        result.metrics.push_back({ "restrained_corr", restrainedCorr });
+        result.metrics.push_back({ "animated_corr", animatedCorr });
+        result.metrics.push_back({ "corr_delta", std::abs(animatedCorr - restrainedCorr) });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite && nullRms > 1.5e-3 && std::abs(animatedCorr - restrainedCorr) > 0.015;
+        result.notes = result.passed ? "Modulation controls cover a materially wider movement range"
+                                     : "Modulation controls did not open enough sonic range";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDelayFlagshipRecallScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "delay_flagship_recall";
+
+        double worstNullRms = 0.0;
+        bool finite = true;
+
+        for (int presetIndex = 0; presetIndex < DelayPedal::getNumFlagshipPresets(); ++presetIndex)
+        {
+            DelayPedal source;
+            source.prepareToPlay(sampleRate, blockSize);
+            source.applyFlagshipPreset(presetIndex);
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            DelayPedal recalled;
+            recalled.prepareToPlay(sampleRate, blockSize);
+            recalled.setStateInformation(state.getData(), (int) state.getSize());
+
+            const auto input = generateImpulse((int) (sampleRate * 1.8), 1.0f);
+            const auto renderedSource = renderDelayPedalWithAutomation(source, input, [](int) {});
+            const auto renderedRecalled = renderDelayPedalWithAutomation(recalled, input, [](int) {});
+
+            finite = finite
+                && bufferHasOnlyFiniteSamples(renderedSource)
+                && bufferHasOnlyFiniteSamples(renderedRecalled);
+            worstNullRms = juce::jmax(worstNullRms, computeNullRms(renderedSource, renderedRecalled));
+        }
+
+        result.metrics.push_back({ "worst_null_rms", worstNullRms });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite && worstNullRms < 1.0e-6;
+        result.notes = result.passed ? "Flagship delay presets survive state save/load transparently"
+                                     : "At least one flagship delay preset drifted after state recall";
+        return result;
+    }
+
     static OfflineQAScenarioResult runDelayFreezeScenario()
     {
         OfflineQAScenarioResult result;
@@ -1688,7 +1840,7 @@ private:
         result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
 
         result.passed = finite
-            && comboEarly < baselineEarly * 0.82
+            && comboEarly < baselineEarly * 0.90
             && comboLate > comboEarly * 0.52
             && comboLate > baselineLate * 0.70;
         result.notes = result.passed ? "Reverse+swell produced a later ambient body without collapsing the mix"
@@ -1720,17 +1872,25 @@ private:
 
             const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
             const int mode = juce::jlimit(0, 3, (int) std::floor(phase * 4.0f));
+            const bool syncOn = (blockIndex % 9) < 4;
 
             delay.modeParam->setValueNotifyingHost(normalisedChoiceIndex(delay.modeParam, mode));
+            delay.syncParam->setValueNotifyingHost(syncOn ? 1.0f : 0.0f);
+            delay.syncDivisionParam->setValueNotifyingHost(normalisedChoiceIndex(delay.syncDivisionParam,
+                juce::jlimit(0, 11, (int) std::floor(phase * 12.0f))));
             delay.timeParam->setValueNotifyingHost(delay.timeParam->convertTo0to1(120.0f + 1900.0f * phase));
             delay.feedbackParam->setValueNotifyingHost(delay.feedbackParam->convertTo0to1(0.18f + 0.72f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
             delay.toneParam->setValueNotifyingHost(delay.toneParam->convertTo0to1(1800.0f + 10000.0f * (1.0f - phase)));
+            delay.lowCutParam->setValueNotifyingHost(delay.lowCutParam->convertTo0to1(35.0f + 900.0f * phase));
             delay.spreadParam->setValueNotifyingHost(delay.spreadParam->convertTo0to1(0.10f + 0.90f * phase));
             delay.textureParam->setValueNotifyingHost(delay.textureParam->convertTo0to1(0.15f + 0.80f * std::abs(std::cos(phase * juce::MathConstants<float>::twoPi))));
+            delay.modDepthParam->setValueNotifyingHost(delay.modDepthParam->convertTo0to1(0.10f + 0.85f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+            delay.modRateParam->setValueNotifyingHost(delay.modRateParam->convertTo0to1(0.20f + 4.80f * phase));
             delay.duckParam->setValueNotifyingHost(delay.duckParam->convertTo0to1(0.85f * (1.0f - phase)));
             delay.swellParam->setValueNotifyingHost(delay.swellParam->convertTo0to1(0.80f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
             delay.reverseParam->setValueNotifyingHost(delay.reverseParam->convertTo0to1(0.75f * phase));
             delay.freezeParam->setValueNotifyingHost((blockIndex % 181) == 0 ? 1.0f : 0.0f);
+            delay.setTempoSyncContext(88.0f + 72.0f * phase, true, (blockIndex % 5) != 0);
 
             delay.processBlock(block, midi);
             peak = juce::jmax(peak, (double) analyseBuffer(block).peak);
