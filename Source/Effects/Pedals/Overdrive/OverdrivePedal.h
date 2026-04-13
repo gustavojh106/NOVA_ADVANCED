@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../Base/ProcessorBase.h"
-#include "../Base/PremiumPedalUI.h"
 
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>

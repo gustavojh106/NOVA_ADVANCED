@@ -6,11 +6,12 @@
 #include <array>
 #include <cmath>
 
-// ============================================================================
-//  Distortion — Dual-stage asymmetric clip, diode-style hard edge, body/tone EQ
-//  Reference: RAT crunch, DS-1 edge, ProCo mid-push
-// ============================================================================
 namespace Nova { namespace DistortionDSP {
+
+inline float blend(float a, float b, float t) noexcept
+{
+    return a + (b - a) * t;
+}
 
 struct Biquad
 {
@@ -18,58 +19,89 @@ struct Biquad
     float a1 = 0.0f, a2 = 0.0f;
     float z1 = 0.0f, z2 = 0.0f;
 
-    void reset() { z1 = z2 = 0.0f; }
-
-    void setHighPass(float freq, float q, double sr)
+    void reset() noexcept
     {
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float s0 = std::sin(w0), c0 = std::cos(w0);
-        float alpha = s0 / (2.0f * q);
-        float a0inv = 1.0f / (1.0f + alpha);
-        b0 = (1.0f + c0) * 0.5f * a0inv;
-        b1 = -(1.0f + c0) * a0inv;
+        z1 = 0.0f;
+        z2 = 0.0f;
+    }
+
+    void setHighPass(float freq, float q, double sr) noexcept
+    {
+        const float clamped = juce::jlimit(20.0f, (float) (sr * 0.45), freq);
+        const float w0 = juce::MathConstants<float>::twoPi * clamped / (float) sr;
+        const float sinW0 = std::sin(w0);
+        const float cosW0 = std::cos(w0);
+        const float alpha = sinW0 / (2.0f * q);
+        const float a0inv = 1.0f / (1.0f + alpha);
+
+        b0 = (1.0f + cosW0) * 0.5f * a0inv;
+        b1 = -(1.0f + cosW0) * a0inv;
         b2 = b0;
-        a1 = -2.0f * c0 * a0inv;
+        a1 = -2.0f * cosW0 * a0inv;
         a2 = (1.0f - alpha) * a0inv;
     }
 
-    void setLowPass(float freq, float q, double sr)
+    void setLowPass(float freq, float q, double sr) noexcept
     {
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float s0 = std::sin(w0), c0 = std::cos(w0);
-        float alpha = s0 / (2.0f * q);
-        float a0inv = 1.0f / (1.0f + alpha);
-        b0 = (1.0f - c0) * 0.5f * a0inv;
-        b1 = (1.0f - c0) * a0inv;
+        const float clamped = juce::jlimit(20.0f, (float) (sr * 0.45), freq);
+        const float w0 = juce::MathConstants<float>::twoPi * clamped / (float) sr;
+        const float sinW0 = std::sin(w0);
+        const float cosW0 = std::cos(w0);
+        const float alpha = sinW0 / (2.0f * q);
+        const float a0inv = 1.0f / (1.0f + alpha);
+
+        b0 = (1.0f - cosW0) * 0.5f * a0inv;
+        b1 = (1.0f - cosW0) * a0inv;
         b2 = b0;
-        a1 = -2.0f * c0 * a0inv;
+        a1 = -2.0f * cosW0 * a0inv;
         a2 = (1.0f - alpha) * a0inv;
     }
 
-    void setLowShelf(float freq, float gainDb, float q, double sr)
+    void setLowShelf(float freq, float gainDb, float q, double sr) noexcept
     {
-        float A = std::pow(10.0f, gainDb / 40.0f);
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float s0 = std::sin(w0), c0 = std::cos(w0);
-        float alpha = s0 / (2.0f * q);
-        float twoSqrtAa = 2.0f * std::sqrt(A) * alpha;
-        float a0inv = 1.0f / ((A + 1.0f) + (A - 1.0f) * c0 + twoSqrtAa);
-        b0 = A * ((A + 1.0f) - (A - 1.0f) * c0 + twoSqrtAa) * a0inv;
-        b1 = 2.0f * A * ((A - 1.0f) - (A + 1.0f) * c0) * a0inv;
-        b2 = A * ((A + 1.0f) - (A - 1.0f) * c0 - twoSqrtAa) * a0inv;
-        a1 = -2.0f * ((A - 1.0f) + (A + 1.0f) * c0) * a0inv;
-        a2 = ((A + 1.0f) + (A - 1.0f) * c0 - twoSqrtAa) * a0inv;
+        const float A = std::pow(10.0f, gainDb / 40.0f);
+        const float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float) (sr * 0.45), freq) / (float) sr;
+        const float sinW0 = std::sin(w0);
+        const float cosW0 = std::cos(w0);
+        const float alpha = sinW0 / (2.0f * q);
+        const float twoSqrtAalpha = 2.0f * std::sqrt(A) * alpha;
+        const float a0inv = 1.0f / ((A + 1.0f) + (A - 1.0f) * cosW0 + twoSqrtAalpha);
+
+        b0 = A * ((A + 1.0f) - (A - 1.0f) * cosW0 + twoSqrtAalpha) * a0inv;
+        b1 = 2.0f * A * ((A - 1.0f) - (A + 1.0f) * cosW0) * a0inv;
+        b2 = A * ((A + 1.0f) - (A - 1.0f) * cosW0 - twoSqrtAalpha) * a0inv;
+        a1 = -2.0f * ((A - 1.0f) + (A + 1.0f) * cosW0) * a0inv;
+        a2 = ((A + 1.0f) + (A - 1.0f) * cosW0 - twoSqrtAalpha) * a0inv;
     }
 
-    void setPeak(float freq, float gainDb, float q, double sr)
+    void setHighShelf(float freq, float gainDb, float q, double sr) noexcept
     {
-        float A = std::pow(10.0f, gainDb / 40.0f);
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float s0 = std::sin(w0), c0 = std::cos(w0);
-        float alpha = s0 / (2.0f * q);
-        float a0inv = 1.0f / (1.0f + alpha / A);
+        const float A = std::pow(10.0f, gainDb / 40.0f);
+        const float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float) (sr * 0.45), freq) / (float) sr;
+        const float sinW0 = std::sin(w0);
+        const float cosW0 = std::cos(w0);
+        const float alpha = sinW0 / (2.0f * q);
+        const float twoSqrtAalpha = 2.0f * std::sqrt(A) * alpha;
+        const float a0inv = 1.0f / ((A + 1.0f) - (A - 1.0f) * cosW0 + twoSqrtAalpha);
+
+        b0 = A * ((A + 1.0f) + (A - 1.0f) * cosW0 + twoSqrtAalpha) * a0inv;
+        b1 = -2.0f * A * ((A - 1.0f) + (A + 1.0f) * cosW0) * a0inv;
+        b2 = A * ((A + 1.0f) + (A - 1.0f) * cosW0 - twoSqrtAalpha) * a0inv;
+        a1 = 2.0f * ((A - 1.0f) - (A + 1.0f) * cosW0) * a0inv;
+        a2 = ((A + 1.0f) - (A - 1.0f) * cosW0 - twoSqrtAalpha) * a0inv;
+    }
+
+    void setPeak(float freq, float gainDb, float q, double sr) noexcept
+    {
+        const float A = std::pow(10.0f, gainDb / 40.0f);
+        const float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float) (sr * 0.45), freq) / (float) sr;
+        const float sinW0 = std::sin(w0);
+        const float cosW0 = std::cos(w0);
+        const float alpha = sinW0 / (2.0f * q);
+        const float a0inv = 1.0f / (1.0f + alpha / A);
+
         b0 = (1.0f + alpha * A) * a0inv;
-        b1 = -2.0f * c0 * a0inv;
+        b1 = -2.0f * cosW0 * a0inv;
         b2 = (1.0f - alpha * A) * a0inv;
         a1 = b1;
         a2 = (1.0f - alpha / A) * a0inv;
@@ -77,41 +109,157 @@ struct Biquad
 
     float process(float x) noexcept
     {
-        float y = b0 * x + z1;
+        const float y = b0 * x + z1;
         z1 = b1 * x - a1 * y + z2;
         z2 = b2 * x - a2 * y;
         return y;
     }
 };
 
-// Asymmetric diode-style clipping
-inline float diodeClip(float x, float posThresh, float negThresh) noexcept
+inline float softClip(float x, float drive) noexcept
 {
-    if (x > posThresh)
-        return posThresh + (x - posThresh) / (1.0f + std::abs(x - posThresh));
-    if (x < -negThresh)
-        return -negThresh + (x + negThresh) / (1.0f + std::abs(x + negThresh));
+    return std::tanh(x * drive) / juce::jmax(1.0f, drive * 0.72f);
+}
+
+inline float asymSoftClip(float x, float posDrive, float negDrive) noexcept
+{
+    return x >= 0.0f
+        ? std::tanh(x * posDrive) / juce::jmax(1.0f, posDrive * 0.72f)
+        : std::tanh(x * negDrive) / juce::jmax(1.0f, negDrive * 0.72f);
+}
+
+inline float diodeClip(float x, float posThreshold, float negThreshold) noexcept
+{
+    if (x > posThreshold)
+        return posThreshold + (x - posThreshold) / (1.0f + std::abs(x - posThreshold));
+    if (x < -negThreshold)
+        return -negThreshold + (x + negThreshold) / (1.0f + std::abs(x + negThreshold));
     return x;
 }
 
-}} // namespace Nova::DistortionDSP
+inline float ledClip(float x, float threshold) noexcept
+{
+    if (x > threshold)
+        return threshold + std::tanh((x - threshold) * 0.72f);
+    if (x < -threshold)
+        return -threshold + std::tanh((x + threshold) * 0.72f);
+    return x;
+}
 
+struct ModeConfig
+{
+    float preMidFreq = 900.0f;
+    float preMidGainDb = 2.0f;
+    float contourFreq = 900.0f;
+    float contourGainDb = 0.0f;
+    float stage1Pos = 1.6f;
+    float stage1Neg = 1.3f;
+    float stage2Pos = 2.2f;
+    float stage2Neg = 1.8f;
+    float diodeBlend = 0.5f;
+    float ledBlend = 0.0f;
+    float ampBlend = 0.4f;
+    float harmonic = 0.03f;
+    float sagAmount = 0.0f;
+    float outputTrim = 1.0f;
+    float highShelfDb = 0.0f;
+};
+
+inline ModeConfig makeVintageConfig() noexcept
+{
+    ModeConfig config;
+    config.preMidFreq = 980.0f;
+    config.preMidGainDb = 2.8f;
+    config.contourFreq = 760.0f;
+    config.contourGainDb = -1.8f;
+    config.stage1Pos = 1.75f;
+    config.stage1Neg = 1.34f;
+    config.stage2Pos = 2.45f;
+    config.stage2Neg = 1.85f;
+    config.diodeBlend = 0.72f;
+    config.ledBlend = 0.0f;
+    config.ampBlend = 0.28f;
+    config.harmonic = 0.035f;
+    config.sagAmount = 0.04f;
+    config.outputTrim = 0.92f;
+    config.highShelfDb = -0.8f;
+    return config;
+}
+
+inline ModeConfig makeTurboConfig() noexcept
+{
+    ModeConfig config;
+    config.preMidFreq = 860.0f;
+    config.preMidGainDb = 1.5f;
+    config.contourFreq = 820.0f;
+    config.contourGainDb = 1.0f;
+    config.stage1Pos = 1.55f;
+    config.stage1Neg = 1.45f;
+    config.stage2Pos = 1.95f;
+    config.stage2Neg = 1.92f;
+    config.diodeBlend = 0.26f;
+    config.ledBlend = 0.64f;
+    config.ampBlend = 0.30f;
+    config.harmonic = 0.028f;
+    config.sagAmount = 0.02f;
+    config.outputTrim = 0.98f;
+    config.highShelfDb = 0.4f;
+    return config;
+}
+
+inline ModeConfig makeAmpConfig() noexcept
+{
+    ModeConfig config;
+    config.preMidFreq = 1080.0f;
+    config.preMidGainDb = 3.6f;
+    config.contourFreq = 1120.0f;
+    config.contourGainDb = 2.4f;
+    config.stage1Pos = 1.90f;
+    config.stage1Neg = 1.55f;
+    config.stage2Pos = 2.15f;
+    config.stage2Neg = 1.76f;
+    config.diodeBlend = 0.18f;
+    config.ledBlend = 0.0f;
+    config.ampBlend = 0.68f;
+    config.harmonic = 0.045f;
+    config.sagAmount = 0.10f;
+    config.outputTrim = 0.88f;
+    config.highShelfDb = -0.3f;
+    return config;
+}
+
+inline ModeConfig getModeConfig(int modeIndex) noexcept
+{
+    switch (modeIndex)
+    {
+        case 1:  return makeTurboConfig();
+        case 2:  return makeAmpConfig();
+        default: return makeVintageConfig();
+    }
+}
+
+}} // namespace Nova::DistortionDSP
 
 class DistortionPedal final : public ProcessorBase
 {
 public:
     DistortionPedal()
-        : oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
+        : oversampler(2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
-        addParameter(gainParam  = new juce::AudioParameterFloat("distGain",  "Gain",  0.0f,  100.0f, 55.0f));
-        addParameter(toneParam  = new juce::AudioParameterFloat("distTone",  "Tone",  0.0f,  1.0f,   0.52f));
-        addParameter(bodyParam  = new juce::AudioParameterFloat("distBody",  "Body",  0.0f,  1.0f,   0.5f));
-        addParameter(mixParam   = new juce::AudioParameterFloat("distMix",   "Mix",   0.0f,  1.0f,   1.0f));
-        addParameter(levelParam = new juce::AudioParameterFloat("distLevel", "Level", 0.0f,  1.0f,   0.62f));
+        addParameter(gainParam = new juce::AudioParameterFloat("distGain", "Gain", 0.0f, 100.0f, 58.0f));
+        addParameter(toneParam = new juce::AudioParameterFloat("distTone", "Tone", 0.0f, 1.0f, 0.54f));
+        addParameter(bodyParam = new juce::AudioParameterFloat("distBody", "Body", 0.0f, 1.0f, 0.52f));
+        addParameter(mixParam = new juce::AudioParameterFloat("distMix", "Mix", 0.0f, 1.0f, 1.0f));
+        addParameter(levelParam = new juce::AudioParameterFloat("distLevel", "Level", 0.0f, 1.0f, 0.64f));
+        addParameter(tightParam = new juce::AudioParameterFloat("distTight", "Tight", 0.0f, 1.0f, 0.42f));
+        addParameter(modeParam = new juce::AudioParameterChoice("distMode",
+            "Mode",
+            juce::StringArray{ "Vintage", "Turbo", "Amp" },
+            0));
     }
 
     const juce::String getName() const override { return "Distortion"; }
-    double getTailLengthSeconds() const override { return 0.05; }
+    double getTailLengthSeconds() const override { return 0.06; }
 
     bool hasEditor() const override { return true; }
     juce::AudioProcessorEditor* createEditor() override;
@@ -122,54 +270,95 @@ public:
             return;
 
         sr = sampleRate;
-        innerSr = sr * 4.0;
+        innerSr = sr * 8.0;
 
         oversampler.reset();
-        oversampler.initProcessing((size_t)juce::jmax(1, samplesPerBlock));
+        oversampler.initProcessing((size_t) juce::jmax(1, samplesPerBlock));
 
         gainSmooth.reset(sr, Nova::Config::SMOOTH_DRIVE_SECONDS);
         mixSmooth.reset(sr, Nova::Config::SMOOTH_DEFAULT_SECONDS);
         levelSmooth.reset(sr, Nova::Config::SMOOTH_DEFAULT_SECONDS);
+        tightSmooth.reset(sr, 0.05);
 
-        gainSmooth.setCurrentAndTargetValue(gainParam != nullptr ? *gainParam : 55.0f);
-        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
-        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 0.62f);
+        gainSmooth.setCurrentAndTargetValue(gainParam != nullptr ? gainParam->get() : 58.0f);
+        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? mixParam->get() : 1.0f);
+        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelParam->get() : 0.64f);
+        tightSmooth.setCurrentAndTargetValue(tightParam != nullptr ? tightParam->get() : 0.42f);
 
         scratchBuffer.setSize(juce::jmax(2, getTotalNumOutputChannels()),
-            juce::jmax(1, samplesPerBlock), false, false, true);
+            juce::jmax(1, samplesPerBlock),
+            false,
+            false,
+            true);
 
-        for (auto& f : preHP)       f.reset();
-        for (auto& f : preMidBoost) f.reset();
-        for (auto& f : interLP)     f.reset();
-        for (auto& f : bodyShelf)   f.reset();
-        for (auto& f : toneLP)      f.reset();
-        for (auto& f : dcBlock)     f.reset();
+        for (auto& filter : inputHP)
+            filter.reset();
+        for (auto& filter : preContour)
+            filter.reset();
+        for (auto& filter : interLP1)
+            filter.reset();
+        for (auto& filter : interLP2)
+            filter.reset();
+        for (auto& filter : bodyShelf)
+            filter.reset();
+        for (auto& filter : modeContour)
+            filter.reset();
+        for (auto& filter : toneLP)
+            filter.reset();
+        for (auto& filter : toneShelf)
+            filter.reset();
+        for (auto& filter : dcBlock)
+            filter.reset();
+
+        sagEnvelope.fill(0.0f);
+        sagAttackCoeff = std::exp(-1.0f / ((float) innerSr * 0.0015f));
+        sagReleaseCoeff = std::exp(-1.0f / ((float) innerSr * 0.055f));
 
         cachedTone = -999.0f;
         cachedBody = -999.0f;
         cachedGain = -999.0f;
+        cachedTight = -999.0f;
+        cachedMode = -1;
 
-        setProcessingLatency((int)oversampler.getLatencyInSamples());
+        setProcessingLatency((int) std::round(oversampler.getLatencyInSamples()));
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
         isPrepared = true;
     }
 
-    void releaseResources() override { isPrepared = false; }
+    void releaseResources() override
+    {
+        isPrepared = false;
+    }
 
     void reset() override
     {
         oversampler.reset();
-        for (auto& f : preHP)       f.reset();
-        for (auto& f : preMidBoost) f.reset();
-        for (auto& f : interLP)     f.reset();
-        for (auto& f : bodyShelf)   f.reset();
-        for (auto& f : toneLP)      f.reset();
-        for (auto& f : dcBlock)     f.reset();
 
-        gainSmooth.setCurrentAndTargetValue(gainParam != nullptr ? *gainParam : 55.0f);
-        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
-        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 0.62f);
+        for (auto& filter : inputHP)
+            filter.reset();
+        for (auto& filter : preContour)
+            filter.reset();
+        for (auto& filter : interLP1)
+            filter.reset();
+        for (auto& filter : interLP2)
+            filter.reset();
+        for (auto& filter : bodyShelf)
+            filter.reset();
+        for (auto& filter : modeContour)
+            filter.reset();
+        for (auto& filter : toneLP)
+            filter.reset();
+        for (auto& filter : toneShelf)
+            filter.reset();
+        for (auto& filter : dcBlock)
+            filter.reset();
+
+        sagEnvelope.fill(0.0f);
+        gainSmooth.setCurrentAndTargetValue(gainParam != nullptr ? gainParam->get() : 58.0f);
+        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? mixParam->get() : 1.0f);
+        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelParam->get() : 0.64f);
+        tightSmooth.setCurrentAndTargetValue(tightParam != nullptr ? tightParam->get() : 0.42f);
     }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
@@ -178,185 +367,252 @@ public:
             return;
 
         const int numChannels = juce::jmin(2, buffer.getNumChannels());
-        const int numSamples  = buffer.getNumSamples();
+        const int numSamples = buffer.getNumSamples();
 
-        // Save dry signal for mix
         if (scratchBuffer.getNumChannels() < numChannels
             || scratchBuffer.getNumSamples() < numSamples)
+        {
             scratchBuffer.setSize(numChannels, numSamples, false, false, true);
+        }
 
         for (int ch = 0; ch < numChannels; ++ch)
             juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch),
-                buffer.getReadPointer(ch), numSamples);
+                buffer.getReadPointer(ch),
+                numSamples);
 
+        gainSmooth.setTargetValue(gainParam != nullptr ? gainParam->get() : 58.0f);
+        mixSmooth.setTargetValue(mixParam != nullptr ? mixParam->get() : 1.0f);
+        levelSmooth.setTargetValue(levelParam != nullptr ? levelParam->get() : 0.64f);
+        tightSmooth.setTargetValue(tightParam != nullptr ? tightParam->get() : 0.42f);
         updateFilters();
-        gainSmooth.setTargetValue(gainParam != nullptr ? *gainParam : 55.0f);
-        mixSmooth.setTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
-        levelSmooth.setTargetValue(levelParam != nullptr ? *levelParam : 0.62f);
 
-        // Upsample 4x
+        const auto config = Nova::DistortionDSP::getModeConfig(modeParam != nullptr ? modeParam->getIndex() : 0);
         juce::dsp::AudioBlock<float> block(buffer);
         auto upsampled = oversampler.processSamplesUp(block);
-
-        const int innerChannels = (int)upsampled.getNumChannels();
-        const int innerSamples  = (int)upsampled.getNumSamples();
+        const int innerChannels = (int) upsampled.getNumChannels();
+        const int innerSamples = (int) upsampled.getNumSamples();
 
         for (int s = 0; s < innerSamples; ++s)
         {
             const float gainCtl = gainSmooth.getNextValue();
-            const float drive = juce::Decibels::decibelsToGain(gainCtl * 0.45f + 6.0f);
-            // Asymmetry increases with gain
-            const float posThresh = juce::jmap(gainCtl, 0.0f, 100.0f, 0.85f, 0.45f);
-            const float negThresh = juce::jmap(gainCtl, 0.0f, 100.0f, 0.90f, 0.60f);
+            const float tightCtl = tightSmooth.getNextValue();
+            const float driveNorm = juce::jlimit(0.0f, 1.0f, gainCtl * 0.01f);
 
             for (int ch = 0; ch < innerChannels; ++ch)
             {
-                auto* data = upsampled.getChannelPointer((size_t)ch);
+                auto* data = upsampled.getChannelPointer((size_t) ch);
                 float x = data[s];
 
-                // Pre-filter: tight HP + mid presence boost
-                x = preHP[(size_t)ch].process(x);
-                x = preMidBoost[(size_t)ch].process(x);
+                x = inputHP[(size_t) ch].process(x);
+                x = preContour[(size_t) ch].process(x);
 
-                // ---- Stage 1: Soft asymmetric clip (preamp tube) ----
-                x *= drive;
-                float soft = std::tanh(x * 0.9f);
+                const float detector = std::abs(x);
+                auto& envelope = sagEnvelope[(size_t) ch];
+                const float sagCoeff = detector > envelope ? sagAttackCoeff : sagReleaseCoeff;
+                envelope = detector + sagCoeff * (envelope - detector);
+                const float sagGain = 1.0f - config.sagAmount * juce::jlimit(0.0f, 1.0f, envelope * 0.72f);
 
-                // ---- Stage 2: Diode-style hard clip ----
-                float hard = Nova::DistortionDSP::diodeClip(x, posThresh, negThresh);
+                const float stage1Drive = juce::Decibels::decibelsToGain(4.0f + gainCtl * 0.28f) * sagGain;
+                const float stage2Drive = 1.15f + driveNorm * 2.15f + tightCtl * 0.14f;
+                const float bias = (config.contourGainDb > 0.0f ? 0.03f : -0.015f) * driveNorm;
 
-                // Blend stages: more gain → more hard clip
-                float blend = juce::jmap(gainCtl, 0.0f, 100.0f, 0.8f, 0.35f);
-                x = soft * blend + hard * (1.0f - blend);
+                x = Nova::DistortionDSP::asymSoftClip(x * stage1Drive + bias,
+                    config.stage1Pos,
+                    config.stage1Neg);
+                x = interLP1[(size_t) ch].process(x);
 
-                // Inter-stage LP to tame aliasing harmonics
-                x = interLP[(size_t)ch].process(x);
+                const float stage2In = x * stage2Drive;
+                const float ampVoice = Nova::DistortionDSP::asymSoftClip(stage2In,
+                    config.stage2Pos,
+                    config.stage2Neg);
+                const float silicon = Nova::DistortionDSP::diodeClip(stage2In,
+                    juce::jmap(driveNorm, 0.0f, 1.0f, 0.96f, 0.36f),
+                    juce::jmap(driveNorm, 0.0f, 1.0f, 1.02f, 0.52f));
+                const float led = Nova::DistortionDSP::ledClip(stage2In,
+                    juce::jmap(driveNorm, 0.0f, 1.0f, 1.18f, 0.62f));
 
-                // Subtle harmonic richness at high gain
-                if (gainCtl > 40.0f && std::abs(x) > 0.5f)
-                {
-                    float richness = juce::jmap(gainCtl, 40.0f, 100.0f, 0.0f, 0.08f);
-                    x += richness * std::sin(x * juce::MathConstants<float>::twoPi);
-                }
+                x = ampVoice * config.ampBlend
+                    + silicon * config.diodeBlend
+                    + led * config.ledBlend;
+                x = interLP2[(size_t) ch].process(x);
 
-                // Post EQ
-                x = bodyShelf[(size_t)ch].process(x);
-                x = toneLP[(size_t)ch].process(x);
-                x = dcBlock[(size_t)ch].process(x);
+                const float harmonic = config.harmonic * (0.35f + driveNorm * 0.85f);
+                x += harmonic * std::sin(x * juce::MathConstants<float>::pi);
 
-                data[s] = x;
+                x = bodyShelf[(size_t) ch].process(x);
+                x = modeContour[(size_t) ch].process(x);
+                x = toneShelf[(size_t) ch].process(x);
+                x = toneLP[(size_t) ch].process(x);
+                x = dcBlock[(size_t) ch].process(x);
+
+                data[s] = x * config.outputTrim;
             }
         }
 
-        // Downsample
         oversampler.processSamplesDown(block);
 
-        // Equal-power dry/wet mix + level
         constexpr float halfPi = juce::MathConstants<float>::halfPi;
-
         for (int s = 0; s < numSamples; ++s)
         {
-            const float mix   = mixSmooth.getNextValue();
-            const float level = juce::jmap(juce::jlimit(0.0f, 1.0f, levelSmooth.getNextValue()), 0.08f, 1.55f);
-            const float dryG  = std::cos(mix * halfPi);
-            const float wetG  = std::sin(mix * halfPi);
+            const float mix = mixSmooth.getNextValue();
+            const float level = juce::jmap(juce::jlimit(0.0f, 1.0f, levelSmooth.getNextValue()), 0.08f, 1.6f);
+            const float dryGain = std::cos(mix * halfPi);
+            const float wetGain = std::sin(mix * halfPi);
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
-                float dry = scratchBuffer.getSample(ch, s);
-                float wet = buffer.getSample(ch, s);
-                buffer.setSample(ch, s, (dry * dryG + wet * wetG) * level);
+                const float dry = scratchBuffer.getSample(ch, s);
+                const float wet = buffer.getSample(ch, s);
+                buffer.setSample(ch, s, (dry * dryGain + wet * wetGain) * level);
             }
         }
 
         endBypassProcess(buffer);
     }
 
-    // Public accessors for editor
-    juce::AudioParameterFloat* gainParam  = nullptr;
-    juce::AudioParameterFloat* toneParam  = nullptr;
-    juce::AudioParameterFloat* bodyParam  = nullptr;
-    juce::AudioParameterFloat* mixParam   = nullptr;
-    juce::AudioParameterFloat* levelParam = nullptr;
-
-    // For editor transfer curve display
-    static float computeClipCurve(float inputLevel, float gainPct)
+    static float toneToCutoffHz(float tone) noexcept
     {
-        float drive = juce::Decibels::decibelsToGain(gainPct * 0.45f + 6.0f);
-        float posT = juce::jmap(gainPct, 0.0f, 100.0f, 0.85f, 0.45f);
-        float negT = juce::jmap(gainPct, 0.0f, 100.0f, 0.90f, 0.60f);
-        float x = inputLevel * drive;
-        float soft = std::tanh(x * 0.9f);
-        float hard = Nova::DistortionDSP::diodeClip(x, posT, negT);
-        float blend = juce::jmap(gainPct, 0.0f, 100.0f, 0.8f, 0.35f);
-        return soft * blend + hard * (1.0f - blend);
+        return 2300.0f + juce::jlimit(0.0f, 1.0f, tone) * 10700.0f;
     }
+
+    static float bodyToGainDb(float body) noexcept
+    {
+        return juce::jmap(juce::jlimit(0.0f, 1.0f, body), -6.0f, 7.5f);
+    }
+
+    static float tightToCutoffHz(float tight) noexcept
+    {
+        return 35.0f + juce::jlimit(0.0f, 1.0f, tight) * 145.0f;
+    }
+
+    static juce::String getModeDescription(int modeIndex)
+    {
+        switch (modeIndex)
+        {
+            case 1:  return "Higher headroom clipping with broader lows and a more open upper bite";
+            case 2:  return "Amp-voiced saturation with tighter palm mutes, mids forward and more sag";
+            default: return "Classic silicon-forward distortion with sharp edge and controlled scoop";
+        }
+    }
+
+    static float computeClipCurve(float inputLevel, float gainPct, int modeIndex)
+    {
+        const auto config = Nova::DistortionDSP::getModeConfig(modeIndex);
+        const float driveNorm = juce::jlimit(0.0f, 1.0f, gainPct * 0.01f);
+        const float stage1Drive = juce::Decibels::decibelsToGain(4.0f + gainPct * 0.28f);
+        const float stage2Drive = 1.15f + driveNorm * 2.15f;
+        const float bias = (config.contourGainDb > 0.0f ? 0.03f : -0.015f) * driveNorm;
+
+        float x = Nova::DistortionDSP::asymSoftClip(inputLevel * stage1Drive + bias,
+            config.stage1Pos,
+            config.stage1Neg);
+        const float stage2In = x * stage2Drive;
+        const float ampVoice = Nova::DistortionDSP::asymSoftClip(stage2In,
+            config.stage2Pos,
+            config.stage2Neg);
+        const float silicon = Nova::DistortionDSP::diodeClip(stage2In,
+            juce::jmap(driveNorm, 0.0f, 1.0f, 0.96f, 0.36f),
+            juce::jmap(driveNorm, 0.0f, 1.0f, 1.02f, 0.52f));
+        const float led = Nova::DistortionDSP::ledClip(stage2In,
+            juce::jmap(driveNorm, 0.0f, 1.0f, 1.18f, 0.62f));
+
+        x = ampVoice * config.ampBlend
+            + silicon * config.diodeBlend
+            + led * config.ledBlend;
+        x += config.harmonic * (0.35f + driveNorm * 0.85f) * std::sin(x * juce::MathConstants<float>::pi);
+        return juce::jlimit(-1.0f, 1.0f, x * config.outputTrim);
+    }
+
+    juce::AudioParameterFloat* gainParam = nullptr;
+    juce::AudioParameterFloat* toneParam = nullptr;
+    juce::AudioParameterFloat* bodyParam = nullptr;
+    juce::AudioParameterFloat* mixParam = nullptr;
+    juce::AudioParameterFloat* levelParam = nullptr;
+    juce::AudioParameterFloat* tightParam = nullptr;
+    juce::AudioParameterChoice* modeParam = nullptr;
 
 private:
     void updateFilters()
     {
-        const float tone = toneParam != nullptr ? *toneParam : 0.52f;
-        const float body = bodyParam != nullptr ? *bodyParam : 0.5f;
-        const float gain = gainParam != nullptr ? *gainParam : 55.0f;
+        const float tone = toneParam != nullptr ? toneParam->get() : 0.54f;
+        const float body = bodyParam != nullptr ? bodyParam->get() : 0.52f;
+        const float gain = gainParam != nullptr ? gainParam->get() : 58.0f;
+        const float tight = tightParam != nullptr ? tightParam->get() : 0.42f;
+        const int modeIndex = modeParam != nullptr ? modeParam->getIndex() : 0;
 
-        bool changed = std::abs(cachedTone - tone) > 1.0e-4f
-                     || std::abs(cachedBody - body) > 1.0e-4f
-                     || std::abs(cachedGain - gain) > 0.5f;
-        if (!changed) return;
+        const bool changed = std::abs(cachedTone - tone) > 1.0e-4f
+            || std::abs(cachedBody - body) > 1.0e-4f
+            || std::abs(cachedGain - gain) > 0.35f
+            || std::abs(cachedTight - tight) > 1.0e-4f
+            || cachedMode != modeIndex;
+        if (!changed)
+            return;
 
         cachedTone = tone;
         cachedBody = body;
         cachedGain = gain;
+        cachedTight = tight;
+        cachedMode = modeIndex;
 
-        // Tight pre-HP: higher frequency with more gain for tighter response
-        float hpFreq = juce::jmap(gain, 0.0f, 100.0f, 60.0f, 95.0f);
-        for (auto& f : preHP)
-            f.setHighPass(hpFreq, 0.85f, innerSr);
+        const auto config = Nova::DistortionDSP::getModeConfig(modeIndex);
+        const float driveNorm = juce::jlimit(0.0f, 1.0f, gain * 0.01f);
+        const float hpFreq = tightToCutoffHz(tight) + driveNorm * 18.0f + (modeIndex == 2 ? 12.0f : 0.0f);
+        const float hpQ = modeIndex == 2 ? 0.78f : 0.72f;
+        const float toneCutoff = toneToCutoffHz(tone) - driveNorm * 1000.0f;
+        const float bodyGain = bodyToGainDb(body);
+        const float interCut1 = juce::jmap(driveNorm, 0.0f, 1.0f, 15500.0f, 8400.0f);
+        const float interCut2 = juce::jmap(driveNorm, 0.0f, 1.0f, 12500.0f, 6200.0f);
+        const float highShelfDb = config.highShelfDb + juce::jmap(tone, -4.5f, 5.0f);
 
-        // Pre-gain mid presence boost (~1kHz, gain-dependent)
-        float midBoostDb = juce::jmap(gain, 0.0f, 100.0f, 1.0f, 4.0f);
-        for (auto& f : preMidBoost)
-            f.setPeak(1000.0f, midBoostDb, 0.9f, innerSr);
-
-        // Inter-stage LP: tighter at higher gain
-        float interFreq = juce::jmap(gain, 0.0f, 100.0f, 14000.0f, 8500.0f);
-        for (auto& f : interLP)
-            f.setLowPass(interFreq, 0.707f, innerSr);
-
-        // Body: low shelf at 200Hz
-        float bodyDb = juce::jmap(body, -5.0f, 7.0f);
-        for (auto& f : bodyShelf)
-            f.setLowShelf(200.0f, bodyDb, 0.75f, innerSr);
-
-        // Tone: post LP
-        float cutoff = juce::jmap(tone, 2200.0f, 12000.0f);
-        for (auto& f : toneLP)
-            f.setLowPass(cutoff, 0.68f, innerSr);
-
-        for (auto& f : dcBlock)
-            f.setHighPass(18.0f, 0.707f, innerSr);
+        for (auto& filter : inputHP)
+            filter.setHighPass(hpFreq, hpQ, innerSr);
+        for (auto& filter : preContour)
+            filter.setPeak(config.preMidFreq, config.preMidGainDb + driveNorm * 1.2f, 0.85f, innerSr);
+        for (auto& filter : interLP1)
+            filter.setLowPass(interCut1, 0.75f, innerSr);
+        for (auto& filter : interLP2)
+            filter.setLowPass(interCut2, 0.72f, innerSr);
+        for (auto& filter : bodyShelf)
+            filter.setLowShelf(180.0f, bodyGain, 0.78f, innerSr);
+        for (auto& filter : modeContour)
+            filter.setPeak(config.contourFreq, config.contourGainDb, 0.95f, innerSr);
+        for (auto& filter : toneShelf)
+            filter.setHighShelf(2500.0f, highShelfDb, 0.72f, innerSr);
+        for (auto& filter : toneLP)
+            filter.setLowPass(toneCutoff, 0.68f, innerSr);
+        for (auto& filter : dcBlock)
+            filter.setHighPass(18.0f, 0.707f, innerSr);
     }
 
     double sr = 44100.0;
-    double innerSr = 176400.0;
+    double innerSr = 352800.0;
 
     juce::dsp::Oversampling<float> oversampler;
 
-    std::array<Nova::DistortionDSP::Biquad, 2> preHP;
-    std::array<Nova::DistortionDSP::Biquad, 2> preMidBoost;
-    std::array<Nova::DistortionDSP::Biquad, 2> interLP;
+    std::array<Nova::DistortionDSP::Biquad, 2> inputHP;
+    std::array<Nova::DistortionDSP::Biquad, 2> preContour;
+    std::array<Nova::DistortionDSP::Biquad, 2> interLP1;
+    std::array<Nova::DistortionDSP::Biquad, 2> interLP2;
     std::array<Nova::DistortionDSP::Biquad, 2> bodyShelf;
+    std::array<Nova::DistortionDSP::Biquad, 2> modeContour;
     std::array<Nova::DistortionDSP::Biquad, 2> toneLP;
+    std::array<Nova::DistortionDSP::Biquad, 2> toneShelf;
     std::array<Nova::DistortionDSP::Biquad, 2> dcBlock;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> gainSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> levelSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> tightSmooth;
     juce::AudioBuffer<float> scratchBuffer;
+    std::array<float, 2> sagEnvelope {};
+    float sagAttackCoeff = 0.0f;
+    float sagReleaseCoeff = 0.0f;
 
     float cachedTone = -999.0f;
     float cachedBody = -999.0f;
     float cachedGain = -999.0f;
+    float cachedTight = -999.0f;
+    int cachedMode = -1;
     bool isPrepared = false;
 };
 

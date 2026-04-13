@@ -2,7 +2,6 @@
 
 #include <JuceHeader.h>
 #include "../Base/PedalUIFactory.h"
-#include <BinaryData.h>
 
 namespace Nova::OverdriveUI
 {
@@ -18,13 +17,13 @@ inline void paintDashboard(juce::Graphics& g, juce::Rectangle<float> bounds,
     const auto metalMid    = juce::Colour::fromString("ff241E18");
     const auto metalLight  = juce::Colour::fromString("ff352A22");
 
-    // Clip to rounded rect for texture
+    // Clip to rounded rect
     juce::Path clipPath;
     clipPath.addRoundedRectangle(bounds, 14.0f);
     g.saveState();
     g.reduceClipRegion(clipPath);
 
-    // ---- Enclosure body - dark base gradient ----
+    // Enclosure body - dark base gradient
     const auto topCol = enabled ? metalMid.interpolatedWith(accent, 0.08f) : juce::Colour::fromString("ff0A0A0A");
     const auto botCol = enabled ? metalDark : juce::Colour::fromString("ff060606");
     juce::ColourGradient body(topCol, bounds.getCentreX(), bounds.getY(),
@@ -34,26 +33,16 @@ inline void paintDashboard(juce::Graphics& g, juce::Rectangle<float> bounds,
     g.setGradientFill(body);
     g.fillRect(bounds);
 
-    // Real rusted orange metal texture
+    // Warm orange tint (code-only, no texture)
     if (enabled)
     {
-        static auto dashTex = juce::ImageCache::getFromMemory(
-            BinaryData::rusted_orange_metal_jpg, BinaryData::rusted_orange_metal_jpgSize);
-        if (dashTex.isValid())
-        {
-            g.setOpacity(hovered ? 0.20f : 0.14f);
-            g.drawImage(dashTex, bounds, juce::RectanglePlacement::stretchToFit);
-            g.setOpacity(1.0f);
-        }
-
-        // Warm orange tint
-        g.setColour(accent.withAlpha(0.04f));
+        g.setColour(accent.withAlpha(hovered ? 0.06f : 0.04f));
         g.fillRect(bounds);
     }
 
     g.restoreState();
 
-    // ---- Border ----
+    // Border
     if (hovered && enabled)
     {
         g.setColour(accent.withAlpha(0.55f));
@@ -70,7 +59,7 @@ inline void paintDashboard(juce::Graphics& g, juce::Rectangle<float> bounds,
         }
     }
 
-    // ---- Top accent glow ----
+    // Top accent glow
     if (enabled)
     {
         auto topGlow = bounds.reduced(14.0f, 0.0f).removeFromTop(2.5f);
@@ -81,7 +70,7 @@ inline void paintDashboard(juce::Graphics& g, juce::Rectangle<float> bounds,
         g.fillRoundedRectangle(topGlow, 1.5f);
     }
 
-    // ---- Header bar ----
+    // Header bar
     auto header = bounds.reduced(6.0f).removeFromTop((float)headerHeight);
     g.setColour(enabled ? juce::Colour::fromString("ff1A1410").interpolatedWith(accent, 0.12f)
                         : juce::Colour::fromString("ff0D1520"));
@@ -93,7 +82,7 @@ inline void paintDashboard(juce::Graphics& g, juce::Rectangle<float> bounds,
         header.toNearestInt().reduced(8, 0).withTrimmedRight(72),
         juce::Justification::centredLeft);
 
-    // ---- Body content ----
+    // Body content
     auto bodyArea = bounds.reduced(8.0f);
     bodyArea.removeFromTop((float)headerHeight + 6.0f);
 
@@ -125,7 +114,7 @@ inline void paintDashboard(juce::Graphics& g, juce::Rectangle<float> bounds,
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.drawFittedText(subtitle, subtitleArea.toNearestInt(), juce::Justification::centredLeft, 2);
 
-    // ---- Footer ----
+    // Footer
     auto footer = bounds.reduced(8.0f).removeFromBottom(20.0f);
     // Accent bar
     auto accentBar = footer.removeFromLeft(44.0f).withHeight(3.0f).withY(footer.getCentreY() - 1.0f);
@@ -140,7 +129,7 @@ inline void paintDashboard(juce::Graphics& g, juce::Rectangle<float> bounds,
     g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     g.drawText("EDIT", footer.toNearestInt().withTrimmedLeft(52), juce::Justification::centredLeft);
 
-    // ---- Bypass overlay ----
+    // Bypass overlay
     if (!enabled)
     {
         auto overlay = bounds.reduced(6.0f);

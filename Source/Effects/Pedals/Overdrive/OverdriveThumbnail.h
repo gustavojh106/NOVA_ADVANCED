@@ -2,7 +2,6 @@
 
 #include <JuceHeader.h>
 #include "../Base/PedalUIFactory.h"
-#include <BinaryData.h>
 
 namespace Nova::OverdriveUI
 {
@@ -29,18 +28,8 @@ inline void paintThumbnail(juce::Graphics& g, juce::Rectangle<float> bounds,
     g.setGradientFill(body);
     g.fillRect(bounds);
 
-    // Real rusted orange metal texture
-    static auto thumbTex = juce::ImageCache::getFromMemory(
-        BinaryData::rusted_orange_metal_jpg, BinaryData::rusted_orange_metal_jpgSize);
-    if (thumbTex.isValid())
-    {
-        g.setOpacity(hovered ? 0.22f : 0.15f);
-        g.drawImage(thumbTex, bounds, juce::RectanglePlacement::stretchToFit);
-        g.setOpacity(1.0f);
-    }
-
-    // Orange color tint
-    g.setColour(accent.withAlpha(0.05f));
+    // Warm orange tint
+    g.setColour(accent.withAlpha(hovered ? 0.08f : 0.05f));
     g.fillRect(bounds);
 
     g.restoreState();

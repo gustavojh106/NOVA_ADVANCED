@@ -14,6 +14,7 @@ public:
         stopTimer();
         sldFuzz.setLookAndFeel(nullptr);
         sldTone.setLookAndFeel(nullptr);
+        sldBias.setLookAndFeel(nullptr);
         sldGate.setLookAndFeel(nullptr);
         sldMix.setLookAndFeel(nullptr);
         sldLevel.setLookAndFeel(nullptr);
@@ -25,353 +26,375 @@ public:
 private:
     void timerCallback() override;
     void paintTransferCurve(juce::Graphics& g, juce::Rectangle<float> bounds);
+    void syncModeFromProcessor();
+    void refreshModeSummary();
 
     FuzzPedal& proc;
 
-    static constexpr int kWidth  = 660;
-    static constexpr int kHeight = 420;
+    static constexpr int kWidth = 730;
+    static constexpr int kHeight = 445;
 
-    // Purple accent (from catalog)
-    const juce::Colour accent     = juce::Colour::fromString("ffA855F7");
-    const juce::Colour accentDim  = juce::Colour::fromString("ff7C3AED");
-    const juce::Colour accentGlow = juce::Colour::fromString("ffC4B5FD");
-    const juce::Colour bgDark     = juce::Colour(0xff0B0E14);
-    const juce::Colour bgPanel    = juce::Colour(0xff111827);
-    const juce::Colour textBright = juce::Colour(0xffF0EDE8);
-    const juce::Colour textDim    = juce::Colour(0xff7B8BA0);
+    const juce::Colour accent = juce::Colour::fromString("ffA855F7");
+    const juce::Colour accentDim = juce::Colour::fromString("ff7C3AED");
+    const juce::Colour accentGlow = juce::Colour::fromString("ffDDD6FE");
+    const juce::Colour bgTop = juce::Colour(0xff120A18);
+    const juce::Colour bgBottom = juce::Colour(0xff1E1028);
+    const juce::Colour panel = juce::Colour(0xff261336);
+    const juce::Colour panelEdge = juce::Colour(0xff4B2C66);
+    const juce::Colour textBright = juce::Colour(0xffF5EFFC);
+    const juce::Colour textDim = juce::Colour(0xffAD9AC5);
 
-    // Knobs
-    juce::Slider sldFuzz, sldTone, sldGate, sldMix, sldLevel;
-    juce::Label lblFuzz, lblTone, lblGate, lblMix, lblLevel;
-    juce::Label valFuzz, valTone, valGate, valMix, valLevel;
+    juce::Slider sldFuzz, sldTone, sldBias, sldGate, sldMix, sldLevel;
+    juce::Label lblFuzz, lblTone, lblBias, lblGate, lblMix, lblLevel;
+    juce::Label valFuzz, valTone, valBias, valGate, valMix, valLevel;
 
-    // Visualization
+    juce::Label modeLabel;
+    juce::ComboBox modeBox;
+    juce::Label modeSummaryLabel;
+    juce::Label sagHintLabel;
+
     juce::Rectangle<float> vizBounds;
+    int cachedMode = -1;
 
     struct FuzzKnobLnF : public juce::LookAndFeel_V4
     {
-        juce::Colour kAccent     = juce::Colour::fromString("ffA855F7");
-        juce::Colour kAccentGlow = juce::Colour::fromString("ffC4B5FD");
+        juce::Colour accent = juce::Colour::fromString("ffA855F7");
+        juce::Colour accentGlow = juce::Colour::fromString("ffDDD6FE");
 
         void drawRotarySlider(juce::Graphics& g, int x, int y, int w, int h,
             float sliderPos, float startAngle, float endAngle,
             juce::Slider&) override
         {
-            const auto area = juce::Rectangle<int>(x, y, w, h).toFloat().reduced(6.0f);
-            const float r = juce::jmin(area.getWidth(), area.getHeight()) * 0.5f;
-            const float cx = area.getCentreX();
-            const float cy = area.getCentreY();
+            const auto area = juce::Rectangle<int>(x, y, w, h).toFloat().reduced(5.0f);
+            const float radius = juce::jmin(area.getWidth(), area.getHeight()) * 0.5f;
+            const float centreX = area.getCentreX();
+            const float centreY = area.getCentreY();
             const float angle = startAngle + sliderPos * (endAngle - startAngle);
-            const float arcR = r - 4.0f;
+            const float arcRadius = radius - 4.0f;
 
-            {
-                juce::Path track;
-                track.addCentredArc(cx, cy, arcR, arcR, 0.0f, startAngle, endAngle, true);
-                g.setColour(juce::Colour(0xff1E2A3A));
-                g.strokePath(track, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved));
-            }
+            juce::Path track;
+            track.addCentredArc(centreX, centreY, arcRadius, arcRadius, 0.0f, startAngle, endAngle, true);
+            g.setColour(juce::Colour(0xff332043));
+            g.strokePath(track, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved));
 
-            if (sliderPos > 0.005f)
+            if (sliderPos > 0.001f)
             {
                 juce::Path arc;
-                arc.addCentredArc(cx, cy, arcR, arcR, 0.0f, startAngle, angle, true);
-                g.setColour(kAccent.withAlpha(0.10f));
+                arc.addCentredArc(centreX, centreY, arcRadius, arcRadius, 0.0f, startAngle, angle, true);
+                g.setColour(accent.withAlpha(0.10f));
                 g.strokePath(arc, juce::PathStrokeType(10.0f, juce::PathStrokeType::curved));
-                g.setColour(kAccent);
-                g.strokePath(arc, juce::PathStrokeType(3.5f, juce::PathStrokeType::curved));
+                g.setColour(accent);
+                g.strokePath(arc, juce::PathStrokeType(3.4f, juce::PathStrokeType::curved));
             }
 
-            const float kr = r * 0.56f;
-            {
-                juce::ColourGradient grad(juce::Colour(0xff1C2838), cx, cy - kr,
-                    juce::Colour(0xff0D1520), cx, cy + kr, false);
-                g.setGradientFill(grad);
-                g.fillEllipse(cx - kr, cy - kr, kr * 2.0f, kr * 2.0f);
-                g.setColour(juce::Colour(0xff2A3A4C));
-                g.drawEllipse(cx - kr, cy - kr, kr * 2.0f, kr * 2.0f, 1.0f);
-            }
+            const float knobRadius = radius * 0.58f;
+            juce::ColourGradient body(juce::Colour(0xff46275F), centreX, centreY - knobRadius,
+                juce::Colour(0xff1B1025), centreX, centreY + knobRadius, false);
+            g.setGradientFill(body);
+            g.fillEllipse(centreX - knobRadius, centreY - knobRadius, knobRadius * 2.0f, knobRadius * 2.0f);
+            g.setColour(juce::Colour(0xff6C4093));
+            g.drawEllipse(centreX - knobRadius, centreY - knobRadius, knobRadius * 2.0f, knobRadius * 2.0f, 1.0f);
 
-            const float pLen = kr * 0.70f;
-            const float px = cx + std::sin(angle) * pLen;
-            const float py = cy - std::cos(angle) * pLen;
-            g.setColour(kAccentGlow);
-            g.drawLine(cx, cy, px, py, 2.0f);
-            g.fillEllipse(px - 3.0f, py - 3.0f, 6.0f, 6.0f);
+            const float pointerLength = knobRadius * 0.74f;
+            const float pointX = centreX + std::sin(angle) * pointerLength;
+            const float pointY = centreY - std::cos(angle) * pointerLength;
+            g.setColour(accentGlow);
+            g.drawLine(centreX, centreY, pointX, pointY, 2.0f);
+            g.fillEllipse(pointX - 2.8f, pointY - 2.8f, 5.6f, 5.6f);
         }
     } knobLnF;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FuzzEditor)
 };
 
-// ============================================================================
-//  Inline implementation
-// ============================================================================
-
 inline FuzzEditor::FuzzEditor(FuzzPedal& pedal)
     : juce::AudioProcessorEditor(pedal), proc(pedal)
 {
     setSize(kWidth, kHeight);
 
-    auto initKnob = [this](juce::Slider& s, juce::Label& lbl, juce::Label& val,
-        const juce::String& name, float min, float max, float def, float step = 0.01f)
+    auto initKnob = [this](juce::Slider& slider, juce::Label& label, juce::Label& value,
+        const juce::String& text, double min, double max, double defaultValue, double step)
     {
-        s.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-        s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-        s.setRange(min, max, step);
-        s.setValue(def, juce::dontSendNotification);
-        s.setLookAndFeel(&knobLnF);
-        addAndMakeVisible(s);
+        slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+        slider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+        slider.setRange(min, max, step);
+        slider.setValue(defaultValue, juce::dontSendNotification);
+        slider.setLookAndFeel(&knobLnF);
+        addAndMakeVisible(slider);
 
-        lbl.setText(name, juce::dontSendNotification);
-        lbl.setJustificationType(juce::Justification::centred);
-        lbl.setFont(juce::Font(11.0f, juce::Font::bold));
-        lbl.setColour(juce::Label::textColourId, textDim);
-        addAndMakeVisible(lbl);
+        label.setText(text, juce::dontSendNotification);
+        label.setJustificationType(juce::Justification::centred);
+        label.setFont(juce::Font(11.0f, juce::Font::bold));
+        label.setColour(juce::Label::textColourId, textDim);
+        addAndMakeVisible(label);
 
-        val.setJustificationType(juce::Justification::centred);
-        val.setFont(juce::Font(11.0f));
-        val.setColour(juce::Label::textColourId, accentGlow);
-        addAndMakeVisible(val);
+        value.setJustificationType(juce::Justification::centred);
+        value.setFont(juce::Font(11.0f));
+        value.setColour(juce::Label::textColourId, accentGlow);
+        addAndMakeVisible(value);
     };
 
-    initKnob(sldFuzz,  lblFuzz,  valFuzz,  "FUZZ",  0.0f, 100.0f, 65.0f, 1.0f);
-    initKnob(sldTone,  lblTone,  valTone,  "TONE",  0.0f, 1.0f, 0.5f);
-    initKnob(sldGate,  lblGate,  valGate,  "GATE",  0.0f, 1.0f, 0.3f);
-    initKnob(sldMix,   lblMix,   valMix,   "MIX",   0.0f, 1.0f, 1.0f);
-    initKnob(sldLevel, lblLevel, valLevel, "LEVEL", 0.0f, 1.0f, 0.55f);
+    initKnob(sldFuzz, lblFuzz, valFuzz, "FUZZ", 0.0, 100.0, 67.0, 1.0);
+    initKnob(sldTone, lblTone, valTone, "TONE", 0.0, 1.0, 0.48, 0.01);
+    initKnob(sldBias, lblBias, valBias, "BIAS", 0.0, 1.0, 0.56, 0.01);
+    initKnob(sldGate, lblGate, valGate, "GATE", 0.0, 1.0, 0.28, 0.01);
+    initKnob(sldMix, lblMix, valMix, "MIX", 0.0, 1.0, 1.0, 0.01);
+    initKnob(sldLevel, lblLevel, valLevel, "LEVEL", 0.0, 1.0, 0.58, 0.01);
 
-    auto wireParam = [](juce::Slider& s, juce::AudioParameterFloat* p)
+    const auto wireFloat = [](juce::Slider& slider, juce::AudioParameterFloat* param)
     {
-        if (p == nullptr) return;
-        s.setValue(p->get(), juce::dontSendNotification);
-        s.onValueChange = [&s, p]
+        if (param == nullptr)
+            return;
+
+        slider.setValue(param->get(), juce::dontSendNotification);
+        slider.onValueChange = [&slider, param]
         {
-            p->beginChangeGesture();
-            *p = (float)s.getValue();
-            p->endChangeGesture();
+            param->beginChangeGesture();
+            param->setValueNotifyingHost(param->convertTo0to1((float) slider.getValue()));
+            param->endChangeGesture();
         };
     };
-    wireParam(sldFuzz,  proc.fuzzParam);
-    wireParam(sldTone,  proc.toneParam);
-    wireParam(sldGate,  proc.gateParam);
-    wireParam(sldMix,   proc.mixParam);
-    wireParam(sldLevel, proc.levelParam);
 
+    wireFloat(sldFuzz, proc.fuzzParam);
+    wireFloat(sldTone, proc.toneParam);
+    wireFloat(sldBias, proc.biasParam);
+    wireFloat(sldGate, proc.gateParam);
+    wireFloat(sldMix, proc.mixParam);
+    wireFloat(sldLevel, proc.levelParam);
+
+    modeLabel.setText("MODE", juce::dontSendNotification);
+    modeLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    modeLabel.setColour(juce::Label::textColourId, textDim);
+    addAndMakeVisible(modeLabel);
+
+    modeBox.addItemList(proc.modeParam != nullptr ? proc.modeParam->choices : juce::StringArray{ "Vintage" }, 1);
+    modeBox.setColour(juce::ComboBox::backgroundColourId, panel);
+    modeBox.setColour(juce::ComboBox::outlineColourId, panelEdge);
+    modeBox.setColour(juce::ComboBox::textColourId, textBright);
+    modeBox.setColour(juce::ComboBox::arrowColourId, accentGlow);
+    modeBox.onChange = [this]
+    {
+        if (proc.modeParam == nullptr)
+            return;
+
+        proc.modeParam->beginChangeGesture();
+        proc.modeParam->setValueNotifyingHost((float) modeBox.getSelectedItemIndex()
+            / (float) juce::jmax(1, proc.modeParam->choices.size() - 1));
+        proc.modeParam->endChangeGesture();
+    };
+    addAndMakeVisible(modeBox);
+
+    modeSummaryLabel.setFont(juce::Font(12.0f));
+    modeSummaryLabel.setColour(juce::Label::textColourId, textDim.withAlpha(0.96f));
+    modeSummaryLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(modeSummaryLabel);
+
+    sagHintLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    sagHintLabel.setColour(juce::Label::textColourId, accentGlow.withAlpha(0.88f));
+    sagHintLabel.setJustificationType(juce::Justification::centredRight);
+    sagHintLabel.setText("Bias steers sustain vs starve; gate sharpens decay", juce::dontSendNotification);
+    addAndMakeVisible(sagHintLabel);
+
+    syncModeFromProcessor();
+    refreshModeSummary();
     startTimerHz(30);
 }
 
 inline void FuzzEditor::timerCallback()
 {
-    auto syncSlider = [](juce::Slider& s, juce::AudioParameterFloat* p)
+    const auto syncSlider = [](juce::Slider& slider, juce::AudioParameterFloat* param)
     {
-        if (p != nullptr)
-            s.setValue(p->get(), juce::dontSendNotification);
+        if (param != nullptr)
+            slider.setValue(param->get(), juce::dontSendNotification);
     };
-    syncSlider(sldFuzz,  proc.fuzzParam);
-    syncSlider(sldTone,  proc.toneParam);
-    syncSlider(sldGate,  proc.gateParam);
-    syncSlider(sldMix,   proc.mixParam);
-    syncSlider(sldLevel, proc.levelParam);
 
-    valFuzz.setText(juce::String((int)sldFuzz.getValue()) + "%", juce::dontSendNotification);
-    {
-        float tone = (float)sldTone.getValue();
-        float hz = juce::jmap(tone, 800.0f, 6500.0f);
-        if (hz >= 1000.0f)
-            valTone.setText(juce::String(hz * 0.001f, 1) + " kHz", juce::dontSendNotification);
-        else
-            valTone.setText(juce::String((int)hz) + " Hz", juce::dontSendNotification);
-    }
-    valGate.setText(juce::String((int)(sldGate.getValue() * 100.0)) + "%", juce::dontSendNotification);
-    valMix.setText(juce::String((int)(sldMix.getValue() * 100.0)) + "%", juce::dontSendNotification);
-    valLevel.setText(juce::String((int)(sldLevel.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    syncSlider(sldFuzz, proc.fuzzParam);
+    syncSlider(sldTone, proc.toneParam);
+    syncSlider(sldBias, proc.biasParam);
+    syncSlider(sldGate, proc.gateParam);
+    syncSlider(sldMix, proc.mixParam);
+    syncSlider(sldLevel, proc.levelParam);
+    syncModeFromProcessor();
+
+    valFuzz.setText(juce::String((int) sldFuzz.getValue()) + "%", juce::dontSendNotification);
+
+    const float toneHz = FuzzPedal::toneToCutoffHz((float) sldTone.getValue());
+    valTone.setText(toneHz >= 1000.0f
+            ? juce::String(toneHz * 0.001f, 1) + " kHz"
+            : juce::String((int) toneHz) + " Hz",
+        juce::dontSendNotification);
+
+    const float biasDescriptor = FuzzPedal::biasToDescriptor((float) sldBias.getValue());
+    valBias.setText((biasDescriptor >= 0.0f ? "+" : "") + juce::String(biasDescriptor, 2), juce::dontSendNotification);
+    valGate.setText(juce::String((int) std::round(sldGate.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    valMix.setText(juce::String((int) std::round(sldMix.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    valLevel.setText(juce::String((int) std::round(sldLevel.getValue() * 100.0)) + "%", juce::dontSendNotification);
 
     repaint(vizBounds.toNearestInt());
 }
 
+inline void FuzzEditor::syncModeFromProcessor()
+{
+    if (proc.modeParam == nullptr)
+        return;
+
+    const int mode = proc.modeParam->getIndex();
+    modeBox.setSelectedItemIndex(mode, juce::dontSendNotification);
+    if (mode != cachedMode)
+    {
+        cachedMode = mode;
+        refreshModeSummary();
+    }
+}
+
+inline void FuzzEditor::refreshModeSummary()
+{
+    modeSummaryLabel.setText(FuzzPedal::getModeDescription(cachedMode < 0 ? 0 : cachedMode),
+        juce::dontSendNotification);
+}
+
 inline void FuzzEditor::paint(juce::Graphics& g)
 {
-    // Background gradient
-    {
-        juce::ColourGradient bg(juce::Colour(0xff0E1219), 0.0f, 0.0f,
-            bgDark, 0.0f, (float)getHeight(), false);
-        g.setGradientFill(bg);
-        g.fillAll();
-    }
+    juce::ColourGradient bg(bgTop, 0.0f, 0.0f, bgBottom, 0.0f, (float) getHeight(), false);
+    g.setGradientFill(bg);
+    g.fillAll();
 
-    g.setColour(accent.withAlpha(0.12f));
-    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f, 1.0f);
+    g.setColour(accent.withAlpha(0.16f));
+    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 8.0f, 1.0f);
 
-    // Top glow accent line
-    {
-        juce::ColourGradient glow(accent.withAlpha(0.30f), (float)getWidth() * 0.2f, 0.0f,
-            accent.withAlpha(0.0f), (float)getWidth() * 0.8f, 0.0f, false);
-        g.setGradientFill(glow);
-        g.fillRect(0.0f, 0.0f, (float)getWidth(), 2.0f);
-    }
+    juce::ColourGradient glow(accent.withAlpha(0.34f), 0.0f, 0.0f,
+        accent.withAlpha(0.0f), (float) getWidth(), 0.0f, false);
+    g.setGradientFill(glow);
+    g.fillRect(0.0f, 0.0f, (float) getWidth(), 3.0f);
 
-    // Header
     g.setColour(textBright);
-    g.setFont(juce::Font(22.0f, juce::Font::bold));
-    g.drawText("FUZZ", 28, 10, 200, 28, juce::Justification::centredLeft);
-    g.setColour(accent);
-    g.setFont(juce::Font(13.0f));
-    g.drawText("Velvet", 28, 33, 200, 18, juce::Justification::centredLeft);
+    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.drawText("FUZZ", 26, 12, 220, 30, juce::Justification::centredLeft);
 
-    // Transfer curve
+    g.setColour(accentGlow);
+    g.setFont(juce::Font(13.0f));
+    g.drawText(modeBox.getText().isNotEmpty() ? modeBox.getText() : juce::String("Vintage"),
+        26, 38, 220, 18, juce::Justification::centredLeft);
+
     paintTransferCurve(g, vizBounds);
 }
 
 inline void FuzzEditor::paintTransferCurve(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    // Panel background
-    g.setColour(juce::Colour(0xff080C12));
-    g.fillRoundedRectangle(bounds, 6.0f);
-    g.setColour(juce::Colour(0xff1E2A3A));
-    g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
+    g.setColour(panel.withAlpha(0.95f));
+    g.fillRoundedRectangle(bounds, 10.0f);
+    g.setColour(panelEdge);
+    g.drawRoundedRectangle(bounds, 10.0f, 1.0f);
 
-    auto inner = bounds.reduced(14.0f, 10.0f);
+    auto inner = bounds.reduced(18.0f, 12.0f);
     const float w = inner.getWidth();
     const float h = inner.getHeight();
     const float midX = inner.getCentreX();
     const float midY = inner.getCentreY();
-    const float halfH = h * 0.45f;
+    const float fuzzAmount = (float) sldFuzz.getValue();
+    const float biasAmount = (float) sldBias.getValue();
+    const int mode = proc.modeParam != nullptr ? proc.modeParam->getIndex() : 0;
 
-    const float fuzzAmount = (float)sldFuzz.getValue();
-    const float drive = 2.0f + fuzzAmount * 0.48f;
-    const float bias = 0.06f + fuzzAmount * 0.002f;
-    const float fuzzNorm = fuzzAmount * 0.01f;
-    const float octaveBlend = fuzzNorm * fuzzNorm * 0.35f;
+    g.setColour(juce::Colour(0xff332043));
+    g.drawLine(inner.getX(), midY, inner.getRight(), midY, 0.6f);
+    g.drawLine(midX, inner.getY(), midX, inner.getBottom(), 0.6f);
+    g.drawLine(inner.getX(), inner.getBottom(), inner.getRight(), inner.getY(), 0.45f);
 
-    // Grid: axes
-    g.setColour(juce::Colour(0xff1A2535));
-    g.drawLine(inner.getX(), midY, inner.getRight(), midY, 0.5f);  // horizontal
-    g.drawLine(midX, inner.getY(), midX, inner.getBottom(), 0.5f);  // vertical
-
-    // Linear reference line (diagonal, dim)
-    g.setColour(juce::Colour(0xff1A2535).withAlpha(0.6f));
-    g.drawLine(inner.getX(), inner.getBottom(), inner.getRight(), inner.getY(), 0.5f);
-
-    // Compute the transfer curve
     juce::Path curvePath;
-    const int steps = (int)w;
-
-    for (int px = 0; px <= steps; ++px)
+    constexpr int numPoints = 220;
+    for (int i = 0; i < numPoints; ++i)
     {
-        float t = (float)px / (float)steps;
-        float inputVal = t * 2.0f - 1.0f;  // -1 to +1
+        const float t = (float) i / (float) (numPoints - 1);
+        const float input = t * 2.0f - 1.0f;
+        const float output = FuzzPedal::computeTransferCurve(input, fuzzAmount, biasAmount, mode);
+        const float x = inner.getX() + t * w;
+        const float y = midY - output * (h * 0.42f);
 
-        // Apply the same clipping function as the processor
-        float x = inputVal * drive + bias;
-
-        // Germanium asymmetric clip
-        float clipped;
-        if (x >= 0.0f)
-            clipped = 1.0f - std::exp(-x * 1.2f);
+        if (i == 0)
+            curvePath.startNewSubPath(x, y);
         else
-            clipped = -(1.0f - std::exp(x * 1.6f)) * 0.78f;
-
-        // Add octave harmonics
-        float octave = std::abs(inputVal * drive) * octaveBlend;
-        clipped += std::tanh(octave * 1.5f) * 0.28f;
-
-        // Clamp
-        clipped = juce::jlimit(-1.2f, 1.2f, clipped);
-
-        float plotX = inner.getX() + t * w;
-        float plotY = midY - clipped * halfH;
-
-        if (px == 0)
-            curvePath.startNewSubPath(plotX, plotY);
-        else
-            curvePath.lineTo(plotX, plotY);
+            curvePath.lineTo(x, y);
     }
 
-    // Glow behind curve
     g.setColour(accent.withAlpha(0.08f));
     g.strokePath(curvePath, juce::PathStrokeType(8.0f, juce::PathStrokeType::curved));
-
-    // Main curve
-    g.setColour(accentGlow.withAlpha(0.75f));
-    g.strokePath(curvePath, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved));
-
-    // Highlight the asymmetry region (positive brighter)
-    g.setColour(accent.withAlpha(0.12f));
+    g.setColour(accent.withAlpha(0.14f));
     g.strokePath(curvePath, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved));
+    g.setColour(accentGlow.withAlpha(0.88f));
+    g.strokePath(curvePath, juce::PathStrokeType(1.9f, juce::PathStrokeType::curved));
 
-    // Axis labels
-    g.setFont(juce::Font(8.0f, juce::Font::bold));
-    g.setColour(textDim.withAlpha(0.4f));
-    g.drawText("IN", (int)inner.getRight() - 16, (int)midY + 2, 16, 10, juce::Justification::centredRight);
-    g.drawText("OUT", (int)midX + 3, (int)inner.getY(), 22, 10, juce::Justification::centredLeft);
+    g.setFont(juce::Font(8.5f));
+    g.setColour(textDim.withAlpha(0.44f));
+    g.drawText("IN", (int) inner.getRight() - 18, (int) midY + 2, 18, 10, juce::Justification::centredRight);
+    g.drawText("OUT", (int) midX + 3, (int) inner.getY() + 1, 24, 10, juce::Justification::centredLeft);
 
-    // Sag indicator (small bar in top-right corner)
-    {
-        float sag = proc.sagEnvelope;
-        float sagBarW = 4.0f;
-        float sagBarMaxH = 30.0f;
-        float sagBarX = inner.getRight() - 20.0f;
-        float sagBarY = inner.getY() + 8.0f;
-        float sagBarH = sag * sagBarMaxH;
+    const float sag = juce::jlimit(0.0f, 1.0f, proc.displaySag * 1.9f);
+    const float sagBarW = 5.0f;
+    const float sagBarMaxH = 32.0f;
+    const float sagBarX = inner.getRight() - 22.0f;
+    const float sagBarY = inner.getY() + 8.0f;
+    const float sagBarH = sag * sagBarMaxH;
 
-        g.setColour(juce::Colour(0xff1E2A3A));
-        g.fillRoundedRectangle(sagBarX, sagBarY, sagBarW, sagBarMaxH, 1.5f);
+    g.setColour(juce::Colour(0xff332043));
+    g.fillRoundedRectangle(sagBarX, sagBarY, sagBarW, sagBarMaxH, 1.5f);
+    g.setColour(accent.interpolatedWith(juce::Colour(0xffFB7185), sag).withAlpha(0.78f));
+    g.fillRoundedRectangle(sagBarX, sagBarY + sagBarMaxH - sagBarH, sagBarW, sagBarH, 1.5f);
 
-        juce::Colour sagColour = accent.interpolatedWith(juce::Colour(0xffEF4444), juce::jlimit(0.0f, 1.0f, sag * 2.0f));
-        g.setColour(sagColour.withAlpha(0.7f));
-        g.fillRoundedRectangle(sagBarX, sagBarY + sagBarMaxH - sagBarH, sagBarW, sagBarH, 1.5f);
+    g.setFont(juce::Font(7.5f));
+    g.setColour(textDim.withAlpha(0.45f));
+    g.drawText("SAG", (int) sagBarX - 7, (int) (sagBarY + sagBarMaxH + 2), 22, 8, juce::Justification::centred);
 
-        g.setFont(juce::Font(7.0f));
-        g.setColour(textDim.withAlpha(0.4f));
-        g.drawText("SAG", (int)(sagBarX - 8), (int)(sagBarY + sagBarMaxH + 2), 20, 8, juce::Justification::centred);
-    }
-
-    // Character label based on fuzz amount
-    {
-        g.setFont(juce::Font(9.0f));
-        g.setColour(accent.withAlpha(0.5f));
-        juce::String character;
-        if (fuzzAmount < 25.0f)      character = "Clean edge";
-        else if (fuzzAmount < 50.0f) character = "Warm growl";
-        else if (fuzzAmount < 75.0f) character = "Germanium roar";
-        else                         character = "Full velvet";
-        g.drawText(character, (int)inner.getX(), (int)inner.getY() + 2, 100, 12, juce::Justification::centredLeft);
-    }
+    const juce::String character = fuzzAmount < 24.0f ? "Edge"
+        : fuzzAmount < 48.0f ? "Growl"
+        : fuzzAmount < 74.0f ? "Roar"
+        : "Wall";
+    g.setFont(juce::Font(9.0f));
+    g.setColour(accent.withAlpha(0.54f));
+    g.drawText(character, (int) inner.getX(), (int) inner.getY() + 2, 72, 12, juce::Justification::centredLeft);
 }
 
 inline void FuzzEditor::resized()
 {
-    const int w = getWidth();
+    const int width = getWidth();
 
-    // Viz panel
-    vizBounds = juce::Rectangle<float>(28.0f, 58.0f, (float)(w - 56), 140.0f);
+    modeLabel.setBounds(width - 210, 16, 70, 16);
+    modeBox.setBounds(width - 210, 34, 170, 26);
+    modeSummaryLabel.setBounds(26, 58, width - 52, 18);
+    sagHintLabel.setBounds(width - 330, 60, 300, 16);
 
-    // Knobs
-    const int knobSize = 80;
-    const int knobY = 218;
+    vizBounds = juce::Rectangle<float>(26.0f, 86.0f, (float) (width - 52), 148.0f);
+
+    const int knobAreaY = 255;
+    const int knobSize = 84;
     const int labelH = 16;
-    const int valH = 16;
-    const int slotW = w / 5;
+    const int valueH = 16;
+    const int slotW = width / 6;
 
-    struct KnobGroup { juce::Slider& s; juce::Label& lbl; juce::Label& val; };
+    struct KnobGroup
+    {
+        juce::Slider& slider;
+        juce::Label& label;
+        juce::Label& value;
+    };
+
     KnobGroup knobs[] = {
-        { sldFuzz,  lblFuzz,  valFuzz },
-        { sldTone,  lblTone,  valTone },
-        { sldGate,  lblGate,  valGate },
-        { sldMix,   lblMix,   valMix },
+        { sldFuzz, lblFuzz, valFuzz },
+        { sldTone, lblTone, valTone },
+        { sldBias, lblBias, valBias },
+        { sldGate, lblGate, valGate },
+        { sldMix, lblMix, valMix },
         { sldLevel, lblLevel, valLevel }
     };
 
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < 6; ++i)
     {
-        int cx = slotW * i + slotW / 2;
-        knobs[i].lbl.setBounds(cx - 50, knobY, 100, labelH);
-        knobs[i].s.setBounds(cx - knobSize / 2, knobY + labelH + 4, knobSize, knobSize);
-        knobs[i].val.setBounds(cx - 50, knobY + labelH + 4 + knobSize + 2, 100, valH);
+        const int centreX = slotW * i + slotW / 2;
+        knobs[i].label.setBounds(centreX - 54, knobAreaY, 108, labelH);
+        knobs[i].slider.setBounds(centreX - knobSize / 2, knobAreaY + labelH + 6, knobSize, knobSize);
+        knobs[i].value.setBounds(centreX - 58, knobAreaY + labelH + 6 + knobSize + 4, 116, valueH);
     }
 }
 
-// ---- Wire createEditor ----
 inline juce::AudioProcessorEditor* FuzzPedal::createEditor()
 {
     return new FuzzEditor(*this);

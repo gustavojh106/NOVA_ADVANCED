@@ -13,6 +13,60 @@ namespace
 namespace PluginState = Nova::PluginStateModel;
 
 #if JUCE_DEBUG
+juce::String buildUnitTestReport(const juce::UnitTestRunner& runner)
+{
+    juce::String report;
+    int failingResults = 0;
+    int totalPasses = 0;
+    int totalFailures = 0;
+
+    for (int i = 0; i < runner.getNumResults(); ++i)
+    {
+        const auto* result = runner.getResult(i);
+        if (result == nullptr)
+            continue;
+
+        totalPasses += result->passes;
+        totalFailures += result->failures;
+
+        if (result->failures <= 0)
+            continue;
+
+        ++failingResults;
+        report << "FAIL | " << result->unitTestName << " | " << result->subcategoryName
+            << " | passes=" << result->passes
+            << " failures=" << result->failures << juce::newLine;
+
+        for (const auto& message : result->messages)
+            report << "  " << message << juce::newLine;
+    }
+
+    juce::String header;
+    header << "results=" << runner.getNumResults()
+        << " passes=" << totalPasses
+        << " failures=" << totalFailures
+        << " failingResults=" << failingResults
+        << juce::newLine;
+
+    if (failingResults == 0)
+        header << "status=PASS" << juce::newLine;
+    else
+        header << "status=FAIL" << juce::newLine;
+
+    return header + report;
+}
+
+void maybeWriteUnitTestReport(const juce::String& report)
+{
+    const auto reportPath = juce::SystemStats::getEnvironmentVariable("NOVA_TEST_REPORT_PATH", {});
+    if (reportPath.isEmpty())
+        return;
+
+    const auto reportFile = juce::File(reportPath);
+    reportFile.getParentDirectory().createDirectory();
+    reportFile.replaceWithText(report);
+}
+
 void maybeRunAudioValidationTestsOnce()
 {
     static bool hasRun = false;
@@ -30,6 +84,9 @@ void maybeRunAudioValidationTestsOnce()
     juce::UnitTestRunner runner;
     runner.setAssertOnFailure(false);
     runner.runTestsInCategory("NOVA");
+    const auto report = buildUnitTestReport(runner);
+    NovaDiagnostics::SessionLogger::logEvent("tests.summary", report);
+    maybeWriteUnitTestReport(report);
     NovaDiagnostics::SessionLogger::logEvent("tests", "Finished NOVA validation suite");
 }
 #endif

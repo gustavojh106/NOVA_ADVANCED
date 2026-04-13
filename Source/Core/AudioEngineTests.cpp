@@ -192,6 +192,84 @@ juce::AudioBuffer<float> renderDelayOutput(DelayPedal& pedal,
     return output;
 }
 
+juce::AudioBuffer<float> renderChorusOutput(ChorusPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+juce::AudioBuffer<float> renderDistortionOutput(DistortionPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+juce::AudioBuffer<float> renderFuzzOutput(FuzzPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
 template <typename Callback>
 juce::AudioBuffer<float> renderReverbOutputWithAutomation(ReverbPedal& pedal,
     const juce::AudioBuffer<float>& input,
@@ -224,6 +302,96 @@ juce::AudioBuffer<float> renderReverbOutputWithAutomation(ReverbPedal& pedal,
 
 template <typename Callback>
 juce::AudioBuffer<float> renderDelayOutputWithAutomation(DelayPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize,
+    Callback&& callback)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    int blockIndex = 0;
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize, ++blockIndex)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        callback(blockIndex, offset, block);
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+template <typename Callback>
+juce::AudioBuffer<float> renderChorusOutputWithAutomation(ChorusPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize,
+    Callback&& callback)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    int blockIndex = 0;
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize, ++blockIndex)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        callback(blockIndex, offset, block);
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+template <typename Callback>
+juce::AudioBuffer<float> renderDistortionOutputWithAutomation(DistortionPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize,
+    Callback&& callback)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    int blockIndex = 0;
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize, ++blockIndex)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        callback(blockIndex, offset, block);
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+template <typename Callback>
+juce::AudioBuffer<float> renderFuzzOutputWithAutomation(FuzzPedal& pedal,
     const juce::AudioBuffer<float>& input,
     int blockSize,
     Callback&& callback)
@@ -1675,6 +1843,494 @@ public:
 
             expect(finite, "Aggressive delay automation must remain finite");
             expect(peak < 2.1, "Automation stress should stay inside a sane peak ceiling");
+        }
+
+        beginTest("ChorusPedal round-trips its commercial state");
+        {
+            ChorusPedal source;
+            source.modeParam->setValueNotifyingHost(normalisedChoiceIndex(source.modeParam, 1));
+            source.rateParam->setValueNotifyingHost(source.rateParam->convertTo0to1(1.85f));
+            source.depthParam->setValueNotifyingHost(source.depthParam->convertTo0to1(0.74f));
+            source.widthParam->setValueNotifyingHost(source.widthParam->convertTo0to1(0.88f));
+            source.toneParam->setValueNotifyingHost(source.toneParam->convertTo0to1(0.46f));
+            source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.57f));
+            source.lagParam->setValueNotifyingHost(source.lagParam->convertTo0to1(11.6f));
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            ChorusPedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expectEquals(restored.modeParam->getIndex(), 1);
+            expect(approximatelyEqual(restored.rateParam->get(), 1.85f, 1.0e-3f));
+            expect(approximatelyEqual(restored.depthParam->get(), 0.74f, 1.0e-3f));
+            expect(approximatelyEqual(restored.widthParam->get(), 0.88f, 1.0e-3f));
+            expect(approximatelyEqual(restored.toneParam->get(), 0.46f, 1.0e-3f));
+            expect(approximatelyEqual(restored.mixParam->get(), 0.57f, 1.0e-3f));
+            expect(approximatelyEqual(restored.lagParam->get(), 11.6f, 1.0e-3f));
+        }
+
+        beginTest("ChorusPedal mix zero keeps the dry path transparent");
+        {
+            ChorusPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 0));
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(1.35f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.84f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.92f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.74f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.0f));
+            pedal.lagParam->setValueNotifyingHost(pedal.lagParam->convertTo0to1(9.6f));
+
+            const int totalSamples = (int) (kSampleRate * 1.2);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phaseL = juce::MathConstants<float>::twoPi * 196.0f * (float) i / (float) kSampleRate;
+                const float phaseR = juce::MathConstants<float>::twoPi * 247.0f * (float) i / (float) kSampleRate;
+                input.setSample(0, i, 0.18f * std::sin(phaseL));
+                input.setSample(1, i, 0.14f * std::sin(phaseR));
+            }
+
+            const auto output = renderChorusOutput(pedal, input, kBlockSize);
+            const double nullRms = computeBufferNullRms(input, output);
+
+            expect(bufferHasOnlyFiniteSamples(output), "Dry-only chorus render must stay finite");
+            expect(nullRms < 1.0e-5, "Mix at zero should leave the dry path effectively untouched");
+        }
+
+        beginTest("ChorusPedal modes produce distinct stereo signatures");
+        {
+            auto renderMode = [&](int modeIndex)
+            {
+                ChorusPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+                pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(modeIndex == 2 ? 2.25f : 1.10f));
+                pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(modeIndex == 2 ? 0.86f : 0.72f));
+                pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.94f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.63f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.lagParam->setValueNotifyingHost(pedal.lagParam->convertTo0to1(modeIndex == 1 ? 11.8f : 8.4f));
+
+                const int totalSamples = (int) (kSampleRate * 2.1);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                for (int i = 0; i < totalSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 220.0f * (float) i / (float) kSampleRate;
+                    const float sample = 0.18f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderChorusOutput(pedal, input, kBlockSize);
+            };
+
+            const auto classic = renderMode(0);
+            const auto ensemble = renderMode(1);
+            const auto vibrato = renderMode(2);
+
+            const double ensembleCorr = computeStereoCorrelation(ensemble, (int) (kSampleRate * 0.25));
+            const double ensembleRightRms = computeChannelWindowRms(ensemble, 1, (int) (kSampleRate * 0.25), (int) (kSampleRate * 0.9));
+            const double ensembleLeftRms = computeChannelWindowRms(ensemble, 0, (int) (kSampleRate * 0.25), (int) (kSampleRate * 0.9));
+            const double classicEnsembleNull = computeBufferNullRms(classic, ensemble);
+            const double classicVibratoNull = computeBufferNullRms(classic, vibrato);
+
+            expect(bufferHasOnlyFiniteSamples(ensemble), "Ensemble chorus render must remain finite");
+            expect(std::abs(ensembleCorr) < 0.97, "Ensemble mode should open the stereo field beyond near-mono correlation");
+            expect(ensembleRightRms > ensembleLeftRms * 0.30, "Ensemble mode should project substantial energy into the opposite side");
+            expect(classicEnsembleNull > 2.5e-3, "Classic and Ensemble modes should render clearly different modulation signatures");
+            expect(classicVibratoNull > 2.0e-3, "Classic and Vibrato modes should remain clearly separated");
+        }
+
+        beginTest("ChorusPedal automation stress remains finite under aggressive changes");
+        {
+            ChorusPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.58f));
+
+            juce::Random rng(0xC4015);
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            bool finite = true;
+            double peak = 0.0;
+
+            const int blocksToRun = (int) ((kSampleRate * 3.0) / (double) kBlockSize);
+            for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+            {
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < kBlockSize; ++i)
+                        block.setSample(ch, i, 0.15f * ((rng.nextFloat() * 2.0f) - 1.0f));
+
+                const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
+                const int mode = juce::jlimit(0, 2, (int) std::floor(phase * 3.0f));
+
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
+                pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(0.08f + 7.4f * phase));
+                pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.05f + 0.93f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.05f + 0.95f * (1.0f - phase)));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.12f + 0.82f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.10f + 0.85f * phase));
+                pedal.lagParam->setValueNotifyingHost(pedal.lagParam->convertTo0to1(2.4f + 15.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+
+                pedal.processBlock(block, midi);
+                peak = juce::jmax(peak, (double) block.getMagnitude(0, 0, block.getNumSamples()));
+                peak = juce::jmax(peak, (double) block.getMagnitude(1, 0, block.getNumSamples()));
+                finite = finite && bufferHasOnlyFiniteSamples(block);
+            }
+
+            expect(finite, "Aggressive chorus automation must remain finite");
+            expect(peak < 1.8, "Chorus automation stress should stay inside a sane peak ceiling");
+        }
+
+        beginTest("DistortionPedal round-trips its commercial state");
+        {
+            DistortionPedal source;
+            source.modeParam->setValueNotifyingHost(normalisedChoiceIndex(source.modeParam, 2));
+            source.gainParam->setValueNotifyingHost(source.gainParam->convertTo0to1(73.0f));
+            source.toneParam->setValueNotifyingHost(source.toneParam->convertTo0to1(0.61f));
+            source.bodyParam->setValueNotifyingHost(source.bodyParam->convertTo0to1(0.68f));
+            source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.84f));
+            source.levelParam->setValueNotifyingHost(source.levelParam->convertTo0to1(0.57f));
+            source.tightParam->setValueNotifyingHost(source.tightParam->convertTo0to1(0.79f));
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            DistortionPedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expectEquals(restored.modeParam->getIndex(), 2);
+            expect(approximatelyEqual(restored.gainParam->get(), 73.0f, 1.0e-3f));
+            expect(approximatelyEqual(restored.toneParam->get(), 0.61f, 1.0e-3f));
+            expect(approximatelyEqual(restored.bodyParam->get(), 0.68f, 1.0e-3f));
+            expect(approximatelyEqual(restored.mixParam->get(), 0.84f, 1.0e-3f));
+            expect(approximatelyEqual(restored.levelParam->get(), 0.57f, 1.0e-3f));
+            expect(approximatelyEqual(restored.tightParam->get(), 0.79f, 1.0e-3f));
+        }
+
+        beginTest("DistortionPedal mix zero keeps the dry path transparent");
+        {
+            DistortionPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 1));
+            pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(88.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.71f));
+            pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.64f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.66f));
+            pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(0.58f));
+
+            const int totalSamples = (int) (kSampleRate * 1.1);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phaseL = juce::MathConstants<float>::twoPi * 146.0f * (float) i / (float) kSampleRate;
+                const float phaseR = juce::MathConstants<float>::twoPi * 233.0f * (float) i / (float) kSampleRate;
+                input.setSample(0, i, 0.17f * std::sin(phaseL));
+                input.setSample(1, i, 0.13f * std::sin(phaseR));
+            }
+
+            const auto output = renderDistortionOutput(pedal, input, kBlockSize);
+            const double nullRms = computeBufferNullRms(input, output);
+
+            expect(bufferHasOnlyFiniteSamples(output), "Dry-only distortion render must stay finite");
+            expect(nullRms < 1.0e-5, "Mix at zero should leave the dry path effectively untouched");
+        }
+
+        beginTest("DistortionPedal modes produce distinct drive signatures");
+        {
+            auto renderMode = [&](int modeIndex)
+            {
+                DistortionPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(modeIndex == 1 ? 69.0f : 76.0f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.57f));
+                pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.56f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.64f));
+                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(modeIndex == 2 ? 0.82f : 0.45f));
+
+                const int totalSamples = (int) (kSampleRate * 1.8);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                for (int i = 0; i < totalSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 196.0f * (float) i / (float) kSampleRate;
+                    const float sample = 0.19f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderDistortionOutput(pedal, input, kBlockSize);
+            };
+
+            const auto vintage = renderMode(0);
+            const auto turbo = renderMode(1);
+            const auto amp = renderMode(2);
+
+            const double vintageTurboNull = computeBufferNullRms(vintage, turbo);
+            const double vintageAmpNull = computeBufferNullRms(vintage, amp);
+            const double turboAmpNull = computeBufferNullRms(turbo, amp);
+
+            expect(vintageTurboNull > 1.5e-3, "Vintage and Turbo modes should not collapse into the same response");
+            expect(vintageAmpNull > 1.5e-3, "Vintage and Amp modes should remain clearly distinct");
+            expect(turboAmpNull > 1.2e-3, "Turbo and Amp modes should remain clearly distinct");
+        }
+
+        beginTest("DistortionPedal tight control audibly reduces low-end bloom");
+        {
+            auto renderTight = [&](float tightAmount)
+            {
+                DistortionPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 2));
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(78.0f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.46f));
+                pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.74f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.64f));
+                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(tightAmount));
+
+                const int totalSamples = (int) (kSampleRate * 1.2);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                for (int i = 0; i < totalSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 82.0f * (float) i / (float) kSampleRate;
+                    const float sample = 0.23f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderDistortionOutput(pedal, input, kBlockSize);
+            };
+
+            const auto loose = renderTight(0.0f);
+            const auto tight = renderTight(1.0f);
+            const double looseRms = computeWindowRms(loose, (int) (kSampleRate * 0.28), (int) (kSampleRate * 0.48));
+            const double tightRms = computeWindowRms(tight, (int) (kSampleRate * 0.28), (int) (kSampleRate * 0.48));
+
+            expect(tightRms < looseRms * 0.92, "High tightness should reduce low-note bloom compared to the loose setting");
+        }
+
+        beginTest("DistortionPedal automation stress remains finite under aggressive changes");
+        {
+            DistortionPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.74f));
+
+            juce::Random rng(0xD1570);
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            bool finite = true;
+            double peak = 0.0;
+
+            const int blocksToRun = (int) ((kSampleRate * 3.0) / (double) kBlockSize);
+            for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+            {
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < kBlockSize; ++i)
+                        block.setSample(ch, i, 0.16f * ((rng.nextFloat() * 2.0f) - 1.0f));
+
+                const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
+                const int mode = juce::jlimit(0, 2, (int) std::floor(phase * 3.0f));
+
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(8.0f + 90.0f * phase));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.10f + 0.85f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.08f + 0.84f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.12f + 0.82f * phase));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.18f + 0.70f * (1.0f - phase)));
+                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(0.02f + 0.96f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+
+                pedal.processBlock(block, midi);
+                peak = juce::jmax(peak, (double) block.getMagnitude(0, 0, block.getNumSamples()));
+                peak = juce::jmax(peak, (double) block.getMagnitude(1, 0, block.getNumSamples()));
+                finite = finite && bufferHasOnlyFiniteSamples(block);
+            }
+
+            expect(finite, "Aggressive distortion automation must remain finite");
+            expect(peak < 2.2, "Distortion automation stress should stay inside a sane peak ceiling");
+        }
+
+        beginTest("FuzzPedal round-trips its commercial state");
+        {
+            FuzzPedal source;
+            source.modeParam->setValueNotifyingHost(normalisedChoiceIndex(source.modeParam, 2));
+            source.fuzzParam->setValueNotifyingHost(source.fuzzParam->convertTo0to1(81.0f));
+            source.toneParam->setValueNotifyingHost(source.toneParam->convertTo0to1(0.41f));
+            source.gateParam->setValueNotifyingHost(source.gateParam->convertTo0to1(0.63f));
+            source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.89f));
+            source.levelParam->setValueNotifyingHost(source.levelParam->convertTo0to1(0.54f));
+            source.biasParam->setValueNotifyingHost(source.biasParam->convertTo0to1(0.28f));
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            FuzzPedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expectEquals(restored.modeParam->getIndex(), 2);
+            expect(approximatelyEqual(restored.fuzzParam->get(), 81.0f, 1.0e-3f));
+            expect(approximatelyEqual(restored.toneParam->get(), 0.41f, 1.0e-3f));
+            expect(approximatelyEqual(restored.gateParam->get(), 0.63f, 1.0e-3f));
+            expect(approximatelyEqual(restored.mixParam->get(), 0.89f, 1.0e-3f));
+            expect(approximatelyEqual(restored.levelParam->get(), 0.54f, 1.0e-3f));
+            expect(approximatelyEqual(restored.biasParam->get(), 0.28f, 1.0e-3f));
+        }
+
+        beginTest("FuzzPedal mix zero keeps the dry path transparent");
+        {
+            FuzzPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 1));
+            pedal.fuzzParam->setValueNotifyingHost(pedal.fuzzParam->convertTo0to1(92.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.38f));
+            pedal.gateParam->setValueNotifyingHost(pedal.gateParam->convertTo0to1(0.54f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.58f));
+            pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(0.64f));
+
+            const int totalSamples = (int) (kSampleRate * 1.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phaseL = juce::MathConstants<float>::twoPi * 110.0f * (float) i / (float) kSampleRate;
+                const float phaseR = juce::MathConstants<float>::twoPi * 173.0f * (float) i / (float) kSampleRate;
+                input.setSample(0, i, 0.18f * std::sin(phaseL));
+                input.setSample(1, i, 0.13f * std::sin(phaseR));
+            }
+
+            const auto output = renderFuzzOutput(pedal, input, kBlockSize);
+            const double nullRms = computeBufferNullRms(input, output);
+
+            expect(bufferHasOnlyFiniteSamples(output), "Dry-only fuzz render must stay finite");
+            expect(nullRms < 1.0e-5, "Mix at zero should leave the dry path effectively untouched");
+        }
+
+        beginTest("FuzzPedal modes produce distinct fuzz signatures");
+        {
+            auto renderMode = [&](int modeIndex)
+            {
+                FuzzPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+                pedal.fuzzParam->setValueNotifyingHost(pedal.fuzzParam->convertTo0to1(modeIndex == 1 ? 76.0f : 84.0f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.44f));
+                pedal.gateParam->setValueNotifyingHost(pedal.gateParam->convertTo0to1(modeIndex == 2 ? 0.62f : 0.24f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.58f));
+                pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(modeIndex == 2 ? 0.22f : 0.60f));
+
+                const int totalSamples = (int) (kSampleRate * 1.7);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                for (int i = 0; i < totalSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 146.0f * (float) i / (float) kSampleRate;
+                    const float sample = 0.19f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderFuzzOutput(pedal, input, kBlockSize);
+            };
+
+            const auto vintage = renderMode(0);
+            const auto muff = renderMode(1);
+            const auto velcro = renderMode(2);
+
+            const double vintageMuffNull = computeBufferNullRms(vintage, muff);
+            const double vintageVelcroNull = computeBufferNullRms(vintage, velcro);
+            const double muffVelcroNull = computeBufferNullRms(muff, velcro);
+
+            expect(vintageMuffNull > 1.3e-3, "Vintage and Muff modes should not collapse into the same fuzz signature");
+            expect(vintageVelcroNull > 1.6e-3, "Vintage and Velcro modes should remain clearly distinct");
+            expect(muffVelcroNull > 1.5e-3, "Muff and Velcro modes should remain clearly distinct");
+        }
+
+        beginTest("FuzzPedal gate and bias can force a stronger velcro decay");
+        {
+            auto renderPedal = [&](float gateAmount, float biasAmount)
+            {
+                FuzzPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 2));
+                pedal.fuzzParam->setValueNotifyingHost(pedal.fuzzParam->convertTo0to1(88.0f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.36f));
+                pedal.gateParam->setValueNotifyingHost(pedal.gateParam->convertTo0to1(gateAmount));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.58f));
+                pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(biasAmount));
+
+                const int totalSamples = (int) (kSampleRate * 1.3);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                const int burstSamples = (int) (kSampleRate * 0.24);
+                for (int i = 0; i < burstSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 98.0f * (float) i / (float) kSampleRate;
+                    const float sample = 0.22f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderFuzzOutput(pedal, input, kBlockSize);
+            };
+
+            const auto loose = renderPedal(0.10f, 0.72f);
+            const auto velcro = renderPedal(0.88f, 0.12f);
+            const double looseTail = computeWindowRms(loose, (int) (kSampleRate * 0.86), (int) (kSampleRate * 0.18));
+            const double velcroTail = computeWindowRms(velcro, (int) (kSampleRate * 0.86), (int) (kSampleRate * 0.18));
+
+            expect(velcroTail < looseTail * 0.78, "High gate with low bias should clamp the late velcro tail more strongly");
+        }
+
+        beginTest("FuzzPedal automation stress remains finite under aggressive changes");
+        {
+            FuzzPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.78f));
+
+            juce::Random rng(0xF0222);
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            bool finite = true;
+            double peak = 0.0;
+
+            const int blocksToRun = (int) ((kSampleRate * 3.0) / (double) kBlockSize);
+            for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+            {
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < kBlockSize; ++i)
+                        block.setSample(ch, i, 0.15f * ((rng.nextFloat() * 2.0f) - 1.0f));
+
+                const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
+                const int mode = juce::jlimit(0, 2, (int) std::floor(phase * 3.0f));
+
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
+                pedal.fuzzParam->setValueNotifyingHost(pedal.fuzzParam->convertTo0to1(5.0f + 92.0f * phase));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.08f + 0.86f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                pedal.gateParam->setValueNotifyingHost(pedal.gateParam->convertTo0to1(0.04f + 0.94f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.16f + 0.82f * phase));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.15f + 0.74f * (1.0f - phase)));
+                pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(0.02f + 0.96f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+
+                pedal.processBlock(block, midi);
+                peak = juce::jmax(peak, (double) block.getMagnitude(0, 0, block.getNumSamples()));
+                peak = juce::jmax(peak, (double) block.getMagnitude(1, 0, block.getNumSamples()));
+                finite = finite && bufferHasOnlyFiniteSamples(block);
+            }
+
+            expect(finite, "Aggressive fuzz automation must remain finite");
+            expect(peak < 2.4, "Fuzz automation stress should stay inside a sane peak ceiling");
         }
 
         beginTest("Processor switcher cycles through all three routing modes");
