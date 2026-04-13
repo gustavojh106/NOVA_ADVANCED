@@ -8,6 +8,11 @@
 
 #include <cmath>
 
+namespace NovaDiagnostics
+{
+void ensureAudioEngineValidationTestsLinked();
+}
+
 namespace
 {
 namespace PluginState = Nova::PluginStateModel;
@@ -80,6 +85,7 @@ void maybeRunAudioValidationTestsOnce()
 
     // Run the NOVA audio-engine validation suite on demand without affecting normal debug startup.
     hasRun = true;
+    ::NovaDiagnostics::ensureAudioEngineValidationTestsLinked();
     NovaDiagnostics::SessionLogger::logEvent("tests", "Running NOVA validation suite from NOVA_RUN_AUDIO_TESTS=1");
     juce::UnitTestRunner runner;
     runner.setAssertOnFailure(false);

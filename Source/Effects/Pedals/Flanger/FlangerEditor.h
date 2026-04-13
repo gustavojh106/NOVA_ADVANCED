@@ -14,7 +14,9 @@ public:
         stopTimer();
         sldRate.setLookAndFeel(nullptr);
         sldDepth.setLookAndFeel(nullptr);
+        sldManual.setLookAndFeel(nullptr);
         sldFeedback.setLookAndFeel(nullptr);
+        sldWidth.setLookAndFeel(nullptr);
         sldTone.setLookAndFeel(nullptr);
         sldMix.setLookAndFeel(nullptr);
     }
@@ -25,375 +27,411 @@ public:
 private:
     void timerCallback() override;
     void paintCombViz(juce::Graphics& g, juce::Rectangle<float> bounds);
+    void syncModeFromProcessor();
+    void refreshModeSummary();
 
     FlangerPedal& proc;
 
-    static constexpr int kWidth  = 660;
-    static constexpr int kHeight = 420;
+    static constexpr int kWidth = 840;
+    static constexpr int kHeight = 470;
 
-    // Sky blue accent (from catalog)
-    const juce::Colour accent     = juce::Colour::fromString("ff38BDF8");
-    const juce::Colour accentDim  = juce::Colour::fromString("ff0284C7");
-    const juce::Colour accentGlow = juce::Colour::fromString("ff7DD3FC");
-    const juce::Colour bgDark     = juce::Colour(0xff0B0E14);
-    const juce::Colour bgPanel    = juce::Colour(0xff111827);
-    const juce::Colour textBright = juce::Colour(0xffF0EDE8);
-    const juce::Colour textDim    = juce::Colour(0xff7B8BA0);
+    const juce::Colour accent = juce::Colour::fromString("ff38BDF8");
+    const juce::Colour accentDim = juce::Colour::fromString("ff0284C7");
+    const juce::Colour accentGlow = juce::Colour::fromString("ffBAE6FD");
+    const juce::Colour bgTop = juce::Colour(0xff08111A);
+    const juce::Colour bgBottom = juce::Colour(0xff0A1725);
+    const juce::Colour panel = juce::Colour(0xff0F2231);
+    const juce::Colour panelEdge = juce::Colour(0xff1F425A);
+    const juce::Colour textBright = juce::Colour(0xffEFF7FC);
+    const juce::Colour textDim = juce::Colour(0xff7FA4BC);
 
-    // Knobs
-    juce::Slider sldRate, sldDepth, sldFeedback, sldTone, sldMix;
-    juce::Label lblRate, lblDepth, lblFeedback, lblTone, lblMix;
-    juce::Label valRate, valDepth, valFeedback, valTone, valMix;
+    juce::Slider sldRate, sldDepth, sldManual, sldFeedback, sldWidth, sldTone, sldMix;
+    juce::Label lblRate, lblDepth, lblManual, lblFeedback, lblWidth, lblTone, lblMix;
+    juce::Label valRate, valDepth, valManual, valFeedback, valWidth, valTone, valMix;
 
-    // Visualization
+    juce::Label modeLabel;
+    juce::ComboBox modeBox;
+    juce::Label modeSummaryLabel;
+    juce::Label stereoHintLabel;
+
     juce::Rectangle<float> vizBounds;
+    int cachedMode = -1;
 
-    // Log-frequency to x-position mapping
     static float freqToNorm(float freq)
     {
-        constexpr float logMin = 1.69897f;  // log10(50)
-        constexpr float logMax = 4.30103f;  // log10(20000)
-        float logF = std::log10(juce::jlimit(50.0f, 20000.0f, freq));
+        constexpr float logMin = 1.69897f;
+        constexpr float logMax = 4.30103f;
+        const float logF = std::log10(juce::jlimit(50.0f, 20000.0f, freq));
         return (logF - logMin) / (logMax - logMin);
     }
 
     struct FlangerKnobLnF : public juce::LookAndFeel_V4
     {
-        juce::Colour kAccent     = juce::Colour::fromString("ff38BDF8");
-        juce::Colour kAccentGlow = juce::Colour::fromString("ff7DD3FC");
+        juce::Colour accent = juce::Colour::fromString("ff38BDF8");
+        juce::Colour accentGlow = juce::Colour::fromString("ffBAE6FD");
 
         void drawRotarySlider(juce::Graphics& g, int x, int y, int w, int h,
             float sliderPos, float startAngle, float endAngle,
             juce::Slider&) override
         {
-            const auto area = juce::Rectangle<int>(x, y, w, h).toFloat().reduced(6.0f);
-            const float r = juce::jmin(area.getWidth(), area.getHeight()) * 0.5f;
-            const float cx = area.getCentreX();
-            const float cy = area.getCentreY();
+            const auto area = juce::Rectangle<int>(x, y, w, h).toFloat().reduced(5.0f);
+            const float radius = juce::jmin(area.getWidth(), area.getHeight()) * 0.5f;
+            const float centreX = area.getCentreX();
+            const float centreY = area.getCentreY();
             const float angle = startAngle + sliderPos * (endAngle - startAngle);
-            const float arcR = r - 4.0f;
+            const float arcRadius = radius - 4.0f;
 
-            // Track
-            {
-                juce::Path track;
-                track.addCentredArc(cx, cy, arcR, arcR, 0.0f, startAngle, endAngle, true);
-                g.setColour(juce::Colour(0xff1E2A3A));
-                g.strokePath(track, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved));
-            }
+            juce::Path track;
+            track.addCentredArc(centreX, centreY, arcRadius, arcRadius, 0.0f, startAngle, endAngle, true);
+            g.setColour(juce::Colour(0xff153145));
+            g.strokePath(track, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved));
 
-            // Value arc
-            if (sliderPos > 0.005f)
+            if (sliderPos > 0.001f)
             {
                 juce::Path arc;
-                arc.addCentredArc(cx, cy, arcR, arcR, 0.0f, startAngle, angle, true);
-                g.setColour(kAccent.withAlpha(0.10f));
+                arc.addCentredArc(centreX, centreY, arcRadius, arcRadius, 0.0f, startAngle, angle, true);
+                g.setColour(accent.withAlpha(0.12f));
                 g.strokePath(arc, juce::PathStrokeType(10.0f, juce::PathStrokeType::curved));
-                g.setColour(kAccent);
-                g.strokePath(arc, juce::PathStrokeType(3.5f, juce::PathStrokeType::curved));
+                g.setColour(accent);
+                g.strokePath(arc, juce::PathStrokeType(3.4f, juce::PathStrokeType::curved));
             }
 
-            // Body
-            const float kr = r * 0.56f;
-            {
-                juce::ColourGradient grad(juce::Colour(0xff1C2838), cx, cy - kr,
-                    juce::Colour(0xff0D1520), cx, cy + kr, false);
-                g.setGradientFill(grad);
-                g.fillEllipse(cx - kr, cy - kr, kr * 2.0f, kr * 2.0f);
-                g.setColour(juce::Colour(0xff2A3A4C));
-                g.drawEllipse(cx - kr, cy - kr, kr * 2.0f, kr * 2.0f, 1.0f);
-            }
+            const float knobRadius = radius * 0.58f;
+            juce::ColourGradient body(juce::Colour(0xff1A3A50), centreX, centreY - knobRadius,
+                juce::Colour(0xff0A1924), centreX, centreY + knobRadius, false);
+            g.setGradientFill(body);
+            g.fillEllipse(centreX - knobRadius, centreY - knobRadius, knobRadius * 2.0f, knobRadius * 2.0f);
+            g.setColour(juce::Colour(0xff2A5974));
+            g.drawEllipse(centreX - knobRadius, centreY - knobRadius, knobRadius * 2.0f, knobRadius * 2.0f, 1.0f);
 
-            // Pointer
-            const float pLen = kr * 0.70f;
-            const float px = cx + std::sin(angle) * pLen;
-            const float py = cy - std::cos(angle) * pLen;
-            g.setColour(kAccentGlow);
-            g.drawLine(cx, cy, px, py, 2.0f);
-            g.fillEllipse(px - 3.0f, py - 3.0f, 6.0f, 6.0f);
+            const float pointerLength = knobRadius * 0.74f;
+            const float pointX = centreX + std::sin(angle) * pointerLength;
+            const float pointY = centreY - std::cos(angle) * pointerLength;
+            g.setColour(accentGlow);
+            g.drawLine(centreX, centreY, pointX, pointY, 2.0f);
+            g.fillEllipse(pointX - 2.8f, pointY - 2.8f, 5.6f, 5.6f);
         }
     } knobLnF;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FlangerEditor)
 };
 
-// ============================================================================
-//  Inline implementation
-// ============================================================================
-
 inline FlangerEditor::FlangerEditor(FlangerPedal& pedal)
     : juce::AudioProcessorEditor(pedal), proc(pedal)
 {
     setSize(kWidth, kHeight);
 
-    auto initKnob = [this](juce::Slider& s, juce::Label& lbl, juce::Label& val,
-        const juce::String& name, float min, float max, float def, float step = 0.01f)
+    auto initKnob = [this](juce::Slider& slider, juce::Label& name, juce::Label& value,
+        const juce::String& text, double min, double max, double defaultValue, double step)
     {
-        s.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-        s.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-        s.setRange(min, max, step);
-        s.setValue(def, juce::dontSendNotification);
-        s.setLookAndFeel(&knobLnF);
-        addAndMakeVisible(s);
+        slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+        slider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
+        slider.setRange(min, max, step);
+        slider.setValue(defaultValue, juce::dontSendNotification);
+        slider.setLookAndFeel(&knobLnF);
+        addAndMakeVisible(slider);
 
-        lbl.setText(name, juce::dontSendNotification);
-        lbl.setJustificationType(juce::Justification::centred);
-        lbl.setFont(juce::Font(11.0f, juce::Font::bold));
-        lbl.setColour(juce::Label::textColourId, textDim);
-        addAndMakeVisible(lbl);
+        name.setText(text, juce::dontSendNotification);
+        name.setJustificationType(juce::Justification::centred);
+        name.setFont(juce::Font(11.0f, juce::Font::bold));
+        name.setColour(juce::Label::textColourId, textDim);
+        addAndMakeVisible(name);
 
-        val.setJustificationType(juce::Justification::centred);
-        val.setFont(juce::Font(11.0f));
-        val.setColour(juce::Label::textColourId, accentGlow);
-        addAndMakeVisible(val);
+        value.setJustificationType(juce::Justification::centred);
+        value.setFont(juce::Font(11.0f));
+        value.setColour(juce::Label::textColourId, accentGlow);
+        addAndMakeVisible(value);
     };
 
-    initKnob(sldRate,     lblRate,     valRate,     "RATE",     0.05f, 5.0f,   0.35f);
-    initKnob(sldDepth,    lblDepth,    valDepth,    "DEPTH",    0.0f,  1.0f,   0.64f);
-    initKnob(sldFeedback, lblFeedback, valFeedback, "FEEDBACK", -0.95f, 0.95f, 0.55f);
-    initKnob(sldTone,     lblTone,     valTone,     "TONE",     1000.0f, 14000.0f, 8000.0f, 1.0f);
-    initKnob(sldMix,      lblMix,      valMix,      "MIX",      0.0f,  1.0f,  0.5f);
+    initKnob(sldRate, lblRate, valRate, "RATE", 0.03, 5.5, 0.32, 0.01);
+    initKnob(sldDepth, lblDepth, valDepth, "DEPTH", 0.0, 1.0, 0.72, 0.01);
+    initKnob(sldManual, lblManual, valManual, "MANUAL", 0.0, 1.0, 0.34, 0.01);
+    initKnob(sldFeedback, lblFeedback, valFeedback, "FEEDBACK", -0.95, 0.95, 0.42, 0.01);
+    initKnob(sldWidth, lblWidth, valWidth, "WIDTH", 0.0, 1.0, 0.68, 0.01);
+    initKnob(sldTone, lblTone, valTone, "TONE", 1000.0, 14000.0, 7800.0, 1.0);
+    initKnob(sldMix, lblMix, valMix, "MIX", 0.0, 1.0, 0.46, 0.01);
 
-    auto wireParam = [](juce::Slider& s, juce::AudioParameterFloat* p)
+    const auto wireFloat = [](juce::Slider& slider, juce::AudioParameterFloat* param)
     {
-        if (p == nullptr) return;
-        s.setValue(p->get(), juce::dontSendNotification);
-        s.onValueChange = [&s, p]
+        if (param == nullptr)
+            return;
+
+        slider.setValue(param->get(), juce::dontSendNotification);
+        slider.onValueChange = [&slider, param]
         {
-            p->beginChangeGesture();
-            *p = (float)s.getValue();
-            p->endChangeGesture();
+            param->beginChangeGesture();
+            param->setValueNotifyingHost(param->convertTo0to1((float) slider.getValue()));
+            param->endChangeGesture();
         };
     };
-    wireParam(sldRate,     proc.rateParam);
-    wireParam(sldDepth,    proc.depthParam);
-    wireParam(sldFeedback, proc.feedbackParam);
-    wireParam(sldTone,     proc.toneParam);
-    wireParam(sldMix,      proc.mixParam);
 
+    wireFloat(sldRate, proc.rateParam);
+    wireFloat(sldDepth, proc.depthParam);
+    wireFloat(sldManual, proc.manualParam);
+    wireFloat(sldFeedback, proc.feedbackParam);
+    wireFloat(sldWidth, proc.widthParam);
+    wireFloat(sldTone, proc.toneParam);
+    wireFloat(sldMix, proc.mixParam);
+
+    modeLabel.setText("MODE", juce::dontSendNotification);
+    modeLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    modeLabel.setColour(juce::Label::textColourId, textDim);
+    addAndMakeVisible(modeLabel);
+
+    modeBox.addItemList(proc.modeParam != nullptr ? proc.modeParam->choices : juce::StringArray{ "Classic" }, 1);
+    modeBox.setColour(juce::ComboBox::backgroundColourId, panel);
+    modeBox.setColour(juce::ComboBox::outlineColourId, panelEdge);
+    modeBox.setColour(juce::ComboBox::textColourId, textBright);
+    modeBox.setColour(juce::ComboBox::arrowColourId, accentGlow);
+    modeBox.onChange = [this]
+    {
+        if (proc.modeParam == nullptr)
+            return;
+
+        proc.modeParam->beginChangeGesture();
+        proc.modeParam->setValueNotifyingHost((float) modeBox.getSelectedItemIndex()
+            / (float) juce::jmax(1, proc.modeParam->choices.size() - 1));
+        proc.modeParam->endChangeGesture();
+    };
+    addAndMakeVisible(modeBox);
+
+    modeSummaryLabel.setFont(juce::Font(12.0f));
+    modeSummaryLabel.setColour(juce::Label::textColourId, textDim.withAlpha(0.96f));
+    modeSummaryLabel.setJustificationType(juce::Justification::centredLeft);
+    addAndMakeVisible(modeSummaryLabel);
+
+    stereoHintLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    stereoHintLabel.setColour(juce::Label::textColourId, accentGlow.withAlpha(0.88f));
+    stereoHintLabel.setJustificationType(juce::Justification::centredRight);
+    stereoHintLabel.setText("Stereo wings stay wide without blowing up the centre image", juce::dontSendNotification);
+    addAndMakeVisible(stereoHintLabel);
+
+    syncModeFromProcessor();
+    refreshModeSummary();
     startTimerHz(30);
 }
 
 inline void FlangerEditor::timerCallback()
 {
-    auto syncSlider = [](juce::Slider& s, juce::AudioParameterFloat* p)
+    const auto syncSlider = [](juce::Slider& slider, juce::AudioParameterFloat* param)
     {
-        if (p != nullptr)
-            s.setValue(p->get(), juce::dontSendNotification);
+        if (param != nullptr)
+            slider.setValue(param->get(), juce::dontSendNotification);
     };
-    syncSlider(sldRate,     proc.rateParam);
-    syncSlider(sldDepth,    proc.depthParam);
+
+    syncSlider(sldRate, proc.rateParam);
+    syncSlider(sldDepth, proc.depthParam);
+    syncSlider(sldManual, proc.manualParam);
     syncSlider(sldFeedback, proc.feedbackParam);
-    syncSlider(sldTone,     proc.toneParam);
-    syncSlider(sldMix,      proc.mixParam);
+    syncSlider(sldWidth, proc.widthParam);
+    syncSlider(sldTone, proc.toneParam);
+    syncSlider(sldMix, proc.mixParam);
 
-    // Value readouts
-    valRate.setText(juce::String((float)sldRate.getValue(), 2) + " Hz", juce::dontSendNotification);
-    valDepth.setText(juce::String((int)(sldDepth.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    syncModeFromProcessor();
+
+    valRate.setText(juce::String((float) sldRate.getValue(), 2) + " Hz", juce::dontSendNotification);
+    valDepth.setText(juce::String((int) std::round(sldDepth.getValue() * 100.0)) + "%", juce::dontSendNotification);
+    valManual.setText(juce::String(FlangerPedal::manualToCentreDelayMs((float) sldManual.getValue()), 2) + " ms", juce::dontSendNotification);
     {
-        int fbPct = juce::roundToInt(sldFeedback.getValue() * 100.0);
-        valFeedback.setText((fbPct >= 0 ? "+" : "") + juce::String(fbPct) + "%", juce::dontSendNotification);
+        const int percent = juce::roundToInt(sldFeedback.getValue() * 100.0);
+        valFeedback.setText((percent >= 0 ? "+" : "") + juce::String(percent) + "%", juce::dontSendNotification);
     }
+    valWidth.setText(juce::String((int) std::round(sldWidth.getValue() * 100.0)) + "%", juce::dontSendNotification);
     {
-        float tone = (float)sldTone.getValue();
+        const float tone = (float) sldTone.getValue();
         valTone.setText(tone >= 1000.0f
-            ? juce::String(tone * 0.001f, 1) + " kHz"
-            : juce::String((int)tone) + " Hz", juce::dontSendNotification);
+            ? juce::String(tone / 1000.0f, 1) + " kHz"
+            : juce::String((int) std::round(tone)) + " Hz",
+            juce::dontSendNotification);
     }
-    valMix.setText(juce::String((int)(sldMix.getValue() * 100.0)) + "%", juce::dontSendNotification);
-
+    valMix.setText(juce::String((int) std::round(sldMix.getValue() * 100.0)) + "%", juce::dontSendNotification);
     repaint(vizBounds.toNearestInt());
+}
+
+inline void FlangerEditor::syncModeFromProcessor()
+{
+    if (proc.modeParam == nullptr)
+        return;
+
+    const int mode = proc.modeParam->getIndex();
+    modeBox.setSelectedItemIndex(mode, juce::dontSendNotification);
+    if (mode != cachedMode)
+    {
+        cachedMode = mode;
+        refreshModeSummary();
+    }
+}
+
+inline void FlangerEditor::refreshModeSummary()
+{
+    modeSummaryLabel.setText(FlangerPedal::getModeDescription(cachedMode < 0 ? 0 : cachedMode),
+        juce::dontSendNotification);
 }
 
 inline void FlangerEditor::paint(juce::Graphics& g)
 {
-    // Background gradient
-    {
-        juce::ColourGradient bg(juce::Colour(0xff0E1219), 0.0f, 0.0f,
-            bgDark, 0.0f, (float)getHeight(), false);
-        g.setGradientFill(bg);
-        g.fillAll();
-    }
+    juce::ColourGradient bg(bgTop, 0.0f, 0.0f, bgBottom, 0.0f, (float) getHeight(), false);
+    g.setGradientFill(bg);
+    g.fillAll();
 
     g.setColour(accent.withAlpha(0.12f));
-    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 6.0f, 1.0f);
+    g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 8.0f, 1.0f);
 
-    // Top glow accent line
-    {
-        juce::ColourGradient glow(accent.withAlpha(0.30f), (float)getWidth() * 0.2f, 0.0f,
-            accent.withAlpha(0.0f), (float)getWidth() * 0.8f, 0.0f, false);
-        g.setGradientFill(glow);
-        g.fillRect(0.0f, 0.0f, (float)getWidth(), 2.0f);
-    }
+    juce::ColourGradient glow(accent.withAlpha(0.28f), (float) getWidth() * 0.18f, 0.0f,
+        accent.withAlpha(0.0f), (float) getWidth() * 0.82f, 0.0f, false);
+    g.setGradientFill(glow);
+    g.fillRect(0.0f, 0.0f, (float) getWidth(), 2.0f);
 
-    // Header
     g.setColour(textBright);
-    g.setFont(juce::Font(22.0f, juce::Font::bold));
-    g.drawText("FLANGER", 28, 10, 200, 28, juce::Justification::centredLeft);
+    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.drawText("FLANGER", 28, 10, 220, 30, juce::Justification::centredLeft);
     g.setColour(accent);
     g.setFont(juce::Font(13.0f));
-    g.drawText("Jet Engine", 28, 33, 200, 18, juce::Justification::centredLeft);
+    g.drawText("Commercial stereo flange with pro voicings", 28, 36, 320, 18, juce::Justification::centredLeft);
 
-    // Comb filter visualization
     paintCombViz(g, vizBounds);
 }
 
 inline void FlangerEditor::paintCombViz(juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    // Panel background
-    g.setColour(juce::Colour(0xff080C12));
-    g.fillRoundedRectangle(bounds, 6.0f);
-    g.setColour(juce::Colour(0xff1E2A3A));
-    g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
+    g.setColour(juce::Colour(0xff07111A));
+    g.fillRoundedRectangle(bounds, 8.0f);
+    g.setColour(panelEdge.withAlpha(0.82f));
+    g.drawRoundedRectangle(bounds, 8.0f, 1.0f);
 
-    auto inner = bounds.reduced(14.0f, 10.0f);
-    const float w = inner.getWidth();
-    const float h = inner.getHeight();
+    auto inner = bounds.reduced(14.0f, 12.0f);
+    const float width = inner.getWidth();
+    const float height = inner.getHeight();
 
-    const float depth    = (float)sldDepth.getValue();
-    const float feedback = (float)sldFeedback.getValue();
-    const float phase    = proc.lfoPhase;
+    const float feedback = (float) sldFeedback.getValue();
+    const float mix = (float) sldMix.getValue();
+    const float delayL = juce::jmax(0.35f, proc.lastDelayMs[0]);
+    const float delayR = juce::jmax(0.35f, proc.lastDelayMs[1] > 0.0f ? proc.lastDelayMs[1] : proc.lastDelayMs[0]);
+    const float polarity = cachedMode == 2 ? -1.0f : 1.0f;
+    const float dryGain = std::cos(mix * juce::MathConstants<float>::halfPi);
+    const float wetGain = std::sin(mix * juce::MathConstants<float>::halfPi);
 
-    constexpr float kBaseDelayMs  = 1.0f;
-    constexpr float kMaxExcursMs  = 7.0f;
-    constexpr float twoPi = juce::MathConstants<float>::twoPi;
-
-    // Compute current delay for L/R channels using same LFO as processor
-    float lfoL = 0.5f + 0.5f * std::sin(twoPi * phase);
-    float lfoR = 0.5f + 0.5f * std::sin(twoPi * std::fmod(phase + 0.333f, 1.0f));
-
-    float delayMsL = kBaseDelayMs + kMaxExcursMs * depth * lfoL;
-    float delayMsR = kBaseDelayMs + kMaxExcursMs * depth * lfoR;
-
-    // Frequency axis grid lines
     const float gridFreqs[] = { 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f };
     const char* gridLabels[] = { "100", "200", "500", "1k", "2k", "5k", "10k" };
-    g.setFont(juce::Font(8.0f));
+    g.setFont(juce::Font(8.5f));
 
     for (int i = 0; i < 7; ++i)
     {
-        float xNorm = freqToNorm(gridFreqs[i]);
-        float x = inner.getX() + xNorm * w;
-
-        g.setColour(juce::Colour(0xff1A2535));
+        const float x = inner.getX() + freqToNorm(gridFreqs[i]) * width;
+        g.setColour(juce::Colour(0xff152433));
         g.drawLine(x, inner.getY(), x, inner.getBottom(), 0.5f);
-
-        g.setColour(textDim.withAlpha(0.3f));
-        g.drawText(gridLabels[i], (int)(x - 15), (int)(inner.getBottom() + 1), 30, 10,
-            juce::Justification::centred);
+        g.setColour(textDim.withAlpha(0.34f));
+        g.drawText(gridLabels[i], (int) (x - 16.0f), (int) inner.getBottom() + 1, 32, 11, juce::Justification::centred);
     }
 
-    // dB axis reference lines
-    g.setColour(juce::Colour(0xff1A2535));
-    g.drawLine(inner.getX(), inner.getY() + h * 0.25f, inner.getRight(), inner.getY() + h * 0.25f, 0.5f);
-    g.drawLine(inner.getX(), inner.getY() + h * 0.5f,  inner.getRight(), inner.getY() + h * 0.5f,  0.5f);
-    g.drawLine(inner.getX(), inner.getY() + h * 0.75f, inner.getRight(), inner.getY() + h * 0.75f, 0.5f);
+    g.setColour(juce::Colour(0xff152433));
+    g.drawLine(inner.getX(), inner.getY() + height * 0.25f, inner.getRight(), inner.getY() + height * 0.25f, 0.5f);
+    g.drawLine(inner.getX(), inner.getCentreY(), inner.getRight(), inner.getCentreY(), 0.5f);
+    g.drawLine(inner.getX(), inner.getY() + height * 0.75f, inner.getRight(), inner.getY() + height * 0.75f, 0.5f);
 
-    // Compute comb filter magnitude response: |H(f)| = 1 / sqrt(1 + fb^2 + 2*fb*cos(2*pi*f*delay))
-    // For display, we convert to dB and normalize
-    auto computeCombResponse = [&](float delayMs, int numPoints, juce::Path& path, bool startPath)
+    auto computeResponse = [&](float delayMs, juce::Path& path)
     {
+        constexpr float dbRange = 18.0f;
+        const float regenFeedback = juce::jlimit(-0.94f, 0.94f, feedback * 0.88f);
         const float delaySec = delayMs * 0.001f;
-        const float fb = feedback;
 
-        for (int i = 0; i < numPoints; ++i)
+        for (int i = 0; i < 256; ++i)
         {
-            float xNorm = (float)i / (float)(numPoints - 1);
-            float logFreq = 1.69897f + xNorm * (4.30103f - 1.69897f);  // log10(50) to log10(20000)
-            float freq = std::pow(10.0f, logFreq);
-
-            // Comb filter transfer function magnitude
-            float phase_angle = twoPi * freq * delaySec;
-            float mag2 = 1.0f + fb * fb + 2.0f * fb * std::cos(phase_angle);
-            float magDb = 10.0f * std::log10(juce::jmax(mag2, 1.0e-6f));
-
-            // Map dB to y: 0 dB at center, +/-12 dB range
-            constexpr float dbRange = 14.0f;
+            const float xNorm = (float) i / 255.0f;
+            const float logFreq = 1.69897f + xNorm * (4.30103f - 1.69897f);
+            const float freq = std::pow(10.0f, logFreq);
+            const float phase = juce::MathConstants<float>::twoPi * freq * delaySec;
+            const float baseMag = juce::jmax(1.0e-6f,
+                dryGain * dryGain
+                    + wetGain * wetGain
+                    + 2.0f * dryGain * wetGain * polarity * std::cos(phase));
+            const float regenDenom = juce::jmax(1.0e-5f,
+                1.0f + regenFeedback * regenFeedback - 2.0f * regenFeedback * std::cos(phase));
+            const float mag = std::sqrt(baseMag) * (0.78f + 0.22f / std::sqrt(regenDenom));
+            const float magDb = 20.0f * std::log10(juce::jmax(mag, 1.0e-4f));
             float yNorm = 0.5f - (magDb / (2.0f * dbRange));
             yNorm = juce::jlimit(0.0f, 1.0f, yNorm);
 
-            float x = inner.getX() + xNorm * w;
-            float y = inner.getY() + yNorm * h;
-
-            if (i == 0 && startPath)
+            const float x = inner.getX() + xNorm * width;
+            const float y = inner.getY() + yNorm * height;
+            if (i == 0)
                 path.startNewSubPath(x, y);
             else
                 path.lineTo(x, y);
         }
     };
 
-    // L channel response (bright)
-    {
-        juce::Path pathL;
-        computeCombResponse(delayMsL, 256, pathL, true);
+    juce::Path leftPath;
+    computeResponse(delayL, leftPath);
+    g.setColour(accentGlow.withAlpha(0.08f));
+    g.strokePath(leftPath, juce::PathStrokeType(8.0f, juce::PathStrokeType::curved));
+    g.setColour(accent.withAlpha(0.18f));
+    g.strokePath(leftPath, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved));
+    g.setColour(accentGlow.withAlpha(0.88f));
+    g.strokePath(leftPath, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved));
 
-        // Glow
-        g.setColour(accentGlow.withAlpha(0.06f));
-        g.strokePath(pathL, juce::PathStrokeType(8.0f, juce::PathStrokeType::curved));
-        g.setColour(accent.withAlpha(0.12f));
-        g.strokePath(pathL, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved));
-        g.setColour(accentGlow.withAlpha(0.85f));
-        g.strokePath(pathL, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved));
-    }
+    juce::Path rightPath;
+    computeResponse(delayR, rightPath);
+    g.setColour(accent.withAlpha(0.06f));
+    g.strokePath(rightPath, juce::PathStrokeType(5.0f, juce::PathStrokeType::curved));
+    g.setColour(accent.withAlpha(0.46f));
+    g.strokePath(rightPath, juce::PathStrokeType(1.1f, juce::PathStrokeType::curved));
 
-    // R channel response (dimmer)
-    {
-        juce::Path pathR;
-        computeCombResponse(delayMsR, 256, pathR, true);
-
-        g.setColour(accent.withAlpha(0.05f));
-        g.strokePath(pathR, juce::PathStrokeType(4.0f, juce::PathStrokeType::curved));
-        g.setColour(accent.withAlpha(0.45f));
-        g.strokePath(pathR, juce::PathStrokeType(1.0f, juce::PathStrokeType::curved));
-    }
-
-    // L/R legend
     g.setFont(juce::Font(9.0f, juce::Font::bold));
-    g.setColour(accentGlow.withAlpha(0.5f));
-    g.drawText("L", (int)inner.getX() + 2, (int)inner.getY() + 2, 12, 12, juce::Justification::centredLeft);
+    g.setColour(accentGlow.withAlpha(0.56f));
+    g.drawText("L", (int) inner.getX() + 2, (int) inner.getY() + 2, 14, 12, juce::Justification::centredLeft);
     g.setColour(accent.withAlpha(0.35f));
-    g.drawText("R", (int)inner.getX() + 14, (int)inner.getY() + 2, 12, 12, juce::Justification::centredLeft);
+    g.drawText("R", (int) inner.getX() + 16, (int) inner.getY() + 2, 14, 12, juce::Justification::centredLeft);
 
-    // Delay readout
     g.setFont(juce::Font(9.0f));
-    g.setColour(textDim.withAlpha(0.5f));
-    g.drawText(juce::String(delayMsL, 1) + " ms",
-        (int)(inner.getRight() - 60), (int)inner.getY() + 2, 56, 12,
-        juce::Justification::centredRight);
+    g.setColour(textDim.withAlpha(0.58f));
+    g.drawText(juce::String(delayL, 2) + " / " + juce::String(delayR, 2) + " ms",
+        (int) (inner.getRight() - 92.0f), (int) inner.getY() + 2, 88, 12, juce::Justification::centredRight);
 }
 
 inline void FlangerEditor::resized()
 {
-    const int w = getWidth();
+    const int width = getWidth();
 
-    // Viz panel
-    vizBounds = juce::Rectangle<float>(28.0f, 58.0f, (float)(w - 56), 140.0f);
+    modeLabel.setBounds(28, 60, 44, 18);
+    modeBox.setBounds(78, 56, 134, 24);
+    modeSummaryLabel.setBounds(226, 56, width - 470, 24);
+    stereoHintLabel.setBounds(width - 260, 56, 232, 24);
 
-    // Knobs
-    const int knobSize = 80;
-    const int knobY = 218;
+    vizBounds = juce::Rectangle<float>(28.0f, 92.0f, (float) (width - 56), 156.0f);
+
+    const int knobSize = 84;
+    const int knobY = 286;
     const int labelH = 16;
-    const int valH = 16;
-    const int slotW = w / 5;
+    const int valueH = 16;
+    const int slotW = width / 7;
 
-    struct KnobGroup { juce::Slider& s; juce::Label& lbl; juce::Label& val; };
-    KnobGroup knobs[] = {
-        { sldRate,     lblRate,     valRate },
-        { sldDepth,    lblDepth,    valDepth },
-        { sldFeedback, lblFeedback, valFeedback },
-        { sldTone,     lblTone,     valTone },
-        { sldMix,      lblMix,      valMix }
+    struct KnobGroup
+    {
+        juce::Slider& slider;
+        juce::Label& label;
+        juce::Label& value;
     };
 
-    for (int i = 0; i < 5; ++i)
+    KnobGroup groups[] = {
+        { sldRate, lblRate, valRate },
+        { sldDepth, lblDepth, valDepth },
+        { sldManual, lblManual, valManual },
+        { sldFeedback, lblFeedback, valFeedback },
+        { sldWidth, lblWidth, valWidth },
+        { sldTone, lblTone, valTone },
+        { sldMix, lblMix, valMix }
+    };
+
+    for (int i = 0; i < 7; ++i)
     {
-        int cx = slotW * i + slotW / 2;
-        knobs[i].lbl.setBounds(cx - 50, knobY, 100, labelH);
-        knobs[i].s.setBounds(cx - knobSize / 2, knobY + labelH + 4, knobSize, knobSize);
-        knobs[i].val.setBounds(cx - 50, knobY + labelH + 4 + knobSize + 2, 100, valH);
+        const int centreX = slotW * i + slotW / 2;
+        groups[i].label.setBounds(centreX - 52, knobY, 104, labelH);
+        groups[i].slider.setBounds(centreX - knobSize / 2, knobY + labelH + 4, knobSize, knobSize);
+        groups[i].value.setBounds(centreX - 52, knobY + labelH + 4 + knobSize + 2, 104, valueH);
     }
 }
 
-// ---- Wire createEditor ----
 inline juce::AudioProcessorEditor* FlangerPedal::createEditor()
 {
     return new FlangerEditor(*this);

@@ -218,6 +218,32 @@ juce::AudioBuffer<float> renderChorusOutput(ChorusPedal& pedal,
     return output;
 }
 
+juce::AudioBuffer<float> renderFlangerOutput(FlangerPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
 juce::AudioBuffer<float> renderDistortionOutput(DistortionPedal& pedal,
     const juce::AudioBuffer<float>& input,
     int blockSize)
@@ -332,6 +358,36 @@ juce::AudioBuffer<float> renderDelayOutputWithAutomation(DelayPedal& pedal,
 
 template <typename Callback>
 juce::AudioBuffer<float> renderChorusOutputWithAutomation(ChorusPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize,
+    Callback&& callback)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    int blockIndex = 0;
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize, ++blockIndex)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        callback(blockIndex, offset, block);
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+template <typename Callback>
+juce::AudioBuffer<float> renderFlangerOutputWithAutomation(FlangerPedal& pedal,
     const juce::AudioBuffer<float>& input,
     int blockSize,
     Callback&& callback)
@@ -1986,6 +2042,155 @@ public:
             expect(peak < 1.8, "Chorus automation stress should stay inside a sane peak ceiling");
         }
 
+        beginTest("FlangerPedal round-trips its commercial state");
+        {
+            FlangerPedal source;
+            source.modeParam->setValueNotifyingHost(normalisedChoiceIndex(source.modeParam, 2));
+            source.rateParam->setValueNotifyingHost(source.rateParam->convertTo0to1(0.91f));
+            source.depthParam->setValueNotifyingHost(source.depthParam->convertTo0to1(0.83f));
+            source.manualParam->setValueNotifyingHost(source.manualParam->convertTo0to1(0.58f));
+            source.feedbackParam->setValueNotifyingHost(source.feedbackParam->convertTo0to1(-0.36f));
+            source.widthParam->setValueNotifyingHost(source.widthParam->convertTo0to1(0.79f));
+            source.toneParam->setValueNotifyingHost(source.toneParam->convertTo0to1(6800.0f));
+            source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.53f));
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            FlangerPedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expectEquals(restored.modeParam->getIndex(), 2);
+            expect(approximatelyEqual(restored.rateParam->get(), 0.91f, 1.0e-3f));
+            expect(approximatelyEqual(restored.depthParam->get(), 0.83f, 1.0e-3f));
+            expect(approximatelyEqual(restored.manualParam->get(), 0.58f, 1.0e-3f));
+            expect(approximatelyEqual(restored.feedbackParam->get(), -0.36f, 1.0e-3f));
+            expect(approximatelyEqual(restored.widthParam->get(), 0.79f, 1.0e-3f));
+            expect(approximatelyEqual(restored.toneParam->get(), 6800.0f, 1.0e-2f));
+            expect(approximatelyEqual(restored.mixParam->get(), 0.53f, 1.0e-3f));
+        }
+
+        beginTest("FlangerPedal mix zero keeps the dry path transparent");
+        {
+            FlangerPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 0));
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(0.72f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.78f));
+            pedal.manualParam->setValueNotifyingHost(pedal.manualParam->convertTo0to1(0.44f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.62f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.88f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(8600.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.0f));
+            pedal.reset();
+
+            const int totalSamples = (int) (kSampleRate * 1.2);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phaseL = juce::MathConstants<float>::twoPi * 173.0f * (float) i / (float) kSampleRate;
+                const float phaseR = juce::MathConstants<float>::twoPi * 233.0f * (float) i / (float) kSampleRate;
+                input.setSample(0, i, 0.18f * std::sin(phaseL));
+                input.setSample(1, i, 0.15f * std::sin(phaseR));
+            }
+
+            const auto output = renderFlangerOutput(pedal, input, kBlockSize);
+            const double nullRms = computeBufferNullRms(input, output);
+
+            expect(bufferHasOnlyFiniteSamples(output), "Dry-only flanger render must stay finite");
+            expect(nullRms < 1.0e-5, "Mix at zero should leave the dry path effectively untouched");
+        }
+
+        beginTest("FlangerPedal modes produce distinct stereo signatures");
+        {
+            auto renderMode = [&](int modeIndex)
+            {
+                FlangerPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+                pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(modeIndex == 1 ? 0.54f : 0.86f));
+                pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(modeIndex == 2 ? 0.90f : 0.80f));
+                pedal.manualParam->setValueNotifyingHost(pedal.manualParam->convertTo0to1(modeIndex == 2 ? 0.40f : 0.52f));
+                pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(modeIndex == 2 ? -0.58f : 0.64f));
+                pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.92f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(7600.0f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.reset();
+
+                const int totalSamples = (int) (kSampleRate * 2.0);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                for (int i = 0; i < totalSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 220.0f * (float) i / (float) kSampleRate;
+                    const float sample = 0.18f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderFlangerOutput(pedal, input, kBlockSize);
+            };
+
+            const auto classic = renderMode(0);
+            const auto jet = renderMode(1);
+            const auto zero = renderMode(2);
+
+            const double jetCorr = computeStereoCorrelation(jet, (int) (kSampleRate * 0.18));
+            const double jetRightRms = computeChannelWindowRms(jet, 1, (int) (kSampleRate * 0.18), (int) (kSampleRate * 0.9));
+            const double jetLeftRms = computeChannelWindowRms(jet, 0, (int) (kSampleRate * 0.18), (int) (kSampleRate * 0.9));
+            const double classicJetNull = computeBufferNullRms(classic, jet);
+            const double classicZeroNull = computeBufferNullRms(classic, zero);
+            const double jetZeroNull = computeBufferNullRms(jet, zero);
+
+            expect(bufferHasOnlyFiniteSamples(jet), "Jet flanger render must remain finite");
+            expect(std::abs(jetCorr) < 0.985, "Jet mode should open a measurable stereo field");
+            expect(jetRightRms > jetLeftRms * 0.25, "Jet mode should project meaningful energy into the opposite side");
+            expect(classicJetNull > 1.5e-3, "Classic and Jet modes should render audibly different comb signatures");
+            expect(classicZeroNull > 1.5e-3, "Classic and Zero modes should remain clearly separated");
+            expect(jetZeroNull > 1.5e-3, "Jet and Zero modes should not collapse into the same modulation voice");
+        }
+
+        beginTest("FlangerPedal automation stress remains finite under aggressive changes");
+        {
+            FlangerPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.56f));
+
+            const int totalSamples = (int) (kSampleRate * 3.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float t = (float) i / (float) kSampleRate;
+                input.setSample(0, i, 0.14f * std::sin(juce::MathConstants<float>::twoPi * 110.0f * t)
+                    + 0.06f * std::sin(juce::MathConstants<float>::twoPi * 330.0f * t));
+                input.setSample(1, i, 0.13f * std::sin(juce::MathConstants<float>::twoPi * 146.0f * t)
+                    + 0.05f * std::sin(juce::MathConstants<float>::twoPi * 440.0f * t));
+            }
+
+            const auto output = renderFlangerOutputWithAutomation(pedal, input, kBlockSize,
+                [&](int blockIndex, int, juce::AudioBuffer<float>&)
+                {
+                    const int totalBlocks = juce::jmax(1, totalSamples / kBlockSize);
+                    const float phase = (float) blockIndex / (float) juce::jmax(1, totalBlocks - 1);
+                    const int mode = juce::jlimit(0, 2, (int) std::floor(phase * 3.0f));
+
+                    pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
+                    pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(0.04f + 5.2f * phase));
+                    pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.08f + 0.90f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                    pedal.manualParam->setValueNotifyingHost(pedal.manualParam->convertTo0to1(0.06f + 0.88f * (1.0f - phase)));
+                    pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(-0.78f + 1.56f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.5f))));
+                    pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.04f + 0.96f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                    pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(1400.0f + 11200.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+                    pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.08f + 0.86f * phase));
+                });
+
+            expect(bufferHasOnlyFiniteSamples(output), "Aggressive flanger automation must remain finite");
+            expect(output.getMagnitude(0, 0, output.getNumSamples()) < 1.9f, "Flanger automation should stay inside a sane peak ceiling");
+            expect(output.getMagnitude(1, 0, output.getNumSamples()) < 1.9f, "Flanger automation should stay inside a sane peak ceiling on both channels");
+        }
+
         beginTest("DistortionPedal round-trips its commercial state");
         {
             DistortionPedal source;
@@ -2441,4 +2646,17 @@ public:
 };
 
 static AudioEngineValidationTests audioEngineValidationTests;
+
+void touchAudioEngineValidationTests()
+{
+    juce::ignoreUnused(audioEngineValidationTests);
+}
+}
+
+namespace NovaDiagnostics
+{
+void ensureAudioEngineValidationTestsLinked()
+{
+    touchAudioEngineValidationTests();
+}
 }
