@@ -18,7 +18,6 @@
 #include "../Effects/Pedals/Metal/MetalDistortionPedal.h"
 #include "../Effects/Pedals/Fuzz/FuzzPedal.h"
 #include "../Effects/Pedals/Wah/ClassicWahPedal.h"
-#include "../Effects/Pedals/Wah/AutoWahPedal.h"
 #include "../Effects/Pedals/Octave/OctavePedal.h"
 #include "../Effects/Pedals/Chorus/ChorusPedal.h"
 #include "../Effects/Pedals/Phaser/PhaserPedal.h"
@@ -96,7 +95,6 @@ private:
             { "Metal Distortion", [] { return std::make_unique<MetalDistortionPedal>(); } },
             { "Fuzz",          [] { return std::make_unique<FuzzPedal>(); } },
             { "Wah",           [] { return std::make_unique<ClassicWahPedal>(); } },
-            { "Auto Wah",      [] { return std::make_unique<AutoWahPedal>(); } },
             { "Octave",        [] { return std::make_unique<OctavePedal>(); } },
             { "Chorus",        [] { return std::make_unique<ChorusPedal>(); } },
             { "Phaser",        [] { return std::make_unique<PhaserPedal>(); } },

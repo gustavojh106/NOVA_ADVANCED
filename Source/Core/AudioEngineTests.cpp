@@ -1052,6 +1052,7 @@ public:
             expect(PedalRegistry::isTypeSupported("Chorus"), "Chorus should be registered");
             expect(PedalRegistry::isTypeSupported("Boost"), "Boost should be registered");
             expect(PedalRegistry::isTypeSupported("Wah"), "Wah should be registered");
+            expect(PedalRegistry::isTypeSupported("Auto Wah"), "Auto Wah should resolve to the unified Wah");
             expect(PedalRegistry::isTypeSupported("Octave"), "Octave should be registered");
             expect(PedalRegistry::isTypeSupported("Metal Distortion"), "Metal Distortion should be registered");
 
@@ -1068,8 +1069,88 @@ public:
                 "Octave should be available in the pre zone");
             expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Metal Distortion")) != preTypes.end(),
                 "Metal Distortion should be available in the pre zone");
+            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Auto Wah")) == preTypes.end(),
+                "Auto Wah should not appear as a separate catalog entry anymore");
             expect(std::find(fxTypes.begin(), fxTypes.end(), juce::String("Chorus")) != fxTypes.end(),
                 "Chorus should be available in the FX zone");
+        }
+
+        beginTest("Unified Wah round-trips modern and legacy state");
+        {
+            struct WahLegacyStateHelper : ProcessorBase
+            {
+                static void encode(const juce::XmlElement& xml, juce::MemoryBlock& block)
+                {
+                    copyXmlToBinary(xml, block);
+                }
+
+                void prepareToPlay(double, int) override {}
+                void releaseResources() override {}
+                void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}
+            };
+
+            ClassicWahPedal source;
+            source.modeParam->setValueNotifyingHost(normalisedChoiceIndex(source.modeParam, 2));
+            source.setExternalControlSource(ClassicWahPedal::ExternalControlSource::ShortcutHold);
+            source.setShortcutKeyCode('Q');
+            source.sweepParam->setValueNotifyingHost(source.sweepParam->convertTo0to1(0.72f));
+            source.sensitivityParam->setValueNotifyingHost(source.sensitivityParam->convertTo0to1(0.63f));
+            source.attackParam->setValueNotifyingHost(source.attackParam->convertTo0to1(6.0f));
+            source.decayParam->setValueNotifyingHost(source.decayParam->convertTo0to1(280.0f));
+            source.rangeParam->setValueNotifyingHost(source.rangeParam->convertTo0to1(0.81f));
+            source.resonanceParam->setValueNotifyingHost(source.resonanceParam->convertTo0to1(5.4f));
+            source.voiceParam->setValueNotifyingHost(source.voiceParam->convertTo0to1(0.61f));
+            source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.88f));
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            ClassicWahPedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expectEquals(restored.modeParam->getIndex(), 2);
+            expectEquals((int) restored.getExternalControlSource(),
+                (int) ClassicWahPedal::ExternalControlSource::ShortcutHold);
+            expectEquals(restored.getShortcutKeyCode(), (int) 'Q');
+            expect(approximatelyEqual(restored.sweepParam->get(), 0.72f, 1.0e-3f));
+            expect(approximatelyEqual(restored.sensitivityParam->get(), 0.63f, 1.0e-3f));
+            expect(approximatelyEqual(restored.attackParam->get(), 6.0f, 0.2f));
+            expect(approximatelyEqual(restored.decayParam->get(), 280.0f, 1.0f));
+            expect(approximatelyEqual(restored.rangeParam->get(), 0.81f, 1.0e-3f));
+            expect(approximatelyEqual(restored.resonanceParam->get(), 5.4f, 0.1f));
+            expect(approximatelyEqual(restored.voiceParam->get(), 0.61f, 1.0e-3f));
+            expect(approximatelyEqual(restored.mixParam->get(), 0.88f, 1.0e-3f));
+
+            juce::XmlElement legacy("PLUGIN_STATE");
+            auto addLegacyParam = [&legacy](const juce::String& id, float value)
+            {
+                auto* child = legacy.createNewChildElement("PARAM");
+                child->setAttribute("id", id);
+                child->setAttribute("value", value);
+            };
+
+            addLegacyParam("wahSweep", 0.55f);
+            addLegacyParam("wahSens", source.sensitivityParam->convertTo0to1(0.77f));
+            addLegacyParam("wahAttack", source.attackParam->convertTo0to1(4.0f));
+            addLegacyParam("wahDecay", source.decayParam->convertTo0to1(190.0f));
+            addLegacyParam("wahRange", source.rangeParam->convertTo0to1(0.68f));
+            addLegacyParam("wahResonance", juce::jlimit(0.0f, 1.0f, (4.9f - 0.5f) / 9.5f));
+            addLegacyParam("wahMix", source.mixParam->convertTo0to1(0.91f));
+
+            juce::MemoryBlock legacyState;
+            WahLegacyStateHelper::encode(legacy, legacyState);
+
+            ClassicWahPedal restoredLegacy;
+            restoredLegacy.setStateInformation(legacyState.getData(), (int) legacyState.getSize());
+
+            expectEquals(restoredLegacy.modeParam->getIndex(), 1);
+            expect(approximatelyEqual(restoredLegacy.sweepParam->get(), 0.55f, 1.0e-3f));
+            expect(approximatelyEqual(restoredLegacy.sensitivityParam->get(), 0.77f, 1.0e-3f));
+            expect(approximatelyEqual(restoredLegacy.attackParam->get(), 4.0f, 0.2f));
+            expect(approximatelyEqual(restoredLegacy.decayParam->get(), 190.0f, 1.0f));
+            expect(approximatelyEqual(restoredLegacy.rangeParam->get(), 0.68f, 1.0e-3f));
+            expect(approximatelyEqual(restoredLegacy.resonanceParam->get(), 4.9f, 0.12f));
+            expect(approximatelyEqual(restoredLegacy.mixParam->get(), 0.91f, 1.0e-3f));
         }
 
         beginTest("ReverbPedal round-trips its modern commercial state");

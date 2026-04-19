@@ -26,9 +26,19 @@ struct Entry
     bool quickAccess = true;
 };
 
-inline const std::array<Entry, 25>& entries() noexcept
+inline juce::String resolveAlias(const juce::String& requestedType)
 {
-    static constexpr std::array<Entry, 25> data{ {
+    const auto cleaned = requestedType.trim();
+
+    if (cleaned.equalsIgnoreCase("Auto Wah") || cleaned.equalsIgnoreCase("Autowah"))
+        return "Wah";
+
+    return cleaned;
+}
+
+inline const std::array<Entry, 24>& entries() noexcept
+{
+    static constexpr std::array<Entry, 24> data{ {
         // ---- Pedals ----
         { "Compressor", "Compressor", "Studio sustain", "compressor dynamics sustain punch clean leveler", "ff34D399", "ff6EE7B7", Kind::Pedal, true },
         { "Noise Gate", "Noise Gate", "Silencer", "gate noise silence dynamics threshold expander", "ff10B981", "ff34D399", Kind::Pedal, true },
@@ -38,8 +48,7 @@ inline const std::array<Entry, 25>& entries() noexcept
         { "Distortion", "Distortion", "Shred", "distortion dist heavy metal gain clip hard", "ffEF4444", "ffFCA5A5", Kind::Pedal, true },
         { "Metal Distortion", "Metal Distortion", "Metal stack", "metal distortion high gain modern stack mid scoop mt style", "ffF97316", "ffFDBA74", Kind::Pedal, true },
         { "Fuzz", "Fuzz", "Velvet Fuzz", "fuzz vintage germanium silicon octave stoner doom", "ffA855F7", "ffC4B5FD", Kind::Pedal, true },
-        { "Wah", "Wah", "Classic wah", "wah treadle classic cry vocal filter sweep cocked wah", "ffD97706", "ffFBBF24", Kind::Pedal, true },
-        { "Auto Wah", "Auto Wah", "Envelope filter", "wah autowah envelope filter funk quack", "ffF97316", "ffFDBA74", Kind::Pedal, true },
+        { "Wah", "Wah", "Unified expressive wah", "wah treadle autowah envelope hybrid cry vocal filter sweep cocked wah", "ffD97706", "ffFBBF24", Kind::Pedal, true },
         { "Octave", "Octave", "Octave divider", "octave divider sub octave upper octave oc style pitch", "ff22C55E", "ff4ADE80", Kind::Pedal, true },
         { "Chorus", "Chorus", "Stereo motion", "chorus modulation width shimmer dimension spread", "ff818CF8", "ffA5B4FC", Kind::Pedal, true },
         { "Phaser", "Phaser", "Phase shift", "phaser phase modulation sweep jet swirl", "ffC084FC", "ffD8B4FE", Kind::Pedal, true },
@@ -64,7 +73,7 @@ inline const std::array<Entry, 25>& entries() noexcept
 
 inline const Entry* findEntry(const juce::String& requestedType) noexcept
 {
-    const auto cleaned = requestedType.trim();
+    const auto cleaned = resolveAlias(requestedType);
 
     for (const auto& e : entries())
     {
@@ -80,7 +89,7 @@ inline Kind kindFromType(const juce::String& requestedType)
     if (const auto* entry = findEntry(requestedType))
         return entry->kind;
 
-    const auto cleaned = requestedType.trim();
+    const auto cleaned = resolveAlias(requestedType);
 
     if (cleaned.containsIgnoreCase("amp"))
         return Kind::Amplifier;
@@ -95,7 +104,7 @@ inline juce::String canonicalType(const juce::String& requestedType)
     if (const auto* entry = findEntry(requestedType))
         return juce::String(entry->typeID);
 
-    return requestedType.trim();
+    return resolveAlias(requestedType);
 }
 
 inline bool isKnownType(const juce::String& requestedType)
