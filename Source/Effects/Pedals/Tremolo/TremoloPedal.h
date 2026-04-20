@@ -4,14 +4,13 @@
 
 #include <JuceHeader.h>
 #include <array>
+#include <atomic>
 #include <cmath>
 
-// ============================================================================
-//  Tremolo — Standard + harmonic tremolo, sine/tri/square morphing,
-//  stereo phase offset, level compensation
-//  Reference: Fender Vibrolux harmonic, Vox AC30 bias, Fulltone Supa-Trem
-// ============================================================================
-namespace Nova { namespace TremoloDSP {
+namespace Nova::TremoloDSP
+{
+constexpr float kDefaultCrossoverHz = 800.0f;
+constexpr int kCoefficientUpdateInterval = 12;
 
 struct Biquad
 {
@@ -19,85 +18,129 @@ struct Biquad
     float a1 = 0.0f, a2 = 0.0f;
     float z1 = 0.0f, z2 = 0.0f;
 
-    void reset() { z1 = z2 = 0.0f; }
-
-    void setLowPass(float freq, float q, double sr)
+    void reset() noexcept
     {
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float s0 = std::sin(w0), c0 = std::cos(w0);
-        float alpha = s0 / (2.0f * q);
-        float a0inv = 1.0f / (1.0f + alpha);
-        b0 = (1.0f - c0) * 0.5f * a0inv;
-        b1 = (1.0f - c0) * a0inv;
-        b2 = b0;
-        a1 = -2.0f * c0 * a0inv;
-        a2 = (1.0f - alpha) * a0inv;
+        z1 = 0.0f;
+        z2 = 0.0f;
     }
 
-    void setHighPass(float freq, float q, double sr)
+    void setIdentity() noexcept
     {
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float s0 = std::sin(w0), c0 = std::cos(w0);
-        float alpha = s0 / (2.0f * q);
-        float a0inv = 1.0f / (1.0f + alpha);
-        b0 = (1.0f + c0) * 0.5f * a0inv;
-        b1 = -(1.0f + c0) * a0inv;
-        b2 = b0;
-        a1 = -2.0f * c0 * a0inv;
-        a2 = (1.0f - alpha) * a0inv;
+        b0 = 1.0f;
+        b1 = 0.0f;
+        b2 = 0.0f;
+        a1 = 0.0f;
+        a2 = 0.0f;
     }
 
-    float process(float x) noexcept
+    void setLowPass(float frequencyHz, float q, double sampleRate)
     {
-        float y = b0 * x + z1;
-        z1 = b1 * x - a1 * y + z2;
-        z2 = b2 * x - a2 * y;
-        return y;
+        const float w0 = juce::MathConstants<float>::twoPi
+            * juce::jlimit(20.0f, (float) (sampleRate * 0.45), frequencyHz)
+            / (float) sampleRate;
+        const float sinW0 = std::sin(w0);
+        const float cosW0 = std::cos(w0);
+        const float alpha = sinW0 / (2.0f * juce::jmax(0.05f, q));
+        const float invA0 = 1.0f / (1.0f + alpha);
+
+        b0 = 0.5f * (1.0f - cosW0) * invA0;
+        b1 = (1.0f - cosW0) * invA0;
+        b2 = b0;
+        a1 = -2.0f * cosW0 * invA0;
+        a2 = (1.0f - alpha) * invA0;
+    }
+
+    void setHighPass(float frequencyHz, float q, double sampleRate)
+    {
+        const float w0 = juce::MathConstants<float>::twoPi
+            * juce::jlimit(20.0f, (float) (sampleRate * 0.45), frequencyHz)
+            / (float) sampleRate;
+        const float sinW0 = std::sin(w0);
+        const float cosW0 = std::cos(w0);
+        const float alpha = sinW0 / (2.0f * juce::jmax(0.05f, q));
+        const float invA0 = 1.0f / (1.0f + alpha);
+
+        b0 = 0.5f * (1.0f + cosW0) * invA0;
+        b1 = -(1.0f + cosW0) * invA0;
+        b2 = b0;
+        a1 = -2.0f * cosW0 * invA0;
+        a2 = (1.0f - alpha) * invA0;
+    }
+
+    float process(float input) noexcept
+    {
+        const float output = b0 * input + z1;
+        z1 = b1 * input - a1 * output + z2;
+        z2 = b2 * input - a2 * output;
+        return output;
     }
 };
 
-// Multi-shape LFO: sine → triangle → soft square morphing
-// shape: 0 = sine, 0.5 = triangle, 1.0 = soft square
-inline float shapedLfo(float phase, float shape) noexcept
+inline float warpPhase(float phase, float bias) noexcept
 {
-    constexpr float twoPi = juce::MathConstants<float>::twoPi;
+    phase -= std::floor(phase);
 
-    // Sine
-    float sine = std::sin(twoPi * phase);
+    const float pivot = juce::jlimit(0.08f, 0.92f, 0.5f + (bias - 0.5f) * 0.76f);
+    if (phase < pivot)
+        return 0.5f * phase / juce::jmax(pivot, 1.0e-4f);
 
-    // Triangle
-    float tri = 2.0f * std::abs(2.0f * (phase - std::floor(phase + 0.5f))) - 1.0f;
-
-    // Soft square (tanh-shaped, no aliasing)
-    float sq = std::tanh(sine * 4.0f);
-
-    // Morph: 0→0.5 = sine→tri, 0.5→1.0 = tri→square
-    if (shape <= 0.5f)
-    {
-        float t = shape * 2.0f;
-        return sine * (1.0f - t) + tri * t;
-    }
-    else
-    {
-        float t = (shape - 0.5f) * 2.0f;
-        return tri * (1.0f - t) + sq * t;
-    }
+    return 0.5f + 0.5f * (phase - pivot) / juce::jmax(1.0f - pivot, 1.0e-4f);
 }
 
-}} // namespace Nova::TremoloDSP
+inline float triangleFromPhase(float phase) noexcept
+{
+    const float wrapped = phase - std::floor(phase);
+    return 2.0f * std::abs(2.0f * wrapped - 1.0f) - 1.0f;
+}
 
+inline float shapedLfo(float phase, float shape, float bias) noexcept
+{
+    const float warped = warpPhase(phase, bias);
+    const float sine = std::sin(juce::MathConstants<float>::twoPi * warped);
+    const float triangle = triangleFromPhase(warped);
+    const float softSquare = std::tanh(sine * 4.5f);
+
+    if (shape <= 0.5f)
+    {
+        const float morph = shape * 2.0f;
+        return sine * (1.0f - morph) + triangle * morph;
+    }
+
+    const float morph = (shape - 0.5f) * 2.0f;
+    return triangle * (1.0f - morph) + softSquare * morph;
+}
+
+inline float modulationGain(float lfoValue, float depth) noexcept
+{
+    const float unipolar = 0.5f * (lfoValue + 1.0f);
+    return juce::jlimit(0.0f, 1.25f, (1.0f - depth) + depth * unipolar);
+}
+
+inline float equalPowerDry(float mix) noexcept
+{
+    return std::cos(juce::MathConstants<float>::halfPi * juce::jlimit(0.0f, 1.0f, mix));
+}
+
+inline float equalPowerWet(float mix) noexcept
+{
+    return std::sin(juce::MathConstants<float>::halfPi * juce::jlimit(0.0f, 1.0f, mix));
+}
+} // namespace Nova::TremoloDSP
 
 class TremoloPedal final : public ProcessorBase
 {
 public:
     TremoloPedal()
     {
-        addParameter(rateParam     = new juce::AudioParameterFloat("tremoloRate",     "Rate",     0.5f,  15.0f, 4.5f));
-        addParameter(depthParam    = new juce::AudioParameterFloat("tremoloDepth",    "Depth",    0.0f,  1.0f,  0.65f));
-        addParameter(shapeParam    = new juce::AudioParameterFloat("tremoloShape",    "Shape",    0.0f,  1.0f,  0.3f));
-        addParameter(stereoParam   = new juce::AudioParameterFloat("tremoloStereo",   "Stereo",   0.0f,  1.0f,  0.0f));
-        addParameter(harmonicParam = new juce::AudioParameterFloat("tremoloHarmonic", "Harmonic", 0.0f,  1.0f,  0.0f));
-        addParameter(levelParam    = new juce::AudioParameterFloat("tremoloLevel",    "Level",    0.5f,  2.0f,  1.0f));
+        addParameter(rateParam      = new juce::AudioParameterFloat("tremoloRate",      "Rate",      0.5f,    15.0f,   4.5f));
+        addParameter(depthParam     = new juce::AudioParameterFloat("tremoloDepth",     "Depth",     0.0f,     1.0f,   0.65f));
+        addParameter(shapeParam     = new juce::AudioParameterFloat("tremoloShape",     "Shape",     0.0f,     1.0f,   0.30f));
+        addParameter(biasParam      = new juce::AudioParameterFloat("tremoloBias",      "Bias",      0.0f,     1.0f,   0.50f));
+        addParameter(stereoParam    = new juce::AudioParameterFloat("tremoloStereo",    "Stereo",    0.0f,     1.0f,   0.0f));
+        addParameter(harmonicParam  = new juce::AudioParameterFloat("tremoloHarmonic",  "Harmonic",  0.0f,     1.0f,   0.0f));
+        addParameter(crossoverParam = new juce::AudioParameterFloat("tremoloCrossover", "Crossover", 250.0f, 2200.0f, 800.0f));
+        addParameter(mixParam       = new juce::AudioParameterFloat("tremoloMix",       "Mix",       0.0f,     1.0f,   1.0f));
+        addParameter(levelParam     = new juce::AudioParameterFloat("tremoloLevel",     "Level",     0.5f,     2.0f,   1.0f));
     }
 
     const juce::String getName() const override { return "Tremolo"; }
@@ -113,48 +156,63 @@ public:
 
         sr = sampleRate;
 
-        rateSmooth.reset(sr, 0.04);
+        rateSmooth.reset(sr, 0.05);
         depthSmooth.reset(sr, 0.04);
         shapeSmooth.reset(sr, 0.04);
-        stereoSmooth.reset(sr, 0.04);
-        harmonicSmooth.reset(sr, 0.04);
+        biasSmooth.reset(sr, 0.05);
+        stereoSmooth.reset(sr, 0.05);
+        harmonicSmooth.reset(sr, 0.05);
+        crossoverSmooth.reset(sr, 0.06);
+        mixSmooth.reset(sr, 0.03);
         levelSmooth.reset(sr, 0.04);
 
-        rateSmooth.setCurrentAndTargetValue(rateParam != nullptr ? *rateParam : 4.5f);
-        depthSmooth.setCurrentAndTargetValue(depthParam != nullptr ? *depthParam : 0.65f);
-        shapeSmooth.setCurrentAndTargetValue(shapeParam != nullptr ? *shapeParam : 0.3f);
-        stereoSmooth.setCurrentAndTargetValue(stereoParam != nullptr ? *stereoParam : 0.0f);
-        harmonicSmooth.setCurrentAndTargetValue(harmonicParam != nullptr ? *harmonicParam : 0.0f);
-        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
-
-        // Crossover filters for harmonic tremolo (~800Hz, Linkwitz-Riley style: 2x LP + 2x HP)
-        for (auto& f : xoverLP1) f.setLowPass(800.0f, 0.707f, sr);
-        for (auto& f : xoverLP2) f.setLowPass(800.0f, 0.707f, sr);
-        for (auto& f : xoverHP1) f.setHighPass(800.0f, 0.707f, sr);
-        for (auto& f : xoverHP2) f.setHighPass(800.0f, 0.707f, sr);
+        rateSmooth.setCurrentAndTargetValue(rateParam != nullptr ? rateParam->get() : 4.5f);
+        depthSmooth.setCurrentAndTargetValue(depthParam != nullptr ? depthParam->get() : 0.65f);
+        shapeSmooth.setCurrentAndTargetValue(shapeParam != nullptr ? shapeParam->get() : 0.30f);
+        biasSmooth.setCurrentAndTargetValue(biasParam != nullptr ? biasParam->get() : 0.50f);
+        stereoSmooth.setCurrentAndTargetValue(stereoParam != nullptr ? stereoParam->get() : 0.0f);
+        harmonicSmooth.setCurrentAndTargetValue(harmonicParam != nullptr ? harmonicParam->get() : 0.0f);
+        crossoverSmooth.setCurrentAndTargetValue(crossoverParam != nullptr ? crossoverParam->get() : Nova::TremoloDSP::kDefaultCrossoverHz);
+        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? mixParam->get() : 1.0f);
+        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelParam->get() : 1.0f);
 
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
         isPrepared = true;
     }
 
-    void releaseResources() override { isPrepared = false; }
+    void releaseResources() override
+    {
+        isPrepared = false;
+    }
 
     void reset() override
     {
         lfoPhase = 0.0f;
+        visualPhase.store(0.0f, std::memory_order_relaxed);
 
-        for (auto& f : xoverLP1) f.reset();
-        for (auto& f : xoverLP2) f.reset();
-        for (auto& f : xoverHP1) f.reset();
-        for (auto& f : xoverHP2) f.reset();
+        for (auto& filter : xoverLP1)
+            filter.reset();
+        for (auto& filter : xoverLP2)
+            filter.reset();
+        for (auto& filter : xoverHP1)
+            filter.reset();
+        for (auto& filter : xoverHP2)
+            filter.reset();
 
-        rateSmooth.setCurrentAndTargetValue(rateParam != nullptr ? *rateParam : 4.5f);
-        depthSmooth.setCurrentAndTargetValue(depthParam != nullptr ? *depthParam : 0.65f);
-        shapeSmooth.setCurrentAndTargetValue(shapeParam != nullptr ? *shapeParam : 0.3f);
-        stereoSmooth.setCurrentAndTargetValue(stereoParam != nullptr ? *stereoParam : 0.0f);
-        harmonicSmooth.setCurrentAndTargetValue(harmonicParam != nullptr ? *harmonicParam : 0.0f);
-        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
+        rateSmooth.setCurrentAndTargetValue(rateParam != nullptr ? rateParam->get() : 4.5f);
+        depthSmooth.setCurrentAndTargetValue(depthParam != nullptr ? depthParam->get() : 0.65f);
+        shapeSmooth.setCurrentAndTargetValue(shapeParam != nullptr ? shapeParam->get() : 0.30f);
+        biasSmooth.setCurrentAndTargetValue(biasParam != nullptr ? biasParam->get() : 0.50f);
+        stereoSmooth.setCurrentAndTargetValue(stereoParam != nullptr ? stereoParam->get() : 0.0f);
+        harmonicSmooth.setCurrentAndTargetValue(harmonicParam != nullptr ? harmonicParam->get() : 0.0f);
+        crossoverSmooth.setCurrentAndTargetValue(crossoverParam != nullptr ? crossoverParam->get() : Nova::TremoloDSP::kDefaultCrossoverHz);
+        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? mixParam->get() : 1.0f);
+        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelParam->get() : 1.0f);
+
+        currentCrossoverHz = crossoverSmooth.getCurrentValue();
+        updateCrossoverFilters(currentCrossoverHz);
+        coefficientCounter = Nova::TremoloDSP::kCoefficientUpdateInterval;
     }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
@@ -162,104 +220,136 @@ public:
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
-        rateSmooth.setTargetValue(rateParam != nullptr ? *rateParam : 4.5f);
-        depthSmooth.setTargetValue(depthParam != nullptr ? *depthParam : 0.65f);
-        shapeSmooth.setTargetValue(shapeParam != nullptr ? *shapeParam : 0.3f);
-        stereoSmooth.setTargetValue(stereoParam != nullptr ? *stereoParam : 0.0f);
-        harmonicSmooth.setTargetValue(harmonicParam != nullptr ? *harmonicParam : 0.0f);
-        levelSmooth.setTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
+        const float rateTarget = rateParam != nullptr ? rateParam->get() : 4.5f;
+        const float depthTarget = depthParam != nullptr ? depthParam->get() : 0.65f;
+        const float shapeTarget = shapeParam != nullptr ? shapeParam->get() : 0.30f;
+        const float biasTarget = biasParam != nullptr ? biasParam->get() : 0.50f;
+        const float stereoTarget = stereoParam != nullptr ? stereoParam->get() : 0.0f;
+        const float harmonicTarget = harmonicParam != nullptr ? harmonicParam->get() : 0.0f;
+        const float crossoverTarget = crossoverParam != nullptr ? crossoverParam->get() : Nova::TremoloDSP::kDefaultCrossoverHz;
+        const float mixTarget = mixParam != nullptr ? mixParam->get() : 1.0f;
+        const float levelTarget = levelParam != nullptr ? levelParam->get() : 1.0f;
+
+        rateSmooth.setTargetValue(rateTarget);
+        depthSmooth.setTargetValue(depthTarget);
+        shapeSmooth.setTargetValue(shapeTarget);
+        biasSmooth.setTargetValue(biasTarget);
+        stereoSmooth.setTargetValue(stereoTarget);
+        harmonicSmooth.setTargetValue(harmonicTarget);
+        crossoverSmooth.setTargetValue(crossoverTarget);
+        mixSmooth.setTargetValue(mixTarget);
+        levelSmooth.setTargetValue(levelTarget);
+
+        if (mixTarget <= 0.0001f || mixTarget >= 0.9999f)
+            mixSmooth.setCurrentAndTargetValue(mixTarget <= 0.0001f ? 0.0f : 1.0f);
 
         const int numChannels = juce::jmin(2, buffer.getNumChannels());
-        const int numSamples  = buffer.getNumSamples();
+        const int numSamples = buffer.getNumSamples();
 
-        for (int s = 0; s < numSamples; ++s)
+        for (int sampleIndex = 0; sampleIndex < numSamples; ++sampleIndex)
         {
-            const float rate     = rateSmooth.getNextValue();
-            const float depth    = depthSmooth.getNextValue();
-            const float shape    = shapeSmooth.getNextValue();
-            const float stereo   = stereoSmooth.getNextValue();
+            const float rateHz = rateSmooth.getNextValue();
+            const float depth = depthSmooth.getNextValue();
+            const float shape = shapeSmooth.getNextValue();
+            const float bias = biasSmooth.getNextValue();
+            const float stereo = stereoSmooth.getNextValue();
             const float harmonic = harmonicSmooth.getNextValue();
-            const float level    = levelSmooth.getNextValue();
+            const float crossoverHz = crossoverSmooth.getNextValue();
+            const float mix = mixSmooth.getNextValue();
+            const float level = levelSmooth.getNextValue();
 
-            // Per-channel LFO with stereo offset
-            float phaseL = lfoPhase;
-            float phaseR = std::fmod(lfoPhase + stereo * 0.5f, 1.0f);
-
-            // Shaped LFO: sine → triangle → soft square
-            float lfoL = Nova::TremoloDSP::shapedLfo(phaseL, shape);
-            float lfoR = Nova::TremoloDSP::shapedLfo(phaseR, shape);
-
-            // Convert bipolar LFO (-1..+1) to gain modulator
-            // Standard tremolo: modulate amplitude
-            float stdGainL = 1.0f - depth * 0.5f * (1.0f - lfoL);
-            float stdGainR = 1.0f - depth * 0.5f * (1.0f - lfoR);
-
-            // Level compensation: deeper depth → boost to maintain perceived volume
-            float compensation = 1.0f + depth * 0.15f;
-
-            for (int ch = 0; ch < numChannels; ++ch)
+            if (--coefficientCounter <= 0 || std::abs(crossoverHz - currentCrossoverHz) > 1.0f)
             {
-                float input = buffer.getSample(ch, s);
-                float lfo = (ch == 0) ? lfoL : lfoR;
-                float stdGain = (ch == 0) ? stdGainL : stdGainR;
-
-                float output;
-
-                if (harmonic < 0.01f)
-                {
-                    // Pure standard tremolo
-                    output = input * stdGain;
-                }
-                else
-                {
-                    // ---- Harmonic tremolo ----
-                    // Split into low and high bands via Linkwitz-Riley (cascaded butterworth)
-                    float lo = xoverLP2[(size_t)ch].process(xoverLP1[(size_t)ch].process(input));
-                    float hi = xoverHP2[(size_t)ch].process(xoverHP1[(size_t)ch].process(input));
-
-                    // Modulate bands with opposite phase LFO
-                    float loGain = 1.0f - depth * 0.5f * (1.0f - lfo);
-                    float hiGain = 1.0f - depth * 0.5f * (1.0f + lfo);  // Inverted
-
-                    float harmonicOut = lo * loGain + hi * hiGain;
-
-                    // Blend standard and harmonic
-                    output = input * stdGain * (1.0f - harmonic) + harmonicOut * harmonic;
-                }
-
-                buffer.setSample(ch, s, output * level * compensation);
+                currentCrossoverHz = crossoverHz;
+                updateCrossoverFilters(currentCrossoverHz);
+                coefficientCounter = Nova::TremoloDSP::kCoefficientUpdateInterval;
             }
 
-            // Advance LFO
-            lfoPhase += rate / (float)sr;
-            if (lfoPhase >= 1.0f) lfoPhase -= 1.0f;
+            const float phaseLeft = lfoPhase;
+            const float phaseRight = std::fmod(lfoPhase + 0.5f * stereo, 1.0f);
+            const float lfoLeft = Nova::TremoloDSP::shapedLfo(phaseLeft, shape, bias);
+            const float lfoRight = Nova::TremoloDSP::shapedLfo(phaseRight, shape, bias);
+
+            const float standardGainLeft = Nova::TremoloDSP::modulationGain(lfoLeft, depth);
+            const float standardGainRight = Nova::TremoloDSP::modulationGain(lfoRight, depth);
+            const float dryGain = Nova::TremoloDSP::equalPowerDry(mix);
+            const float wetGain = Nova::TremoloDSP::equalPowerWet(mix);
+            const float compensation = 1.0f + wetGain * depth * (0.10f + 0.06f * harmonic + 0.04f * std::abs(shape - 0.5f));
+
+            for (int channel = 0; channel < numChannels; ++channel)
+            {
+                const float input = buffer.getSample(channel, sampleIndex);
+                const float lfo = channel == 0 ? lfoLeft : lfoRight;
+                const float standardGain = channel == 0 ? standardGainLeft : standardGainRight;
+
+                float wet = input * standardGain;
+
+                if (harmonic > 0.001f)
+                {
+                    const float lowBand = xoverLP2[(size_t) channel].process(xoverLP1[(size_t) channel].process(input));
+                    const float highBand = xoverHP2[(size_t) channel].process(xoverHP1[(size_t) channel].process(input));
+                    const float lowGain = Nova::TremoloDSP::modulationGain(lfo, depth);
+                    const float highGain = Nova::TremoloDSP::modulationGain(-lfo, depth);
+                    const float harmonicWet = lowBand * lowGain + highBand * highGain;
+
+                    wet = juce::jmap(harmonic, wet, harmonicWet);
+                }
+
+                const float output = input * dryGain * level + wet * wetGain * level * compensation;
+                buffer.setSample(channel, sampleIndex, output);
+            }
+
+            lfoPhase += rateHz / (float) sr;
+            if (lfoPhase >= 1.0f)
+                lfoPhase -= std::floor(lfoPhase);
+
         }
 
+        visualPhase.store(lfoPhase, std::memory_order_relaxed);
         endBypassProcess(buffer);
     }
 
-    // Public accessors for editor
-    juce::AudioParameterFloat* rateParam     = nullptr;
-    juce::AudioParameterFloat* depthParam    = nullptr;
-    juce::AudioParameterFloat* shapeParam    = nullptr;
-    juce::AudioParameterFloat* stereoParam   = nullptr;
+    juce::AudioParameterFloat* rateParam = nullptr;
+    juce::AudioParameterFloat* depthParam = nullptr;
+    juce::AudioParameterFloat* shapeParam = nullptr;
+    juce::AudioParameterFloat* biasParam = nullptr;
+    juce::AudioParameterFloat* stereoParam = nullptr;
     juce::AudioParameterFloat* harmonicParam = nullptr;
-    juce::AudioParameterFloat* levelParam    = nullptr;
-    float lfoPhase = 0.0f;
+    juce::AudioParameterFloat* crossoverParam = nullptr;
+    juce::AudioParameterFloat* mixParam = nullptr;
+    juce::AudioParameterFloat* levelParam = nullptr;
+    std::atomic<float> visualPhase { 0.0f };
 
 private:
+    void updateCrossoverFilters(float crossoverHz)
+    {
+        const float clamped = juce::jlimit(250.0f, (float) (sr * 0.42), crossoverHz);
+        for (auto& filter : xoverLP1)
+            filter.setLowPass(clamped, 0.7071f, sr);
+        for (auto& filter : xoverLP2)
+            filter.setLowPass(clamped, 0.7071f, sr);
+        for (auto& filter : xoverHP1)
+            filter.setHighPass(clamped, 0.7071f, sr);
+        for (auto& filter : xoverHP2)
+            filter.setHighPass(clamped, 0.7071f, sr);
+    }
+
     double sr = 44100.0;
+    float lfoPhase = 0.0f;
+    float currentCrossoverHz = Nova::TremoloDSP::kDefaultCrossoverHz;
+    int coefficientCounter = Nova::TremoloDSP::kCoefficientUpdateInterval;
 
-    // Linkwitz-Riley crossover for harmonic tremolo (2 cascaded per band per channel)
-    std::array<Nova::TremoloDSP::Biquad, 2> xoverLP1, xoverLP2;
-    std::array<Nova::TremoloDSP::Biquad, 2> xoverHP1, xoverHP2;
+    std::array<Nova::TremoloDSP::Biquad, 2> xoverLP1, xoverLP2, xoverHP1, xoverHP2;
 
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> rateSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> rateSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> depthSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> shapeSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> biasSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> stereoSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> harmonicSmooth;
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> levelSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> crossoverSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> levelSmooth;
 
     bool isPrepared = false;
 };

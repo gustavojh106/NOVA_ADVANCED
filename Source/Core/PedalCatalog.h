@@ -43,7 +43,7 @@ inline const std::array<Entry, 23>& entries() noexcept
     static constexpr std::array<Entry, 23> data{ {
         // ---- Pedals ----
         { "Compressor", "Compressor", "Studio sustain", "compressor dynamics sustain punch clean leveler", "ff34D399", "ff6EE7B7", Kind::Pedal, true },
-        { "Noise Gate", "Noise Gate", "Silencer", "gate noise silence dynamics threshold expander", "ff10B981", "ff34D399", Kind::Pedal, true },
+        { "Noise Gate", "Noise Gate", "Studio gate", "gate noise studio hysteresis lookahead focus sidechain clamp expander silencer high gain", "ff10B981", "ff34D399", Kind::Pedal, true },
         { "EQ", "EQ", "3-Band EQ", "eq equalizer tone shape bass mid treble parametric", "ff4ADE80", "ff86EFAC", Kind::Pedal, true },
         { "Boost", "Boost", "Micro boost", "boost preamp clean boost micro amp ep booster level push", "ffEAB308", "ffFDE047", Kind::Pedal, true },
         { "Overdrive", "Overdrive", "Articulate gain", "overdrive drive dirt boost crunch rhythm solo", "ffF06848", "ffFF9B70", Kind::Pedal, true },
