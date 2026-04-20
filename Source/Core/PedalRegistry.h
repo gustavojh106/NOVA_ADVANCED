@@ -15,7 +15,6 @@
 #include "../Effects/Pedals/EQ/EQPedal.h"
 #include "../Effects/Pedals/Overdrive/OverdrivePedal.h"
 #include "../Effects/Pedals/Distortion/DistortionPedal.h"
-#include "../Effects/Pedals/Metal/MetalDistortionPedal.h"
 #include "../Effects/Pedals/Fuzz/FuzzPedal.h"
 #include "../Effects/Pedals/Wah/ClassicWahPedal.h"
 #include "../Effects/Pedals/Octave/OctavePedal.h"
@@ -92,7 +91,6 @@ private:
             { "EQ",            [] { return std::make_unique<EQPedal>(); } },
             { "Overdrive",     [] { return std::make_unique<OverdrivePedal>(); } },
             { "Distortion",    [] { return std::make_unique<DistortionPedal>(); } },
-            { "Metal Distortion", [] { return std::make_unique<MetalDistortionPedal>(); } },
             { "Fuzz",          [] { return std::make_unique<FuzzPedal>(); } },
             { "Wah",           [] { return std::make_unique<ClassicWahPedal>(); } },
             { "Octave",        [] { return std::make_unique<OctavePedal>(); } },

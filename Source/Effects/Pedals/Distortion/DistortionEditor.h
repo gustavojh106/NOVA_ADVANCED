@@ -249,8 +249,10 @@ inline void DistortionEditor::syncModeFromProcessor()
 
 inline void DistortionEditor::refreshModeSummary()
 {
-    modeSummaryLabel.setText(DistortionPedal::getModeDescription(cachedMode < 0 ? 0 : cachedMode),
+    const int mode = cachedMode < 0 ? 0 : cachedMode;
+    modeSummaryLabel.setText(DistortionPedal::getModeDescription(mode),
         juce::dontSendNotification);
+    attackHintLabel.setText(DistortionPedal::getControlHint(mode), juce::dontSendNotification);
 }
 
 inline void DistortionEditor::paint(juce::Graphics& g)
@@ -275,6 +277,23 @@ inline void DistortionEditor::paint(juce::Graphics& g)
     g.setFont(juce::Font(13.0f));
     g.drawText(modeBox.getText().isNotEmpty() ? modeBox.getText() : juce::String("Vintage"),
         26, 38, 220, 18, juce::Justification::centredLeft);
+
+    const int mode = proc.modeParam != nullptr ? proc.modeParam->getIndex() : 0;
+    if (DistortionPedal::modeUsesAdaptiveGate(mode))
+    {
+        const float gateGain = juce::jlimit(0.0f, 1.0f, proc.currentGateGain);
+        const juce::Colour gateColour = gateGain > 0.72f
+            ? juce::Colour(0xff22C55E).withAlpha(0.78f)
+            : gateGain > 0.32f
+                ? accentGlow.withAlpha(0.82f)
+                : juce::Colour(0xffEF4444).withAlpha(0.64f);
+
+        g.setColour(gateColour);
+        g.fillRoundedRectangle((float) getWidth() - 124.0f, 16.0f, 8.0f, 8.0f, 4.0f);
+        g.setColour(textDim.withAlpha(0.72f));
+        g.setFont(juce::Font(10.0f, juce::Font::bold));
+        g.drawText("ADAPTIVE GATE", getWidth() - 112, 13, 92, 14, juce::Justification::centredLeft);
+    }
 
     paintCurveViz(g, vizBounds);
 }
@@ -356,8 +375,8 @@ inline void DistortionEditor::resized()
 
     modeLabel.setBounds(width - 210, 16, 70, 16);
     modeBox.setBounds(width - 210, 34, 170, 26);
-    modeSummaryLabel.setBounds(26, 58, width - 52, 18);
-    attackHintLabel.setBounds(width - 315, 60, 280, 16);
+    modeSummaryLabel.setBounds(26, 58, width - 360, 18);
+    attackHintLabel.setBounds(width - 330, 60, 300, 16);
 
     vizBounds = juce::Rectangle<float>(26.0f, 86.0f, (float) (width - 52), 148.0f);
 

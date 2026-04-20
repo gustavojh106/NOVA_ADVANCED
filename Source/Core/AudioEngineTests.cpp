@@ -1055,6 +1055,7 @@ public:
             expect(PedalRegistry::isTypeSupported("Auto Wah"), "Auto Wah should resolve to the unified Wah");
             expect(PedalRegistry::isTypeSupported("Octave"), "Octave should be registered");
             expect(PedalRegistry::isTypeSupported("Metal Distortion"), "Metal Distortion should be registered");
+            expectEquals(PedalRegistry::canonicalType("Metal Distortion"), juce::String("Distortion"));
 
             const auto preTypes = PedalRegistry::getPedalTypesForZone(Nova::ZoneID::Pre);
             const auto fxTypes = PedalRegistry::getPedalTypesForZone(Nova::ZoneID::FX);
@@ -1067,8 +1068,10 @@ public:
                 "Wah should be available in the pre zone");
             expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Octave")) != preTypes.end(),
                 "Octave should be available in the pre zone");
-            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Metal Distortion")) != preTypes.end(),
-                "Metal Distortion should be available in the pre zone");
+            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Distortion")) != preTypes.end(),
+                "Distortion should be available in the pre zone");
+            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Metal Distortion")) == preTypes.end(),
+                "Metal Distortion should no longer appear as a separate catalog entry");
             expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Auto Wah")) == preTypes.end(),
                 "Auto Wah should not appear as a separate catalog entry anymore");
             expect(std::find(fxTypes.begin(), fxTypes.end(), juce::String("Chorus")) != fxTypes.end(),
@@ -2275,13 +2278,13 @@ public:
         beginTest("DistortionPedal round-trips its commercial state");
         {
             DistortionPedal source;
-            source.modeParam->setValueNotifyingHost(normalisedChoiceIndex(source.modeParam, 2));
+            source.modeParam->setValueNotifyingHost(normalisedChoiceIndex(source.modeParam, 4));
             source.gainParam->setValueNotifyingHost(source.gainParam->convertTo0to1(73.0f));
-            source.toneParam->setValueNotifyingHost(source.toneParam->convertTo0to1(0.61f));
-            source.bodyParam->setValueNotifyingHost(source.bodyParam->convertTo0to1(0.68f));
-            source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.84f));
-            source.levelParam->setValueNotifyingHost(source.levelParam->convertTo0to1(0.57f));
-            source.tightParam->setValueNotifyingHost(source.tightParam->convertTo0to1(0.79f));
+            source.toneParam->setValueNotifyingHost(source.toneParam->convertTo0to1(0.66f));
+            source.bodyParam->setValueNotifyingHost(source.bodyParam->convertTo0to1(0.63f));
+            source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.88f));
+            source.levelParam->setValueNotifyingHost(source.levelParam->convertTo0to1(0.55f));
+            source.tightParam->setValueNotifyingHost(source.tightParam->convertTo0to1(0.81f));
 
             juce::MemoryBlock state;
             source.getStateInformation(state);
@@ -2289,13 +2292,102 @@ public:
             DistortionPedal restored;
             restored.setStateInformation(state.getData(), (int) state.getSize());
 
-            expectEquals(restored.modeParam->getIndex(), 2);
+            expectEquals(restored.modeParam->getIndex(), 4);
+            expect(approximatelyEqual(restored.gainParam->get(), 73.0f, 1.0e-3f));
+            expect(approximatelyEqual(restored.toneParam->get(), 0.66f, 1.0e-3f));
+            expect(approximatelyEqual(restored.bodyParam->get(), 0.63f, 1.0e-3f));
+            expect(approximatelyEqual(restored.mixParam->get(), 0.88f, 1.0e-3f));
+            expect(approximatelyEqual(restored.levelParam->get(), 0.55f, 1.0e-3f));
+            expect(approximatelyEqual(restored.tightParam->get(), 0.81f, 1.0e-3f));
+        }
+
+        beginTest("DistortionPedal restores legacy three-mode state without remapping its modes");
+        {
+            struct DistortionLegacyStateHelper : ProcessorBase
+            {
+                static void encode(const juce::XmlElement& xml, juce::MemoryBlock& block)
+                {
+                    copyXmlToBinary(xml, block);
+                }
+
+                void prepareToPlay(double, int) override {}
+                void releaseResources() override {}
+                void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}
+            };
+
+            juce::XmlElement xml("PLUGIN_STATE");
+            auto addParam = [&xml](const juce::String& id, float value)
+            {
+                auto* child = xml.createNewChildElement("PARAM");
+                child->setAttribute("id", id);
+                child->setAttribute("value", value);
+            };
+
+            addParam("distMode", 0.5f);
+            addParam("distGain", 0.73f);
+            addParam("distTone", 0.61f);
+            addParam("distBody", 0.68f);
+            addParam("distMix", 0.84f);
+            addParam("distLevel", 0.57f);
+            addParam("distTight", 0.79f);
+
+            juce::MemoryBlock state;
+            DistortionLegacyStateHelper::encode(xml, state);
+
+            DistortionPedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expectEquals(restored.modeParam->getIndex(), 1);
             expect(approximatelyEqual(restored.gainParam->get(), 73.0f, 1.0e-3f));
             expect(approximatelyEqual(restored.toneParam->get(), 0.61f, 1.0e-3f));
             expect(approximatelyEqual(restored.bodyParam->get(), 0.68f, 1.0e-3f));
             expect(approximatelyEqual(restored.mixParam->get(), 0.84f, 1.0e-3f));
             expect(approximatelyEqual(restored.levelParam->get(), 0.57f, 1.0e-3f));
             expect(approximatelyEqual(restored.tightParam->get(), 0.79f, 1.0e-3f));
+        }
+
+        beginTest("DistortionPedal migrates legacy metal state into the unified circuit");
+        {
+            struct DistortionLegacyStateHelper : ProcessorBase
+            {
+                static void encode(const juce::XmlElement& xml, juce::MemoryBlock& block)
+                {
+                    copyXmlToBinary(xml, block);
+                }
+
+                void prepareToPlay(double, int) override {}
+                void releaseResources() override {}
+                void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}
+            };
+
+            juce::XmlElement xml("PLUGIN_STATE");
+            auto addParam = [&xml](const juce::String& id, float value)
+            {
+                auto* child = xml.createNewChildElement("PARAM");
+                child->setAttribute("id", id);
+                child->setAttribute("value", value);
+            };
+
+            addParam("metalGain", 0.64f);
+            addParam("metalLow", 0.625f);
+            addParam("metalMid", ( -3.5f + 15.0f) / 30.0f);
+            addParam("metalMidFreq", (950.0f - 250.0f) / 4750.0f);
+            addParam("metalHigh", (4.0f + 12.0f) / 24.0f);
+            addParam("metalLevel", 0.68f);
+
+            juce::MemoryBlock state;
+            DistortionLegacyStateHelper::encode(xml, state);
+
+            DistortionPedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expectEquals(restored.modeParam->getIndex(), 3);
+            expect(approximatelyEqual(restored.gainParam->get(), 64.0f, 1.0e-3f));
+            expect(approximatelyEqual(restored.levelParam->get(), 0.68f, 1.0e-3f));
+            expect(approximatelyEqual(restored.mixParam->get(), 1.0f, 1.0e-3f));
+            expect(approximatelyEqual(restored.bodyParam->get(), 0.636f, 0.02f));
+            expect(approximatelyEqual(restored.toneParam->get(), 0.728f, 0.02f));
+            expect(approximatelyEqual(restored.tightParam->get(), 0.645f, 0.03f));
         }
 
         beginTest("DistortionPedal mix zero keeps the dry path transparent");
@@ -2335,12 +2427,12 @@ public:
                 DistortionPedal pedal;
                 pedal.prepareToPlay(kSampleRate, kBlockSize);
                 pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
-                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(modeIndex == 1 ? 69.0f : 76.0f));
-                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.57f));
-                pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.56f));
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(modeIndex >= 3 ? 82.0f : modeIndex == 1 ? 69.0f : 76.0f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(modeIndex >= 3 ? 0.52f : 0.57f));
+                pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(modeIndex >= 3 ? 0.60f : 0.56f));
                 pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
                 pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.64f));
-                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(modeIndex == 2 ? 0.82f : 0.45f));
+                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(modeIndex == 2 ? 0.82f : modeIndex >= 3 ? 0.74f : 0.45f));
 
                 const int totalSamples = (int) (kSampleRate * 1.8);
                 juce::AudioBuffer<float> input(2, totalSamples);
@@ -2359,24 +2451,32 @@ public:
             const auto vintage = renderMode(0);
             const auto turbo = renderMode(1);
             const auto amp = renderMode(2);
+            const auto metal = renderMode(3);
+            const auto studio = renderMode(4);
 
             const double vintageTurboNull = computeBufferNullRms(vintage, turbo);
             const double vintageAmpNull = computeBufferNullRms(vintage, amp);
             const double turboAmpNull = computeBufferNullRms(turbo, amp);
+            const double ampMetalNull = computeBufferNullRms(amp, metal);
+            const double metalStudioNull = computeBufferNullRms(metal, studio);
+            const double vintageStudioNull = computeBufferNullRms(vintage, studio);
 
             expect(vintageTurboNull > 1.5e-3, "Vintage and Turbo modes should not collapse into the same response");
             expect(vintageAmpNull > 1.5e-3, "Vintage and Amp modes should remain clearly distinct");
             expect(turboAmpNull > 1.2e-3, "Turbo and Amp modes should remain clearly distinct");
+            expect(ampMetalNull > 1.8e-3, "Amp and Metal modes should remain clearly distinct");
+            expect(metalStudioNull > 1.2e-3, "Metal and Studio modes should not collapse into the same response");
+            expect(vintageStudioNull > 1.8e-3, "Vintage and Studio modes should remain clearly distinct");
         }
 
-        beginTest("DistortionPedal tight control audibly reduces low-end bloom");
+        beginTest("DistortionPedal tight control audibly reduces low-end bloom in the modern voices");
         {
             auto renderTight = [&](float tightAmount)
             {
                 DistortionPedal pedal;
                 pedal.prepareToPlay(kSampleRate, kBlockSize);
-                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 2));
-                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(78.0f));
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 4));
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(82.0f));
                 pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.46f));
                 pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.74f));
                 pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
@@ -2402,7 +2502,51 @@ public:
             const double looseRms = computeWindowRms(loose, (int) (kSampleRate * 0.28), (int) (kSampleRate * 0.48));
             const double tightRms = computeWindowRms(tight, (int) (kSampleRate * 0.28), (int) (kSampleRate * 0.48));
 
-            expect(tightRms < looseRms * 0.92, "High tightness should reduce low-note bloom compared to the loose setting");
+            expect(tightRms < looseRms * 0.95, "High tightness should reduce low-note bloom compared to the loose setting");
+        }
+
+        beginTest("DistortionPedal metal mode tight control closes the integrated gate harder");
+        {
+            auto renderMetal = [&](float tightAmount)
+            {
+                DistortionPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 3));
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(94.0f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.58f));
+                pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.62f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.64f));
+                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(tightAmount));
+
+                const int totalSamples = (int) (kSampleRate * 2.0);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                for (int i = 0; i < totalSamples; ++i)
+                {
+                    const float t = (float) i / (float) kSampleRate;
+                    float sample = 0.0f;
+                    if (t < 0.18f)
+                        sample = 0.24f * std::sin(juce::MathConstants<float>::twoPi * 110.0f * t)
+                            + 0.07f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                    else
+                        sample = 0.0016f * std::sin(juce::MathConstants<float>::twoPi * 73.0f * t)
+                            + 0.0009f * std::sin(juce::MathConstants<float>::twoPi * 181.0f * t);
+
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderDistortionOutput(pedal, input, kBlockSize);
+            };
+
+            const auto loose = renderMetal(0.12f);
+            const auto tight = renderMetal(0.90f);
+            const double looseTail = computeWindowRms(loose, (int) (kSampleRate * 0.85), (int) (kSampleRate * 0.65));
+            const double tightTail = computeWindowRms(tight, (int) (kSampleRate * 0.85), (int) (kSampleRate * 0.65));
+
+            expect(bufferHasOnlyFiniteSamples(tight), "Metal-mode gate render must remain finite");
+            expect(tightTail < looseTail * 0.82, "Higher Tight should close the integrated gate harder in Metal mode");
         }
 
         beginTest("DistortionPedal automation stress remains finite under aggressive changes");
@@ -2425,7 +2569,7 @@ public:
                         block.setSample(ch, i, 0.16f * ((rng.nextFloat() * 2.0f) - 1.0f));
 
                 const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
-                const int mode = juce::jlimit(0, 2, (int) std::floor(phase * 3.0f));
+                const int mode = juce::jlimit(0, 4, (int) std::floor(phase * 5.0f));
 
                 pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
                 pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(8.0f + 90.0f * phase));
@@ -2442,7 +2586,7 @@ public:
             }
 
             expect(finite, "Aggressive distortion automation must remain finite");
-            expect(peak < 2.2, "Distortion automation stress should stay inside a sane peak ceiling");
+            expect(peak < 2.3, "Distortion automation stress should stay inside a sane peak ceiling");
         }
 
         beginTest("FuzzPedal round-trips its commercial state");

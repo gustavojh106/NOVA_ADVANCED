@@ -32,21 +32,22 @@ inline juce::String resolveAlias(const juce::String& requestedType)
 
     if (cleaned.equalsIgnoreCase("Auto Wah") || cleaned.equalsIgnoreCase("Autowah"))
         return "Wah";
+    if (cleaned.equalsIgnoreCase("Metal Distortion"))
+        return "Distortion";
 
     return cleaned;
 }
 
-inline const std::array<Entry, 24>& entries() noexcept
+inline const std::array<Entry, 23>& entries() noexcept
 {
-    static constexpr std::array<Entry, 24> data{ {
+    static constexpr std::array<Entry, 23> data{ {
         // ---- Pedals ----
         { "Compressor", "Compressor", "Studio sustain", "compressor dynamics sustain punch clean leveler", "ff34D399", "ff6EE7B7", Kind::Pedal, true },
         { "Noise Gate", "Noise Gate", "Silencer", "gate noise silence dynamics threshold expander", "ff10B981", "ff34D399", Kind::Pedal, true },
         { "EQ", "EQ", "3-Band EQ", "eq equalizer tone shape bass mid treble parametric", "ff4ADE80", "ff86EFAC", Kind::Pedal, true },
         { "Boost", "Boost", "Micro boost", "boost preamp clean boost micro amp ep booster level push", "ffEAB308", "ffFDE047", Kind::Pedal, true },
         { "Overdrive", "Overdrive", "Articulate gain", "overdrive drive dirt boost crunch rhythm solo", "ffF06848", "ffFF9B70", Kind::Pedal, true },
-        { "Distortion", "Distortion", "Shred", "distortion dist heavy metal gain clip hard", "ffEF4444", "ffFCA5A5", Kind::Pedal, true },
-        { "Metal Distortion", "Metal Distortion", "Metal stack", "metal distortion high gain modern stack mid scoop mt style", "ffF97316", "ffFDBA74", Kind::Pedal, true },
+        { "Distortion", "Distortion", "Studio high gain", "distortion dist heavy metal modern studio gate high gain clip hard stack palm mute", "ffEF4444", "ffFCA5A5", Kind::Pedal, true },
         { "Fuzz", "Fuzz", "Velvet Fuzz", "fuzz vintage germanium silicon octave stoner doom", "ffA855F7", "ffC4B5FD", Kind::Pedal, true },
         { "Wah", "Wah", "Unified expressive wah", "wah treadle autowah envelope hybrid cry vocal filter sweep cocked wah", "ffD97706", "ffFBBF24", Kind::Pedal, true },
         { "Octave", "Octave", "Octave divider", "octave divider sub octave upper octave oc style pitch", "ff22C55E", "ff4ADE80", Kind::Pedal, true },
