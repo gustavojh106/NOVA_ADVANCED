@@ -503,7 +503,10 @@ void AudioEngine::applyGlobalParamsNow(const RuntimeGlobalParams& snapshot)
                 : juce::jlimit(0.0f, 100.0f, mixRaw) / 100.0f;
 
             audioPlane.currentGlobalMix = mixNormalized;
-            audioPlane.wetMixSmooth.setTargetValue(mixNormalized);
+            if (!audioPlane.isEngineOn.load() || audioPlane.startupCounter > 0)
+                audioPlane.wetMixSmooth.setCurrentAndTargetValue(mixNormalized);
+            else
+                audioPlane.wetMixSmooth.setTargetValue(mixNormalized);
         }
     }
 
@@ -836,6 +839,9 @@ void AudioEngine::resetGraphStateNow()
         resetNode(n.node);
 
     audioPlane.dryWetMixer.reset();
+    audioPlane.dryWetMixer.setWetMixProportion(audioPlane.currentGlobalMix.load());
+    audioPlane.wetMixSmooth.setCurrentAndTargetValue(audioPlane.currentGlobalMix.load());
+    audioPlane.mixPathBypassed = true;
 
     audioPlane.tunerService.reset();
 }
@@ -1052,18 +1058,40 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         return;
     }
 
-    // 3) Dry/Wet mix with latency compensation
-    audioPlane.dryWetMixer.setWetMixProportion(audioPlane.wetMixSmooth.getCurrentValue());
-    audioPlane.dryWetMixer.pushDrySamples(juce::dsp::AudioBlock<const float>(buffer));
+    const float currentWetMix = audioPlane.wetMixSmooth.getCurrentValue();
+    const bool wetMixSettled = !audioPlane.wetMixSmooth.isSmoothing();
+    constexpr float kWetMixEndpointEpsilon = 1.0e-5f;
 
-    // 4) Process wet
-    mainGraph->processBlock(buffer, midi);
+    // 3) Route explicit endpoint mixes around the crossfader so 0% and 100% stay exact.
+    if (wetMixSettled && currentWetMix <= kWetMixEndpointEpsilon)
+    {
+        audioPlane.mixPathBypassed = true;
+    }
+    else if (wetMixSettled && currentWetMix >= (1.0f - kWetMixEndpointEpsilon))
+    {
+        mainGraph->processBlock(buffer, midi);
+        audioPlane.mixPathBypassed = true;
+    }
+    else
+    {
+        if (audioPlane.mixPathBypassed)
+        {
+            audioPlane.dryWetMixer.setWetMixProportion(currentWetMix);
+            audioPlane.dryWetMixer.reset();
+            audioPlane.mixPathBypassed = false;
+        }
+        else
+        {
+            audioPlane.dryWetMixer.setWetMixProportion(currentWetMix);
+        }
 
-    // 5) Mix final
-    audioPlane.dryWetMixer.mixWetSamples(juce::dsp::AudioBlock<float>(buffer));
+        audioPlane.dryWetMixer.pushDrySamples(juce::dsp::AudioBlock<const float>(buffer));
+        mainGraph->processBlock(buffer, midi);
+        audioPlane.dryWetMixer.mixWetSamples(juce::dsp::AudioBlock<float>(buffer));
 
-    if (audioPlane.wetMixSmooth.isSmoothing())
-        audioPlane.wetMixSmooth.skip(buffer.getNumSamples());
+        if (audioPlane.wetMixSmooth.isSmoothing())
+            audioPlane.wetMixSmooth.skip(buffer.getNumSamples());
+    }
 
     // 6) Safety net + auto-heal
     const bool hadCorruption = sanitizeAudioBuffer(buffer);

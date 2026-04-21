@@ -5,28 +5,24 @@
 #include <JuceHeader.h>
 #include <array>
 #include <cmath>
+#include <limits>
 
-// ============================================================================
-//  Boost — Clean micro-boost / preamp with JFET-style saturation character,
-//  tight HP, mid hump, presence shelf, air rolloff, DC blocker.
-//  Reference: Xotic EP Booster, Keeley Katana, TC Spark
-// ============================================================================
-namespace Nova { namespace BoostDSP {
-
+namespace Nova::BoostDSP
+{
 struct Biquad
 {
     float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
     float a1 = 0.0f, a2 = 0.0f;
     float z1 = 0.0f, z2 = 0.0f;
 
-    void reset() { z1 = z2 = 0.0f; }
+    void reset() noexcept { z1 = z2 = 0.0f; }
 
     void setHighPass(float freq, float q, double sr)
     {
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(10.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float s0 = std::sin(w0), c0 = std::cos(w0);
-        float alpha = s0 / (2.0f * q);
-        float a0inv = 1.0f / (1.0f + alpha);
+        const float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(10.0f, (float) (sr * 0.45), freq) / (float) sr;
+        const float s0 = std::sin(w0), c0 = std::cos(w0);
+        const float alpha = s0 / (2.0f * q);
+        const float a0inv = 1.0f / (1.0f + alpha);
         b0 = (1.0f + c0) * 0.5f * a0inv;
         b1 = -(1.0f + c0) * a0inv;
         b2 = b0;
@@ -36,10 +32,10 @@ struct Biquad
 
     void setLowPass(float freq, float q, double sr)
     {
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float s0 = std::sin(w0), c0 = std::cos(w0);
-        float alpha = s0 / (2.0f * q);
-        float a0inv = 1.0f / (1.0f + alpha);
+        const float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float) (sr * 0.45), freq) / (float) sr;
+        const float s0 = std::sin(w0), c0 = std::cos(w0);
+        const float alpha = s0 / (2.0f * q);
+        const float a0inv = 1.0f / (1.0f + alpha);
         b0 = (1.0f - c0) * 0.5f * a0inv;
         b1 = (1.0f - c0) * a0inv;
         b2 = b0;
@@ -49,12 +45,12 @@ struct Biquad
 
     void setHighShelf(float freq, float gainDb, float q, double sr)
     {
-        float A = std::pow(10.0f, gainDb / 40.0f);
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float s0 = std::sin(w0), c0 = std::cos(w0);
-        float alpha = s0 / (2.0f * q);
-        float sqA = 2.0f * std::sqrt(A) * alpha;
-        float a0inv = 1.0f / ((A + 1.0f) - (A - 1.0f) * c0 + sqA);
+        const float A = std::pow(10.0f, gainDb / 40.0f);
+        const float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float) (sr * 0.45), freq) / (float) sr;
+        const float s0 = std::sin(w0), c0 = std::cos(w0);
+        const float alpha = s0 / (2.0f * q);
+        const float sqA = 2.0f * std::sqrt(A) * alpha;
+        const float a0inv = 1.0f / ((A + 1.0f) - (A - 1.0f) * c0 + sqA);
         b0 = A * ((A + 1.0f) + (A - 1.0f) * c0 + sqA) * a0inv;
         b1 = -2.0f * A * ((A - 1.0f) + (A + 1.0f) * c0) * a0inv;
         b2 = A * ((A + 1.0f) + (A - 1.0f) * c0 - sqA) * a0inv;
@@ -64,11 +60,11 @@ struct Biquad
 
     void setPeak(float freq, float gainDb, float q, double sr)
     {
-        float A = std::pow(10.0f, gainDb / 40.0f);
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float s0 = std::sin(w0), c0 = std::cos(w0);
-        float alpha = s0 / (2.0f * q);
-        float a0inv = 1.0f / (1.0f + alpha / A);
+        const float A = std::pow(10.0f, gainDb / 40.0f);
+        const float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float) (sr * 0.45), freq) / (float) sr;
+        const float s0 = std::sin(w0), c0 = std::cos(w0);
+        const float alpha = s0 / (2.0f * q);
+        const float a0inv = 1.0f / (1.0f + alpha / A);
         b0 = (1.0f + alpha * A) * a0inv;
         b1 = -2.0f * c0 * a0inv;
         b2 = (1.0f - alpha * A) * a0inv;
@@ -78,56 +74,51 @@ struct Biquad
 
     float magnitudeAt(float freq, double sr) const
     {
-        float w = juce::MathConstants<float>::twoPi * freq / (float)sr;
-        float cw = std::cos(w), sw = std::sin(w);
-        float c2w = std::cos(2.0f * w), s2w = std::sin(2.0f * w);
-        float nr = b0 + b1 * cw + b2 * c2w;
-        float ni = -(b1 * sw + b2 * s2w);
-        float dr = 1.0f + a1 * cw + a2 * c2w;
-        float di = -(a1 * sw + a2 * s2w);
+        const float w = juce::MathConstants<float>::twoPi * freq / (float) sr;
+        const float cw = std::cos(w), sw = std::sin(w);
+        const float c2w = std::cos(2.0f * w), s2w = std::sin(2.0f * w);
+        const float nr = b0 + b1 * cw + b2 * c2w;
+        const float ni = -(b1 * sw + b2 * s2w);
+        const float dr = 1.0f + a1 * cw + a2 * c2w;
+        const float di = -(a1 * sw + a2 * s2w);
         return std::sqrt((nr * nr + ni * ni) / juce::jmax(dr * dr + di * di, 1.0e-12f));
     }
 
     float process(float x) noexcept
     {
-        float y = b0 * x + z1;
+        const float y = b0 * x + z1;
         z1 = b1 * x - a1 * y + z2;
         z2 = b2 * x - a2 * y;
         return y;
     }
 };
 
-// JFET-style asymmetric saturation: DC bias → even harmonics, character-dependent
 inline float boostClip(float x, float character) noexcept
 {
-    if (character < 0.01f) return x;
+    if (character <= 0.0001f)
+        return x;
 
-    // DC bias creates asymmetry → 2nd harmonic emphasis (JFET/tube characteristic)
-    float asym = character * 0.12f;
-    float drive = 1.0f + character * 1.8f;
-    float biased = x + asym;
+    const float asym = character * 0.12f;
+    const float drive = 1.0f + character * 1.8f;
+    const float biased = x + asym;
     float sat = std::tanh(biased * drive);
-    sat -= std::tanh(asym * drive); // Remove DC offset from bias
-
-    // Blend clean and saturated
-    float mix = character * 0.5f;
-    return x * (1.0f - mix) + sat * mix;
+    sat -= std::tanh(asym * drive);
+    return juce::jmap(character * 0.5f, x, sat);
 }
-
-}} // namespace Nova::BoostDSP
-
+}
 
 class BoostPedal final : public ProcessorBase
 {
 public:
     BoostPedal()
+        : oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
-        addParameter(gainParam   = new juce::AudioParameterFloat("boostGain",   "Gain",      0.0f,  24.0f, 8.0f));
-        addParameter(toneParam   = new juce::AudioParameterFloat("boostTone",   "Tone",      0.0f,  1.0f,  0.58f));
-        addParameter(tightParam  = new juce::AudioParameterFloat("boostTight",  "Tight",     0.0f,  1.0f,  0.24f));
-        addParameter(charParam   = new juce::AudioParameterFloat("boostChar",   "Character", 0.0f,  1.0f,  0.0f));
-        addParameter(midParam    = new juce::AudioParameterFloat("boostMid",    "Mid",      -6.0f,  6.0f,  0.0f));
-        addParameter(levelParam  = new juce::AudioParameterFloat("boostLevel",  "Level",     0.5f,  2.0f,  1.0f));
+        addParameter(gainParam   = new juce::AudioParameterFloat("boostGain",   "Gain",      0.0f, 24.0f, 8.0f));
+        addParameter(toneParam   = new juce::AudioParameterFloat("boostTone",   "Tone",      0.0f, 1.0f,  0.58f));
+        addParameter(tightParam  = new juce::AudioParameterFloat("boostTight",  "Tight",     0.0f, 1.0f,  0.24f));
+        addParameter(charParam   = new juce::AudioParameterFloat("boostChar",   "Character", 0.0f, 1.0f,  0.0f));
+        addParameter(midParam    = new juce::AudioParameterFloat("boostMid",    "Mid",      -6.0f, 6.0f,  0.0f));
+        addParameter(levelParam  = new juce::AudioParameterFloat("boostLevel",  "Level",     0.5f, 2.0f,  1.0f));
     }
 
     const juce::String getName() const override { return "Boost"; }
@@ -138,18 +129,33 @@ public:
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
     {
-        if (sampleRate <= 0.0) return;
+        if (sampleRate <= 0.0)
+            return;
+
         sr = sampleRate;
+        innerSr = sr * (double) oversamplingFactor();
+
+        oversampler.reset();
+        oversampler.initProcessing((size_t) juce::jmax(1, samplesPerBlock));
 
         gainSmooth.reset(sr, 0.04);
+        toneSmooth.reset(sr, 0.05);
+        tightSmooth.reset(sr, 0.05);
         charSmooth.reset(sr, 0.04);
+        midSmooth.reset(sr, 0.05);
         levelSmooth.reset(sr, 0.04);
 
-        gainSmooth.setCurrentAndTargetValue(gainParam ? *gainParam : 8.0f);
-        charSmooth.setCurrentAndTargetValue(charParam ? *charParam : 0.0f);
-        levelSmooth.setCurrentAndTargetValue(levelParam ? *levelParam : 1.0f);
+        gainSmooth.setCurrentAndTargetValue(gainParam != nullptr ? *gainParam : 8.0f);
+        toneSmooth.setCurrentAndTargetValue(toneParam != nullptr ? *toneParam : 0.58f);
+        tightSmooth.setCurrentAndTargetValue(tightParam != nullptr ? *tightParam : 0.24f);
+        charSmooth.setCurrentAndTargetValue(charParam != nullptr ? *charParam : 0.0f);
+        midSmooth.setCurrentAndTargetValue(midParam != nullptr ? *midParam : 0.0f);
+        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
 
-        updateFilters();
+        resetFilters();
+        updateFilters(toneSmooth.getCurrentValue(), tightSmooth.getCurrentValue(), midSmooth.getCurrentValue(), true);
+
+        setProcessingLatency((int) std::round(oversampler.getLatencyInSamples()));
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
         isPrepared = true;
@@ -159,15 +165,17 @@ public:
 
     void reset() override
     {
-        for (auto& b : inputHP)   b.reset();
-        for (auto& b : midPeak)   b.reset();
-        for (auto& b : presShelf) b.reset();
-        for (auto& b : airLP)     b.reset();
-        for (auto& b : dcBlock)   b.reset();
+        oversampler.reset();
+        resetFilters();
 
-        gainSmooth.setCurrentAndTargetValue(gainParam ? *gainParam : 8.0f);
-        charSmooth.setCurrentAndTargetValue(charParam ? *charParam : 0.0f);
-        levelSmooth.setCurrentAndTargetValue(levelParam ? *levelParam : 1.0f);
+        gainSmooth.setCurrentAndTargetValue(gainParam != nullptr ? *gainParam : 8.0f);
+        toneSmooth.setCurrentAndTargetValue(toneParam != nullptr ? *toneParam : 0.58f);
+        tightSmooth.setCurrentAndTargetValue(tightParam != nullptr ? *tightParam : 0.24f);
+        charSmooth.setCurrentAndTargetValue(charParam != nullptr ? *charParam : 0.0f);
+        midSmooth.setCurrentAndTargetValue(midParam != nullptr ? *midParam : 0.0f);
+        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
+
+        updateFilters(toneSmooth.getCurrentValue(), tightSmooth.getCurrentValue(), midSmooth.getCurrentValue(), true);
     }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
@@ -175,51 +183,81 @@ public:
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
-        updateFilters();
+        juce::ScopedNoDenormals noDenormals;
 
-        gainSmooth.setTargetValue(gainParam ? *gainParam : 8.0f);
-        charSmooth.setTargetValue(charParam ? *charParam : 0.0f);
-        levelSmooth.setTargetValue(levelParam ? *levelParam : 1.0f);
+        gainSmooth.setTargetValue(gainParam != nullptr ? *gainParam : 8.0f);
+        toneSmooth.setTargetValue(toneParam != nullptr ? *toneParam : 0.58f);
+        tightSmooth.setTargetValue(tightParam != nullptr ? *tightParam : 0.24f);
+        charSmooth.setTargetValue(charParam != nullptr ? *charParam : 0.0f);
+        midSmooth.setTargetValue(midParam != nullptr ? *midParam : 0.0f);
+        levelSmooth.setTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
 
-        const int numCh = juce::jmin(2, buffer.getNumChannels());
-        const int numSamples = buffer.getNumSamples();
+        juce::dsp::AudioBlock<float> block(buffer);
+        auto upsampled = oversampler.processSamplesUp(block);
+        const int innerSamples = (int) upsampled.getNumSamples();
+        const int oversampleRatio = juce::jmax(1, innerSamples / juce::jmax(1, buffer.getNumSamples()));
+        const int numChannels = juce::jmin(2, (int) upsampled.getNumChannels());
 
-        for (int s = 0; s < numSamples; ++s)
+        float currentGain = gainSmooth.getCurrentValue();
+        float currentTone = toneSmooth.getCurrentValue();
+        float currentTight = tightSmooth.getCurrentValue();
+        float currentCharacter = charSmooth.getCurrentValue();
+        float currentMid = midSmooth.getCurrentValue();
+        updateFilters(currentTone, currentTight, currentMid, true);
+
+        for (int sample = 0; sample < innerSamples; ++sample)
         {
-            const float gainDb = gainSmooth.getNextValue();
-            const float gain   = juce::Decibels::decibelsToGain(gainDb);
-            const float character = charSmooth.getNextValue();
-            const float level  = levelSmooth.getNextValue();
-
-            for (int ch = 0; ch < numCh; ++ch)
+            if ((sample % oversampleRatio) == 0)
             {
-                float x = buffer.getSample(ch, s);
+                currentGain = gainSmooth.getNextValue();
+                currentTone = toneSmooth.getNextValue();
+                currentTight = tightSmooth.getNextValue();
+                currentCharacter = charSmooth.getNextValue();
+                currentMid = midSmooth.getNextValue();
+                updateFilters(currentTone, currentTight, currentMid, false);
+            }
 
-                // 1. Input HP (tightens low end)
-                x = inputHP[(size_t)ch].process(x);
+            const float gain = juce::Decibels::decibelsToGain(currentGain);
+            const float driveWeight = juce::jlimit(0.0f, 1.0f, currentGain / 24.0f);
+            const float character = juce::jlimit(0.0f, 1.0f, currentCharacter);
+            const float clipAmount = character * (0.50f + driveWeight * 0.50f);
+            const float denseDrive = 1.0f + character * 1.9f + driveWeight * 0.85f;
+            const float voiceBlend = juce::jlimit(0.0f, 1.0f, 0.34f + currentTone * 0.16f);
 
-                // 2. Gain stage
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                auto* data = upsampled.getChannelPointer((size_t) ch);
+                float x = data[sample];
+
+                x = inputHP[(size_t) ch].process(x);
                 x *= gain;
 
-                // 3. Character saturation (JFET-style)
-                x = Nova::BoostDSP::boostClip(x, character);
+                const float headroom = 1.0f / (1.0f + std::abs(x) * (0.10f + character * 0.52f));
+                const float jfet = Nova::BoostDSP::boostClip(x * headroom, clipAmount);
+                const float dense = std::atan((x + jfet * 0.14f) * denseDrive) * (2.0f / juce::MathConstants<float>::pi);
+                x = character <= 0.0001f ? x : juce::jmap(voiceBlend, jfet, dense);
 
-                // 4. Tone shaping (post-saturation)
-                x = midPeak[(size_t)ch].process(x);
-                x = presShelf[(size_t)ch].process(x);
-                x = airLP[(size_t)ch].process(x);
-
-                // 5. DC block
-                x = dcBlock[(size_t)ch].process(x);
-
-                buffer.setSample(ch, s, x * level);
+                x = midPeak[(size_t) ch].process(x);
+                x = presShelf[(size_t) ch].process(x);
+                x = airLP[(size_t) ch].process(x);
+                x = dcBlock[(size_t) ch].process(x);
+                data[sample] = x;
             }
+        }
+
+        oversampler.processSamplesDown(block);
+
+        const int numSamples = buffer.getNumSamples();
+        for (int s = 0; s < numSamples; ++s)
+        {
+            const float level = levelSmooth.getNextValue();
+            for (int ch = 0; ch < numChannels; ++ch)
+                buffer.setSample(ch, s, buffer.getSample(ch, s) * level);
         }
 
         endBypassProcess(buffer);
     }
 
-    // Public accessors for editor
     juce::AudioParameterFloat* gainParam  = nullptr;
     juce::AudioParameterFloat* toneParam  = nullptr;
     juce::AudioParameterFloat* tightParam = nullptr;
@@ -228,40 +266,77 @@ public:
     juce::AudioParameterFloat* levelParam = nullptr;
 
 private:
+    static int oversamplingFactor() noexcept
+    {
+        return 4;
+    }
+
+    void resetFilters()
+    {
+        for (auto& b : inputHP)   b.reset();
+        for (auto& b : midPeak)   b.reset();
+        for (auto& b : presShelf) b.reset();
+        for (auto& b : airLP)     b.reset();
+        for (auto& b : dcBlock)   b.reset();
+        lastTone = std::numeric_limits<float>::quiet_NaN();
+        lastTight = std::numeric_limits<float>::quiet_NaN();
+        lastMid = std::numeric_limits<float>::quiet_NaN();
+    }
+
+    void updateFilters(float tone, float tight, float mid, bool force)
+    {
+        if (!force
+            && std::abs(tone - lastTone) < 1.0e-4f
+            && std::abs(tight - lastTight) < 1.0e-4f
+            && std::abs(mid - lastMid) < 1.0e-4f)
+        {
+            return;
+        }
+
+        lastTone = tone;
+        lastTight = tight;
+        lastMid = mid;
+
+        const float hpFreq = juce::jmap(tight, 28.0f, 260.0f);
+        const float hpQ = juce::jmap(tight, 0.707f, 1.18f);
+        for (auto& b : inputHP)
+            b.setHighPass(hpFreq, hpQ, innerSr);
+
+        const float midFreq = juce::jmap(tone, 780.0f, 1220.0f);
+        const float midQ = juce::jmap(tight, 0.68f, 0.98f);
+        for (auto& b : midPeak)
+            b.setPeak(midFreq, mid, midQ, innerSr);
+
+        const float presDb = juce::jmap(tone, -3.0f, 6.5f);
+        const float presFreq = juce::jmap(tone, 1500.0f, 2850.0f);
+        for (auto& b : presShelf)
+            b.setHighShelf(presFreq, presDb, 0.72f, innerSr);
+
+        const float airFreq = juce::jmap(tone, 4000.0f, 18500.0f);
+        for (auto& b : airLP)
+            b.setLowPass(airFreq, 0.72f, innerSr);
+
+        for (auto& b : dcBlock)
+            b.setHighPass(10.0f, 0.707f, innerSr);
+    }
+
     double sr = 44100.0;
+    double innerSr = 176400.0;
     bool isPrepared = false;
 
+    juce::dsp::Oversampling<float> oversampler;
     std::array<Nova::BoostDSP::Biquad, 2> inputHP, midPeak, presShelf, airLP, dcBlock;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> gainSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> toneSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> tightSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> charSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> midSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> levelSmooth;
 
-    void updateFilters()
-    {
-        float tone  = toneParam  ? *toneParam  : 0.58f;
-        float tight = tightParam ? *tightParam : 0.24f;
-        float mid   = midParam   ? *midParam   : 0.0f;
-
-        // Input HP: 28-220Hz, Q rises slightly with tight for resonant character
-        float hpFreq = juce::jmap(tight, 28.0f, 220.0f);
-        float hpQ    = juce::jmap(tight, 0.707f, 1.2f);
-        for (auto& b : inputHP) b.setHighPass(hpFreq, hpQ, sr);
-
-        // Mid peak: ±6dB at 1kHz (EP Booster-style mid hump)
-        for (auto& b : midPeak) b.setPeak(1000.0f, mid, 0.7f, sr);
-
-        // Presence shelf: -4 to +6dB at 1.6kHz
-        float presDb = juce::jmap(tone, -4.0f, 6.0f);
-        for (auto& b : presShelf) b.setHighShelf(1600.0f, presDb, 0.72f, sr);
-
-        // Air LP: 4.2-18kHz (prevents fizz at high tone settings)
-        float airFreq = juce::jmap(tone, 4200.0f, 18000.0f);
-        for (auto& b : airLP) b.setLowPass(airFreq, 0.72f, sr);
-
-        // DC block: 10Hz HP (catches asymmetric saturation DC offset)
-        for (auto& b : dcBlock) b.setHighPass(10.0f, 0.707f, sr);
-    }
+    float lastTone = std::numeric_limits<float>::quiet_NaN();
+    float lastTight = std::numeric_limits<float>::quiet_NaN();
+    float lastMid = std::numeric_limits<float>::quiet_NaN();
 };
 
 #include "BoostEditor.h"

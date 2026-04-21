@@ -55,6 +55,7 @@ private:
     int pitchMinDelaySamples = 0;
     int pitchBufferSize = 0;
     int pitchWritePos = 0;
+    bool hardSyncParams = true;
 
     Nova::InputRouting currentRouting = Nova::InputRouting::Stereo;
 };

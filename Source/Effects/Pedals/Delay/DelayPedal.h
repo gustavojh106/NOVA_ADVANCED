@@ -544,6 +544,7 @@ public:
         holdStateL = 0.0f;
         holdStateR = 0.0f;
         freezeActive = false;
+        freezeAgeSamples = 0;
         cachedModeIndex = -1;
         cachedTexture = -1.0f;
         cachedToneCutoff = -1.0f;
@@ -664,9 +665,10 @@ public:
             const float duckEnv = juce::jlimit(0.0f, 1.0f, duckFollower.process(inputSense) * 3.8f);
             const float swellEnv = juce::jlimit(0.0f, 1.0f, swellFollower.process(inputSense) * 4.3f);
             const float duckGain = 1.0f - duck * duckEnv * 0.82f;
+            const float swellHoldScale = style.swellHoldScale + reverseBlend * 0.18f;
             const int targetSwellHold = juce::jlimit(0,
-                (int) (sr * 1.10),
-                (int) std::round(baseDelay * (0.16f + style.swellHoldScale * swell)));
+                (int) (sr * 1.25),
+                (int) std::round(baseDelay * (0.18f + swellHoldScale * swell)));
             if (swell > 0.001f && inputSense > 0.015f)
                 swellHoldSamples = juce::jmax(swellHoldSamples, targetSwellHold);
             if (swellHoldSamples > 0)
@@ -676,15 +678,19 @@ public:
                 ? juce::jlimit(0.0f, 1.0f, (float) swellHoldSamples / (float) targetSwellHold)
                 : 0.0f;
             const float reverseSwellWeight = reverseBlend * swell;
-            const float timedSwellGain = 1.0f - swell * std::pow(timedSwellNormalised, 0.58f)
-                * (style.swellDuckDepth + reverseBlend * 0.10f);
-            const float followerSwellGain = 1.0f - swell * std::pow(swellEnv, 0.85f)
-                * (0.46f + reverseBlend * 0.12f);
-            const float swellGain = juce::jlimit(0.04f, 1.0f, juce::jmin(timedSwellGain, followerSwellGain));
-            const float swellBloom = 1.0f + swell * std::pow(1.0f - timedSwellNormalised, 1.22f)
-                * (style.swellBloomGain + reverseSwellWeight * 0.16f);
-            const float reverseSwellGate = 1.0f - reverseSwellWeight * timedSwellNormalised * 0.16f;
-            const float performanceGain = juce::jlimit(0.05f, 1.08f, duckGain * swellGain * reverseSwellGate);
+            const float timedSwellGain = 1.0f - swell * std::pow(timedSwellNormalised, 0.32f)
+                * (style.swellDuckDepth + reverseBlend * 0.34f);
+            const float followerSwellGain = 1.0f - swell * std::pow(swellEnv, 0.78f)
+                * (0.58f + reverseBlend * 0.24f);
+            const float swellGain = juce::jlimit(0.02f, 1.0f, juce::jmin(timedSwellGain, followerSwellGain));
+            const float swellBloom = 1.0f + swell * std::pow(1.0f - timedSwellNormalised, 0.92f)
+                * (style.swellBloomGain + reverseSwellWeight * 0.30f);
+            const float reverseSwellGate = 1.0f - reverseSwellWeight
+                * juce::jlimit(0.0f, 1.0f, 0.14f + timedSwellNormalised * 0.86f) * 0.60f;
+            const float earlyReverseSwellTrim = 1.0f - reverseSwellWeight
+                * std::pow(timedSwellNormalised, 0.55f) * 0.64f;
+            const float performanceGain = juce::jlimit(0.05f, 1.08f,
+                duckGain * swellGain * reverseSwellGate * earlyReverseSwellTrim);
 
             const float cross = juce::jlimit(0.0f, 1.0f, spread * style.crossfeed);
             const float straight = 1.0f - cross;
@@ -703,8 +709,12 @@ public:
             fbL = Nova::DelayDSP::lerp(rawFbL, fbL, style.diffusionBlend);
             fbR = Nova::DelayDSP::lerp(rawFbR, fbR, style.diffusionBlend);
 
-            fbL = Nova::DelayDSP::softSaturate(fbL, style.drive) * feedback * style.feedbackTrim;
-            fbR = Nova::DelayDSP::softSaturate(fbR, style.drive) * feedback * style.feedbackTrim;
+            const float loopTapL = Nova::DelayDSP::softSaturate(fbL, style.drive) * style.feedbackTrim;
+            const float loopTapR = Nova::DelayDSP::softSaturate(fbR, style.drive) * style.feedbackTrim;
+            fbL = loopTapL * feedback;
+            fbR = loopTapR * feedback;
+
+            float freezeBlend = 0.0f;
 
             if (freezeRequested)
             {
@@ -712,26 +722,44 @@ public:
                 {
                     holdStateL = wetL;
                     holdStateR = wetR;
+                    freezeAgeSamples = 0;
                     freezeActive = true;
                 }
 
-                holdStateL = freezeLPF[0].process(Nova::DelayDSP::softSaturate(holdStateL * 1.0040f + wetL * 0.050f, 1.62f));
-                holdStateR = freezeLPF[1].process(Nova::DelayDSP::softSaturate(holdStateR * 1.0040f + wetR * 0.050f, 1.62f));
-                delayL.write(holdStateL);
-                delayR.write(holdStateR);
-                wetOutL = holdStateL;
-                wetOutR = holdStateR;
+                const float freezeRampSamples = juce::jmax(1.0f, (float) (sr * 0.075f));
+                freezeBlend = juce::jlimit(0.0f, 1.0f, (float) (freezeAgeSamples + 1) / freezeRampSamples);
+                const float freezeFeedback = 0.9987f + texture * 0.0009f + reverseBlend * 0.0004f;
+                const float freezeWriteTrim = 1.05f + texture * 0.08f + reverseBlend * 0.04f;
+                const float freezeMonitorTrim = 1.18f + texture * 0.12f + reverseBlend * 0.08f;
+                const float freezeCaptureBlend = 0.42f + freezeBlend * 0.28f;
+
+                const float frozenInputL = Nova::DelayDSP::lerp(holdStateL, wetL, freezeCaptureBlend);
+                const float frozenInputR = Nova::DelayDSP::lerp(holdStateR, wetR, freezeCaptureBlend);
+                holdStateL = freezeLPF[0].process(frozenInputL);
+                holdStateR = freezeLPF[1].process(frozenInputR);
+
+                const float writeL = Nova::DelayDSP::softSaturate(holdStateL * freezeFeedback * freezeWriteTrim, 1.06f);
+                const float writeR = Nova::DelayDSP::softSaturate(holdStateR * freezeFeedback * freezeWriteTrim, 1.06f);
+                delayL.write(writeL);
+                delayR.write(writeR);
+
+                wetOutL = Nova::DelayDSP::lerp(wetL, holdStateL * freezeMonitorTrim, 0.45f + freezeBlend * 0.40f);
+                wetOutR = Nova::DelayDSP::lerp(wetR, holdStateR * freezeMonitorTrim, 0.45f + freezeBlend * 0.40f);
+                freezeAgeSamples = juce::jmin(freezeAgeSamples + 1, (int) sr);
             }
             else
             {
                 freezeActive = false;
+                freezeAgeSamples = 0;
                 delayL.write(inL + fbL);
                 delayR.write(inR + fbR);
             }
 
             const float reverseOutputComp = 1.0f + reverseBlend * 0.42f;
-            const float outWetL = dcBlock[0].process(wetOutL * performanceGain * swellBloom * style.outputTrim * reverseOutputComp);
-            const float outWetR = dcBlock[1].process(wetOutR * performanceGain * swellBloom * style.outputTrim * reverseOutputComp);
+            const float outputPerformance = Nova::DelayDSP::lerp(performanceGain, 1.0f, freezeBlend);
+            const float outputBloom = Nova::DelayDSP::lerp(swellBloom, 1.0f, freezeBlend * 0.85f);
+            const float outWetL = dcBlock[0].process(wetOutL * outputPerformance * outputBloom * style.outputTrim * reverseOutputComp);
+            const float outWetR = dcBlock[1].process(wetOutR * outputPerformance * outputBloom * style.outputTrim * reverseOutputComp);
 
             const float dryGain = std::cos(mix * halfPi);
             const float wetGain = std::sin(mix * halfPi);
@@ -947,8 +975,8 @@ private:
                 style.reverseBloom = 0.30f + 0.14f * texture;
                 style.reverseSecondaryMix = 0.20f + 0.06f * texture;
                 style.reverseToneBlend = 0.12f + 0.05f * texture;
-                style.swellHoldScale = 0.38f + 0.16f * texture;
-                style.swellDuckDepth = 0.92f;
+                style.swellHoldScale = 0.70f + 0.26f * texture;
+                style.swellDuckDepth = 1.04f;
                 style.swellBloomGain = 0.12f + 0.05f * texture;
                 style.outputTrim = 1.03f;
                 break;
@@ -977,9 +1005,9 @@ private:
                 style.reverseBloom = 0.72f + 0.18f * texture + 0.12f * reverseAmount;
                 style.reverseSecondaryMix = 0.28f + 0.12f * texture;
                 style.reverseToneBlend = 0.22f + 0.10f * texture;
-                style.swellHoldScale = 0.56f + 0.28f * texture;
-                style.swellDuckDepth = 0.98f;
-                style.swellBloomGain = 0.22f + 0.08f * texture;
+                style.swellHoldScale = 0.90f + 0.42f * texture;
+                style.swellDuckDepth = 1.20f;
+                style.swellBloomGain = 0.34f + 0.14f * texture;
                 style.outputTrim = 0.96f;
                 break;
         }
@@ -1087,6 +1115,7 @@ private:
     float holdStateL = 0.0f;
     float holdStateR = 0.0f;
     bool freezeActive = false;
+    int freezeAgeSamples = 0;
 
     int cachedModeIndex = -1;
     float cachedTexture = -1.0f;

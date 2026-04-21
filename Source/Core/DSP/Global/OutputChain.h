@@ -78,4 +78,5 @@ private:
 
     float outputVolDb = 0.0f;
     float limiterThresholdTarget = 0.0f;
+    bool hardSyncParams = true;
 };

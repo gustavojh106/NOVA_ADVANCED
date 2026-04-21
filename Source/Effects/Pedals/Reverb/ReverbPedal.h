@@ -1122,8 +1122,9 @@ public:
         // ---- Blend ER + late reverb ----
         const float erMix = erLevel * (1.0f - freeze) * (1.0f - shapedReverseAmount * (0.72f + swellAmount * 0.08f));
         const float wetGain = performance.duckGain * performance.gateGain * performance.wetTrim;
-        outL = (erL * erMix + lateL) * wetGain;
-        outR = (erR * erMix + lateR) * wetGain;
+        const float freezeHoldTrim = 1.0f + freeze * 0.035f;
+        outL = (erL * erMix + lateL) * wetGain * freezeHoldTrim;
+        outR = (erR * erMix + lateR) * wetGain * freezeHoldTrim;
 
         // ---- DC blocking ----
         outL = dcL.process(outL);
@@ -1271,8 +1272,9 @@ public:
 
             const float erMix = erLevel * (1.0f - freeze) * (1.0f - shapedReverseAmount * (0.72f + swellAmount * 0.08f));
             const float wetGain = performance.duckGain * performance.gateGain * performance.wetTrim;
-            outL[s] = dcL.process((erL * erMix + lateL) * wetGain);
-            outR[s] = dcR.process((erR * erMix + lateR) * wetGain);
+            const float freezeHoldTrim = 1.0f + freeze * 0.035f;
+            outL[s] = dcL.process((erL * erMix + lateL) * wetGain * freezeHoldTrim);
+            outR[s] = dcR.process((erR * erMix + lateR) * wetGain * freezeHoldTrim);
         }
     }
 
@@ -1325,7 +1327,7 @@ private:
         gains.gateGain = lerp(gains.gateGain, 1.0f, freeze);
         gains.gateFeedbackScale = lerp(gains.gateFeedbackScale, 1.0f, freeze);
 
-        gains.wetTrim = juce::jlimit(0.95f, 1.18f, 1.0f + reverseBlend * 0.05f + reverseSwellCombo * 0.10f);
+        gains.wetTrim = juce::jlimit(0.95f, 1.22f, 1.0f + reverseBlend * 0.05f + reverseSwellCombo * 0.10f + freeze * 0.03f);
         gains.reverseSendScale = juce::jlimit(0.92f, 1.35f, 1.0f + reverseBlend * 0.10f + reverseSwellCombo * 0.16f);
         gains.reverseMixScale = juce::jlimit(0.90f, 1.20f, 1.0f + reverseBlend * 0.04f + reverseSwellCombo * 0.10f - freeze * 0.08f);
         return gains;

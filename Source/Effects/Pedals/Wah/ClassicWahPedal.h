@@ -174,7 +174,7 @@ public:
         for (auto& detectorFilter : detectorBandPass)
         {
             detectorFilter.reset();
-            detectorFilter.setBandPass(820.0f, 0.75f, sr);
+            detectorFilter.setBandPass(950.0f, 0.85f, sr);
         }
 
         for (auto& filter : svf)
@@ -262,7 +262,8 @@ public:
             {
                 const float raw = scratchBuffer.getSample(ch, sampleIndex);
                 const float focused = detectorBandPass[(size_t) ch].process(raw);
-                detector = juce::jmax(detector, std::abs(focused));
+                const float detectorSample = std::abs(raw) * 0.52f + std::abs(focused) * 1.85f;
+                detector = juce::jmax(detector, detectorSample);
             }
 
             const float attackCoeff = std::exp(-1.0f / (juce::jmax(0.1f, attackMs) * 0.001f * (float) sr));
@@ -276,23 +277,35 @@ public:
             const float envelopeSmoothCoeff = std::exp(-1.0f / (0.0035f * (float) sr));
             envelopeSmoothed += (1.0f - envelopeSmoothCoeff) * (envelope - envelopeSmoothed);
 
-            const float detectorDrive = juce::jmap(sensitivity, 5.5f, 15.0f);
-            const float envelopeCurve = juce::jmap(voice, 0.82f, 0.66f);
+            const float detectorThreshold = juce::jmap(sensitivity, 0.030f, 0.013f);
+            const float detectorExcite = juce::jmax(0.0f, envelopeSmoothed - detectorThreshold);
+            const float detectorDrive = juce::jmap(sensitivity, 1.6f, 4.2f) * (1.0f + range * 0.18f);
+            const float envelopeCurve = juce::jmap(voice, 1.24f, 1.02f);
+            const float touchOpen = juce::jlimit(0.0f, 1.0f, detectorExcite * detectorDrive * 5.0f);
+            const float touchPush = juce::jlimit(0.0f, 1.0f, (touchOpen - 0.20f) / 0.80f);
+            const float accentThreshold = detectorThreshold + juce::jmap(sensitivity, 0.016f, 0.010f);
+            const float accentHeadroom = juce::jmap(range, 0.060f, 0.035f);
+            const float touchAccent = juce::jlimit(0.0f, 1.0f, (envelopeSmoothed - accentThreshold) / accentHeadroom);
             const float touchSweep = juce::jlimit(0.0f,
                 1.0f,
-                std::pow(envelopeSmoothed * detectorDrive, envelopeCurve));
+                std::pow(touchOpen, envelopeCurve) * 0.72f + std::pow(touchPush, 0.85f) * 0.28f);
+            const float touchFloor = juce::jmap(voice, 0.0f, 0.02f);
+            const float touchBaseTravel = juce::jmap(range, 0.18f, 0.38f) * juce::jmap(sensitivity, 0.44f, 0.80f);
+            const float touchAccentTravel = juce::jmap(range, 0.18f, 0.36f) * std::pow(touchAccent, 0.72f);
+            const float touchMappedSweep = juce::jlimit(0.0f,
+                1.0f,
+                touchFloor + touchSweep * touchBaseTravel + touchAccentTravel);
 
             float effectiveSweep = manualSweep;
             switch (motionMode)
             {
                 case MotionMode::Touch:
-                    effectiveSweep = touchSweep;
+                    effectiveSweep = touchMappedSweep;
                     break;
 
                 case MotionMode::Hybrid:
                 {
-                    const float hybridTouch = std::pow(touchSweep, 0.92f);
-                    effectiveSweep = juce::jlimit(0.0f, 1.0f, manualSweep * 0.68f + hybridTouch * 0.62f);
+                    effectiveSweep = juce::jlimit(0.0f, 1.0f, manualSweep * 0.62f + touchMappedSweep * 0.48f);
                     break;
                 }
 
@@ -301,21 +314,24 @@ public:
                     break;
             }
 
-            const float minFreq = juce::jmap(voice, 300.0f, 470.0f);
-            const float maxFreq = juce::jmap(voice, 1700.0f, 2850.0f) + range * 1750.0f;
+            const float minFreq = juce::jmap(voice, 280.0f, 440.0f);
+            const float pedalMaxFreq = juce::jmap(voice, 1750.0f, 2550.0f) + range * 1450.0f;
+            const float touchAccentFreq = touchAccent * (220.0f + range * 420.0f);
+            const float touchMaxFreq = juce::jmap(voice, 1260.0f, 1980.0f) + range * 920.0f + touchAccentFreq;
+            const float maxFreq = motionMode == MotionMode::Pedal ? pedalMaxFreq : touchMaxFreq;
             const float freq = juce::jlimit(90.0f,
                 (float) (sr * 0.40),
                 std::exp(std::log(minFreq) + effectiveSweep * (std::log(maxFreq) - std::log(minFreq))));
 
-            const float touchLift = motionMode == MotionMode::Pedal ? 0.0f : touchSweep * 0.35f;
+            const float touchLift = motionMode == MotionMode::Pedal ? 0.0f : touchSweep * 0.16f + touchAccent * 0.40f;
             const float dynamicQ = juce::jmax(0.55f,
-                resonance * (0.80f + effectiveSweep * 0.50f + touchLift * 0.20f));
+                resonance * (0.76f + effectiveSweep * 0.28f + touchLift * 0.18f));
             const float k = 1.0f / dynamicQ;
             const float g = std::tan(piOverSr * freq);
 
-            const float bodyBlend = juce::jlimit(0.08f,
+            const float bodyBlend = juce::jlimit(0.06f,
                 0.38f,
-                juce::jmap(voice, 0.33f, 0.12f) + (1.0f - touchSweep) * 0.05f);
+                juce::jmap(voice, 0.33f, 0.12f) + (1.0f - touchSweep) * 0.05f - touchAccent * 0.14f);
             const float gainComp = 1.0f / (1.0f + juce::jmax(0.0f, resonance - 1.0f) * 0.10f);
 
             currentFreq = freq;
@@ -337,12 +353,14 @@ public:
                 const auto stage1 = svf[(size_t) ch].process(saturatedInput, g, k);
                 const auto stage2 = svfCascade[(size_t) ch].process(stage1.bp, g, k * 2.2f);
 
-                const float vocalPeak = stage1.bp * dynamicQ * 0.42f;
+                const float vocalPeak = stage1.bp * dynamicQ * (0.42f + touchAccent * 0.34f);
                 const float body = stage2.lp * 1.55f;
                 float wet = Nova::WahDSP::blend(vocalPeak, body, bodyBlend);
 
                 if (motionMode != MotionMode::Pedal)
-                    wet = Nova::WahDSP::blend(wet, stage1.bp * dynamicQ * 0.48f, touchSweep * 0.18f);
+                    wet = Nova::WahDSP::blend(wet,
+                        stage1.bp * dynamicQ * (0.48f + touchAccent * 0.24f),
+                        juce::jlimit(0.0f, 1.0f, touchSweep * 0.14f + touchAccent * 0.44f));
 
                 wet = Nova::WahDSP::smoothClip(wet * 0.95f) * gainComp * 1.08f;
                 buffer.setSample(ch, sampleIndex, dry * dryGain + wet * wetGain);
@@ -387,6 +405,7 @@ public:
 
         bool sawMode = false;
         bool sawLegacyTouchMotion = false;
+        bool sawLegacyAutoMotion = false;
 
         for (auto* child : xmlState->getChildIterator())
         {
@@ -395,6 +414,15 @@ public:
 
             const auto paramID = child->getStringAttribute("id");
             const float value = (float) child->getDoubleAttribute("value");
+            const auto remapNormalisedRange = [](float normalised,
+                float sourceMin,
+                float sourceMax,
+                float targetMin,
+                float targetMax)
+            {
+                const float rawValue = Nova::WahDSP::denormaliseValue(normalised, sourceMin, sourceMax);
+                return Nova::WahDSP::normaliseRaw(rawValue, targetMin, targetMax);
+            };
 
             if (paramID == "wahMode")
             {
@@ -476,9 +504,62 @@ public:
                 applyNormalisedValue(mixParam, value);
                 continue;
             }
+
+            if (paramID == "autoWahSens")
+            {
+                applyNormalisedValue(sensitivityParam, value);
+                sawLegacyAutoMotion = true;
+                continue;
+            }
+
+            if (paramID == "autoWahAttack")
+            {
+                applyNormalisedValue(attackParam, value);
+                sawLegacyAutoMotion = true;
+                continue;
+            }
+
+            if (paramID == "autoWahRelease")
+            {
+                applyNormalisedValue(decayParam,
+                    remapNormalisedRange(value, 15.0f, 900.0f, 10.0f, 800.0f));
+                sawLegacyAutoMotion = true;
+                continue;
+            }
+
+            if (paramID == "autoWahRange")
+            {
+                applyNormalisedValue(rangeParam, value);
+                sawLegacyAutoMotion = true;
+                continue;
+            }
+
+            if (paramID == "autoWahResonance")
+            {
+                applyNormalisedValue(resonanceParam,
+                    remapNormalisedRange(value, 0.6f, 9.0f, 0.5f, 10.0f));
+                sawLegacyAutoMotion = true;
+                continue;
+            }
+
+            if (paramID == "autoWahVoice")
+            {
+                applyNormalisedValue(voiceParam, value);
+                sawLegacyAutoMotion = true;
+                continue;
+            }
+
+            if (paramID == "autoWahMix")
+            {
+                applyNormalisedValue(mixParam, value);
+                sawLegacyAutoMotion = true;
+                continue;
+            }
         }
 
         if (!sawMode && sawLegacyTouchMotion && modeParam != nullptr)
+            applyNormalisedValue(modeParam, 0.5f);
+        else if (!sawMode && sawLegacyAutoMotion && modeParam != nullptr)
             applyNormalisedValue(modeParam, 0.5f);
 
         if (isModernState)

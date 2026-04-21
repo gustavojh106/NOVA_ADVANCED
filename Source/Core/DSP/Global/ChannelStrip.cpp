@@ -14,11 +14,14 @@ void ChannelStripProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
 
     gain.prepare(spec);
     gain.setRampDurationSeconds(0.02);
+    gain.setGainLinear(targetGain);
+    gain.reset();
 
     panSmooth.reset(sampleRate, 0.02);
     widthSmooth.reset(sampleRate, 0.02);
     panSmooth.setCurrentAndTargetValue(targetPan);
     widthSmooth.setCurrentAndTargetValue(targetWidth);
+    hardSyncParams = true;
 }
 
 void ChannelStripProcessor::releaseResources()
@@ -27,22 +30,32 @@ void ChannelStripProcessor::releaseResources()
 
 void ChannelStripProcessor::reset()
 {
-    gain.reset();
     gain.setGainLinear(targetGain);
+    gain.reset();
     panSmooth.setCurrentAndTargetValue(targetPan);
     widthSmooth.setCurrentAndTargetValue(targetWidth);
+    hardSyncParams = true;
 }
 
 void ChannelStripProcessor::setParams(float gainVal, float panVal, float widthVal)
 {
     targetGain = juce::jlimit(0.0f, 2.0f, gainVal);
-    gain.setGainLinear(targetGain);
-
     targetPan = juce::jlimit(-1.0f, 1.0f, panVal);
     targetWidth = juce::jlimit(0.0f, 2.0f, widthVal);
 
-    panSmooth.setTargetValue(targetPan);
-    widthSmooth.setTargetValue(targetWidth);
+    if (hardSyncParams)
+    {
+        gain.setGainLinear(targetGain);
+        gain.reset();
+        panSmooth.setCurrentAndTargetValue(targetPan);
+        widthSmooth.setCurrentAndTargetValue(targetWidth);
+    }
+    else
+    {
+        gain.setGainLinear(targetGain);
+        panSmooth.setTargetValue(targetPan);
+        widthSmooth.setTargetValue(targetWidth);
+    }
 }
 
 void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -82,4 +95,6 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         l[i] = sampleL * gainL;
         r[i] = sampleR * gainR;
     }
+
+    hardSyncParams = false;
 }

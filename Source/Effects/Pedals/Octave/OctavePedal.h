@@ -6,98 +6,150 @@
 #include <array>
 #include <cmath>
 
-// ============================================================================
-//  Octave Divider — analog-style sub-octave + upper octave
-//  Reference: Boss OC-2 / EHX Micro POG character
-// ============================================================================
-namespace Nova { namespace OctaveDSP {
-
-// ---- Biquad (2-pole) filter for proper smoothing ----
+namespace Nova::OctaveDSP
+{
 struct Biquad
 {
     float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
     float a1 = 0.0f, a2 = 0.0f;
     float z1 = 0.0f, z2 = 0.0f;
 
-    void reset() { z1 = z2 = 0.0f; }
+    void reset() noexcept
+    {
+        z1 = 0.0f;
+        z2 = 0.0f;
+    }
 
     void setLowPass(float freq, float q, double sr)
     {
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float sinW0 = std::sin(w0), cosW0 = std::cos(w0);
-        float alpha = sinW0 / (2.0f * q);
-        float a0inv = 1.0f / (1.0f + alpha);
-        b0 = (1.0f - cosW0) * 0.5f * a0inv;
-        b1 = (1.0f - cosW0) * a0inv;
+        const float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float) (sr * 0.45), freq) / (float) sr;
+        const float s0 = std::sin(w0), c0 = std::cos(w0);
+        const float alpha = s0 / (2.0f * q);
+        const float a0inv = 1.0f / (1.0f + alpha);
+        b0 = (1.0f - c0) * 0.5f * a0inv;
+        b1 = (1.0f - c0) * a0inv;
         b2 = b0;
-        a1 = -2.0f * cosW0 * a0inv;
+        a1 = -2.0f * c0 * a0inv;
         a2 = (1.0f - alpha) * a0inv;
     }
 
     void setHighPass(float freq, float q, double sr)
     {
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float sinW0 = std::sin(w0), cosW0 = std::cos(w0);
-        float alpha = sinW0 / (2.0f * q);
-        float a0inv = 1.0f / (1.0f + alpha);
-        b0 = (1.0f + cosW0) * 0.5f * a0inv;
-        b1 = -(1.0f + cosW0) * a0inv;
+        const float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(10.0f, (float) (sr * 0.45), freq) / (float) sr;
+        const float s0 = std::sin(w0), c0 = std::cos(w0);
+        const float alpha = s0 / (2.0f * q);
+        const float a0inv = 1.0f / (1.0f + alpha);
+        b0 = (1.0f + c0) * 0.5f * a0inv;
+        b1 = -(1.0f + c0) * a0inv;
         b2 = b0;
-        a1 = -2.0f * cosW0 * a0inv;
-        a2 = (1.0f - alpha) * a0inv;
-    }
-
-    void setBandPass(float freq, float q, double sr)
-    {
-        float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float)(sr * 0.45), freq) / (float)sr;
-        float sinW0 = std::sin(w0), cosW0 = std::cos(w0);
-        float alpha = sinW0 / (2.0f * q);
-        float a0inv = 1.0f / (1.0f + alpha);
-        b0 = alpha * a0inv;
-        b1 = 0.0f;
-        b2 = -alpha * a0inv;
-        a1 = -2.0f * cosW0 * a0inv;
+        a1 = -2.0f * c0 * a0inv;
         a2 = (1.0f - alpha) * a0inv;
     }
 
     float process(float x) noexcept
     {
-        float y = b0 * x + z1;
+        const float y = b0 * x + z1;
         z1 = b1 * x - a1 * y + z2;
         z2 = b2 * x - a2 * y;
         return y;
     }
 };
 
-// ---- Envelope follower with separate attack/release ----
 struct EnvelopeFollower
 {
     float state = 0.0f;
     float attackCoeff = 0.01f;
-    float releaseCoeff = 0.9995f;
+    float releaseCoeff = 0.999f;
 
     void prepare(double sr, float attackMs, float releaseMs)
     {
-        attackCoeff  = 1.0f - (float)std::exp(-1.0 / (sr * attackMs * 0.001));
-        releaseCoeff = 1.0f - (float)std::exp(-1.0 / (sr * releaseMs * 0.001));
+        const double safeSr = juce::jmax(1.0, sr);
+        attackCoeff = 1.0f - (float) std::exp(-1.0 / (safeSr * attackMs * 0.001));
+        releaseCoeff = 1.0f - (float) std::exp(-1.0 / (safeSr * releaseMs * 0.001));
     }
 
-    void reset() { state = 0.0f; }
+    void reset() noexcept { state = 0.0f; }
 
     float process(float absInput) noexcept
     {
-        float coeff = (absInput > state) ? attackCoeff : releaseCoeff;
+        const float coeff = absInput > state ? attackCoeff : releaseCoeff;
         state += coeff * (absInput - state);
         return state;
     }
 };
 
-}} // namespace Nova::OctaveDSP
+struct PeriodTracker
+{
+    void prepare(double sampleRate)
+    {
+        sr = juce::jmax(1.0, sampleRate);
+        reset();
+    }
 
+    void reset() noexcept
+    {
+        lastSample = 0.0f;
+        trackedPeriod = (float) (sr / 110.0);
+        smoothedFreq = 110.0f;
+        confidence = 0.0f;
+        sinceLastTrigger = 1000000;
+        idleSamples = 0;
+    }
 
-// ============================================================================
-//  OctavePedal — Processor
-// ============================================================================
+    float process(float conditioned, float envelope) noexcept
+    {
+        ++sinceLastTrigger;
+        ++idleSamples;
+
+        const float threshold = juce::jlimit(0.0025f, 0.06f, 0.004f + envelope * 0.14f);
+        const bool armed = lastSample <= threshold * 0.10f;
+        const bool trigger = armed && conditioned >= threshold && sinceLastTrigger > getMinPeriodSamples();
+
+        if (trigger)
+        {
+            const int candidate = sinceLastTrigger;
+            if (candidate >= getMinPeriodSamples() && candidate <= getMaxPeriodSamples())
+            {
+                const float candidatePeriod = (float) candidate;
+                const float tolerance = juce::jmax(6.0f, trackedPeriod * 0.55f);
+                const float blend = std::abs(candidatePeriod - trackedPeriod) <= tolerance ? 0.24f : 0.11f;
+                trackedPeriod += (candidatePeriod - trackedPeriod) * blend;
+                confidence = juce::jmin(1.0f, confidence + 0.16f);
+                idleSamples = 0;
+            }
+
+            sinceLastTrigger = 0;
+        }
+        else if (idleSamples > (int) std::round(trackedPeriod * 1.8f))
+        {
+            confidence *= 0.995f;
+        }
+
+        if (envelope < threshold * 0.75f)
+            confidence *= 0.992f;
+
+        const float targetFreq = juce::jlimit(48.0f, 920.0f, (float) (sr / juce::jmax(1.0f, trackedPeriod)));
+        smoothedFreq += (targetFreq - smoothedFreq) * 0.075f;
+        lastSample = conditioned;
+        return smoothedFreq;
+    }
+
+    float getConfidence() const noexcept { return confidence; }
+
+private:
+    int getMinPeriodSamples() const noexcept { return juce::jmax(6, (int) std::round(sr / 950.0)); }
+    int getMaxPeriodSamples() const noexcept { return juce::jmax(16, (int) std::round(sr / 45.0)); }
+
+    double sr = 44100.0;
+    float lastSample = 0.0f;
+    float trackedPeriod = 0.0f;
+    float smoothedFreq = 110.0f;
+    float confidence = 0.0f;
+    int sinceLastTrigger = 0;
+    int idleSamples = 0;
+};
+}
+
 class OctavePedal final : public ProcessorBase
 {
 public:
@@ -111,6 +163,7 @@ public:
     }
 
     const juce::String getName() const override { return "Octave"; }
+    double getTailLengthSeconds() const override { return 0.0; }
 
     bool hasEditor() const override { return true; }
     juce::AudioProcessorEditor* createEditor() override;
@@ -122,53 +175,26 @@ public:
 
         sr = sampleRate;
 
-        // Smoothers
         subSmooth.reset(sr, 0.04);
         upperSmooth.reset(sr, 0.04);
         drySmooth.reset(sr, 0.04);
+        toneSmooth.reset(sr, 0.06);
         levelSmooth.reset(sr, 0.04);
-        subSmooth.setCurrentAndTargetValue(subParam != nullptr ? subParam->get() : 0.72f);
-        upperSmooth.setCurrentAndTargetValue(upperParam != nullptr ? upperParam->get() : 0.28f);
-        drySmooth.setCurrentAndTargetValue(dryParam != nullptr ? dryParam->get() : 0.82f);
-        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelParam->get() : 1.0f);
 
-        // Input conditioning: bandpass 80-3000 Hz for clean zero-crossing detection
-        for (auto& bp : inputBP)
-        {
-            bp.reset();
-            bp.setBandPass(400.0f, 0.7f, sr);
-        }
+        subSmooth.setCurrentAndTargetValue(subParam != nullptr ? snapBlendTarget(subParam->get()) : 0.72f);
+        upperSmooth.setCurrentAndTargetValue(upperParam != nullptr ? snapBlendTarget(upperParam->get()) : 0.28f);
+        drySmooth.setCurrentAndTargetValue(dryParam != nullptr ? snapBlendTarget(dryParam->get()) : 0.82f);
+        toneSmooth.setCurrentAndTargetValue(toneParam != nullptr ? juce::jlimit(0.0f, 1.0f, toneParam->get()) : 0.50f);
+        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? snapLevelTarget(levelParam->get()) : 1.0f);
 
-        // DC blocker on wet signals
-        for (auto& hp : dcBlocker)
-        {
-            hp.reset();
-            hp.setHighPass(25.0f, 0.707f, sr);
-        }
+        detectorEnv.prepare(sr, 0.9f, 40.0f);
+        voiceEnv.prepare(sr, 2.5f, 110.0f);
+        tracker.prepare(sr);
 
-        // Sub-octave smoothing: 2-pole LP to tame the square wave
-        for (auto& lp : subSmoothFilter)
-        {
-            lp.reset();
-            lp.setLowPass(800.0f, 0.6f, sr);
-        }
+        resetFilters();
+        updateToneModel(toneSmooth.getCurrentValue(), true);
 
-        // Upper octave smoothing
-        for (auto& lp : upperSmoothFilter)
-        {
-            lp.reset();
-            lp.setLowPass(3500.0f, 0.707f, sr);
-        }
-
-        // Envelope followers
-        for (auto& env : subEnvFollower)
-            env.prepare(sr, 0.5, 18.0);  // Fast attack, moderate release
-
-        for (auto& env : upperEnvFollower)
-            env.prepare(sr, 0.3, 12.0);  // Slightly faster for upper
-
-        cachedTone = -1.0f;
-
+        setProcessingLatency(0);
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
         isPrepared = true;
@@ -178,21 +204,21 @@ public:
 
     void reset() override
     {
-        for (auto& bp : inputBP) bp.reset();
-        for (auto& hp : dcBlocker) hp.reset();
-        for (auto& lp : subSmoothFilter) lp.reset();
-        for (auto& lp : upperSmoothFilter) lp.reset();
-        for (auto& env : subEnvFollower) env.reset();
-        for (auto& env : upperEnvFollower) env.reset();
+        resetFilters();
+        detectorEnv.reset();
+        voiceEnv.reset();
+        tracker.reset();
 
-        lastDetect.fill(0.0f);
-        dividerState.fill(false);
-        hysteresisLocked.fill(false);
+        subPhase = 0.0f;
+        upperPhase = 0.0f;
 
-        subSmooth.setCurrentAndTargetValue(subParam != nullptr ? subParam->get() : 0.72f);
-        upperSmooth.setCurrentAndTargetValue(upperParam != nullptr ? upperParam->get() : 0.28f);
-        drySmooth.setCurrentAndTargetValue(dryParam != nullptr ? dryParam->get() : 0.82f);
-        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelParam->get() : 1.0f);
+        subSmooth.setCurrentAndTargetValue(subParam != nullptr ? snapBlendTarget(subParam->get()) : 0.72f);
+        upperSmooth.setCurrentAndTargetValue(upperParam != nullptr ? snapBlendTarget(upperParam->get()) : 0.28f);
+        drySmooth.setCurrentAndTargetValue(dryParam != nullptr ? snapBlendTarget(dryParam->get()) : 0.82f);
+        toneSmooth.setCurrentAndTargetValue(toneParam != nullptr ? juce::jlimit(0.0f, 1.0f, toneParam->get()) : 0.50f);
+        levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? snapLevelTarget(levelParam->get()) : 1.0f);
+
+        updateToneModel(toneSmooth.getCurrentValue(), true);
     }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
@@ -200,129 +226,190 @@ public:
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
-        subSmooth.setTargetValue(subParam != nullptr ? subParam->get() : 0.72f);
-        upperSmooth.setTargetValue(upperParam != nullptr ? upperParam->get() : 0.28f);
-        drySmooth.setTargetValue(dryParam != nullptr ? dryParam->get() : 0.82f);
-        levelSmooth.setTargetValue(levelParam != nullptr ? levelParam->get() : 1.0f);
-        updateToneIfNeeded();
+        juce::ScopedNoDenormals noDenormals;
+
+        subSmooth.setTargetValue(subParam != nullptr ? snapBlendTarget(subParam->get()) : 0.72f);
+        upperSmooth.setTargetValue(upperParam != nullptr ? snapBlendTarget(upperParam->get()) : 0.28f);
+        drySmooth.setTargetValue(dryParam != nullptr ? snapBlendTarget(dryParam->get()) : 0.82f);
+        toneSmooth.setTargetValue(toneParam != nullptr ? juce::jlimit(0.0f, 1.0f, toneParam->get()) : 0.50f);
+        levelSmooth.setTargetValue(levelParam != nullptr ? snapLevelTarget(levelParam->get()) : 1.0f);
 
         const int numChannels = juce::jmin(2, buffer.getNumChannels());
         const int numSamples = buffer.getNumSamples();
 
         for (int sample = 0; sample < numSamples; ++sample)
         {
-            const float subAmt   = subSmooth.getNextValue();
+            const float subAmt = subSmooth.getNextValue();
             const float upperAmt = upperSmooth.getNextValue();
-            const float dryAmt   = drySmooth.getNextValue();
-            const float level    = levelSmooth.getNextValue();
+            const float dryAmt = drySmooth.getNextValue();
+            const float tone = toneSmooth.getNextValue();
+            const float level = levelSmooth.getNextValue();
+
+            updateToneModel(tone, false);
+
+            const bool dryOnly = subAmt <= 1.0e-4f
+                && upperAmt <= 1.0e-4f
+                && dryAmt >= 0.9999f
+                && std::abs(level - 1.0f) <= 1.0e-4f;
+
+            if (dryOnly)
+                continue;
+
+            float detectorInput = 0.0f;
+            for (int ch = 0; ch < numChannels; ++ch)
+                detectorInput += buffer.getSample(ch, sample);
+
+            detectorInput *= 1.0f / (float) juce::jmax(1, numChannels);
+            detectorInput = detectorHighPass.process(detectorInput);
+            detectorInput = detectorLowPass.process(detectorInput);
+            detectorInput = std::tanh(detectorInput * 3.2f);
+
+            const float detectorLevel = detectorEnv.process(std::abs(detectorInput));
+            const float trackedFreq = tracker.process(detectorInput, detectorLevel);
+            const float confidence = tracker.getConfidence();
+            const float voiceLevel = voiceEnv.process(detectorLevel * (0.18f + 0.82f * confidence));
+
+            subPhase += trackedFreq * 0.5f / (float) sr;
+            upperPhase += trackedFreq * 2.0f / (float) sr;
+            subPhase -= std::floor(subPhase);
+            upperPhase -= std::floor(upperPhase);
+
+            const float subSine = std::sin(subPhase * juce::MathConstants<float>::twoPi);
+            const float subSquare = std::tanh(subSine * (1.6f + tone * 2.5f));
+            const float subTextureBlend = juce::jlimit(0.0f, 1.0f, 0.26f + tone * 0.42f);
+            const float subCore = juce::jmap(subTextureBlend, subSine, subSquare)
+                * (0.10f + voiceLevel * 1.45f);
+
+            const float upperFund = std::sin(upperPhase * juce::MathConstants<float>::twoPi);
+            const float upperThird = std::sin(upperPhase * juce::MathConstants<float>::twoPi * 3.0f);
+            const float upperFifth = std::sin(upperPhase * juce::MathConstants<float>::twoPi * 5.0f);
+            const float upperOscCore = std::tanh((upperFund
+                + upperThird * (0.16f + tone * 0.28f)
+                + upperFifth * (0.04f + tone * 0.10f))
+                * (1.25f + tone * 2.0f)) * (0.12f + voiceLevel * 1.38f);
+
+            const float wetTrim = 1.0f / (1.0f + subAmt * 0.38f + upperAmt * 0.24f);
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 const float dry = buffer.getSample(ch, sample);
 
-                // ---- Input conditioning for detection ----
-                const float detect = inputBP[(size_t)ch].process(dry);
-                const float absDetect = std::abs(detect);
+                float subVoice = subCore;
+                subVoice = subHighPass[(size_t) ch].process(subVoice);
+                subVoice = subLowPass[(size_t) ch].process(subVoice);
 
-                // ---- Sub-octave: flip-flop divider with hysteresis ----
-                // Hysteresis: require signal to cross above threshold before
-                // allowing next zero-crossing toggle (prevents chatter)
-                constexpr float kHystThreshold = 0.003f;
-                constexpr float kHystRelease   = 0.001f;
+                const float rectified = juce::jmax(0.0f, std::abs(dry) * (1.8f + voiceLevel * 2.8f) - (0.055f - tone * 0.02f));
+                float upperTexture = upperTextureHighPass[(size_t) ch].process(rectified);
+                upperTexture = upperTextureLowPass[(size_t) ch].process(upperTexture);
+                const float textureAmount = juce::jlimit(0.0f, 1.0f, 0.22f + tone * 0.68f);
+                float upperVoice = juce::jmap(textureAmount, upperOscCore, upperTexture * (0.40f + tone * 0.34f + voiceLevel * 1.75f));
+                upperVoice = upperHighPass[(size_t) ch].process(upperVoice);
+                upperVoice = upperLowPass[(size_t) ch].process(upperVoice);
 
-                if (hysteresisLocked[(size_t)ch])
-                {
-                    // Wait for signal to drop below release threshold
-                    if (absDetect < kHystRelease)
-                        hysteresisLocked[(size_t)ch] = false;
-                }
+                float wet = subVoice * (subAmt * 0.96f) + upperVoice * (upperAmt * (0.86f + tone * 0.22f));
+                wet = dcBlock[(size_t) ch].process(wet);
 
-                // Zero-crossing: positive-going, signal must be above threshold
-                if (!hysteresisLocked[(size_t)ch] &&
-                    lastDetect[(size_t)ch] <= 0.0f && detect > 0.0f &&
-                    absDetect > kHystThreshold)
-                {
-                    dividerState[(size_t)ch] = !dividerState[(size_t)ch];
-                    hysteresisLocked[(size_t)ch] = true;
-                }
-
-                lastDetect[(size_t)ch] = detect;
-
-                // Envelope-shaped sub: square wave * envelope
-                const float subEnv = subEnvFollower[(size_t)ch].process(std::abs(dry));
-                const float subRaw = dividerState[(size_t)ch] ? subEnv : -subEnv;
-                const float subFiltered = subSmoothFilter[(size_t)ch].process(subRaw);
-
-                // ---- Upper octave: full-wave rectification ----
-                const float upperEnv = upperEnvFollower[(size_t)ch].process(std::abs(dry));
-                const float rectified = std::abs(dry);
-                // Scale by envelope ratio to maintain dynamics
-                const float upperRaw = (upperEnv > 0.0001f)
-                    ? rectified * (upperEnv / juce::jmax(0.0001f, std::abs(dry) + 0.0001f)) * upperEnv
-                    : 0.0f;
-                const float upperFiltered = upperSmoothFilter[(size_t)ch].process(rectified);
-
-                // ---- Mix and DC-block ----
-                const float wet = subFiltered * subAmt * 0.85f + upperFiltered * upperAmt * 0.75f;
-                const float dcBlocked = dcBlocker[(size_t)ch].process(wet);
-
-                buffer.setSample(ch, sample, (dry * dryAmt + dcBlocked) * level);
+                buffer.setSample(ch, sample, (dry * dryAmt + wet) * level * wetTrim);
             }
         }
 
         endBypassProcess(buffer);
     }
 
-    // Public parameter accessors for the editor
-    juce::AudioParameterFloat* subParam   = nullptr;
+    juce::AudioParameterFloat* subParam = nullptr;
     juce::AudioParameterFloat* upperParam = nullptr;
-    juce::AudioParameterFloat* dryParam   = nullptr;
-    juce::AudioParameterFloat* toneParam  = nullptr;
+    juce::AudioParameterFloat* dryParam = nullptr;
+    juce::AudioParameterFloat* toneParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
 
 private:
-    void updateToneIfNeeded()
+    static float snapBlendTarget(float value) noexcept
     {
-        const float tone = toneParam != nullptr ? toneParam->get() : 0.5f;
-        if (std::abs(cachedTone - tone) <= 0.005f)
+        if (value <= 1.0e-4f)
+            return 0.0f;
+        if (value >= 0.9999f)
+            return 1.0f;
+        return value;
+    }
+
+    static float snapLevelTarget(float value) noexcept
+    {
+        return std::abs(value - 1.0f) <= 1.0e-4f ? 1.0f : value;
+    }
+
+    void resetFilters() noexcept
+    {
+        detectorHighPass.reset();
+        detectorLowPass.reset();
+
+        for (auto& filter : subHighPass) filter.reset();
+        for (auto& filter : subLowPass) filter.reset();
+        for (auto& filter : upperTextureHighPass) filter.reset();
+        for (auto& filter : upperTextureLowPass) filter.reset();
+        for (auto& filter : upperHighPass) filter.reset();
+        for (auto& filter : upperLowPass) filter.reset();
+        for (auto& filter : dcBlock) filter.reset();
+    }
+
+    void updateToneModel(float tone, bool force)
+    {
+        if (!force && std::abs(tone - cachedTone) <= 0.004f)
             return;
 
         cachedTone = tone;
 
-        // Tone maps to sub smoothing filter cutoff and upper smoothing cutoff
-        // Low tone = darker (more sub smoothing), high tone = brighter
-        const float subCutoff   = 300.0f + tone * 1200.0f;   // 300-1500 Hz
-        const float upperCutoff = 1500.0f + tone * 5000.0f;  // 1500-6500 Hz
+        detectorHighPass.setHighPass(46.0f + tone * 24.0f, 0.707f, sr);
+        detectorLowPass.setLowPass(1200.0f + tone * 1500.0f, 0.707f, sr);
 
-        for (auto& lp : subSmoothFilter)
-            lp.setLowPass(subCutoff, 0.6f, sr);
-        for (auto& lp : upperSmoothFilter)
-            lp.setLowPass(upperCutoff, 0.707f, sr);
+        const float subHighPassFreq = 18.0f + tone * 42.0f;
+        const float subLowPassFreq = 240.0f + tone * 430.0f;
+        const float upperTextureHighPassFreq = 150.0f + tone * 360.0f;
+        const float upperTextureLowPassFreq = 1100.0f + tone * 5100.0f;
+        const float upperHighPassFreq = 260.0f + tone * 340.0f;
+        const float upperLowPassFreq = 1500.0f + tone * 5600.0f;
+
+        for (auto& filter : subHighPass)
+            filter.setHighPass(subHighPassFreq, 0.707f, sr);
+        for (auto& filter : subLowPass)
+            filter.setLowPass(subLowPassFreq, 0.62f, sr);
+        for (auto& filter : upperTextureHighPass)
+            filter.setHighPass(upperTextureHighPassFreq, 0.707f, sr);
+        for (auto& filter : upperTextureLowPass)
+            filter.setLowPass(upperTextureLowPassFreq, 0.707f, sr);
+        for (auto& filter : upperHighPass)
+            filter.setHighPass(upperHighPassFreq, 0.707f, sr);
+        for (auto& filter : upperLowPass)
+            filter.setLowPass(upperLowPassFreq, 0.65f, sr);
+        for (auto& filter : dcBlock)
+            filter.setHighPass(22.0f, 0.707f, sr);
     }
 
     double sr = 44100.0;
+    bool isPrepared = false;
 
-    // Smoothers
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> subSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> upperSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> drySmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> toneSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> levelSmooth;
 
-    // DSP
-    std::array<Nova::OctaveDSP::Biquad, 2> inputBP;           // Bandpass for detection
-    std::array<Nova::OctaveDSP::Biquad, 2> dcBlocker;         // DC block on wet
-    std::array<Nova::OctaveDSP::Biquad, 2> subSmoothFilter;   // LP on sub-octave
-    std::array<Nova::OctaveDSP::Biquad, 2> upperSmoothFilter; // LP on upper-octave
-    std::array<Nova::OctaveDSP::EnvelopeFollower, 2> subEnvFollower;
-    std::array<Nova::OctaveDSP::EnvelopeFollower, 2> upperEnvFollower;
+    Nova::OctaveDSP::Biquad detectorHighPass;
+    Nova::OctaveDSP::Biquad detectorLowPass;
+    Nova::OctaveDSP::EnvelopeFollower detectorEnv;
+    Nova::OctaveDSP::EnvelopeFollower voiceEnv;
+    Nova::OctaveDSP::PeriodTracker tracker;
 
-    // Divider state
-    std::array<float, 2> lastDetect{};
-    std::array<bool, 2>  dividerState{};
-    std::array<bool, 2>  hysteresisLocked{};
+    std::array<Nova::OctaveDSP::Biquad, 2> subHighPass;
+    std::array<Nova::OctaveDSP::Biquad, 2> subLowPass;
+    std::array<Nova::OctaveDSP::Biquad, 2> upperTextureHighPass;
+    std::array<Nova::OctaveDSP::Biquad, 2> upperTextureLowPass;
+    std::array<Nova::OctaveDSP::Biquad, 2> upperHighPass;
+    std::array<Nova::OctaveDSP::Biquad, 2> upperLowPass;
+    std::array<Nova::OctaveDSP::Biquad, 2> dcBlock;
 
+    float subPhase = 0.0f;
+    float upperPhase = 0.0f;
     float cachedTone = -1.0f;
-    bool isPrepared = false;
 };
 
 #include "OctaveEditor.h"

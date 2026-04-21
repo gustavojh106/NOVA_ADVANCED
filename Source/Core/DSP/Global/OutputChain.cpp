@@ -2,7 +2,7 @@
 
 float OutputChainProcessor::applySoftCeiling(float x) noexcept
 {
-    constexpr float ceiling = 0.983f; // ~ -0.15 dBFS
+    constexpr float ceiling = 0.9999f; // leave clean full-scale material intact, only soften true overs
     const float sign = juce::jlimit(-1.0f, 1.0f, x < 0.0f ? -1.0f : 1.0f);
     const float mag = std::abs(x);
     if (mag <= ceiling)
@@ -32,8 +32,11 @@ void OutputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         filter.prepare(sampleRate);
 
     gain.setRampDurationSeconds(0.02);
+    gain.setGainDecibels(outputVolDb);
+    gain.reset();
     limiterSmooth.reset(sampleRate, 0.02);
     limiterSmooth.setCurrentAndTargetValue(limiterThresholdTarget);
+    hardSyncParams = true;
 }
 
 void OutputChainProcessor::releaseResources()
@@ -43,8 +46,8 @@ void OutputChainProcessor::releaseResources()
 
 void OutputChainProcessor::reset()
 {
-    gain.reset();
     gain.setGainDecibels(outputVolDb);
+    gain.reset();
 
     limiter.reset();
     limiter.setThreshold(limiterThresholdTarget);
@@ -53,13 +56,25 @@ void OutputChainProcessor::reset()
 
     for (auto& filter : dcBlockers)
         filter.reset();
+
+    hardSyncParams = true;
 }
 
 void OutputChainProcessor::setParams(float volDb, float limitDb)
 {
     outputVolDb = volDb;
     limiterThresholdTarget = limitDb;
-    limiterSmooth.setTargetValue(limitDb);
+
+    if (hardSyncParams)
+    {
+        gain.setGainDecibels(outputVolDb);
+        gain.reset();
+        limiterSmooth.setCurrentAndTargetValue(limitDb);
+    }
+    else
+    {
+        limiterSmooth.setTargetValue(limitDb);
+    }
 }
 
 void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -79,12 +94,22 @@ void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         limiter.process(context);
     }
 
+    const bool engageDCBlock = std::abs(outputVolDb) > 0.001f || limiterThreshold < -0.1f;
+
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
     {
         auto* data = buffer.getWritePointer(ch);
         auto& dcBlock = dcBlockers[(size_t)juce::jmin(ch, (int)dcBlockers.size() - 1)];
 
         for (int i = 0; i < buffer.getNumSamples(); ++i)
-            data[i] = applySoftCeiling(dcBlock.process(data[i]));
+        {
+            float sample = applySoftCeiling(data[i]);
+            if (engageDCBlock)
+                sample = dcBlock.process(sample);
+
+            data[i] = sample;
+        }
     }
+
+    hardSyncParams = false;
 }

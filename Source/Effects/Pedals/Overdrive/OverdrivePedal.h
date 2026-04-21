@@ -143,7 +143,11 @@ public:
         driveControlSmooth.setTargetValue(targetDrive);
         toneControlSmooth.setTargetValue(targetTone);
         textureControlSmooth.setTargetValue(targetTexture);
-        mixSmooth.setTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
+        const float targetMix = snapMixTarget(mixParam != nullptr ? *mixParam : 1.0f);
+        if (targetMix <= 0.0001f || targetMix >= 0.9999f)
+            mixSmooth.setCurrentAndTargetValue(targetMix);
+        else
+            mixSmooth.setTargetValue(targetMix);
         levelSmooth.setTargetValue(levelParam != nullptr ? levelFromControl(*levelParam) : 1.0f);
         wetTrimSmooth.setTargetValue(wetTrimFromControls(targetDrive, targetTexture));
 
@@ -201,11 +205,19 @@ public:
 
         for (int sample = 0; sample < numSamples; ++sample)
         {
-            const float mix = juce::jlimit(0.0f, 1.0f, mixSmooth.getNextValue());
-            const float dryGain = std::cos(juce::MathConstants<float>::halfPi * mix);
-            const float wetGain = std::sin(juce::MathConstants<float>::halfPi * mix);
+            const float mix = snapMixTarget(mixSmooth.getNextValue());
             const float wetTrim = wetTrimSmooth.getNextValue();
             const float level = levelSmooth.getNextValue();
+
+            if (mix <= 0.0001f)
+            {
+                for (int ch = 0; ch < numChannels; ++ch)
+                    buffer.setSample(ch, sample, scratchBuffer.getSample(ch, sample));
+                continue;
+            }
+
+            const float dryGain = std::cos(juce::MathConstants<float>::halfPi * mix);
+            const float wetGain = mix >= 0.9999f ? 1.0f : std::sin(juce::MathConstants<float>::halfPi * mix);
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
@@ -343,11 +355,20 @@ private:
         return juce::Decibels::decibelsToGain(levelDb);
     }
 
+    static float snapMixTarget(float mix) noexcept
+    {
+        if (mix <= 1.0e-4f)
+            return 0.0f;
+        if (mix >= 0.9999f)
+            return 1.0f;
+        return juce::jlimit(0.0f, 1.0f, mix);
+    }
+
     static float wetTrimFromControls(float driveControl, float textureControl) noexcept
     {
         const float drive = juce::jlimit(0.0f, 1.0f, driveControl / 100.0f);
         const float texture = juce::jlimit(0.0f, 1.0f, textureControl);
-        const float compensationDb = juce::jmap(drive, -0.35f, -4.25f) + juce::jmap(texture, 0.0f, -1.15f);
+        const float compensationDb = juce::jmap(drive, -0.35f, -4.60f) + juce::jmap(texture, 0.0f, -1.35f);
         return juce::Decibels::decibelsToGain(compensationDb);
     }
 
@@ -357,18 +378,18 @@ private:
         const float tone = juce::jlimit(0.0f, 1.0f, toneControl);
         const float texture = juce::jlimit(0.0f, 1.0f, textureControl);
 
-        inputTighten.setCutoff(juce::jmap(drive, 34.0f, 68.0f));
-        presenceSplit.setCutoff(juce::jmap(juce::jlimit(0.0f, 1.0f, 0.20f + tone * 0.60f), 900.0f, 2100.0f));
-        bodyFilter.setCutoff(juce::jmap(juce::jlimit(0.0f, 1.0f, 0.30f + texture * 0.45f), 165.0f, 320.0f));
+        inputTighten.setCutoff(juce::jmap(juce::jlimit(0.0f, 1.0f, drive * 0.78f + texture * 0.22f), 36.0f, 96.0f));
+        presenceSplit.setCutoff(juce::jmap(juce::jlimit(0.0f, 1.0f, 0.14f + tone * 0.72f), 780.0f, 2600.0f));
+        bodyFilter.setCutoff(juce::jmap(juce::jlimit(0.0f, 1.0f, 0.24f + texture * 0.46f + drive * 0.10f), 145.0f, 360.0f));
 
-        const float topCutControl = juce::jlimit(0.0f, 1.0f, 0.08f + tone * 0.82f - drive * 0.08f);
-        const float topCutHz = juce::jmap(topCutControl, 2500.0f, 9500.0f);
+        const float topCutControl = juce::jlimit(0.0f, 1.0f, 0.05f + tone * 0.90f - drive * 0.10f + texture * 0.05f);
+        const float topCutHz = juce::jmap(topCutControl, 2200.0f, 11800.0f);
         outputLowPassA.setCutoff(topCutHz);
         outputLowPassB.setCutoff(topCutHz);
         dcBlock.setCutoff(18.0f);
 
-        toneModel.presenceAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, tone * 0.78f + texture * 0.12f), -0.08f, 0.42f);
-        toneModel.bodyAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, texture * 0.72f + drive * 0.10f), -0.04f, 0.22f);
+        toneModel.presenceAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, tone * 0.82f + texture * 0.16f), -0.10f, 0.54f);
+        toneModel.bodyAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, texture * 0.66f + drive * 0.16f - tone * 0.16f), -0.08f, 0.24f);
     }
 
     juce::dsp::Oversampling<float> oversampler;

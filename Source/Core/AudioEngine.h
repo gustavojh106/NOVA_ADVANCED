@@ -174,6 +174,7 @@ private:
         std::atomic<bool> pendingSilentOutputRecoveryLog{ false };
         std::atomic<bool> pendingAutoHealLog{ false };
         std::atomic<int> autoHealCount{ 0 };
+        bool mixPathBypassed = true;
     };
 
     void rebuildGraph();

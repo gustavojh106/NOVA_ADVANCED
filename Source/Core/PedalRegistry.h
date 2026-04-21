@@ -13,6 +13,7 @@
 #include "../Effects/Pedals/Boost/BoostPedal.h"
 #include "../Effects/Pedals/Gate/NoiseGatePedal.h"
 #include "../Effects/Pedals/EQ/EQPedal.h"
+#include "../Effects/Pedals/Neural/NeuralPedal.h"
 #include "../Effects/Pedals/Overdrive/OverdrivePedal.h"
 #include "../Effects/Pedals/Distortion/DistortionPedal.h"
 #include "../Effects/Pedals/Fuzz/FuzzPedal.h"
@@ -89,6 +90,7 @@ private:
             { "Boost",         [] { return std::make_unique<BoostPedal>(); } },
             { "Noise Gate",    [] { return std::make_unique<NoiseGatePedal>(); } },
             { "EQ",            [] { return std::make_unique<EQPedal>(); } },
+            { "Neural",        [] { return std::make_unique<NeuralPedal>(); } },
             { "Overdrive",     [] { return std::make_unique<OverdrivePedal>(); } },
             { "Distortion",    [] { return std::make_unique<DistortionPedal>(); } },
             { "Fuzz",          [] { return std::make_unique<FuzzPedal>(); } },

@@ -240,7 +240,7 @@ public:
 
         fuzzSmooth.setCurrentAndTargetValue(fuzzParam != nullptr ? fuzzParam->get() : 67.0f);
         gateSmooth.setCurrentAndTargetValue(gateParam != nullptr ? gateParam->get() : 0.28f);
-        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? mixParam->get() : 1.0f);
+        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? snapMixTarget(mixParam->get()) : 1.0f);
         levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelParam->get() : 0.58f);
         biasSmooth.setCurrentAndTargetValue(biasParam != nullptr ? biasParam->get() : 0.56f);
 
@@ -310,7 +310,7 @@ public:
 
         fuzzSmooth.setCurrentAndTargetValue(fuzzParam != nullptr ? fuzzParam->get() : 67.0f);
         gateSmooth.setCurrentAndTargetValue(gateParam != nullptr ? gateParam->get() : 0.28f);
-        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? mixParam->get() : 1.0f);
+        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? snapMixTarget(mixParam->get()) : 1.0f);
         levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelParam->get() : 0.58f);
         biasSmooth.setCurrentAndTargetValue(biasParam != nullptr ? biasParam->get() : 0.56f);
     }
@@ -333,7 +333,11 @@ public:
 
         fuzzSmooth.setTargetValue(fuzzParam != nullptr ? fuzzParam->get() : 67.0f);
         gateSmooth.setTargetValue(gateParam != nullptr ? gateParam->get() : 0.28f);
-        mixSmooth.setTargetValue(mixParam != nullptr ? mixParam->get() : 1.0f);
+        const float requestedMix = mixParam != nullptr ? snapMixTarget(mixParam->get()) : 1.0f;
+        if (requestedMix <= 1.0e-4f || requestedMix >= 0.9999f)
+            mixSmooth.setCurrentAndTargetValue(requestedMix);
+        else
+            mixSmooth.setTargetValue(requestedMix);
         levelSmooth.setTargetValue(levelParam != nullptr ? levelParam->get() : 0.58f);
         biasSmooth.setTargetValue(biasParam != nullptr ? biasParam->get() : 0.56f);
         updateFilters();
@@ -446,6 +450,14 @@ public:
         {
             const float mix = mixSmooth.getNextValue();
             const float level = juce::jmap(juce::jlimit(0.0f, 1.0f, levelSmooth.getNextValue()), 0.08f, 1.6f);
+
+            if (mix <= 1.0e-4f)
+            {
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                    buffer.setSample(ch, sample, scratchBuffer.getSample(ch, sample));
+                continue;
+            }
+
             const float dryGain = std::cos(mix * halfPi);
             const float wetGain = std::sin(mix * halfPi);
 
@@ -463,6 +475,15 @@ public:
     static float toneToCutoffHz(float tone) noexcept
     {
         return 700.0f + juce::jlimit(0.0f, 1.0f, tone) * 7200.0f;
+    }
+
+    static float snapMixTarget(float mix) noexcept
+    {
+        if (mix <= 1.0e-4f)
+            return 0.0f;
+        if (mix >= 0.9999f)
+            return 1.0f;
+        return mix;
     }
 
     static float biasToDescriptor(float bias) noexcept

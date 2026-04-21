@@ -2,12 +2,27 @@
 
 #include <JuceHeader.h>
 #include <cmath>
+#include <type_traits>
 #include <vector>
 
 #include "AudioEngine.h"
 #include "SessionLogger.h"
+#include "../Effects/Pedals/Boost/BoostPedal.h"
+#include "../Effects/Pedals/Chorus/ChorusPedal.h"
+#include "../Effects/Pedals/Compressor/CompressorPedal.h"
 #include "../Effects/Pedals/Delay/DelayPedal.h"
+#include "../Effects/Pedals/Distortion/DistortionPedal.h"
+#include "../Effects/Pedals/EQ/EQPedal.h"
+#include "../Effects/Pedals/Flanger/FlangerPedal.h"
+#include "../Effects/Pedals/Fuzz/FuzzPedal.h"
+#include "../Effects/Pedals/Gate/NoiseGatePedal.h"
+#include "../Effects/Pedals/Neural/NeuralPedal.h"
+#include "../Effects/Pedals/Octave/OctavePedal.h"
+#include "../Effects/Pedals/Overdrive/OverdrivePedal.h"
+#include "../Effects/Pedals/Phaser/PhaserPedal.h"
 #include "../Effects/Pedals/Reverb/ReverbPedal.h"
+#include "../Effects/Pedals/Tremolo/TremoloPedal.h"
+#include "../Effects/Pedals/Wah/ClassicWahPedal.h"
 
 namespace NovaDiagnostics
 {
@@ -233,6 +248,45 @@ private:
         }
 
         return sampleCount > 0 ? std::sqrt(sumSquares / (double)sampleCount) : 0.0;
+    }
+
+    static double computeFrequencyMagnitude(const juce::AudioBuffer<float>& buffer,
+        double sr,
+        float targetFreq,
+        int startSample,
+        int numSamples)
+    {
+        const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+        const int safeLength = juce::jlimit(0, buffer.getNumSamples() - safeStart, numSamples);
+        if (safeLength <= 0 || sr <= 0.0 || targetFreq <= 0.0f)
+            return 0.0;
+
+        const double omega = 2.0 * juce::MathConstants<double>::pi * (double) targetFreq / sr;
+        const double coeff = 2.0 * std::cos(omega);
+        const double sine = std::sin(omega);
+        const double cosine = std::cos(omega);
+        const int channels = juce::jmax(1, buffer.getNumChannels());
+
+        double magnitude = 0.0;
+        for (int ch = 0; ch < channels; ++ch)
+        {
+            double q0 = 0.0;
+            double q1 = 0.0;
+            double q2 = 0.0;
+
+            for (int i = 0; i < safeLength; ++i)
+            {
+                q0 = coeff * q1 - q2 + (double) buffer.getSample(ch, safeStart + i);
+                q2 = q1;
+                q1 = q0;
+            }
+
+            const double real = q1 - q2 * cosine;
+            const double imag = q2 * sine;
+            magnitude += std::sqrt(real * real + imag * imag) / (double) safeLength;
+        }
+
+        return magnitude / (double) channels;
     }
 
     static int findPeakSampleIndex(const juce::AudioBuffer<float>& buffer, int channel)
@@ -479,6 +533,161 @@ private:
         delay.freezeParam->setValueNotifyingHost(0.0f);
     }
 
+    static void configureFlagshipCompressor(CompressorPedal& pedal)
+    {
+        pedal.thresholdParam->setValueNotifyingHost(pedal.thresholdParam->convertTo0to1(-18.5f));
+        pedal.ratioParam->setValueNotifyingHost(pedal.ratioParam->convertTo0to1(6.4f));
+        pedal.attackParam->setValueNotifyingHost(pedal.attackParam->convertTo0to1(7.5f));
+        pedal.releaseParam->setValueNotifyingHost(pedal.releaseParam->convertTo0to1(165.0f));
+        pedal.kneeParam->setValueNotifyingHost(pedal.kneeParam->convertTo0to1(8.2f));
+        pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(0.68f));
+        pedal.blendParam->setValueNotifyingHost(pedal.blendParam->convertTo0to1(0.91f));
+        pedal.makeupParam->setValueNotifyingHost(pedal.makeupParam->convertTo0to1(4.4f));
+    }
+
+    static void configureFlagshipNoiseGate(NoiseGatePedal& pedal)
+    {
+        pedal.thresholdParam->setValueNotifyingHost(pedal.thresholdParam->convertTo0to1(-42.5f));
+        pedal.attackParam->setValueNotifyingHost(pedal.attackParam->convertTo0to1(0.18f));
+        pedal.holdParam->setValueNotifyingHost(pedal.holdParam->convertTo0to1(96.0f));
+        pedal.releaseParam->setValueNotifyingHost(pedal.releaseParam->convertTo0to1(180.0f));
+        pedal.rangeParam->setValueNotifyingHost(pedal.rangeParam->convertTo0to1(-72.0f));
+        pedal.hysteresisParam->setValueNotifyingHost(pedal.hysteresisParam->convertTo0to1(9.4f));
+        pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(0.74f));
+    }
+
+    static void configureFlagshipEQ(EQPedal& pedal)
+    {
+        pedal.lowCutParam->setValueNotifyingHost(pedal.lowCutParam->convertTo0to1(85.0f));
+        pedal.lowParam->setValueNotifyingHost(pedal.lowParam->convertTo0to1(3.5f));
+        pedal.lowMidParam->setValueNotifyingHost(pedal.lowMidParam->convertTo0to1(-4.2f));
+        pedal.midParam->setValueNotifyingHost(pedal.midParam->convertTo0to1(5.8f));
+        pedal.midFreqParam->setValueNotifyingHost(pedal.midFreqParam->convertTo0to1(1450.0f));
+        pedal.midQParam->setValueNotifyingHost(pedal.midQParam->convertTo0to1(1.6f));
+        pedal.presenceParam->setValueNotifyingHost(pedal.presenceParam->convertTo0to1(2.2f));
+        pedal.highParam->setValueNotifyingHost(pedal.highParam->convertTo0to1(-1.5f));
+        pedal.highCutParam->setValueNotifyingHost(pedal.highCutParam->convertTo0to1(7200.0f));
+        pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.25f));
+    }
+
+    static void configureFlagshipBoost(BoostPedal& pedal)
+    {
+        pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(13.5f));
+        pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.72f));
+        pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(0.48f));
+        pedal.charParam->setValueNotifyingHost(pedal.charParam->convertTo0to1(0.64f));
+        pedal.midParam->setValueNotifyingHost(pedal.midParam->convertTo0to1(2.4f));
+        pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.28f));
+    }
+
+    static void configureFlagshipNeural(NeuralPedal& pedal)
+    {
+        pedal.driveParam->setValueNotifyingHost(pedal.driveParam->convertTo0to1(73.0f));
+        pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(0.68f));
+        pedal.detailParam->setValueNotifyingHost(pedal.detailParam->convertTo0to1(0.62f));
+        pedal.compParam->setValueNotifyingHost(pedal.compParam->convertTo0to1(0.48f));
+        pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.86f));
+        pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.75f));
+    }
+
+    static void configureFlagshipOverdrive(OverdrivePedal& pedal)
+    {
+        pedal.getDriveParam()->setValueNotifyingHost(pedal.getDriveParam()->convertTo0to1(66.0f));
+        pedal.getToneParam()->setValueNotifyingHost(pedal.getToneParam()->convertTo0to1(0.71f));
+        pedal.getTextureParam()->setValueNotifyingHost(pedal.getTextureParam()->convertTo0to1(0.63f));
+        pedal.getMixParam()->setValueNotifyingHost(pedal.getMixParam()->convertTo0to1(0.84f));
+        pedal.getLevelParam()->setValueNotifyingHost(pedal.getLevelParam()->convertTo0to1(0.79f));
+    }
+
+    static void configureFlagshipDistortion(DistortionPedal& pedal)
+    {
+        pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 4));
+        pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(73.0f));
+        pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.66f));
+        pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.63f));
+        pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.88f));
+        pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.55f));
+        pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(0.81f));
+    }
+
+    static void configureFlagshipFuzz(FuzzPedal& pedal)
+    {
+        pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 2));
+        pedal.fuzzParam->setValueNotifyingHost(pedal.fuzzParam->convertTo0to1(81.0f));
+        pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.41f));
+        pedal.gateParam->setValueNotifyingHost(pedal.gateParam->convertTo0to1(0.63f));
+        pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.89f));
+        pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.54f));
+        pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(0.28f));
+    }
+
+    static void configureFlagshipWah(ClassicWahPedal& pedal)
+    {
+        pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 2));
+        pedal.sweepParam->setValueNotifyingHost(pedal.sweepParam->convertTo0to1(0.72f));
+        pedal.sensitivityParam->setValueNotifyingHost(pedal.sensitivityParam->convertTo0to1(0.63f));
+        pedal.attackParam->setValueNotifyingHost(pedal.attackParam->convertTo0to1(6.0f));
+        pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(280.0f));
+        pedal.rangeParam->setValueNotifyingHost(pedal.rangeParam->convertTo0to1(0.81f));
+        pedal.resonanceParam->setValueNotifyingHost(pedal.resonanceParam->convertTo0to1(5.4f));
+        pedal.voiceParam->setValueNotifyingHost(pedal.voiceParam->convertTo0to1(0.61f));
+        pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.88f));
+    }
+
+    static void configureFlagshipOctave(OctavePedal& pedal)
+    {
+        pedal.subParam->setValueNotifyingHost(pedal.subParam->convertTo0to1(0.86f));
+        pedal.upperParam->setValueNotifyingHost(pedal.upperParam->convertTo0to1(0.54f));
+        pedal.dryParam->setValueNotifyingHost(pedal.dryParam->convertTo0to1(0.38f));
+        pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.73f));
+        pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.24f));
+    }
+
+    static void configureFlagshipChorus(ChorusPedal& pedal)
+    {
+        pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 1));
+        pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(1.85f));
+        pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.74f));
+        pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.88f));
+        pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.46f));
+        pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.57f));
+        pedal.lagParam->setValueNotifyingHost(pedal.lagParam->convertTo0to1(11.6f));
+    }
+
+    static void configureFlagshipPhaser(PhaserPedal& pedal)
+    {
+        pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(1.8f));
+        pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.81f));
+        pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.36f));
+        pedal.stagesParam->setValueNotifyingHost(pedal.stagesParam->convertTo0to1(8.0f));
+        pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.74f));
+    }
+
+    static void configureFlagshipFlanger(FlangerPedal& pedal)
+    {
+        pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 2));
+        pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(0.91f));
+        pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.83f));
+        pedal.manualParam->setValueNotifyingHost(pedal.manualParam->convertTo0to1(0.58f));
+        pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(-0.36f));
+        pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.79f));
+        pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(6800.0f));
+        pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.53f));
+    }
+
+    static void configureFlagshipTremolo(TremoloPedal& pedal)
+    {
+        pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(6.8f));
+        pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.84f));
+        pedal.shapeParam->setValueNotifyingHost(pedal.shapeParam->convertTo0to1(0.78f));
+        pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(0.68f));
+        pedal.stereoParam->setValueNotifyingHost(pedal.stereoParam->convertTo0to1(0.72f));
+        pedal.harmonicParam->setValueNotifyingHost(pedal.harmonicParam->convertTo0to1(0.57f));
+        pedal.crossoverParam->setValueNotifyingHost(pedal.crossoverParam->convertTo0to1(1325.0f));
+        pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.64f));
+        pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.22f));
+    }
+
     template <typename Callback>
     static juce::AudioBuffer<float> renderDelayPedalWithAutomation(DelayPedal& pedal,
         const juce::AudioBuffer<float>& input,
@@ -506,6 +715,125 @@ private:
         return rendered;
     }
 
+    template <typename Pedal, typename Callback>
+    static juce::AudioBuffer<float> renderPedalOutput(Pedal& pedal,
+        const juce::AudioBuffer<float>& input,
+        Callback&& callback)
+    {
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> rendered(input.getNumChannels(), input.getNumSamples());
+        rendered.clear();
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+
+        for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+        {
+            const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+            block.clear();
+            for (int ch = 0; ch < input.getNumChannels(); ++ch)
+                block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+            callback(offset);
+            pedal.processBlock(block, midi);
+
+            for (int ch = 0; ch < rendered.getNumChannels(); ++ch)
+                rendered.copyFrom(ch, offset, block, ch, 0, numSamples);
+        }
+
+        return rendered;
+    }
+
+    template <typename Pedal>
+    static juce::AudioBuffer<float> renderPedalOutput(Pedal& pedal, const juce::AudioBuffer<float>& input)
+    {
+        return renderPedalOutput(pedal, input, [](int) {});
+    }
+
+    template <typename Pedal, typename ConfigureFn>
+    static OfflineQAScenarioResult runPedalStateRecallScenario(const juce::String& name,
+        const juce::String& notes,
+        ConfigureFn&& configure,
+        const juce::AudioBuffer<float>& input,
+        double nullThreshold)
+    {
+        OfflineQAScenarioResult result;
+        result.name = name;
+
+        Pedal source;
+        source.prepareToPlay(sampleRate, blockSize);
+        configure(source);
+        source.reset();
+
+        const auto baseline = renderPedalOutput(source, input);
+
+        juce::MemoryBlock state;
+        source.getStateInformation(state);
+
+        Pedal restored;
+        restored.prepareToPlay(sampleRate, blockSize);
+        restored.setStateInformation(state.getData(), (int) state.getSize());
+        restored.reset();
+
+        const auto recalled = renderPedalOutput(restored, input);
+        const double nullRms = computeNullRms(baseline, recalled);
+        const bool finite = bufferHasOnlyFiniteSamples(recalled);
+        const auto baselineMetrics = analyseBuffer(baseline);
+        const auto recalledMetrics = analyseBuffer(recalled);
+
+        result.metrics.push_back({ "state_size_bytes", (double) state.getSize() });
+        result.metrics.push_back({ "null_rms", nullRms });
+        result.metrics.push_back({ "baseline_peak", baselineMetrics.peak });
+        result.metrics.push_back({ "recalled_peak", recalledMetrics.peak });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+        result.passed = finite && nullRms <= nullThreshold;
+        result.notes = result.passed
+            ? notes
+            : notes + " | recall drift exceeded threshold";
+        return result;
+    }
+
+    template <typename Pedal, typename InitialiseFn, typename AutomateFn, typename FillFn>
+    static OfflineQAScenarioResult runPedalAutomationStressScenario(const juce::String& name,
+        const juce::String& notes,
+        InitialiseFn&& initialise,
+        AutomateFn&& automate,
+        FillFn&& fillBlock,
+        double peakLimit,
+        int iterations = 120)
+    {
+        OfflineQAScenarioResult result;
+        result.name = name;
+
+        Pedal pedal;
+        pedal.prepareToPlay(sampleRate, blockSize);
+        initialise(pedal);
+
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> block(2, blockSize);
+        bool finite = true;
+        double peak = 0.0;
+
+        for (int iteration = 0; iteration < iterations; ++iteration)
+        {
+            const float t = iterations > 1 ? (float) iteration / (float) (iterations - 1) : 0.0f;
+            automate(pedal, t);
+            fillBlock(block, iteration, t);
+            pedal.processBlock(block, midi);
+
+            finite = finite && bufferHasOnlyFiniteSamples(block);
+            for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                peak = juce::jmax(peak, (double) block.getMagnitude(ch, 0, block.getNumSamples()));
+        }
+
+        result.metrics.push_back({ "peak", peak });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+        result.metrics.push_back({ "iterations", (double) iterations });
+        result.passed = finite && peak < peakLimit;
+        result.notes = result.passed
+            ? notes
+            : notes + " | automation escaped the expected ceiling";
+        return result;
+    }
+
     static std::vector<OfflineQAScenarioResult> runAllScenarios()
     {
         std::vector<OfflineQAScenarioResult> results;
@@ -514,6 +842,48 @@ private:
         results.push_back(runDisabledEngineNullScenario());
         results.push_back(runParallelNoiseUnityScenario());
         results.push_back(runEngineReenableRecoveryScenario());
+        results.push_back(runCompressorFlagshipRecallScenario());
+        results.push_back(runCompressorGainReductionScenario());
+        results.push_back(runCompressorAutomationStressScenario());
+        results.push_back(runNoiseGateFlagshipRecallScenario());
+        results.push_back(runNoiseGateClampScenario());
+        results.push_back(runNoiseGateAutomationStressScenario());
+        results.push_back(runEQFlagshipRecallScenario());
+        results.push_back(runEQSurgicalResponseScenario());
+        results.push_back(runEQAutomationStressScenario());
+        results.push_back(runBoostFlagshipRecallScenario());
+        results.push_back(runBoostTighteningScenario());
+        results.push_back(runBoostAutomationStressScenario());
+        results.push_back(runNeuralFlagshipRecallScenario());
+        results.push_back(runNeuralFocusScenario());
+        results.push_back(runNeuralAutomationStressScenario());
+        results.push_back(runOverdriveFlagshipRecallScenario());
+        results.push_back(runOverdriveVoiceScenario());
+        results.push_back(runOverdriveAutomationStressScenario());
+        results.push_back(runDistortionFlagshipRecallScenario());
+        results.push_back(runDistortionModeDistinctnessScenario());
+        results.push_back(runDistortionAutomationStressScenario());
+        results.push_back(runFuzzFlagshipRecallScenario());
+        results.push_back(runFuzzModeDistinctnessScenario());
+        results.push_back(runFuzzAutomationStressScenario());
+        results.push_back(runWahFlagshipRecallScenario());
+        results.push_back(runWahDynamicSweepScenario());
+        results.push_back(runWahAutomationStressScenario());
+        results.push_back(runOctaveFlagshipRecallScenario());
+        results.push_back(runOctaveVoiceTrackingScenario());
+        results.push_back(runOctaveAutomationStressScenario());
+        results.push_back(runChorusFlagshipRecallScenario());
+        results.push_back(runChorusModeDistinctnessScenario());
+        results.push_back(runChorusAutomationStressScenario());
+        results.push_back(runPhaserFlagshipRecallScenario());
+        results.push_back(runPhaserVoiceScenario());
+        results.push_back(runPhaserAutomationStressScenario());
+        results.push_back(runFlangerFlagshipRecallScenario());
+        results.push_back(runFlangerModeDistinctnessScenario());
+        results.push_back(runFlangerAutomationStressScenario());
+        results.push_back(runTremoloFlagshipRecallScenario());
+        results.push_back(runTremoloHarmonicScenario());
+        results.push_back(runTremoloAutomationStressScenario());
         results.push_back(runReverbTailScenario());
         results.push_back(runReverbStereoFieldScenario());
         results.push_back(runReverbModeDistinctnessScenario());
@@ -585,7 +955,7 @@ private:
         engine.prepare(sampleRate, blockSize, 2, 2);
         AudioEngine::RuntimeGlobalParams params;
         params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
-        params.inputGainDb = 0.0f;
+        params.inputGainDb = 12.0f;
         params.outputVolumeDb = 0.0f;
         params.outputMixRaw = 0.0f;
         engine.updateGlobalParams(params);
@@ -600,8 +970,9 @@ private:
         result.metrics.push_back({ "input_peak", analyseBuffer(input).peak });
         result.metrics.push_back({ "output_peak", analyseBuffer(output).peak });
 
-        result.passed = nullRms < 1.0e-2;
-        result.notes = result.passed ? "Dry-only path stays perceptually transparent" : "Dry-only path altered the input";
+        result.passed = nullRms < 2.0e-4;
+        result.notes = result.passed ? "Dry-only path ignored wet-path gain staging and stayed transparent"
+                                     : "Dry-only path leaked wet-path gain changes into the output";
         return result;
     }
 
@@ -695,6 +1066,1685 @@ private:
         result.passed = disabledNullRms < 2.0e-4 && reenabledNullRms < 2.0e-4;
         result.notes = result.passed ? "Engine recovered cleanly after re-enable" : "Engine state changed after disable/re-enable";
         return result;
+    }
+
+    static OfflineQAScenarioResult runCompressorFlagshipRecallScenario()
+    {
+        return runPedalStateRecallScenario<CompressorPedal>("compressor_flagship_recall",
+            "Studio compressor state recalled cleanly",
+            [](CompressorPedal& pedal) { configureFlagshipCompressor(pedal); },
+            generateNoise((int)(sampleRate * 1.1), 0xC011Au, 0.18f),
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runCompressorGainReductionScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "compressor_gain_reduction";
+
+        CompressorPedal pedal;
+        pedal.prepareToPlay(sampleRate, blockSize);
+        pedal.thresholdParam->setValueNotifyingHost(pedal.thresholdParam->convertTo0to1(-30.0f));
+        pedal.ratioParam->setValueNotifyingHost(pedal.ratioParam->convertTo0to1(8.0f));
+        pedal.attackParam->setValueNotifyingHost(pedal.attackParam->convertTo0to1(5.0f));
+        pedal.releaseParam->setValueNotifyingHost(pedal.releaseParam->convertTo0to1(145.0f));
+        pedal.kneeParam->setValueNotifyingHost(pedal.kneeParam->convertTo0to1(7.5f));
+        pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(0.6f));
+        pedal.blendParam->setValueNotifyingHost(pedal.blendParam->convertTo0to1(1.0f));
+        pedal.makeupParam->setValueNotifyingHost(pedal.makeupParam->convertTo0to1(0.0f));
+
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.0));
+        input.clear();
+        for (int i = 0; i < input.getNumSamples(); ++i)
+        {
+            const float t = (float) i / (float) sampleRate;
+            float sample = 0.0f;
+            if (i >= (int)(sampleRate * 0.04) && i < (int)(sampleRate * 0.82))
+            {
+                sample += 0.31f * std::sin(juce::MathConstants<float>::twoPi * 130.0f * t);
+                sample += 0.14f * std::sin(juce::MathConstants<float>::twoPi * 910.0f * t);
+            }
+
+            input.setSample(0, i, sample);
+            input.setSample(1, i, sample);
+        }
+
+        const auto output = renderPedalOutput(pedal, input);
+        const double inputBody = computeWindowRms(input, (int)(sampleRate * 0.18), (int)(sampleRate * 0.32));
+        const double outputBody = computeWindowRms(output, (int)(sampleRate * 0.18), (int)(sampleRate * 0.32));
+        const double reductionRatio = outputBody / juce::jmax(1.0e-9, inputBody);
+        const bool finite = bufferHasOnlyFiniteSamples(output);
+
+        result.metrics.push_back({ "input_body_rms", inputBody });
+        result.metrics.push_back({ "output_body_rms", outputBody });
+        result.metrics.push_back({ "reduction_ratio", reductionRatio });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+        result.passed = finite && reductionRatio < 0.72;
+        result.notes = result.passed
+            ? "Compressor applied decisive gain reduction without instability"
+            : "Compressor failed to deliver the expected sustained gain reduction";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runCompressorAutomationStressScenario()
+    {
+        const int iterations = juce::jmax(120, (int) ((sampleRate * 2.8) / (double) blockSize));
+        return runPedalAutomationStressScenario<CompressorPedal>("compressor_automation_stress",
+            "Compressor remained finite under full-range parameter motion",
+            [](CompressorPedal&) {},
+            [](CompressorPedal& pedal, float phase)
+            {
+                pedal.thresholdParam->setValueNotifyingHost(pedal.thresholdParam->convertTo0to1(-40.0f + 26.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+                pedal.ratioParam->setValueNotifyingHost(pedal.ratioParam->convertTo0to1(1.2f + 9.8f * std::abs(std::cos(phase * juce::MathConstants<float>::twoPi))));
+                pedal.attackParam->setValueNotifyingHost(pedal.attackParam->convertTo0to1(1.0f + 65.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.3f))));
+                pedal.releaseParam->setValueNotifyingHost(pedal.releaseParam->convertTo0to1(25.0f + 300.0f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 0.85f))));
+                pedal.kneeParam->setValueNotifyingHost(pedal.kneeParam->convertTo0to1(1.0f + 11.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.7f))));
+                pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.5f))));
+                pedal.blendParam->setValueNotifyingHost(pedal.blendParam->convertTo0to1(std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.1f))));
+                pedal.makeupParam->setValueNotifyingHost(pedal.makeupParam->convertTo0to1(12.0f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 0.95f))));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                for (int i = 0; i < block.getNumSamples(); ++i)
+                {
+                    const float sampleIndex = (float) (iteration * blockSize + i);
+                    block.setSample(0, i,
+                        0.18f * std::sin(juce::MathConstants<float>::twoPi * 103.0f * sampleIndex / (float) sampleRate)
+                        + 0.04f * std::sin(juce::MathConstants<float>::twoPi * 1560.0f * sampleIndex / (float) sampleRate));
+                    block.setSample(1, i,
+                        0.14f * std::sin(juce::MathConstants<float>::twoPi * 151.0f * sampleIndex / (float) sampleRate)
+                        + 0.035f * std::sin(juce::MathConstants<float>::twoPi * 2140.0f * sampleIndex / (float) sampleRate));
+                }
+            },
+            2.0,
+            iterations);
+    }
+
+    static OfflineQAScenarioResult runNoiseGateFlagshipRecallScenario()
+    {
+        return runPedalStateRecallScenario<NoiseGatePedal>("noise_gate_flagship_recall",
+            "Studio gate state recalled cleanly",
+            [](NoiseGatePedal& pedal) { configureFlagshipNoiseGate(pedal); },
+            generateNoise((int)(sampleRate * 1.1), 0x9A7E1u, 0.12f),
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runNoiseGateClampScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "noise_gate_clamp";
+
+        auto renderGate = [](float rangeDb)
+        {
+            NoiseGatePedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.thresholdParam->setValueNotifyingHost(pedal.thresholdParam->convertTo0to1(-48.0f));
+            pedal.attackParam->setValueNotifyingHost(pedal.attackParam->convertTo0to1(0.12f));
+            pedal.holdParam->setValueNotifyingHost(pedal.holdParam->convertTo0to1(88.0f));
+            pedal.releaseParam->setValueNotifyingHost(pedal.releaseParam->convertTo0to1(130.0f));
+            pedal.rangeParam->setValueNotifyingHost(pedal.rangeParam->convertTo0to1(rangeDb));
+            pedal.hysteresisParam->setValueNotifyingHost(pedal.hysteresisParam->convertTo0to1(8.8f));
+            pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(0.58f));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.6));
+            input.clear();
+
+            const int activeSamples = (int)(sampleRate * 0.26);
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                float sample = 0.0026f * std::sin(juce::MathConstants<float>::twoPi * 58.0f * t)
+                    + 0.0007f * std::sin(juce::MathConstants<float>::twoPi * 3400.0f * t);
+
+                if (i < activeSamples)
+                {
+                    sample += 0.18f * std::sin(juce::MathConstants<float>::twoPi * 123.0f * t);
+                    sample += 0.05f * std::sin(juce::MathConstants<float>::twoPi * 246.0f * t);
+                }
+
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto baseline = renderGate(0.0f);
+        const auto gated = renderGate(-96.0f);
+        const double baselineBody = computeWindowRms(baseline, (int)(sampleRate * 0.05), (int)(sampleRate * 0.18));
+        const double gatedBody = computeWindowRms(gated, (int)(sampleRate * 0.05), (int)(sampleRate * 0.18));
+        const double baselineTail = computeWindowRms(baseline, (int)(sampleRate * 0.95), (int)(sampleRate * 0.28));
+        const double gatedTail = computeWindowRms(gated, (int)(sampleRate * 0.95), (int)(sampleRate * 0.28));
+        const double bodyRatio = gatedBody / juce::jmax(1.0e-9, baselineBody);
+        const double tailRatio = gatedTail / juce::jmax(1.0e-9, baselineTail);
+        const bool finite = bufferHasOnlyFiniteSamples(gated);
+
+        result.metrics.push_back({ "body_ratio", bodyRatio });
+        result.metrics.push_back({ "tail_ratio", tailRatio });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+        result.passed = finite && bodyRatio > 0.74 && tailRatio < 0.18;
+        result.notes = result.passed
+            ? "Gate preserved the played body while decisively clamping the late tail"
+            : "Gate body preservation or late-tail clamping missed the acceptance band";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runNoiseGateAutomationStressScenario()
+    {
+        const int iterations = juce::jmax(120, (int) ((sampleRate * 2.8) / (double) blockSize));
+        return runPedalAutomationStressScenario<NoiseGatePedal>("noise_gate_automation_stress",
+            "Noise gate stayed finite under aggressive detector automation",
+            [](NoiseGatePedal&) {},
+            [](NoiseGatePedal& pedal, float phase)
+            {
+                pedal.thresholdParam->setValueNotifyingHost(pedal.thresholdParam->convertTo0to1(-68.0f + 48.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+                pedal.attackParam->setValueNotifyingHost(pedal.attackParam->convertTo0to1(0.02f + 9.5f * std::abs(std::cos(phase * juce::MathConstants<float>::twoPi))));
+                pedal.holdParam->setValueNotifyingHost(pedal.holdParam->convertTo0to1(180.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 0.75f))));
+                pedal.releaseParam->setValueNotifyingHost(pedal.releaseParam->convertTo0to1(20.0f + 420.0f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.35f))));
+                pedal.rangeParam->setValueNotifyingHost(pedal.rangeParam->convertTo0to1(-96.0f + 96.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 0.9f))));
+                pedal.hysteresisParam->setValueNotifyingHost(pedal.hysteresisParam->convertTo0to1(1.0f + 17.0f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.6f))));
+                pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.9f))));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                for (int i = 0; i < block.getNumSamples(); ++i)
+                {
+                    const float sampleIndex = (float) (iteration * blockSize + i);
+                    block.setSample(0, i,
+                        0.16f * std::sin(juce::MathConstants<float>::twoPi * 98.0f * sampleIndex / (float) sampleRate)
+                        + 0.015f * std::sin(juce::MathConstants<float>::twoPi * 2200.0f * sampleIndex / (float) sampleRate));
+                    block.setSample(1, i,
+                        0.13f * std::sin(juce::MathConstants<float>::twoPi * 147.0f * sampleIndex / (float) sampleRate)
+                        + 0.012f * std::sin(juce::MathConstants<float>::twoPi * 2700.0f * sampleIndex / (float) sampleRate));
+                }
+            },
+            1.2,
+            iterations);
+    }
+
+    static OfflineQAScenarioResult runEQFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 0.95));
+        input.clear();
+        for (int i = 0; i < input.getNumSamples(); ++i)
+        {
+            const float t = (float) i / (float) sampleRate;
+            input.setSample(0, i,
+                0.18f * std::sin(juce::MathConstants<float>::twoPi * 110.0f * t)
+                + 0.06f * std::sin(juce::MathConstants<float>::twoPi * 900.0f * t)
+                + 0.03f * std::sin(juce::MathConstants<float>::twoPi * 4200.0f * t));
+            input.setSample(1, i,
+                0.14f * std::sin(juce::MathConstants<float>::twoPi * 164.0f * t)
+                + 0.05f * std::sin(juce::MathConstants<float>::twoPi * 1300.0f * t)
+                + 0.02f * std::sin(juce::MathConstants<float>::twoPi * 6100.0f * t));
+        }
+
+        return runPedalStateRecallScenario<EQPedal>("eq_flagship_recall",
+            "Studio EQ state recalled cleanly",
+            [](EQPedal& pedal) { configureFlagshipEQ(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runEQSurgicalResponseScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "eq_surgical_response";
+
+        auto renderLowCut = [](float lowCutHz)
+        {
+            EQPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.lowCutParam->setValueNotifyingHost(pedal.lowCutParam->convertTo0to1(lowCutHz));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.1));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                float sample = 0.0f;
+                if (i >= (int)(sampleRate * 0.04) && i < (int)(sampleRate * 0.34))
+                    sample += 0.17f * std::sin(juce::MathConstants<float>::twoPi * 45.0f * t);
+                if (i >= (int)(sampleRate * 0.42) && i < (int)(sampleRate * 0.96))
+                {
+                    sample += 0.18f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                    sample += 0.05f * std::sin(juce::MathConstants<float>::twoPi * 45.0f * t);
+                }
+
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        auto renderHighCut = [](float highCutHz)
+        {
+            EQPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.highCutParam->setValueNotifyingHost(pedal.highCutParam->convertTo0to1(highCutHz));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.0));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                float sample = 0.0f;
+                if (i >= (int)(sampleRate * 0.05) && i < (int)(sampleRate * 0.30))
+                    sample += 0.14f * std::sin(juce::MathConstants<float>::twoPi * 7000.0f * t);
+                if (i >= (int)(sampleRate * 0.38) && i < (int)(sampleRate * 0.88))
+                {
+                    sample += 0.18f * std::sin(juce::MathConstants<float>::twoPi * 240.0f * t);
+                    sample += 0.06f * std::sin(juce::MathConstants<float>::twoPi * 7000.0f * t);
+                }
+
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        auto renderMidFocus = [](float midFreqHz)
+        {
+            EQPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.midParam->setValueNotifyingHost(pedal.midParam->convertTo0to1(10.0f));
+            pedal.midFreqParam->setValueNotifyingHost(pedal.midFreqParam->convertTo0to1(midFreqHz));
+            pedal.midQParam->setValueNotifyingHost(pedal.midQParam->convertTo0to1(1.7f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 0.8));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                const float sample = 0.16f * std::sin(juce::MathConstants<float>::twoPi * 850.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto openLow = renderLowCut(20.0f);
+        const auto cleanedLow = renderLowCut(140.0f);
+        const auto openHigh = renderHighCut(20000.0f);
+        const auto softenedHigh = renderHighCut(4200.0f);
+        const auto matchedMid = renderMidFocus(850.0f);
+        const auto detunedMid = renderMidFocus(2500.0f);
+
+        const double rumbleRatio = computeWindowRms(cleanedLow, (int)(sampleRate * 0.10), (int)(sampleRate * 0.16))
+            / juce::jmax(1.0e-9, computeWindowRms(openLow, (int)(sampleRate * 0.10), (int)(sampleRate * 0.16)));
+        const double lowBodyRatio = computeWindowRms(cleanedLow, (int)(sampleRate * 0.54), (int)(sampleRate * 0.22))
+            / juce::jmax(1.0e-9, computeWindowRms(openLow, (int)(sampleRate * 0.54), (int)(sampleRate * 0.22)));
+        const double fizzRatio = computeWindowRms(softenedHigh, (int)(sampleRate * 0.10), (int)(sampleRate * 0.14))
+            / juce::jmax(1.0e-9, computeWindowRms(openHigh, (int)(sampleRate * 0.10), (int)(sampleRate * 0.14)));
+        const double highBodyRatio = computeWindowRms(softenedHigh, (int)(sampleRate * 0.52), (int)(sampleRate * 0.20))
+            / juce::jmax(1.0e-9, computeWindowRms(openHigh, (int)(sampleRate * 0.52), (int)(sampleRate * 0.20)));
+        const double midFocusRatio = computeWindowRms(matchedMid, (int)(sampleRate * 0.18), (int)(sampleRate * 0.24))
+            / juce::jmax(1.0e-9, computeWindowRms(detunedMid, (int)(sampleRate * 0.18), (int)(sampleRate * 0.24)));
+
+        result.metrics.push_back({ "rumble_ratio", rumbleRatio });
+        result.metrics.push_back({ "low_body_ratio", lowBodyRatio });
+        result.metrics.push_back({ "fizz_ratio", fizzRatio });
+        result.metrics.push_back({ "high_body_ratio", highBodyRatio });
+        result.metrics.push_back({ "mid_focus_ratio", midFocusRatio });
+        result.passed = rumbleRatio < 0.45
+            && lowBodyRatio > 0.72
+            && fizzRatio < 0.38
+            && highBodyRatio > 0.75
+            && midFocusRatio > 1.8;
+        result.notes = result.passed
+            ? "EQ cut and mid-focus controls hit the expected surgical targets"
+            : "EQ response missed one or more surgical acceptance targets";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runEQAutomationStressScenario()
+    {
+        const int iterations = juce::jmax(120, (int) ((sampleRate * 2.8) / (double) blockSize));
+        return runPedalAutomationStressScenario<EQPedal>("eq_automation_stress",
+            "EQ remained finite under aggressive full-band automation",
+            [](EQPedal&) {},
+            [](EQPedal& pedal, float phase)
+            {
+                pedal.lowCutParam->setValueNotifyingHost(pedal.lowCutParam->convertTo0to1(20.0f + 220.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+                pedal.lowParam->setValueNotifyingHost(pedal.lowParam->convertTo0to1(-10.0f + 20.0f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 0.8f))));
+                pedal.lowMidParam->setValueNotifyingHost(pedal.lowMidParam->convertTo0to1(-12.0f + 24.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.2f))));
+                pedal.midParam->setValueNotifyingHost(pedal.midParam->convertTo0to1(-12.0f + 24.0f * std::abs(std::cos(phase * juce::MathConstants<float>::twoPi))));
+                pedal.midFreqParam->setValueNotifyingHost(pedal.midFreqParam->convertTo0to1(250.0f + 4200.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.35f))));
+                pedal.midQParam->setValueNotifyingHost(pedal.midQParam->convertTo0to1(0.35f + 2.0f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.5f))));
+                pedal.presenceParam->setValueNotifyingHost(pedal.presenceParam->convertTo0to1(-12.0f + 24.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.6f))));
+                pedal.highParam->setValueNotifyingHost(pedal.highParam->convertTo0to1(-12.0f + 24.0f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.1f))));
+                pedal.highCutParam->setValueNotifyingHost(pedal.highCutParam->convertTo0to1(3200.0f + 16800.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 0.9f))));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.2f + 1.6f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.4f))));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                for (int i = 0; i < block.getNumSamples(); ++i)
+                {
+                    const float sampleIndex = (float) (iteration * blockSize + i);
+                    block.setSample(0, i,
+                        0.16f * std::sin(juce::MathConstants<float>::twoPi * 98.0f * sampleIndex / (float) sampleRate)
+                        + 0.05f * std::sin(juce::MathConstants<float>::twoPi * 820.0f * sampleIndex / (float) sampleRate)
+                        + 0.03f * std::sin(juce::MathConstants<float>::twoPi * 5200.0f * sampleIndex / (float) sampleRate));
+                    block.setSample(1, i,
+                        0.13f * std::sin(juce::MathConstants<float>::twoPi * 147.0f * sampleIndex / (float) sampleRate)
+                        + 0.04f * std::sin(juce::MathConstants<float>::twoPi * 1100.0f * sampleIndex / (float) sampleRate)
+                        + 0.025f * std::sin(juce::MathConstants<float>::twoPi * 6400.0f * sampleIndex / (float) sampleRate));
+                }
+            },
+            3.0,
+            iterations);
+    }
+
+    static OfflineQAScenarioResult runBoostFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.0));
+        input.clear();
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            for (int i = 0; i < input.getNumSamples(); ++i)
+                input.setSample(ch, i, 0.12f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 196.0 * (double) i / sampleRate) + ch * 0.17f));
+
+        return runPedalStateRecallScenario<BoostPedal>("boost_flagship_recall",
+            "Boost flagship state recalled cleanly",
+            [](BoostPedal& pedal) { configureFlagshipBoost(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runBoostTighteningScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "boost_tightening";
+
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.0));
+        input.clear();
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            for (int i = 0; i < input.getNumSamples(); ++i)
+                input.setSample(ch, i, 0.18f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 90.0 * (double) i / sampleRate)));
+
+        auto renderTight = [&input](float tightAmount)
+        {
+            BoostPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(12.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.56f));
+            pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(tightAmount));
+            pedal.charParam->setValueNotifyingHost(pedal.charParam->convertTo0to1(0.46f));
+            pedal.midParam->setValueNotifyingHost(pedal.midParam->convertTo0to1(0.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.reset();
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto loose = renderTight(0.06f);
+        const auto tight = renderTight(0.92f);
+        const double looseRms = computeWindowRms(loose, (int)(sampleRate * 0.20), (int)(sampleRate * 0.5));
+        const double tightRms = computeWindowRms(tight, (int)(sampleRate * 0.20), (int)(sampleRate * 0.5));
+        const double ratio = tightRms / juce::jmax(1.0e-9, looseRms);
+
+        result.metrics.push_back({ "loose_rms", looseRms });
+        result.metrics.push_back({ "tight_rms", tightRms });
+        result.metrics.push_back({ "tight_ratio", ratio });
+        result.passed = ratio < 0.72;
+        result.notes = result.passed
+            ? "Boost tight control materially trimmed low-end energy"
+            : "Boost tight control did not cut enough low-end bloom";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runBoostAutomationStressScenario()
+    {
+        return runPedalAutomationStressScenario<BoostPedal>("boost_automation_stress",
+            "Boost remained finite under aggressive preamp automation",
+            [](BoostPedal&) {},
+            [](BoostPedal& pedal, float t)
+            {
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(juce::jmap(std::sin(t * 5.0f), -1.0f, 1.0f, 0.0f, 22.0f)));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(juce::jmap(std::cos(t * 7.2f), -1.0f, 1.0f, 0.02f, 0.98f)));
+                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(juce::jmap(std::sin(t * 9.1f + 0.6f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.charParam->setValueNotifyingHost(pedal.charParam->convertTo0to1(juce::jmap(std::cos(t * 8.3f + 0.2f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.midParam->setValueNotifyingHost(pedal.midParam->convertTo0to1(juce::jmap(std::sin(t * 6.7f + 1.1f), -1.0f, 1.0f, -6.0f, 6.0f)));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(juce::jmap(std::cos(t * 4.6f), -1.0f, 1.0f, 0.7f, 1.7f)));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                    {
+                        const float sampleIndex = (float) (iteration * blockSize + i);
+                        block.setSample(ch, i, 0.16f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 165.0 * sampleIndex / sampleRate) + ch * 0.21f));
+                    }
+            },
+            2.4,
+            120);
+    }
+
+    static OfflineQAScenarioResult runNeuralFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.0));
+        input.clear();
+        for (int i = 0; i < input.getNumSamples(); ++i)
+        {
+            const float phaseL = juce::MathConstants<float>::twoPi * 123.0f * (float) i / (float) sampleRate;
+            const float phaseR = juce::MathConstants<float>::twoPi * 247.0f * (float) i / (float) sampleRate;
+            input.setSample(0, i, 0.16f * std::sin(phaseL));
+            input.setSample(1, i, 0.13f * std::sin(phaseR));
+        }
+
+        return runPedalStateRecallScenario<NeuralPedal>("neural_flagship_recall",
+            "Adaptive preamp state recalled cleanly",
+            [](NeuralPedal& pedal) { configureFlagshipNeural(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runNeuralFocusScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "neural_focus_tightening";
+
+        auto renderFocus = [](float focusAmount)
+        {
+            NeuralPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.driveParam->setValueNotifyingHost(pedal.driveParam->convertTo0to1(88.0f));
+            pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(focusAmount));
+            pedal.detailParam->setValueNotifyingHost(pedal.detailParam->convertTo0to1(0.52f));
+            pedal.compParam->setValueNotifyingHost(pedal.compParam->convertTo0to1(0.46f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.75f));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.4));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 82.0f * (float) i / (float) sampleRate;
+                const float sample = 0.21f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto loose = renderFocus(0.08f);
+        const auto tight = renderFocus(0.92f);
+        const double looseRms = computeWindowRms(loose, (int)(sampleRate * 0.35), (int)(sampleRate * 0.55));
+        const double tightRms = computeWindowRms(tight, (int)(sampleRate * 0.35), (int)(sampleRate * 0.55));
+        const double ratio = tightRms / juce::jmax(1.0e-9, looseRms);
+
+        result.metrics.push_back({ "loose_rms", looseRms });
+        result.metrics.push_back({ "tight_rms", tightRms });
+        result.metrics.push_back({ "tight_ratio", ratio });
+        result.passed = ratio < 0.84;
+        result.notes = result.passed
+            ? "Neural focus materially tightened low-end energy"
+            : "Neural focus did not tighten the low end enough";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runNeuralAutomationStressScenario()
+    {
+        const int iterations = juce::jmax(120, (int) ((sampleRate * 3.0) / (double) blockSize));
+        return runPedalAutomationStressScenario<NeuralPedal>("neural_automation_stress",
+            "Adaptive preamp remained finite under aggressive automation",
+            [](NeuralPedal& pedal)
+            {
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.82f));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.75f));
+            },
+            [](NeuralPedal& pedal, float phase)
+            {
+                pedal.driveParam->setValueNotifyingHost(pedal.driveParam->convertTo0to1(8.0f + 90.0f * phase));
+                pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(0.06f + 0.92f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                pedal.detailParam->setValueNotifyingHost(pedal.detailParam->convertTo0to1(0.08f + 0.88f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                pedal.compParam->setValueNotifyingHost(pedal.compParam->convertTo0to1(phase));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.12f + 0.86f * phase));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                juce::Random rng(0xA1145 + iteration);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                        block.setSample(ch, i, 0.17f * ((rng.nextFloat() * 2.0f) - 1.0f));
+            },
+            2.2,
+            iterations);
+    }
+
+    static OfflineQAScenarioResult runOverdriveFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.0));
+        input.clear();
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float fundamental = std::sin((float) (2.0 * juce::MathConstants<double>::pi * 185.0 * (double) i / sampleRate));
+                const float upper = std::sin((float) (2.0 * juce::MathConstants<double>::pi * 1480.0 * (double) i / sampleRate));
+                input.setSample(ch, i, 0.15f * fundamental + 0.09f * upper);
+            }
+
+        return runPedalStateRecallScenario<OverdrivePedal>("overdrive_flagship_recall",
+            "Modern overdrive state recalled cleanly",
+            [](OverdrivePedal& pedal) { configureFlagshipOverdrive(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runOverdriveVoiceScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "overdrive_voice_reshape";
+
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.0));
+        input.clear();
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float fundamental = std::sin((float) (2.0 * juce::MathConstants<double>::pi * 185.0 * (double) i / sampleRate));
+                const float upper = std::sin((float) (2.0 * juce::MathConstants<double>::pi * 1480.0 * (double) i / sampleRate));
+                input.setSample(ch, i, 0.15f * fundamental + 0.09f * upper);
+            }
+
+        OverdrivePedal darkSmooth;
+        darkSmooth.prepareToPlay(sampleRate, blockSize);
+        darkSmooth.getDriveParam()->setValueNotifyingHost(darkSmooth.getDriveParam()->convertTo0to1(62.0f));
+        darkSmooth.getToneParam()->setValueNotifyingHost(darkSmooth.getToneParam()->convertTo0to1(0.14f));
+        darkSmooth.getTextureParam()->setValueNotifyingHost(darkSmooth.getTextureParam()->convertTo0to1(0.12f));
+        darkSmooth.getMixParam()->setValueNotifyingHost(darkSmooth.getMixParam()->convertTo0to1(1.0f));
+        darkSmooth.getLevelParam()->setValueNotifyingHost(darkSmooth.getLevelParam()->convertTo0to1(0.75f));
+        darkSmooth.reset();
+        const auto darkOutput = renderPedalOutput(darkSmooth, input);
+
+        OverdrivePedal brightTextured;
+        brightTextured.prepareToPlay(sampleRate, blockSize);
+        brightTextured.getDriveParam()->setValueNotifyingHost(brightTextured.getDriveParam()->convertTo0to1(62.0f));
+        brightTextured.getToneParam()->setValueNotifyingHost(brightTextured.getToneParam()->convertTo0to1(0.92f));
+        brightTextured.getTextureParam()->setValueNotifyingHost(brightTextured.getTextureParam()->convertTo0to1(0.88f));
+        brightTextured.getMixParam()->setValueNotifyingHost(brightTextured.getMixParam()->convertTo0to1(1.0f));
+        brightTextured.getLevelParam()->setValueNotifyingHost(brightTextured.getLevelParam()->convertTo0to1(0.75f));
+        brightTextured.reset();
+        const auto brightOutput = renderPedalOutput(brightTextured, input);
+
+        const double darkRms = computeWindowRms(darkOutput, (int)(sampleRate * 0.25), (int)(sampleRate * 0.45));
+        const double brightRms = computeWindowRms(brightOutput, (int)(sampleRate * 0.25), (int)(sampleRate * 0.45));
+        const double nullRms = computeNullRms(darkOutput, brightOutput);
+
+        result.metrics.push_back({ "dark_rms", darkRms });
+        result.metrics.push_back({ "bright_rms", brightRms });
+        result.metrics.push_back({ "rms_delta", std::abs(brightRms - darkRms) });
+        result.metrics.push_back({ "null_rms", nullRms });
+        result.passed = std::abs(brightRms - darkRms) > 0.008 && nullRms > 0.015;
+        result.notes = result.passed
+            ? "Tone and texture controls materially reshaped the overdrive voice"
+            : "Overdrive tone/texture changes collapsed toward the same response";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runOverdriveAutomationStressScenario()
+    {
+        return runPedalAutomationStressScenario<OverdrivePedal>("overdrive_automation_stress",
+            "Overdrive remained finite under aggressive preamp automation",
+            [](OverdrivePedal&) {},
+            [](OverdrivePedal& pedal, float t)
+            {
+                pedal.getDriveParam()->setValueNotifyingHost(pedal.getDriveParam()->convertTo0to1(6.0f + 90.0f * std::abs(std::sin(t * 4.8f))));
+                pedal.getToneParam()->setValueNotifyingHost(pedal.getToneParam()->convertTo0to1(juce::jmap(std::sin(t * 9.0f), -1.0f, 1.0f, 0.02f, 0.98f)));
+                pedal.getTextureParam()->setValueNotifyingHost(pedal.getTextureParam()->convertTo0to1(juce::jmap(std::cos(t * 7.3f + 0.4f), -1.0f, 1.0f, 0.04f, 0.96f)));
+                pedal.getMixParam()->setValueNotifyingHost(pedal.getMixParam()->convertTo0to1(juce::jmap(std::sin(t * 10.4f + 0.8f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.getLevelParam()->setValueNotifyingHost(pedal.getLevelParam()->convertTo0to1(juce::jmap(std::cos(t * 6.1f), -1.0f, 1.0f, 0.45f, 0.88f)));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                    {
+                        const float sampleIndex = (float) (iteration * blockSize + i);
+                        block.setSample(ch, i, 0.22f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 147.0 * sampleIndex / sampleRate) + ch * 0.29f));
+                    }
+            },
+            2.2,
+            120);
+    }
+
+    static OfflineQAScenarioResult runDistortionFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.2));
+        input.clear();
+        for (int i = 0; i < input.getNumSamples(); ++i)
+        {
+            const float fundamental = std::sin(juce::MathConstants<float>::twoPi * 196.0f * (float) i / (float) sampleRate);
+            input.setSample(0, i, 0.19f * fundamental);
+            input.setSample(1, i, 0.19f * fundamental);
+        }
+
+        return runPedalStateRecallScenario<DistortionPedal>("distortion_flagship_recall",
+            "Unified distortion flagship state recalled cleanly",
+            [](DistortionPedal& pedal) { configureFlagshipDistortion(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runDistortionModeDistinctnessScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "distortion_mode_distinctness";
+
+        auto renderMode = [](int modeIndex)
+        {
+            DistortionPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+            pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(modeIndex >= 3 ? 82.0f : modeIndex == 1 ? 69.0f : 76.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(modeIndex >= 3 ? 0.52f : 0.57f));
+            pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(modeIndex >= 3 ? 0.60f : 0.56f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.64f));
+            pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(modeIndex == 2 ? 0.82f : modeIndex >= 3 ? 0.74f : 0.45f));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.8));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float sample = 0.19f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * (float) i / (float) sampleRate);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        auto renderMetalTight = [](float tightAmount)
+        {
+            DistortionPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 3));
+            pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(94.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.58f));
+            pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.62f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.64f));
+            pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(tightAmount));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 2.0));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                float sample = 0.0f;
+                if (t < 0.18f)
+                {
+                    sample = 0.24f * std::sin(juce::MathConstants<float>::twoPi * 110.0f * t)
+                        + 0.07f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                }
+                else
+                {
+                    sample = 0.0016f * std::sin(juce::MathConstants<float>::twoPi * 73.0f * t)
+                        + 0.0009f * std::sin(juce::MathConstants<float>::twoPi * 181.0f * t);
+                }
+
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto vintage = renderMode(0);
+        const auto turbo = renderMode(1);
+        const auto amp = renderMode(2);
+        const auto metal = renderMode(3);
+        const auto studio = renderMode(4);
+        const auto looseMetal = renderMetalTight(0.12f);
+        const auto tightMetal = renderMetalTight(0.90f);
+
+        const double vintageTurboNull = computeNullRms(vintage, turbo);
+        const double vintageAmpNull = computeNullRms(vintage, amp);
+        const double turboAmpNull = computeNullRms(turbo, amp);
+        const double ampMetalNull = computeNullRms(amp, metal);
+        const double metalStudioNull = computeNullRms(metal, studio);
+        const double vintageStudioNull = computeNullRms(vintage, studio);
+        const double metalGateRatio = computeWindowRms(tightMetal, (int)(sampleRate * 0.85), (int)(sampleRate * 0.65))
+            / juce::jmax(1.0e-9, computeWindowRms(looseMetal, (int)(sampleRate * 0.85), (int)(sampleRate * 0.65)));
+
+        result.metrics.push_back({ "vintage_turbo_null", vintageTurboNull });
+        result.metrics.push_back({ "vintage_amp_null", vintageAmpNull });
+        result.metrics.push_back({ "turbo_amp_null", turboAmpNull });
+        result.metrics.push_back({ "amp_metal_null", ampMetalNull });
+        result.metrics.push_back({ "metal_studio_null", metalStudioNull });
+        result.metrics.push_back({ "vintage_studio_null", vintageStudioNull });
+        result.metrics.push_back({ "metal_gate_ratio", metalGateRatio });
+        result.passed = vintageTurboNull > 1.5e-3
+            && vintageAmpNull > 1.5e-3
+            && turboAmpNull > 1.2e-3
+            && ampMetalNull > 1.8e-3
+            && metalStudioNull > 1.2e-3
+            && vintageStudioNull > 1.8e-3
+            && metalGateRatio < 0.82;
+        result.notes = result.passed
+            ? "Distortion modes stayed distinct and metal tightness closed the integrated gate harder"
+            : "One or more distortion voices collapsed or the metal gate failed to tighten enough";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runDistortionAutomationStressScenario()
+    {
+        const int iterations = juce::jmax(120, (int) ((sampleRate * 3.0) / (double) blockSize));
+        return runPedalAutomationStressScenario<DistortionPedal>("distortion_automation_stress",
+            "Distortion remained finite under aggressive multi-mode automation",
+            [](DistortionPedal& pedal)
+            {
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.74f));
+            },
+            [](DistortionPedal& pedal, float phase)
+            {
+                const int mode = juce::jlimit(0, 4, (int) std::floor(phase * 5.0f));
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(8.0f + 90.0f * phase));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.10f + 0.85f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.08f + 0.84f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.12f + 0.82f * phase));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.18f + 0.70f * (1.0f - phase)));
+                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(0.02f + 0.96f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                juce::Random rng(0xD1570 + iteration);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                        block.setSample(ch, i, 0.16f * ((rng.nextFloat() * 2.0f) - 1.0f));
+            },
+            2.3,
+            iterations);
+    }
+
+    static OfflineQAScenarioResult runFuzzFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.0));
+        input.clear();
+        for (int i = 0; i < input.getNumSamples(); ++i)
+        {
+            const float phaseL = juce::MathConstants<float>::twoPi * 110.0f * (float) i / (float) sampleRate;
+            const float phaseR = juce::MathConstants<float>::twoPi * 173.0f * (float) i / (float) sampleRate;
+            input.setSample(0, i, 0.18f * std::sin(phaseL));
+            input.setSample(1, i, 0.13f * std::sin(phaseR));
+        }
+
+        return runPedalStateRecallScenario<FuzzPedal>("fuzz_flagship_recall",
+            "Commercial fuzz state recalled cleanly",
+            [](FuzzPedal& pedal) { configureFlagshipFuzz(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runFuzzModeDistinctnessScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "fuzz_mode_distinctness";
+
+        auto renderMode = [](int modeIndex)
+        {
+            FuzzPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+            pedal.fuzzParam->setValueNotifyingHost(pedal.fuzzParam->convertTo0to1(modeIndex == 1 ? 76.0f : 84.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.44f));
+            pedal.gateParam->setValueNotifyingHost(pedal.gateParam->convertTo0to1(modeIndex == 2 ? 0.62f : 0.24f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.58f));
+            pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(modeIndex == 2 ? 0.22f : 0.60f));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.7));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float sample = 0.19f * std::sin(juce::MathConstants<float>::twoPi * 146.0f * (float) i / (float) sampleRate);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        auto renderVelcroTail = [](float gateAmount, float biasAmount)
+        {
+            FuzzPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 2));
+            pedal.fuzzParam->setValueNotifyingHost(pedal.fuzzParam->convertTo0to1(88.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.36f));
+            pedal.gateParam->setValueNotifyingHost(pedal.gateParam->convertTo0to1(gateAmount));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.58f));
+            pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(biasAmount));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.3));
+            input.clear();
+            const int burstSamples = (int)(sampleRate * 0.24);
+            for (int i = 0; i < burstSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 98.0f * (float) i / (float) sampleRate;
+                const float sample = 0.22f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto vintage = renderMode(0);
+        const auto muff = renderMode(1);
+        const auto velcro = renderMode(2);
+        const auto loose = renderVelcroTail(0.10f, 0.72f);
+        const auto clamped = renderVelcroTail(0.88f, 0.12f);
+
+        const double vintageMuffNull = computeNullRms(vintage, muff);
+        const double vintageVelcroNull = computeNullRms(vintage, velcro);
+        const double muffVelcroNull = computeNullRms(muff, velcro);
+        const double velcroTailRatio = computeWindowRms(clamped, (int)(sampleRate * 0.86), (int)(sampleRate * 0.18))
+            / juce::jmax(1.0e-9, computeWindowRms(loose, (int)(sampleRate * 0.86), (int)(sampleRate * 0.18)));
+
+        result.metrics.push_back({ "vintage_muff_null", vintageMuffNull });
+        result.metrics.push_back({ "vintage_velcro_null", vintageVelcroNull });
+        result.metrics.push_back({ "muff_velcro_null", muffVelcroNull });
+        result.metrics.push_back({ "velcro_tail_ratio", velcroTailRatio });
+        result.passed = vintageMuffNull > 1.3e-3
+            && vintageVelcroNull > 1.6e-3
+            && muffVelcroNull > 1.5e-3
+            && velcroTailRatio < 0.78;
+        result.notes = result.passed
+            ? "Fuzz modes stayed distinct and velcro settings clamped the late tail harder"
+            : "Fuzz modes collapsed or the velcro clamp response was too weak";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runFuzzAutomationStressScenario()
+    {
+        const int iterations = juce::jmax(120, (int) ((sampleRate * 3.0) / (double) blockSize));
+        return runPedalAutomationStressScenario<FuzzPedal>("fuzz_automation_stress",
+            "Fuzz remained finite under aggressive mode, gate and bias automation",
+            [](FuzzPedal& pedal)
+            {
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.78f));
+            },
+            [](FuzzPedal& pedal, float phase)
+            {
+                const int mode = juce::jlimit(0, 2, (int) std::floor(phase * 3.0f));
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
+                pedal.fuzzParam->setValueNotifyingHost(pedal.fuzzParam->convertTo0to1(12.0f + 84.0f * phase));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.06f + 0.88f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                pedal.gateParam->setValueNotifyingHost(pedal.gateParam->convertTo0to1(0.02f + 0.94f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.12f + 0.82f * phase));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.22f + 0.62f * (1.0f - phase)));
+                pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(0.04f + 0.92f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.15f))));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                juce::Random rng(0xF0222 + iteration);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                        block.setSample(ch, i, 0.15f * ((rng.nextFloat() * 2.0f) - 1.0f));
+            },
+            2.4,
+            iterations);
+    }
+
+    static OfflineQAScenarioResult runWahFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.2));
+        input.clear();
+        for (int i = 0; i < input.getNumSamples(); ++i)
+        {
+            const float t = (float) i / (float) sampleRate;
+            const float sample = 0.14f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t)
+                + 0.06f * std::sin(juce::MathConstants<float>::twoPi * 880.0f * t);
+            input.setSample(0, i, sample);
+            input.setSample(1, i, sample);
+        }
+
+        return runPedalStateRecallScenario<ClassicWahPedal>("wah_flagship_recall",
+            "Unified wah state recalled cleanly",
+            [](ClassicWahPedal& pedal) { configureFlagshipWah(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runWahDynamicSweepScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "wah_dynamic_sweep";
+
+        auto renderTouchResponse = [](float sensitivity)
+        {
+            ClassicWahPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 1));
+            pedal.sweepParam->setValueNotifyingHost(pedal.sweepParam->convertTo0to1(0.50f));
+            pedal.sensitivityParam->setValueNotifyingHost(pedal.sensitivityParam->convertTo0to1(sensitivity));
+            pedal.attackParam->setValueNotifyingHost(pedal.attackParam->convertTo0to1(4.0f));
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(220.0f));
+            pedal.rangeParam->setValueNotifyingHost(pedal.rangeParam->convertTo0to1(0.86f));
+            pedal.resonanceParam->setValueNotifyingHost(pedal.resonanceParam->convertTo0to1(5.8f));
+            pedal.voiceParam->setValueNotifyingHost(pedal.voiceParam->convertTo0to1(0.56f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.3));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                float burstAmp = 0.0f;
+                if (i >= (int)(sampleRate * 0.16) && i < (int)(sampleRate * 0.34))
+                    burstAmp = 0.09f;
+                else if (i >= (int)(sampleRate * 0.66) && i < (int)(sampleRate * 0.84))
+                    burstAmp = 0.24f;
+
+                const float sample = burstAmp * (0.62f * std::sin(juce::MathConstants<float>::twoPi * 350.0f * t)
+                    + 0.38f * std::sin(juce::MathConstants<float>::twoPi * 1600.0f * t));
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto lowSens = renderTouchResponse(0.12f);
+        const auto highSens = renderTouchResponse(0.88f);
+
+        const int quietStart = (int)(sampleRate * 0.18);
+        const int loudStart = (int)(sampleRate * 0.68);
+        const int window = (int)(sampleRate * 0.10);
+        const double quietHigh = computeFrequencyMagnitude(highSens, sampleRate, 1600.0f, quietStart, window);
+        const double quietLow = computeFrequencyMagnitude(highSens, sampleRate, 350.0f, quietStart, window);
+        const double loudHigh = computeFrequencyMagnitude(highSens, sampleRate, 1600.0f, loudStart, window);
+        const double loudLow = computeFrequencyMagnitude(highSens, sampleRate, 350.0f, loudStart, window);
+        const double lowSensLoudHigh = computeFrequencyMagnitude(lowSens, sampleRate, 1600.0f, loudStart, window);
+        const double lowSensLoudLow = computeFrequencyMagnitude(lowSens, sampleRate, 350.0f, loudStart, window);
+
+        const double quietTilt = quietHigh / juce::jmax(1.0e-9, quietLow);
+        const double loudTilt = loudHigh / juce::jmax(1.0e-9, loudLow);
+        const double lowSensLoudTilt = lowSensLoudHigh / juce::jmax(1.0e-9, lowSensLoudLow);
+        const double responseNull = computeNullRms(lowSens, highSens);
+
+        result.metrics.push_back({ "quiet_tilt", quietTilt });
+        result.metrics.push_back({ "loud_tilt", loudTilt });
+        result.metrics.push_back({ "low_sens_loud_tilt", lowSensLoudTilt });
+        result.metrics.push_back({ "response_null_rms", responseNull });
+        result.passed = loudTilt > quietTilt * 1.12
+            && loudTilt > lowSensLoudTilt * 1.18
+            && responseNull > 0.01;
+        result.notes = result.passed
+            ? "Touch wah tracked stronger picking with a meaningfully brighter sweep"
+            : "Wah dynamics did not move the filter enough under stronger excitation";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runWahAutomationStressScenario()
+    {
+        return runPedalAutomationStressScenario<ClassicWahPedal>("wah_automation_stress",
+            "Unified wah remained finite under rapid mode and envelope automation",
+            [](ClassicWahPedal&) {},
+            [](ClassicWahPedal& pedal, float phase)
+            {
+                const int mode = juce::jlimit(0, 2, (int) std::floor(phase * 3.0f));
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
+                pedal.sweepParam->setValueNotifyingHost(pedal.sweepParam->convertTo0to1(0.02f + 0.96f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+                pedal.sensitivityParam->setValueNotifyingHost(pedal.sensitivityParam->convertTo0to1(0.04f + 0.92f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.2f))));
+                pedal.attackParam->setValueNotifyingHost(pedal.attackParam->convertTo0to1(0.5f + 26.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.5f))));
+                pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(20.0f + 720.0f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 0.9f))));
+                pedal.rangeParam->setValueNotifyingHost(pedal.rangeParam->convertTo0to1(0.04f + 0.94f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.7f))));
+                pedal.resonanceParam->setValueNotifyingHost(pedal.resonanceParam->convertTo0to1(0.6f + 8.8f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.1f))));
+                pedal.voiceParam->setValueNotifyingHost(pedal.voiceParam->convertTo0to1(0.02f + 0.96f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 0.8f))));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.08f + 0.90f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.35f))));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                    {
+                        const float sampleIndex = (float) (iteration * blockSize + i);
+                        const float sample = 0.14f * std::sin(juce::MathConstants<float>::twoPi * 123.0f * sampleIndex / (float) sampleRate)
+                            + 0.06f * std::sin(juce::MathConstants<float>::twoPi * 492.0f * sampleIndex / (float) sampleRate)
+                            + 0.03f * std::sin(juce::MathConstants<float>::twoPi * 1960.0f * sampleIndex / (float) sampleRate);
+                        block.setSample(ch, i, sample);
+                    }
+            },
+            2.0,
+            480);
+    }
+
+    static OfflineQAScenarioResult runOctaveFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.2));
+        input.clear();
+        for (int i = 0; i < input.getNumSamples(); ++i)
+        {
+            const float t = (float) i / (float) sampleRate;
+            const float sample = 0.16f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t);
+            input.setSample(0, i, sample);
+            input.setSample(1, i, sample);
+        }
+
+        return runPedalStateRecallScenario<OctavePedal>("octave_flagship_recall",
+            "Commercial octave state recalled cleanly",
+            [](OctavePedal& pedal) { configureFlagshipOctave(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runOctaveVoiceTrackingScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "octave_voice_tracking";
+
+        auto renderSub = []()
+        {
+            OctavePedal pedal;
+            pedal.subParam->setValueNotifyingHost(pedal.subParam->convertTo0to1(1.0f));
+            pedal.upperParam->setValueNotifyingHost(pedal.upperParam->convertTo0to1(0.0f));
+            pedal.dryParam->setValueNotifyingHost(pedal.dryParam->convertTo0to1(0.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.34f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.prepareToPlay(sampleRate, blockSize);
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.2));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                const float sample = 0.18f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        auto renderUpper = []()
+        {
+            OctavePedal pedal;
+            pedal.subParam->setValueNotifyingHost(pedal.subParam->convertTo0to1(0.0f));
+            pedal.upperParam->setValueNotifyingHost(pedal.upperParam->convertTo0to1(1.0f));
+            pedal.dryParam->setValueNotifyingHost(pedal.dryParam->convertTo0to1(0.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.82f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.prepareToPlay(sampleRate, blockSize);
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.2));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                const float sample = 0.16f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        auto renderTone = [](float tone)
+        {
+            OctavePedal pedal;
+            pedal.subParam->setValueNotifyingHost(pedal.subParam->convertTo0to1(0.48f));
+            pedal.upperParam->setValueNotifyingHost(pedal.upperParam->convertTo0to1(0.92f));
+            pedal.dryParam->setValueNotifyingHost(pedal.dryParam->convertTo0to1(0.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(tone));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.prepareToPlay(sampleRate, blockSize);
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.1));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                const float sample = 0.16f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto sub = renderSub();
+        const auto upper = renderUpper();
+        const auto dark = renderTone(0.08f);
+        const auto bright = renderTone(0.92f);
+
+        const int subStart = (int)(sampleRate * 0.35);
+        const int subLength = (int)(sampleRate * 0.45);
+        const int upperStart = (int)(sampleRate * 0.28);
+        const int upperLength = (int)(sampleRate * 0.45);
+        const int toneStart = (int)(sampleRate * 0.30);
+        const int toneLength = (int)(sampleRate * 0.40);
+
+        const double subRatio = computeFrequencyMagnitude(sub, sampleRate, 110.0f, subStart, subLength)
+            / juce::jmax(1.0e-9, computeFrequencyMagnitude(sub, sampleRate, 220.0f, subStart, subLength));
+        const double upperRatio = computeFrequencyMagnitude(upper, sampleRate, 440.0f, upperStart, upperLength)
+            / juce::jmax(1.0e-9, computeFrequencyMagnitude(upper, sampleRate, 220.0f, upperStart, upperLength));
+        const double toneOpenRatio = computeFrequencyMagnitude(bright, sampleRate, 392.0f, toneStart, toneLength)
+            / juce::jmax(1.0e-9, computeFrequencyMagnitude(dark, sampleRate, 392.0f, toneStart, toneLength));
+        const double toneNull = computeNullRms(dark, bright);
+
+        result.metrics.push_back({ "sub_tracking_ratio", subRatio });
+        result.metrics.push_back({ "upper_tracking_ratio", upperRatio });
+        result.metrics.push_back({ "tone_open_ratio", toneOpenRatio });
+        result.metrics.push_back({ "tone_null_rms", toneNull });
+        result.passed = subRatio > 1.55
+            && upperRatio > 1.15
+            && toneOpenRatio > 1.20
+            && toneNull > 0.015;
+        result.notes = result.passed
+            ? "Octave pedal tracked sub and upper voices while tone materially reshaped the generated voice"
+            : "Octave tracking or tone voicing failed one of the acceptance targets";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runOctaveAutomationStressScenario()
+    {
+        return runPedalAutomationStressScenario<OctavePedal>("octave_automation_stress",
+            "Octave remained finite under linked voice automation",
+            [](OctavePedal&) {},
+            [](OctavePedal& pedal, float t)
+            {
+                pedal.subParam->setValueNotifyingHost(pedal.subParam->convertTo0to1(juce::jmap(std::sin(t * 6.0f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.upperParam->setValueNotifyingHost(pedal.upperParam->convertTo0to1(juce::jmap(std::cos(t * 7.4f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.dryParam->setValueNotifyingHost(pedal.dryParam->convertTo0to1(juce::jmap(std::sin(t * 5.2f + 0.8f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(juce::jmap(std::cos(t * 8.1f + 0.4f), -1.0f, 1.0f, 0.02f, 0.98f)));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(juce::jmap(std::sin(t * 4.8f + 1.1f), -1.0f, 1.0f, 0.7f, 1.5f)));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                    {
+                        const float sampleIndex = (float) (iteration * blockSize + i);
+                        const float fundamental = 0.12f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 123.0 * sampleIndex / sampleRate));
+                        const float harmonic = 0.05f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 246.0 * sampleIndex / sampleRate));
+                        block.setSample(ch, i, fundamental + harmonic);
+                    }
+            },
+            2.0,
+            120);
+    }
+
+    static OfflineQAScenarioResult runChorusFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.2));
+        input.clear();
+        for (int i = 0; i < input.getNumSamples(); ++i)
+        {
+            const float phaseL = juce::MathConstants<float>::twoPi * 196.0f * (float) i / (float) sampleRate;
+            const float phaseR = juce::MathConstants<float>::twoPi * 247.0f * (float) i / (float) sampleRate;
+            input.setSample(0, i, 0.18f * std::sin(phaseL));
+            input.setSample(1, i, 0.14f * std::sin(phaseR));
+        }
+
+        return runPedalStateRecallScenario<ChorusPedal>("chorus_flagship_recall",
+            "Commercial chorus state recalled cleanly",
+            [](ChorusPedal& pedal) { configureFlagshipChorus(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runChorusModeDistinctnessScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "chorus_mode_distinctness";
+
+        auto renderMode = [](int modeIndex)
+        {
+            ChorusPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(modeIndex == 2 ? 2.25f : 1.10f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(modeIndex == 2 ? 0.86f : 0.72f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.94f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.63f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.lagParam->setValueNotifyingHost(pedal.lagParam->convertTo0to1(modeIndex == 1 ? 11.8f : 8.4f));
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 2.1));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float sample = 0.18f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * (float) i / (float) sampleRate);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto classic = renderMode(0);
+        const auto ensemble = renderMode(1);
+        const auto vibrato = renderMode(2);
+        const double ensembleCorr = computeStereoCorrelation(ensemble, (int)(sampleRate * 0.25));
+        const double ensembleRightRms = computeChannelWindowRms(ensemble, 1, (int)(sampleRate * 0.25), (int)(sampleRate * 0.9));
+        const double ensembleLeftRms = computeChannelWindowRms(ensemble, 0, (int)(sampleRate * 0.25), (int)(sampleRate * 0.9));
+        const double classicEnsembleNull = computeNullRms(classic, ensemble);
+        const double classicVibratoNull = computeNullRms(classic, vibrato);
+        const double sideRatio = ensembleRightRms / juce::jmax(1.0e-9, ensembleLeftRms);
+        const bool finite = bufferHasOnlyFiniteSamples(ensemble);
+
+        result.metrics.push_back({ "ensemble_corr", ensembleCorr });
+        result.metrics.push_back({ "ensemble_side_ratio", sideRatio });
+        result.metrics.push_back({ "classic_ensemble_null", classicEnsembleNull });
+        result.metrics.push_back({ "classic_vibrato_null", classicVibratoNull });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+        result.passed = finite
+            && std::abs(ensembleCorr) < 0.97
+            && sideRatio > 0.30
+            && classicEnsembleNull > 2.5e-3
+            && classicVibratoNull > 2.0e-3;
+        result.notes = result.passed
+            ? "Chorus modes stayed distinct and ensemble mode opened a usable stereo field"
+            : "Chorus modes collapsed or the ensemble stereo field stayed too narrow";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runChorusAutomationStressScenario()
+    {
+        const int iterations = juce::jmax(120, (int) ((sampleRate * 3.0) / (double) blockSize));
+        return runPedalAutomationStressScenario<ChorusPedal>("chorus_automation_stress",
+            "Chorus remained finite under aggressive mode and width automation",
+            [](ChorusPedal& pedal)
+            {
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.58f));
+            },
+            [](ChorusPedal& pedal, float phase)
+            {
+                const int mode = juce::jlimit(0, 2, (int) std::floor(phase * 3.0f));
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
+                pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(0.08f + 7.4f * phase));
+                pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.05f + 0.93f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.05f + 0.95f * (1.0f - phase)));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.12f + 0.82f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.10f + 0.85f * phase));
+                pedal.lagParam->setValueNotifyingHost(pedal.lagParam->convertTo0to1(2.4f + 15.0f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                juce::Random rng(0xC4015 + iteration);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                        block.setSample(ch, i, 0.15f * ((rng.nextFloat() * 2.0f) - 1.0f));
+            },
+            1.8,
+            iterations);
+    }
+
+    static OfflineQAScenarioResult runPhaserFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.2));
+        input.clear();
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float phaseA = (float) (2.0 * juce::MathConstants<double>::pi * 247.0 * (double) i / sampleRate);
+                const float phaseB = (float) (2.0 * juce::MathConstants<double>::pi * 493.0 * (double) i / sampleRate);
+                input.setSample(ch, i, 0.11f * std::sin(phaseA) + 0.06f * std::sin(phaseB + ch * 0.17f));
+            }
+
+        return runPedalStateRecallScenario<PhaserPedal>("phaser_flagship_recall",
+            "Modulation phaser state recalled cleanly",
+            [](PhaserPedal& pedal) { configureFlagshipPhaser(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runPhaserVoiceScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "phaser_voice_response";
+
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.2));
+        input.clear();
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float phaseA = (float) (2.0 * juce::MathConstants<double>::pi * 247.0 * (double) i / sampleRate);
+                const float phaseB = (float) (2.0 * juce::MathConstants<double>::pi * 493.0 * (double) i / sampleRate);
+                input.setSample(ch, i, 0.11f * std::sin(phaseA) + 0.06f * std::sin(phaseB + ch * 0.17f));
+            }
+
+        PhaserPedal subtle;
+        subtle.prepareToPlay(sampleRate, blockSize);
+        subtle.rateParam->setValueNotifyingHost(subtle.rateParam->convertTo0to1(0.45f));
+        subtle.depthParam->setValueNotifyingHost(subtle.depthParam->convertTo0to1(0.22f));
+        subtle.feedbackParam->setValueNotifyingHost(subtle.feedbackParam->convertTo0to1(0.0f));
+        subtle.stagesParam->setValueNotifyingHost(subtle.stagesParam->convertTo0to1(4.0f));
+        subtle.mixParam->setValueNotifyingHost(subtle.mixParam->convertTo0to1(0.42f));
+        subtle.reset();
+        const auto subtleOutput = renderPedalOutput(subtle, input);
+
+        PhaserPedal deep;
+        deep.prepareToPlay(sampleRate, blockSize);
+        deep.rateParam->setValueNotifyingHost(deep.rateParam->convertTo0to1(1.4f));
+        deep.depthParam->setValueNotifyingHost(deep.depthParam->convertTo0to1(0.94f));
+        deep.feedbackParam->setValueNotifyingHost(deep.feedbackParam->convertTo0to1(0.68f));
+        deep.stagesParam->setValueNotifyingHost(deep.stagesParam->convertTo0to1(10.0f));
+        deep.mixParam->setValueNotifyingHost(deep.mixParam->convertTo0to1(0.78f));
+        deep.reset();
+        const auto deepOutput = renderPedalOutput(deep, input);
+
+        const double nullRms = computeNullRms(subtleOutput, deepOutput);
+        const double deepCorr = computeStereoCorrelation(deepOutput, (int)(sampleRate * 0.4));
+
+        result.metrics.push_back({ "voice_null_rms", nullRms });
+        result.metrics.push_back({ "deep_corr", deepCorr });
+        result.passed = nullRms > 0.015 && deepCorr < 0.995;
+        result.notes = result.passed
+            ? "Phaser depth and feedback produced a clearly modulated stereo voice"
+            : "Phaser voice response was too subtle or remained too mono";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runPhaserAutomationStressScenario()
+    {
+        return runPedalAutomationStressScenario<PhaserPedal>("phaser_automation_stress",
+            "Phaser remained finite under rapid rate, stage and feedback automation",
+            [](PhaserPedal&) {},
+            [](PhaserPedal& pedal, float t)
+            {
+                pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(juce::jmap(std::sin(t * 5.4f), -1.0f, 1.0f, 0.08f, 6.8f)));
+                pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(juce::jmap(std::cos(t * 7.0f), -1.0f, 1.0f, 0.05f, 0.98f)));
+                pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(juce::jmap(std::sin(t * 8.6f + 0.4f), -1.0f, 1.0f, -0.76f, 0.76f)));
+                pedal.stagesParam->setValueNotifyingHost(pedal.stagesParam->convertTo0to1(juce::jmap(std::cos(t * 6.1f + 0.7f), -1.0f, 1.0f, 2.0f, 12.0f)));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(juce::jmap(std::sin(t * 9.9f + 0.3f), -1.0f, 1.0f, 0.0f, 1.0f)));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                    {
+                        const float sampleIndex = (float) (iteration * blockSize + i);
+                        block.setSample(ch, i, 0.15f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 207.0 * sampleIndex / sampleRate) + ch * 0.15f));
+                    }
+            },
+            2.0,
+            120);
+    }
+
+    static OfflineQAScenarioResult runFlangerFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.2));
+        input.clear();
+        for (int i = 0; i < input.getNumSamples(); ++i)
+        {
+            const float phaseL = juce::MathConstants<float>::twoPi * 173.0f * (float) i / (float) sampleRate;
+            const float phaseR = juce::MathConstants<float>::twoPi * 233.0f * (float) i / (float) sampleRate;
+            input.setSample(0, i, 0.18f * std::sin(phaseL));
+            input.setSample(1, i, 0.15f * std::sin(phaseR));
+        }
+
+        return runPedalStateRecallScenario<FlangerPedal>("flanger_flagship_recall",
+            "Commercial flanger state recalled cleanly",
+            [](FlangerPedal& pedal) { configureFlagshipFlanger(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runFlangerModeDistinctnessScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "flanger_mode_distinctness";
+
+        auto renderMode = [](int modeIndex)
+        {
+            FlangerPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(modeIndex == 1 ? 0.54f : 0.86f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(modeIndex == 2 ? 0.90f : 0.80f));
+            pedal.manualParam->setValueNotifyingHost(pedal.manualParam->convertTo0to1(modeIndex == 2 ? 0.40f : 0.52f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(modeIndex == 2 ? -0.58f : 0.64f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.92f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(7600.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.reset();
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 2.0));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float sample = 0.18f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * (float) i / (float) sampleRate);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto classic = renderMode(0);
+        const auto jet = renderMode(1);
+        const auto zero = renderMode(2);
+        const double jetCorr = computeStereoCorrelation(jet, (int)(sampleRate * 0.18));
+        const double jetRightRms = computeChannelWindowRms(jet, 1, (int)(sampleRate * 0.18), (int)(sampleRate * 0.9));
+        const double jetLeftRms = computeChannelWindowRms(jet, 0, (int)(sampleRate * 0.18), (int)(sampleRate * 0.9));
+        const double classicJetNull = computeNullRms(classic, jet);
+        const double classicZeroNull = computeNullRms(classic, zero);
+        const double sideRatio = jetRightRms / juce::jmax(1.0e-9, jetLeftRms);
+        const bool finite = bufferHasOnlyFiniteSamples(jet);
+
+        result.metrics.push_back({ "jet_corr", jetCorr });
+        result.metrics.push_back({ "jet_side_ratio", sideRatio });
+        result.metrics.push_back({ "classic_jet_null", classicJetNull });
+        result.metrics.push_back({ "classic_zero_null", classicZeroNull });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+        result.passed = finite
+            && std::abs(jetCorr) < 0.985
+            && sideRatio > 0.25
+            && classicJetNull > 1.5e-3
+            && classicZeroNull > 1.5e-3;
+        result.notes = result.passed
+            ? "Flanger modes stayed distinct and Jet mode projected a wider stereo signature"
+            : "Flanger modes collapsed or Jet mode failed to widen enough";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runFlangerAutomationStressScenario()
+    {
+        const int iterations = juce::jmax(120, (int) ((sampleRate * 3.0) / (double) blockSize));
+        return runPedalAutomationStressScenario<FlangerPedal>("flanger_automation_stress",
+            "Flanger remained finite under aggressive mode, delay and feedback automation",
+            [](FlangerPedal&) {},
+            [](FlangerPedal& pedal, float phase)
+            {
+                const int mode = juce::jlimit(0, 2, (int) std::floor(phase * 3.0f));
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
+                pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(0.05f + 4.8f * phase));
+                pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.05f + 0.93f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                pedal.manualParam->setValueNotifyingHost(pedal.manualParam->convertTo0to1(0.02f + 0.96f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(juce::jmap(std::sin(phase * juce::MathConstants<float>::pi * 1.3f), -1.0f, 1.0f, -0.90f, 0.90f)));
+                pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.04f + 0.94f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.1f))));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(1200.0f + 11800.0f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 0.9f))));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.08f + 0.90f * phase));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                juce::Random rng(0xF1A93 + iteration);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                        block.setSample(ch, i, 0.15f * ((rng.nextFloat() * 2.0f) - 1.0f));
+            },
+            1.9,
+            iterations);
+    }
+
+    static OfflineQAScenarioResult runTremoloFlagshipRecallScenario()
+    {
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.0));
+        input.clear();
+        for (int i = 0; i < input.getNumSamples(); ++i)
+        {
+            const float t = (float) i / (float) sampleRate;
+            input.setSample(0, i, 0.18f * std::sin(juce::MathConstants<float>::twoPi * 173.0f * t));
+            input.setSample(1, i, 0.15f * std::sin(juce::MathConstants<float>::twoPi * 229.0f * t));
+        }
+
+        return runPedalStateRecallScenario<TremoloPedal>("tremolo_flagship_recall",
+            "Studio tremolo state recalled cleanly",
+            [](TremoloPedal& pedal) { configureFlagshipTremolo(pedal); },
+            input,
+            1.0e-6);
+    }
+
+    static OfflineQAScenarioResult runTremoloHarmonicScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "tremolo_harmonic_response";
+
+        auto renderStereoField = [](float stereoAmount)
+        {
+            TremoloPedal pedal;
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(4.0f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.88f));
+            pedal.shapeParam->setValueNotifyingHost(pedal.shapeParam->convertTo0to1(0.58f));
+            pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(0.50f));
+            pedal.stereoParam->setValueNotifyingHost(pedal.stereoParam->convertTo0to1(stereoAmount));
+            pedal.harmonicParam->setValueNotifyingHost(pedal.harmonicParam->convertTo0to1(0.0f));
+            pedal.crossoverParam->setValueNotifyingHost(pedal.crossoverParam->convertTo0to1(800.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.prepareToPlay(sampleRate, blockSize);
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.8));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                const float sample = 0.19f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        auto renderCrossoverFocus = [](float crossoverHz)
+        {
+            TremoloPedal pedal;
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(4.0f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(1.0f));
+            pedal.shapeParam->setValueNotifyingHost(pedal.shapeParam->convertTo0to1(0.25f));
+            pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(0.50f));
+            pedal.stereoParam->setValueNotifyingHost(pedal.stereoParam->convertTo0to1(0.0f));
+            pedal.harmonicParam->setValueNotifyingHost(pedal.harmonicParam->convertTo0to1(1.0f));
+            pedal.crossoverParam->setValueNotifyingHost(pedal.crossoverParam->convertTo0to1(crossoverHz));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.prepareToPlay(sampleRate, blockSize);
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 0.9));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                const float sample = 0.20f * std::sin(juce::MathConstants<float>::twoPi * 800.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        auto renderBiasShape = [](float bias)
+        {
+            TremoloPedal pedal;
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(4.6f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(1.0f));
+            pedal.shapeParam->setValueNotifyingHost(pedal.shapeParam->convertTo0to1(1.0f));
+            pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(bias));
+            pedal.stereoParam->setValueNotifyingHost(pedal.stereoParam->convertTo0to1(0.0f));
+            pedal.harmonicParam->setValueNotifyingHost(pedal.harmonicParam->convertTo0to1(0.0f));
+            pedal.crossoverParam->setValueNotifyingHost(pedal.crossoverParam->convertTo0to1(800.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.prepareToPlay(sampleRate, blockSize);
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.1));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) sampleRate;
+                const float sample = 0.18f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto centered = renderStereoField(0.0f);
+        const auto widened = renderStereoField(1.0f);
+        const auto lowSplit = renderCrossoverFocus(350.0f);
+        const auto highSplit = renderCrossoverFocus(1600.0f);
+        const auto earlyBias = renderBiasShape(0.18f);
+        const auto lateBias = renderBiasShape(0.82f);
+
+        const double centeredCorr = computeStereoCorrelation(centered, (int)(sampleRate * 0.20));
+        const double widenedCorr = computeStereoCorrelation(widened, (int)(sampleRate * 0.20));
+        const double highSplitWindow = computeWindowRms(highSplit, (int)(sampleRate * 0.055), (int)(sampleRate * 0.035));
+        const double lowSplitWindow = computeWindowRms(lowSplit, (int)(sampleRate * 0.055), (int)(sampleRate * 0.035));
+        const double splitNull = computeNullRms(lowSplit, highSplit);
+        const double contourNull = computeNullRms(earlyBias, lateBias);
+
+        result.metrics.push_back({ "centered_corr", centeredCorr });
+        result.metrics.push_back({ "widened_corr", widenedCorr });
+        result.metrics.push_back({ "high_low_split_ratio", highSplitWindow / juce::jmax(1.0e-9, lowSplitWindow) });
+        result.metrics.push_back({ "split_null_rms", splitNull });
+        result.metrics.push_back({ "bias_contour_null_rms", contourNull });
+        result.passed = centeredCorr > 0.995
+            && widenedCorr < 0.82
+            && (centeredCorr - widenedCorr) > 0.12
+            && highSplitWindow > lowSplitWindow * 1.4
+            && splitNull > 0.02
+            && contourNull > 0.025;
+        result.notes = result.passed
+            ? "Tremolo stereo, harmonic crossover and bias controls all produced strong, measurable voicing changes"
+            : "One or more tremolo modulation controls failed to produce the expected voicing separation";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runTremoloAutomationStressScenario()
+    {
+        const int iterations = juce::jmax(120, (int) ((sampleRate * 3.0) / (double) blockSize));
+        return runPedalAutomationStressScenario<TremoloPedal>("tremolo_automation_stress",
+            "Tremolo remained finite under aggressive modulation automation",
+            [](TremoloPedal&) {},
+            [](TremoloPedal& pedal, float phase)
+            {
+                pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(0.6f + 11.8f * phase));
+                pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.05f + 0.95f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                pedal.shapeParam->setValueNotifyingHost(pedal.shapeParam->convertTo0to1(0.05f + 0.95f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.2f))));
+                pedal.biasParam->setValueNotifyingHost(pedal.biasParam->convertTo0to1(0.10f + 0.80f * std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.5f))));
+                pedal.stereoParam->setValueNotifyingHost(pedal.stereoParam->convertTo0to1(std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                pedal.harmonicParam->setValueNotifyingHost(pedal.harmonicParam->convertTo0to1(std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.8f))));
+                pedal.crossoverParam->setValueNotifyingHost(pedal.crossoverParam->convertTo0to1(280.0f + 1600.0f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.1f))));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(std::abs(std::sin(phase * juce::MathConstants<float>::pi * 1.35f))));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.70f + 0.85f * std::abs(std::cos(phase * juce::MathConstants<float>::pi * 1.4f))));
+            },
+            [](juce::AudioBuffer<float>& block, int iteration, float)
+            {
+                for (int i = 0; i < block.getNumSamples(); ++i)
+                {
+                    const float sampleIndex = (float) (iteration * blockSize + i);
+                    block.setSample(0, i,
+                        0.17f * std::sin(juce::MathConstants<float>::twoPi * 110.0f * sampleIndex / (float) sampleRate)
+                        + 0.05f * std::sin(juce::MathConstants<float>::twoPi * 330.0f * sampleIndex / (float) sampleRate));
+                    block.setSample(1, i,
+                        0.14f * std::sin(juce::MathConstants<float>::twoPi * 147.0f * sampleIndex / (float) sampleRate)
+                        + 0.04f * std::sin(juce::MathConstants<float>::twoPi * 440.0f * sampleIndex / (float) sampleRate));
+                }
+            },
+            2.0,
+            iterations);
     }
 
     static OfflineQAScenarioResult runReverbTailScenario()

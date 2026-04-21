@@ -140,6 +140,44 @@ double computeBufferNullRms(const juce::AudioBuffer<float>& a, const juce::Audio
     return count > 0 ? std::sqrt(sumSquares / (double)count) : 0.0;
 }
 
+double computeFrequencyMagnitude(const juce::AudioBuffer<float>& buffer,
+    double sampleRate,
+    float targetFreq,
+    int startSample,
+    int numSamples)
+{
+    const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+    const int safeLength = juce::jlimit(0, buffer.getNumSamples() - safeStart, numSamples);
+    if (safeLength <= 0 || sampleRate <= 0.0 || targetFreq <= 0.0f)
+        return 0.0;
+
+    const double omega = 2.0 * juce::MathConstants<double>::pi * (double) targetFreq / sampleRate;
+    const double coeff = 2.0 * std::cos(omega);
+    const double sine = std::sin(omega);
+    const double cosine = std::cos(omega);
+
+    double magnitude = 0.0;
+    const int channels = juce::jmax(1, buffer.getNumChannels());
+
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        double q0 = 0.0, q1 = 0.0, q2 = 0.0;
+
+        for (int i = 0; i < safeLength; ++i)
+        {
+            q0 = coeff * q1 - q2 + (double) buffer.getSample(ch, safeStart + i);
+            q2 = q1;
+            q1 = q0;
+        }
+
+        const double real = q1 - q2 * cosine;
+        const double imag = q2 * sine;
+        magnitude += std::sqrt(real * real + imag * imag) / (double) safeLength;
+    }
+
+    return magnitude / (double) channels;
+}
+
 juce::AudioBuffer<float> renderReverbOutput(ReverbPedal& pedal,
     const juce::AudioBuffer<float>& input,
     int blockSize)
@@ -245,6 +283,136 @@ juce::AudioBuffer<float> renderFlangerOutput(FlangerPedal& pedal,
 }
 
 juce::AudioBuffer<float> renderDistortionOutput(DistortionPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+juce::AudioBuffer<float> renderOverdriveOutput(OverdrivePedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+juce::AudioBuffer<float> renderNeuralOutput(NeuralPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+juce::AudioBuffer<float> renderBoostOutput(BoostPedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+juce::AudioBuffer<float> renderOctaveOutput(OctavePedal& pedal,
+    const juce::AudioBuffer<float>& input,
+    int blockSize)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+    {
+        const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+        juce::AudioBuffer<float> block(input.getNumChannels(), blockSize);
+        block.clear();
+
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+        pedal.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, numSamples);
+    }
+
+    return output;
+}
+
+juce::AudioBuffer<float> renderPhaserOutput(PhaserPedal& pedal,
     const juce::AudioBuffer<float>& input,
     int blockSize)
 {
@@ -600,10 +768,19 @@ void expectStereoSamplesMatch(juce::UnitTest& test,
 
     for (int i = 0; i < buffer.getNumSamples(); ++i)
     {
-        test.expect(approximatelyEqual(buffer.getSample(0, i), expectedLeft[(size_t)i], tolerance),
-            "Left channel mismatch at sample " + juce::String(i));
-        test.expect(approximatelyEqual(buffer.getSample(1, i), expectedRight[(size_t)i], tolerance),
-            "Right channel mismatch at sample " + juce::String(i));
+        const float actualLeft = buffer.getSample(0, i);
+        const float actualRight = buffer.getSample(1, i);
+        const float targetLeft = expectedLeft[(size_t)i];
+        const float targetRight = expectedRight[(size_t)i];
+
+        test.expect(approximatelyEqual(actualLeft, targetLeft, tolerance),
+            "Left channel mismatch at sample " + juce::String(i)
+                + " actual=" + juce::String(actualLeft, 8)
+                + " expected=" + juce::String(targetLeft, 8));
+        test.expect(approximatelyEqual(actualRight, targetRight, tolerance),
+            "Right channel mismatch at sample " + juce::String(i)
+                + " actual=" + juce::String(actualRight, 8)
+                + " expected=" + juce::String(targetRight, 8));
     }
 }
 
@@ -804,6 +981,228 @@ public:
             expectStereoSamplesMatch(*this, buffer, left, right, 3.0e-4f);
         }
 
+        beginTest("OverdrivePedal round-trips its modern preamp state");
+        {
+            OverdrivePedal source;
+            source.getDriveParam()->setValueNotifyingHost(source.getDriveParam()->convertTo0to1(66.0f));
+            source.getToneParam()->setValueNotifyingHost(source.getToneParam()->convertTo0to1(0.71f));
+            source.getTextureParam()->setValueNotifyingHost(source.getTextureParam()->convertTo0to1(0.63f));
+            source.getMixParam()->setValueNotifyingHost(source.getMixParam()->convertTo0to1(0.84f));
+            source.getLevelParam()->setValueNotifyingHost(source.getLevelParam()->convertTo0to1(0.79f));
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            OverdrivePedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expect(approximatelyEqual(restored.getDriveParam()->get(), 66.0f, 1.0e-3f));
+            expect(approximatelyEqual(restored.getToneParam()->get(), 0.71f, 1.0e-3f));
+            expect(approximatelyEqual(restored.getTextureParam()->get(), 0.63f, 1.0e-3f));
+            expect(approximatelyEqual(restored.getMixParam()->get(), 0.84f, 1.0e-3f));
+            expect(approximatelyEqual(restored.getLevelParam()->get(), 0.79f, 1.0e-3f));
+        }
+
+        beginTest("OverdrivePedal tone reshapes brightness and texture changes the voice");
+        {
+            juce::AudioBuffer<float> input(2, (int) (kSampleRate * 1.0));
+            for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            {
+                for (int i = 0; i < input.getNumSamples(); ++i)
+                {
+                    const float fundamental = std::sin((float) (2.0 * juce::MathConstants<double>::pi * 185.0 * (double) i / kSampleRate));
+                    const float upper = std::sin((float) (2.0 * juce::MathConstants<double>::pi * 1480.0 * (double) i / kSampleRate));
+                    input.setSample(ch, i, 0.15f * fundamental + 0.09f * upper);
+                }
+            }
+
+            OverdrivePedal darkSmooth;
+            darkSmooth.prepareToPlay(kSampleRate, kBlockSize);
+            darkSmooth.getDriveParam()->setValueNotifyingHost(darkSmooth.getDriveParam()->convertTo0to1(62.0f));
+            darkSmooth.getToneParam()->setValueNotifyingHost(darkSmooth.getToneParam()->convertTo0to1(0.14f));
+            darkSmooth.getTextureParam()->setValueNotifyingHost(darkSmooth.getTextureParam()->convertTo0to1(0.12f));
+            darkSmooth.getMixParam()->setValueNotifyingHost(darkSmooth.getMixParam()->convertTo0to1(1.0f));
+            darkSmooth.getLevelParam()->setValueNotifyingHost(darkSmooth.getLevelParam()->convertTo0to1(0.75f));
+            darkSmooth.reset();
+            const auto darkOutput = renderOverdriveOutput(darkSmooth, input, kBlockSize);
+
+            OverdrivePedal brightTextured;
+            brightTextured.prepareToPlay(kSampleRate, kBlockSize);
+            brightTextured.getDriveParam()->setValueNotifyingHost(brightTextured.getDriveParam()->convertTo0to1(62.0f));
+            brightTextured.getToneParam()->setValueNotifyingHost(brightTextured.getToneParam()->convertTo0to1(0.92f));
+            brightTextured.getTextureParam()->setValueNotifyingHost(brightTextured.getTextureParam()->convertTo0to1(0.88f));
+            brightTextured.getMixParam()->setValueNotifyingHost(brightTextured.getMixParam()->convertTo0to1(1.0f));
+            brightTextured.getLevelParam()->setValueNotifyingHost(brightTextured.getLevelParam()->convertTo0to1(0.75f));
+            brightTextured.reset();
+            const auto brightOutput = renderOverdriveOutput(brightTextured, input, kBlockSize);
+
+            const double darkRms = computeWindowRms(darkOutput, (int) (kSampleRate * 0.25), (int) (kSampleRate * 0.45));
+            const double brightRms = computeWindowRms(brightOutput, (int) (kSampleRate * 0.25), (int) (kSampleRate * 0.45));
+
+            expect(std::abs(brightRms - darkRms) > 0.008,
+                "Dark and bright settings should not collapse to the same average energy");
+            expect(computeBufferNullRms(darkOutput, brightOutput) > 0.015,
+                "Tone and texture changes should materially reshape the overdrive voice");
+        }
+
+        beginTest("OverdrivePedal automation stress remains finite under aggressive changes");
+        {
+            OverdrivePedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+
+            for (int iteration = 0; iteration < 120; ++iteration)
+            {
+                const float t = (float) iteration / 119.0f;
+                pedal.getDriveParam()->setValueNotifyingHost(pedal.getDriveParam()->convertTo0to1(6.0f + 90.0f * std::abs(std::sin(t * 4.8f))));
+                pedal.getToneParam()->setValueNotifyingHost(pedal.getToneParam()->convertTo0to1(juce::jmap(std::sin(t * 9.0f), -1.0f, 1.0f, 0.02f, 0.98f)));
+                pedal.getTextureParam()->setValueNotifyingHost(pedal.getTextureParam()->convertTo0to1(juce::jmap(std::cos(t * 7.3f + 0.4f), -1.0f, 1.0f, 0.04f, 0.96f)));
+                pedal.getMixParam()->setValueNotifyingHost(pedal.getMixParam()->convertTo0to1(juce::jmap(std::sin(t * 10.4f + 0.8f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.getLevelParam()->setValueNotifyingHost(pedal.getLevelParam()->convertTo0to1(juce::jmap(std::cos(t * 6.1f), -1.0f, 1.0f, 0.45f, 0.88f)));
+
+                for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                {
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                    {
+                        const float sampleIndex = (float) (iteration * kBlockSize + i);
+                        const float sample = 0.22f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 147.0 * sampleIndex / kSampleRate) + ch * 0.29f);
+                        block.setSample(ch, i, sample);
+                    }
+                }
+
+                pedal.processBlock(block, midi);
+                expect(bufferHasOnlyFiniteSamples(block), "Automation should keep Overdrive output finite");
+            }
+        }
+
+        beginTest("NeuralPedal round-trips its adaptive preamp state");
+        {
+            NeuralPedal source;
+            source.driveParam->setValueNotifyingHost(source.driveParam->convertTo0to1(73.0f));
+            source.focusParam->setValueNotifyingHost(source.focusParam->convertTo0to1(0.68f));
+            source.detailParam->setValueNotifyingHost(source.detailParam->convertTo0to1(0.62f));
+            source.compParam->setValueNotifyingHost(source.compParam->convertTo0to1(0.48f));
+            source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.86f));
+            source.levelParam->setValueNotifyingHost(source.levelParam->convertTo0to1(0.75f));
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            NeuralPedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expect(approximatelyEqual(restored.driveParam->get(), 73.0f, 1.0e-3f));
+            expect(approximatelyEqual(restored.focusParam->get(), 0.68f, 1.0e-3f));
+            expect(approximatelyEqual(restored.detailParam->get(), 0.62f, 1.0e-3f));
+            expect(approximatelyEqual(restored.compParam->get(), 0.48f, 1.0e-3f));
+            expect(approximatelyEqual(restored.mixParam->get(), 0.86f, 1.0e-3f));
+            expect(approximatelyEqual(restored.levelParam->get(), 0.75f, 1.0e-3f));
+        }
+
+        beginTest("NeuralPedal mix zero keeps the dry path transparent");
+        {
+            NeuralPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.driveParam->setValueNotifyingHost(pedal.driveParam->convertTo0to1(94.0f));
+            pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(0.82f));
+            pedal.detailParam->setValueNotifyingHost(pedal.detailParam->convertTo0to1(0.78f));
+            pedal.compParam->setValueNotifyingHost(pedal.compParam->convertTo0to1(0.68f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.75f));
+
+            const int totalSamples = (int) (kSampleRate * 1.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phaseL = juce::MathConstants<float>::twoPi * 123.0f * (float) i / (float) kSampleRate;
+                const float phaseR = juce::MathConstants<float>::twoPi * 247.0f * (float) i / (float) kSampleRate;
+                input.setSample(0, i, 0.16f * std::sin(phaseL));
+                input.setSample(1, i, 0.13f * std::sin(phaseR));
+            }
+
+            const auto output = renderNeuralOutput(pedal, input, kBlockSize);
+            const double nullRms = computeBufferNullRms(input, output);
+
+            expect(bufferHasOnlyFiniteSamples(output), "Dry-only neural render must stay finite");
+            expect(nullRms < 1.0e-5, "Mix at zero should leave the dry path effectively untouched");
+        }
+
+        beginTest("NeuralPedal focus tightens the low end under heavy drive");
+        {
+            auto renderPedal = [&](float focusAmount)
+            {
+                NeuralPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.driveParam->setValueNotifyingHost(pedal.driveParam->convertTo0to1(88.0f));
+                pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(focusAmount));
+                pedal.detailParam->setValueNotifyingHost(pedal.detailParam->convertTo0to1(0.52f));
+                pedal.compParam->setValueNotifyingHost(pedal.compParam->convertTo0to1(0.46f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.75f));
+
+                const int totalSamples = (int) (kSampleRate * 1.4);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                for (int i = 0; i < totalSamples; ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 82.0f * (float) i / (float) kSampleRate;
+                    const float sample = 0.21f * std::sin(phase);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderNeuralOutput(pedal, input, kBlockSize);
+            };
+
+            const auto loose = renderPedal(0.08f);
+            const auto tight = renderPedal(0.92f);
+            const double looseRms = computeWindowRms(loose, (int) (kSampleRate * 0.35), (int) (kSampleRate * 0.55));
+            const double tightRms = computeWindowRms(tight, (int) (kSampleRate * 0.35), (int) (kSampleRate * 0.55));
+
+            expect(tightRms < looseRms * 0.84, "High focus should materially tighten low-end energy");
+        }
+
+        beginTest("NeuralPedal automation stress remains finite under aggressive changes");
+        {
+            NeuralPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.82f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.75f));
+
+            juce::Random rng(0xA1145);
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            bool finite = true;
+            double peak = 0.0;
+
+            const int blocksToRun = (int) ((kSampleRate * 3.0) / (double) kBlockSize);
+            for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+            {
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < kBlockSize; ++i)
+                        block.setSample(ch, i, 0.17f * ((rng.nextFloat() * 2.0f) - 1.0f));
+
+                const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
+                pedal.driveParam->setValueNotifyingHost(pedal.driveParam->convertTo0to1(8.0f + 90.0f * phase));
+                pedal.focusParam->setValueNotifyingHost(pedal.focusParam->convertTo0to1(0.06f + 0.92f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                pedal.detailParam->setValueNotifyingHost(pedal.detailParam->convertTo0to1(0.08f + 0.88f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                pedal.compParam->setValueNotifyingHost(pedal.compParam->convertTo0to1(phase));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.12f + 0.86f * phase));
+
+                pedal.processBlock(block, midi);
+
+                finite = finite && bufferHasOnlyFiniteSamples(block);
+                peak = juce::jmax(peak, (double) block.getMagnitude(0, 0, kBlockSize));
+                peak = juce::jmax(peak, (double) block.getMagnitude(1, 0, kBlockSize));
+            }
+
+            expect(finite, "Aggressive neural automation must remain finite");
+            expect(peak < 2.2, "Neural automation stress should stay inside a sane peak ceiling");
+        }
+
         beginTest("Global processors preserve active params after reset");
         {
             juce::MidiBuffer midi;
@@ -951,6 +1350,8 @@ public:
             buffer.copyFrom(1, 0, right.data(), (int)right.size());
 
             engine.process(buffer, midi);
+            expect(engine.buildDiagnosticReport().contains("wetMix=0"),
+                "Dry-only engine diagnostic: " + engine.buildDiagnosticReport());
             expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
         }
 
@@ -1155,11 +1556,14 @@ public:
             expect(PedalRegistry::isTypeSupported("Compressor"), "Compressor should be registered");
             expect(PedalRegistry::isTypeSupported("Chorus"), "Chorus should be registered");
             expect(PedalRegistry::isTypeSupported("Boost"), "Boost should be registered");
+            expect(PedalRegistry::isTypeSupported("Neural"), "Neural should be registered");
             expect(PedalRegistry::isTypeSupported("Wah"), "Wah should be registered");
-            expect(PedalRegistry::isTypeSupported("Auto Wah"), "Auto Wah should resolve to the unified Wah");
+            expect(PedalRegistry::isTypeSupported("Auto Wah"), "Auto Wah should resolve to Wah for legacy recall");
             expect(PedalRegistry::isTypeSupported("Octave"), "Octave should be registered");
-            expect(PedalRegistry::isTypeSupported("Metal Distortion"), "Metal Distortion should be registered");
+            expect(PedalRegistry::isTypeSupported("Metal Distortion"), "Metal Distortion should resolve to Distortion for legacy recall");
             expectEquals(PedalRegistry::canonicalType("Metal Distortion"), juce::String("Distortion"));
+            expectEquals(PedalRegistry::canonicalType("Autowah"), juce::String("Wah"));
+            expectEquals(PedalRegistry::canonicalType("Auto Wah"), juce::String("Wah"));
 
             const auto preTypes = PedalRegistry::getPedalTypesForZone(Nova::ZoneID::Pre);
             const auto fxTypes = PedalRegistry::getPedalTypesForZone(Nova::ZoneID::FX);
@@ -1168,18 +1572,455 @@ public:
                 "Compressor should be available in the pre zone");
             expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Boost")) != preTypes.end(),
                 "Boost should be available in the pre zone");
+            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Neural")) != preTypes.end(),
+                "Neural should be available in the pre zone");
             expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Wah")) != preTypes.end(),
                 "Wah should be available in the pre zone");
+            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Auto Wah")) == preTypes.end(),
+                "Auto Wah should no longer appear as a dedicated catalog entry");
             expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Octave")) != preTypes.end(),
                 "Octave should be available in the pre zone");
             expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Distortion")) != preTypes.end(),
                 "Distortion should be available in the pre zone");
             expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Metal Distortion")) == preTypes.end(),
-                "Metal Distortion should no longer appear as a separate catalog entry");
-            expect(std::find(preTypes.begin(), preTypes.end(), juce::String("Auto Wah")) == preTypes.end(),
-                "Auto Wah should not appear as a separate catalog entry anymore");
+                "Metal Distortion should no longer appear as a dedicated catalog entry");
             expect(std::find(fxTypes.begin(), fxTypes.end(), juce::String("Chorus")) != fxTypes.end(),
                 "Chorus should be available in the FX zone");
+        }
+
+        beginTest("BoostPedal round-trips its preamp state");
+        {
+            BoostPedal source;
+            source.gainParam->setValueNotifyingHost(source.gainParam->convertTo0to1(13.5f));
+            source.toneParam->setValueNotifyingHost(source.toneParam->convertTo0to1(0.72f));
+            source.tightParam->setValueNotifyingHost(source.tightParam->convertTo0to1(0.48f));
+            source.charParam->setValueNotifyingHost(source.charParam->convertTo0to1(0.64f));
+            source.midParam->setValueNotifyingHost(source.midParam->convertTo0to1(2.4f));
+            source.levelParam->setValueNotifyingHost(source.levelParam->convertTo0to1(1.28f));
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            BoostPedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expect(approximatelyEqual(restored.gainParam->get(), 13.5f, 1.0e-3f));
+            expect(approximatelyEqual(restored.toneParam->get(), 0.72f, 1.0e-3f));
+            expect(approximatelyEqual(restored.tightParam->get(), 0.48f, 1.0e-3f));
+            expect(approximatelyEqual(restored.charParam->get(), 0.64f, 1.0e-3f));
+            expect(approximatelyEqual(restored.midParam->get(), 2.4f, 0.05f));
+            expect(approximatelyEqual(restored.levelParam->get(), 1.28f, 0.01f));
+        }
+
+        beginTest("BoostPedal gain and character add measurable push without instability");
+        {
+            juce::AudioBuffer<float> input(2, (int) (kSampleRate * 1.0));
+            for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            {
+                for (int i = 0; i < input.getNumSamples(); ++i)
+                {
+                    const float phase = (float) (2.0 * juce::MathConstants<double>::pi * 196.0 * (double) i / kSampleRate);
+                    input.setSample(ch, i, 0.12f * std::sin(phase + ch * 0.17f));
+                }
+            }
+
+            BoostPedal clean;
+            clean.prepareToPlay(kSampleRate, kBlockSize);
+            clean.gainParam->setValueNotifyingHost(clean.gainParam->convertTo0to1(0.0f));
+            clean.toneParam->setValueNotifyingHost(clean.toneParam->convertTo0to1(0.55f));
+            clean.tightParam->setValueNotifyingHost(clean.tightParam->convertTo0to1(0.18f));
+            clean.charParam->setValueNotifyingHost(clean.charParam->convertTo0to1(0.0f));
+            clean.midParam->setValueNotifyingHost(clean.midParam->convertTo0to1(0.0f));
+            clean.levelParam->setValueNotifyingHost(clean.levelParam->convertTo0to1(1.0f));
+            clean.reset();
+            const auto cleanOut = renderBoostOutput(clean, input, kBlockSize);
+
+            BoostPedal pushed;
+            pushed.prepareToPlay(kSampleRate, kBlockSize);
+            pushed.gainParam->setValueNotifyingHost(pushed.gainParam->convertTo0to1(16.0f));
+            pushed.toneParam->setValueNotifyingHost(pushed.toneParam->convertTo0to1(0.64f));
+            pushed.tightParam->setValueNotifyingHost(pushed.tightParam->convertTo0to1(0.22f));
+            pushed.charParam->setValueNotifyingHost(pushed.charParam->convertTo0to1(0.82f));
+            pushed.midParam->setValueNotifyingHost(pushed.midParam->convertTo0to1(1.5f));
+            pushed.levelParam->setValueNotifyingHost(pushed.levelParam->convertTo0to1(1.0f));
+            pushed.reset();
+            const auto pushedOut = renderBoostOutput(pushed, input, kBlockSize);
+
+            expect(bufferHasOnlyFiniteSamples(pushedOut), "Driven boost output must stay finite");
+            expect(computeWindowRms(pushedOut, (int) (kSampleRate * 0.25), (int) (kSampleRate * 0.5))
+                > computeWindowRms(cleanOut, (int) (kSampleRate * 0.25), (int) (kSampleRate * 0.5)) * 1.35,
+                "Higher gain and character should push substantially more signal");
+            expect(computeBufferNullRms(cleanOut, pushedOut) > 0.02,
+                "Gain and character changes should audibly reshape the boost stage");
+        }
+
+        beginTest("BoostPedal tight control trims low-end energy before the preamp");
+        {
+            juce::AudioBuffer<float> input(2, (int) (kSampleRate * 1.0));
+            for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            {
+                for (int i = 0; i < input.getNumSamples(); ++i)
+                {
+                    const float phase = (float) (2.0 * juce::MathConstants<double>::pi * 90.0 * (double) i / kSampleRate);
+                    input.setSample(ch, i, 0.18f * std::sin(phase));
+                }
+            }
+
+            auto renderTight = [&](float tight)
+            {
+                BoostPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(12.0f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.56f));
+                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(tight));
+                pedal.charParam->setValueNotifyingHost(pedal.charParam->convertTo0to1(0.46f));
+                pedal.midParam->setValueNotifyingHost(pedal.midParam->convertTo0to1(0.0f));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+                pedal.reset();
+                return renderBoostOutput(pedal, input, kBlockSize);
+            };
+
+            const auto loose = renderTight(0.06f);
+            const auto tight = renderTight(0.92f);
+
+            expect(computeWindowRms(tight, (int) (kSampleRate * 0.20), (int) (kSampleRate * 0.5))
+                < computeWindowRms(loose, (int) (kSampleRate * 0.20), (int) (kSampleRate * 0.5)) * 0.72,
+                "High tight should clearly trim low-end energy");
+        }
+
+        beginTest("BoostPedal automation stress remains finite");
+        {
+            BoostPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+
+            for (int iteration = 0; iteration < 120; ++iteration)
+            {
+                const float t = (float) iteration / 119.0f;
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(juce::jmap(std::sin(t * 5.0f), -1.0f, 1.0f, 0.0f, 22.0f)));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(juce::jmap(std::cos(t * 7.2f), -1.0f, 1.0f, 0.02f, 0.98f)));
+                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(juce::jmap(std::sin(t * 9.1f + 0.6f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.charParam->setValueNotifyingHost(pedal.charParam->convertTo0to1(juce::jmap(std::cos(t * 8.3f + 0.2f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.midParam->setValueNotifyingHost(pedal.midParam->convertTo0to1(juce::jmap(std::sin(t * 6.7f + 1.1f), -1.0f, 1.0f, -6.0f, 6.0f)));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(juce::jmap(std::cos(t * 4.6f), -1.0f, 1.0f, 0.7f, 1.7f)));
+
+                for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                {
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                    {
+                        const float sampleIndex = (float) (iteration * kBlockSize + i);
+                        block.setSample(ch, i, 0.16f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 165.0 * sampleIndex / kSampleRate) + ch * 0.21f));
+                    }
+                }
+
+                pedal.processBlock(block, midi);
+                expect(bufferHasOnlyFiniteSamples(block), "Boost automation should keep every sample finite");
+            }
+        }
+
+        beginTest("OctavePedal round-trips its linked tracking state");
+        {
+            OctavePedal source;
+            source.subParam->setValueNotifyingHost(source.subParam->convertTo0to1(0.86f));
+            source.upperParam->setValueNotifyingHost(source.upperParam->convertTo0to1(0.54f));
+            source.dryParam->setValueNotifyingHost(source.dryParam->convertTo0to1(0.38f));
+            source.toneParam->setValueNotifyingHost(source.toneParam->convertTo0to1(0.73f));
+            source.levelParam->setValueNotifyingHost(source.levelParam->convertTo0to1(1.24f));
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            OctavePedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expect(approximatelyEqual(restored.subParam->get(), 0.86f, 1.0e-3f));
+            expect(approximatelyEqual(restored.upperParam->get(), 0.54f, 1.0e-3f));
+            expect(approximatelyEqual(restored.dryParam->get(), 0.38f, 1.0e-3f));
+            expect(approximatelyEqual(restored.toneParam->get(), 0.73f, 1.0e-3f));
+            expect(approximatelyEqual(restored.levelParam->get(), 1.24f, 0.01f));
+        }
+
+        beginTest("OctavePedal dry-only settings stay transparent");
+        {
+            OctavePedal pedal;
+            pedal.subParam->setValueNotifyingHost(pedal.subParam->convertTo0to1(0.0f));
+            pedal.upperParam->setValueNotifyingHost(pedal.upperParam->convertTo0to1(0.0f));
+            pedal.dryParam->setValueNotifyingHost(pedal.dryParam->convertTo0to1(1.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.84f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+            juce::AudioBuffer<float> input(2, (int) (kSampleRate * 0.9));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) kSampleRate;
+                input.setSample(0, i, 0.17f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t));
+                input.setSample(1, i, 0.13f * std::sin(juce::MathConstants<float>::twoPi * 247.0f * t));
+            }
+
+            const auto output = renderOctaveOutput(pedal, input, kBlockSize);
+            const double nullRms = computeBufferNullRms(input, output);
+
+            expect(bufferHasOnlyFiniteSamples(output), "Dry-only octave render must stay finite");
+            expect(nullRms <= 1.0e-6, "Dry-only settings should leave the signal effectively untouched");
+        }
+
+        beginTest("OctavePedal sub voice locks below the played note");
+        {
+            OctavePedal pedal;
+            pedal.subParam->setValueNotifyingHost(pedal.subParam->convertTo0to1(1.0f));
+            pedal.upperParam->setValueNotifyingHost(pedal.upperParam->convertTo0to1(0.0f));
+            pedal.dryParam->setValueNotifyingHost(pedal.dryParam->convertTo0to1(0.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.34f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+            juce::AudioBuffer<float> input(2, (int) (kSampleRate * 1.2));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) kSampleRate;
+                const float sample = 0.18f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto output = renderOctaveOutput(pedal, input, kBlockSize);
+            const int analysisStart = (int) (kSampleRate * 0.35);
+            const int analysisLength = (int) (kSampleRate * 0.45);
+            const double subMag = computeFrequencyMagnitude(output, kSampleRate, 110.0f, analysisStart, analysisLength);
+            const double fundamentalMag = computeFrequencyMagnitude(output, kSampleRate, 220.0f, analysisStart, analysisLength);
+
+            expect(subMag > fundamentalMag * 1.55, "Sub voice should carry substantially more 110 Hz than the original 220 Hz");
+            expect(computeWindowRms(output, analysisStart, analysisLength) > 0.03,
+                "Tracked sub voice should produce a sustained low octave body");
+        }
+
+        beginTest("OctavePedal upper voice emphasizes the octave harmonic");
+        {
+            OctavePedal pedal;
+            pedal.subParam->setValueNotifyingHost(pedal.subParam->convertTo0to1(0.0f));
+            pedal.upperParam->setValueNotifyingHost(pedal.upperParam->convertTo0to1(1.0f));
+            pedal.dryParam->setValueNotifyingHost(pedal.dryParam->convertTo0to1(0.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.82f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+            juce::AudioBuffer<float> input(2, (int) (kSampleRate * 1.2));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) kSampleRate;
+                const float sample = 0.16f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto output = renderOctaveOutput(pedal, input, kBlockSize);
+            const int analysisStart = (int) (kSampleRate * 0.28);
+            const int analysisLength = (int) (kSampleRate * 0.45);
+            const double upperMag = computeFrequencyMagnitude(output, kSampleRate, 440.0f, analysisStart, analysisLength);
+            const double fundamentalMag = computeFrequencyMagnitude(output, kSampleRate, 220.0f, analysisStart, analysisLength);
+
+            expect(upperMag > fundamentalMag * 1.15, "Upper voice should lean toward the generated octave harmonic");
+            expect(computeWindowRms(output, analysisStart, analysisLength) > 0.02,
+                "Upper voice should produce a usable octave-up sustain");
+        }
+
+        beginTest("OctavePedal tone control materially reshapes the generated voice");
+        {
+            auto renderTone = [&](float tone)
+            {
+                OctavePedal pedal;
+                pedal.subParam->setValueNotifyingHost(pedal.subParam->convertTo0to1(0.48f));
+                pedal.upperParam->setValueNotifyingHost(pedal.upperParam->convertTo0to1(0.92f));
+                pedal.dryParam->setValueNotifyingHost(pedal.dryParam->convertTo0to1(0.0f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(tone));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+                juce::AudioBuffer<float> input(2, (int) (kSampleRate * 1.1));
+                input.clear();
+                for (int i = 0; i < input.getNumSamples(); ++i)
+                {
+                    const float t = (float) i / (float) kSampleRate;
+                    const float sample = 0.16f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t);
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample);
+                }
+
+                return renderOctaveOutput(pedal, input, kBlockSize);
+            };
+
+            const auto dark = renderTone(0.08f);
+            const auto bright = renderTone(0.92f);
+            const int analysisStart = (int) (kSampleRate * 0.30);
+            const int analysisLength = (int) (kSampleRate * 0.40);
+            const double darkUpperMag = computeFrequencyMagnitude(dark, kSampleRate, 392.0f, analysisStart, analysisLength);
+            const double brightUpperMag = computeFrequencyMagnitude(bright, kSampleRate, 392.0f, analysisStart, analysisLength);
+
+            expect(brightUpperMag > darkUpperMag * 1.20,
+                "Higher tone should noticeably open the generated upper octave");
+            expect(computeBufferNullRms(dark, bright) > 0.015,
+                "Tone should materially change the octave voicing rather than act as a cosmetic trim");
+        }
+
+        beginTest("OctavePedal automation stress remains finite");
+        {
+            OctavePedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            double peak = 0.0;
+
+            for (int iteration = 0; iteration < 120; ++iteration)
+            {
+                const float t = (float) iteration / 119.0f;
+                pedal.subParam->setValueNotifyingHost(pedal.subParam->convertTo0to1(juce::jmap(std::sin(t * 6.0f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.upperParam->setValueNotifyingHost(pedal.upperParam->convertTo0to1(juce::jmap(std::cos(t * 7.4f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.dryParam->setValueNotifyingHost(pedal.dryParam->convertTo0to1(juce::jmap(std::sin(t * 5.2f + 0.8f), -1.0f, 1.0f, 0.0f, 1.0f)));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(juce::jmap(std::cos(t * 8.1f + 0.4f), -1.0f, 1.0f, 0.02f, 0.98f)));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(juce::jmap(std::sin(t * 4.8f + 1.1f), -1.0f, 1.0f, 0.7f, 1.5f)));
+
+                for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                {
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                    {
+                        const float sampleIndex = (float) (iteration * kBlockSize + i);
+                        const float fundamental = 0.12f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 123.0 * sampleIndex / kSampleRate));
+                        const float harmonic = 0.05f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 246.0 * sampleIndex / kSampleRate));
+                        block.setSample(ch, i, fundamental + harmonic);
+                    }
+                }
+
+                pedal.processBlock(block, midi);
+                expect(bufferHasOnlyFiniteSamples(block), "Octave automation should keep every sample finite");
+                peak = juce::jmax(peak, (double) block.getMagnitude(0, 0, block.getNumSamples()));
+                peak = juce::jmax(peak, (double) block.getMagnitude(1, 0, block.getNumSamples()));
+            }
+
+            expect(peak < 2.0, "Octave automation should remain inside a sane peak ceiling");
+        }
+
+        beginTest("PhaserPedal round-trips its modulation state");
+        {
+            PhaserPedal source;
+            source.rateParam->setValueNotifyingHost(source.rateParam->convertTo0to1(1.8f));
+            source.depthParam->setValueNotifyingHost(source.depthParam->convertTo0to1(0.81f));
+            source.feedbackParam->setValueNotifyingHost(source.feedbackParam->convertTo0to1(0.36f));
+            source.stagesParam->setValueNotifyingHost(source.stagesParam->convertTo0to1(8.0f));
+            source.mixParam->setValueNotifyingHost(source.mixParam->convertTo0to1(0.74f));
+
+            juce::MemoryBlock state;
+            source.getStateInformation(state);
+
+            PhaserPedal restored;
+            restored.setStateInformation(state.getData(), (int) state.getSize());
+
+            expect(approximatelyEqual(restored.rateParam->get(), 1.8f, 0.01f));
+            expect(approximatelyEqual(restored.depthParam->get(), 0.81f, 1.0e-3f));
+            expect(approximatelyEqual(restored.feedbackParam->get(), 0.36f, 0.01f));
+            expect(approximatelyEqual(restored.stagesParam->get(), 8.0f, 0.1f));
+            expect(approximatelyEqual(restored.mixParam->get(), 0.74f, 1.0e-3f));
+        }
+
+        beginTest("PhaserPedal mix zero keeps the dry path transparent");
+        {
+            PhaserPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(3.2f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.92f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.72f));
+            pedal.stagesParam->setValueNotifyingHost(pedal.stagesParam->convertTo0to1(10.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.0f));
+
+            juce::AudioBuffer<float> input(2, 2048);
+            for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            {
+                for (int i = 0; i < input.getNumSamples(); ++i)
+                {
+                    const float phase = (float) (2.0 * juce::MathConstants<double>::pi * 220.0 * (double) i / kSampleRate);
+                    input.setSample(ch, i, 0.17f * std::sin(phase + ch * 0.19f));
+                }
+            }
+
+            const auto output = renderPhaserOutput(pedal, input, kBlockSize);
+            expect(computeBufferNullRms(output, input) <= 1.0e-6,
+                "Mix at zero should leave the dry path untouched");
+        }
+
+        beginTest("PhaserPedal depth and feedback create a clearly modulated voice");
+        {
+            juce::AudioBuffer<float> input(2, (int) (kSampleRate * 1.2));
+            for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            {
+                for (int i = 0; i < input.getNumSamples(); ++i)
+                {
+                    const float phaseA = (float) (2.0 * juce::MathConstants<double>::pi * 247.0 * (double) i / kSampleRate);
+                    const float phaseB = (float) (2.0 * juce::MathConstants<double>::pi * 493.0 * (double) i / kSampleRate);
+                    input.setSample(ch, i, 0.11f * std::sin(phaseA) + 0.06f * std::sin(phaseB + ch * 0.17f));
+                }
+            }
+
+            PhaserPedal subtle;
+            subtle.prepareToPlay(kSampleRate, kBlockSize);
+            subtle.rateParam->setValueNotifyingHost(subtle.rateParam->convertTo0to1(0.45f));
+            subtle.depthParam->setValueNotifyingHost(subtle.depthParam->convertTo0to1(0.22f));
+            subtle.feedbackParam->setValueNotifyingHost(subtle.feedbackParam->convertTo0to1(0.0f));
+            subtle.stagesParam->setValueNotifyingHost(subtle.stagesParam->convertTo0to1(4.0f));
+            subtle.mixParam->setValueNotifyingHost(subtle.mixParam->convertTo0to1(0.42f));
+            subtle.reset();
+            const auto subtleOutput = renderPhaserOutput(subtle, input, kBlockSize);
+
+            PhaserPedal deep;
+            deep.prepareToPlay(kSampleRate, kBlockSize);
+            deep.rateParam->setValueNotifyingHost(deep.rateParam->convertTo0to1(1.4f));
+            deep.depthParam->setValueNotifyingHost(deep.depthParam->convertTo0to1(0.94f));
+            deep.feedbackParam->setValueNotifyingHost(deep.feedbackParam->convertTo0to1(0.68f));
+            deep.stagesParam->setValueNotifyingHost(deep.stagesParam->convertTo0to1(10.0f));
+            deep.mixParam->setValueNotifyingHost(deep.mixParam->convertTo0to1(0.78f));
+            deep.reset();
+            const auto deepOutput = renderPhaserOutput(deep, input, kBlockSize);
+
+            expect(computeBufferNullRms(subtleOutput, deepOutput) > 0.015,
+                "Deeper phaser settings should audibly reshape the signal");
+            expect(computeStereoCorrelation(deepOutput, (int) (kSampleRate * 0.4)) < 0.995,
+                "The upgraded phaser should introduce measurable stereo decorrelation");
+        }
+
+        beginTest("PhaserPedal automation stress remains finite");
+        {
+            PhaserPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+
+            for (int iteration = 0; iteration < 120; ++iteration)
+            {
+                const float t = (float) iteration / 119.0f;
+                pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(juce::jmap(std::sin(t * 5.4f), -1.0f, 1.0f, 0.08f, 6.8f)));
+                pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(juce::jmap(std::cos(t * 7.0f), -1.0f, 1.0f, 0.05f, 0.98f)));
+                pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(juce::jmap(std::sin(t * 8.6f + 0.4f), -1.0f, 1.0f, -0.76f, 0.76f)));
+                pedal.stagesParam->setValueNotifyingHost(pedal.stagesParam->convertTo0to1(juce::jmap(std::cos(t * 6.1f + 0.7f), -1.0f, 1.0f, 2.0f, 12.0f)));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(juce::jmap(std::sin(t * 9.9f + 0.3f), -1.0f, 1.0f, 0.0f, 1.0f)));
+
+                for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                {
+                    for (int i = 0; i < block.getNumSamples(); ++i)
+                    {
+                        const float sampleIndex = (float) (iteration * kBlockSize + i);
+                        block.setSample(ch, i, 0.15f * std::sin((float) (2.0 * juce::MathConstants<double>::pi * 207.0 * sampleIndex / kSampleRate) + ch * 0.15f));
+                    }
+                }
+
+                pedal.processBlock(block, midi);
+                expect(bufferHasOnlyFiniteSamples(block), "Phaser automation should keep every sample finite");
+            }
         }
 
         beginTest("Unified Wah round-trips modern and legacy state");
@@ -1258,6 +2099,37 @@ public:
             expect(approximatelyEqual(restoredLegacy.rangeParam->get(), 0.68f, 1.0e-3f));
             expect(approximatelyEqual(restoredLegacy.resonanceParam->get(), 4.9f, 0.12f));
             expect(approximatelyEqual(restoredLegacy.mixParam->get(), 0.91f, 1.0e-3f));
+            
+            juce::XmlElement legacyAuto("PLUGIN_STATE");
+            auto addLegacyAutoParam = [&legacyAuto](const juce::String& id, float value)
+            {
+                auto* child = legacyAuto.createNewChildElement("PARAM");
+                child->setAttribute("id", id);
+                child->setAttribute("value", value);
+            };
+
+            addLegacyAutoParam("autoWahSens", 0.73f);
+            addLegacyAutoParam("autoWahAttack", source.attackParam->convertTo0to1(4.5f));
+            addLegacyAutoParam("autoWahRelease", juce::jlimit(0.0f, 1.0f, (260.0f - 15.0f) / (900.0f - 15.0f)));
+            addLegacyAutoParam("autoWahRange", 0.84f);
+            addLegacyAutoParam("autoWahResonance", juce::jlimit(0.0f, 1.0f, (5.6f - 0.6f) / (9.0f - 0.6f)));
+            addLegacyAutoParam("autoWahVoice", 0.58f);
+            addLegacyAutoParam("autoWahMix", 0.92f);
+
+            juce::MemoryBlock legacyAutoState;
+            WahLegacyStateHelper::encode(legacyAuto, legacyAutoState);
+
+            ClassicWahPedal restoredAutoLegacy;
+            restoredAutoLegacy.setStateInformation(legacyAutoState.getData(), (int) legacyAutoState.getSize());
+
+            expectEquals(restoredAutoLegacy.modeParam->getIndex(), 1);
+            expect(approximatelyEqual(restoredAutoLegacy.sensitivityParam->get(), 0.73f, 1.0e-3f));
+            expect(approximatelyEqual(restoredAutoLegacy.attackParam->get(), 4.5f, 0.2f));
+            expect(approximatelyEqual(restoredAutoLegacy.decayParam->get(), 260.0f, 2.0f));
+            expect(approximatelyEqual(restoredAutoLegacy.rangeParam->get(), 0.84f, 1.0e-3f));
+            expect(approximatelyEqual(restoredAutoLegacy.resonanceParam->get(), 5.6f, 0.12f));
+            expect(approximatelyEqual(restoredAutoLegacy.voiceParam->get(), 0.58f, 1.0e-3f));
+            expect(approximatelyEqual(restoredAutoLegacy.mixParam->get(), 0.92f, 1.0e-3f));
         }
 
         beginTest("ReverbPedal round-trips its modern commercial state");
@@ -1706,8 +2578,16 @@ public:
             const double baselineHeld = computeWindowRms(baselineOut, (int)(kSampleRate * 1.34), (int)(kSampleRate * 0.28));
 
             expect(bufferHasOnlyFiniteSamples(frozenOut), "Freeze+reverse render should stay finite");
-            expect(heldRms > captureRms * 0.55, "Freeze should preserve most of the captured reverse pad");
-            expect(heldRms > baselineHeld * 2.50, "Freeze should hold longer than the unfrozen reverse tail");
+            expect(heldRms > captureRms * 0.55,
+                "Freeze should preserve most of the captured reverse pad"
+                " (held=" + juce::String(heldRms, 6)
+                + " capture=" + juce::String(captureRms, 6)
+                + " threshold=" + juce::String(captureRms * 0.55, 6) + ")");
+            expect(heldRms > baselineHeld * 2.50,
+                "Freeze should hold longer than the unfrozen reverse tail"
+                " (held=" + juce::String(heldRms, 6)
+                + " baseline=" + juce::String(baselineHeld, 6)
+                + " threshold=" + juce::String(baselineHeld * 2.50, 6) + ")");
         }
 
         beginTest("DelayPedal round-trips its flagship state");
@@ -1876,8 +2756,16 @@ public:
             const double baselineHeld = computeWindowRms(baselineOut, (int) (kSampleRate * 1.45), (int) (kSampleRate * 0.26));
 
             expect(bufferHasOnlyFiniteSamples(frozenOut), "Freeze render must remain finite");
-            expect(heldRms > captureRms * 0.50, "Freeze should retain a significant part of the captured repeat bed");
-            expect(heldRms > baselineHeld * 2.0, "Freeze should outlast the unfrozen tail decisively");
+            expect(heldRms > captureRms * 0.50,
+                "Freeze should retain a significant part of the captured repeat bed"
+                " (held=" + juce::String(heldRms, 6)
+                + " capture=" + juce::String(captureRms, 6)
+                + " threshold=" + juce::String(captureRms * 0.50, 6) + ")");
+            expect(heldRms > baselineHeld * 2.0,
+                "Freeze should outlast the unfrozen tail decisively"
+                " (held=" + juce::String(heldRms, 6)
+                + " baseline=" + juce::String(baselineHeld, 6)
+                + " threshold=" + juce::String(baselineHeld * 2.0, 6) + ")");
         }
 
         beginTest("DelayPedal ducking clears space while the source is active");
@@ -2041,9 +2929,21 @@ public:
             const double baselineLate = computeWindowRms(baselineOut, (int) (kSampleRate * 0.58), (int) (kSampleRate * 0.24));
             const double comboLate = computeWindowRms(comboOut, (int) (kSampleRate * 0.58), (int) (kSampleRate * 0.24));
 
-            expect(comboEarly < baselineEarly * 0.82, "Reverse+swell should clearly soften the early delay onset");
-            expect(comboLate > comboEarly * 0.52, "Reverse+swell should keep a meaningful later ambient body");
-            expect(comboLate > baselineLate * 0.70, "Reverse+swell should still retain a commercially usable late body");
+            expect(comboEarly < baselineEarly * 0.82,
+                "Reverse+swell should clearly soften the early delay onset"
+                " (comboEarly=" + juce::String(comboEarly, 6)
+                + " baselineEarly=" + juce::String(baselineEarly, 6)
+                + " threshold=" + juce::String(baselineEarly * 0.82, 6) + ")");
+            expect(comboLate > comboEarly * 0.52,
+                "Reverse+swell should keep a meaningful later ambient body"
+                " (comboLate=" + juce::String(comboLate, 6)
+                + " comboEarly=" + juce::String(comboEarly, 6)
+                + " threshold=" + juce::String(comboEarly * 0.52, 6) + ")");
+            expect(comboLate > baselineLate * 0.70,
+                "Reverse+swell should still retain a commercially usable late body"
+                " (comboLate=" + juce::String(comboLate, 6)
+                + " baselineLate=" + juce::String(baselineLate, 6)
+                + " threshold=" + juce::String(baselineLate * 0.70, 6) + ")");
         }
 
         beginTest("DelayPedal automation stress remains finite under aggressive changes");

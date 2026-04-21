@@ -30,7 +30,9 @@ inline juce::String resolveAlias(const juce::String& requestedType)
 {
     const auto cleaned = requestedType.trim();
 
-    if (cleaned.equalsIgnoreCase("Auto Wah") || cleaned.equalsIgnoreCase("Autowah"))
+    if (cleaned.equalsIgnoreCase("Auto Wah")
+        || cleaned.equalsIgnoreCase("Autowah")
+        || cleaned.equalsIgnoreCase("AutoWah"))
         return "Wah";
     if (cleaned.equalsIgnoreCase("Metal Distortion"))
         return "Distortion";
@@ -38,14 +40,15 @@ inline juce::String resolveAlias(const juce::String& requestedType)
     return cleaned;
 }
 
-inline const std::array<Entry, 23>& entries() noexcept
+inline const std::array<Entry, 24>& entries() noexcept
 {
-    static constexpr std::array<Entry, 23> data{ {
+    static constexpr std::array<Entry, 24> data{ {
         // ---- Pedals ----
         { "Compressor", "Compressor", "Studio sustain", "compressor dynamics sustain punch clean leveler", "ff34D399", "ff6EE7B7", Kind::Pedal, true },
         { "Noise Gate", "Noise Gate", "Studio gate", "gate noise studio hysteresis lookahead focus sidechain clamp expander silencer high gain", "ff10B981", "ff34D399", Kind::Pedal, true },
         { "EQ", "EQ", "3-Band EQ", "eq equalizer tone shape bass mid treble parametric", "ff4ADE80", "ff86EFAC", Kind::Pedal, true },
         { "Boost", "Boost", "Micro boost", "boost preamp clean boost micro amp ep booster level push", "ffEAB308", "ffFDE047", Kind::Pedal, true },
+        { "Neural", "Neural", "Adaptive preamp", "neural adaptive drive preamp ai tone model dynamic articulation", "ff22D3EE", "ff67E8F9", Kind::Pedal, true },
         { "Overdrive", "Overdrive", "Articulate gain", "overdrive drive dirt boost crunch rhythm solo", "ffF06848", "ffFF9B70", Kind::Pedal, true },
         { "Distortion", "Distortion", "Studio high gain", "distortion dist heavy metal modern studio gate high gain clip hard stack palm mute", "ffEF4444", "ffFCA5A5", Kind::Pedal, true },
         { "Fuzz", "Fuzz", "Velvet Fuzz", "fuzz vintage germanium silicon octave stoner doom", "ffA855F7", "ffC4B5FD", Kind::Pedal, true },

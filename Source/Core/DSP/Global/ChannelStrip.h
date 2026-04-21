@@ -45,4 +45,5 @@ private:
     float targetGain = 1.0f;
     float targetPan = 0.0f;
     float targetWidth = 1.0f;
+    bool hardSyncParams = true;
 };

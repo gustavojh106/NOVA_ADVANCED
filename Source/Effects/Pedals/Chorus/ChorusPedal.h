@@ -291,7 +291,7 @@ public:
         rateSmooth.setCurrentAndTargetValue(rateParam != nullptr ? rateParam->get() : 0.85f);
         depthSmooth.setCurrentAndTargetValue(depthParam != nullptr ? depthParam->get() : 0.58f);
         widthSmooth.setCurrentAndTargetValue(widthParam != nullptr ? widthParam->get() : 0.72f);
-        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? mixParam->get() : 0.36f);
+        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? snapMixTarget(mixParam->get()) : 0.36f);
         lagSmooth.setCurrentAndTargetValue(lagParam != nullptr ? lagParam->get() : 7.8f);
 
         for (auto& filter : inputHPF)
@@ -333,7 +333,7 @@ public:
         rateSmooth.setCurrentAndTargetValue(rateParam != nullptr ? rateParam->get() : 0.85f);
         depthSmooth.setCurrentAndTargetValue(depthParam != nullptr ? depthParam->get() : 0.58f);
         widthSmooth.setCurrentAndTargetValue(widthParam != nullptr ? widthParam->get() : 0.72f);
-        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? mixParam->get() : 0.36f);
+        mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? snapMixTarget(mixParam->get()) : 0.36f);
         lagSmooth.setCurrentAndTargetValue(lagParam != nullptr ? lagParam->get() : 7.8f);
     }
 
@@ -345,7 +345,11 @@ public:
         rateSmooth.setTargetValue(rateParam != nullptr ? rateParam->get() : 0.85f);
         depthSmooth.setTargetValue(depthParam != nullptr ? depthParam->get() : 0.58f);
         widthSmooth.setTargetValue(widthParam != nullptr ? widthParam->get() : 0.72f);
-        mixSmooth.setTargetValue(mixParam != nullptr ? mixParam->get() : 0.36f);
+        const float requestedMix = mixParam != nullptr ? snapMixTarget(mixParam->get()) : 0.36f;
+        if (requestedMix <= 1.0e-4f || requestedMix >= 0.9999f)
+            mixSmooth.setCurrentAndTargetValue(requestedMix);
+        else
+            mixSmooth.setTargetValue(requestedMix);
         lagSmooth.setTargetValue(lagParam != nullptr ? lagParam->get() : 7.8f);
         updateFilters();
 
@@ -476,6 +480,15 @@ public:
     static float toneToCutoffHz(float tone) noexcept
     {
         return 1700.0f + juce::jlimit(0.0f, 1.0f, tone) * 12300.0f;
+    }
+
+    static float snapMixTarget(float mix) noexcept
+    {
+        if (mix <= 1.0e-4f)
+            return 0.0f;
+        if (mix >= 0.9999f)
+            return 1.0f;
+        return mix;
     }
 
     static juce::String getModeDescription(int modeIndex)

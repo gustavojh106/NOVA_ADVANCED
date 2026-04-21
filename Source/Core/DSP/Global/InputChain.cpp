@@ -27,11 +27,14 @@ void InputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     gate.prepare(spec);
     gain.prepare(spec);
     gain.setRampDurationSeconds(0.02);
+    gain.setGainDecibels(inputGainDb);
+    gain.reset();
 
     transposeRatioSmooth.reset(sampleRate, 0.03);
     transposeMixSmooth.reset(sampleRate, 0.03);
     transposeRatioSmooth.setCurrentAndTargetValue(semitonesToRatio(inputTranspose));
     transposeMixSmooth.setCurrentAndTargetValue(inputTranspose == 0 ? 0.0f : 1.0f);
+    hardSyncParams = true;
 
     pitchBuffer.setSize(juce::jmax(1, getTotalNumOutputChannels()), pitchBufferSize, false, false, true);
     resetPitchShifter();
@@ -50,12 +53,13 @@ void InputChainProcessor::reset()
     gate.setAttack(0.5f);
     gate.setRelease(50.0f);
 
-    gain.reset();
     gain.setGainDecibels(inputGainDb);
+    gain.reset();
 
     transposeRatioSmooth.setCurrentAndTargetValue(semitonesToRatio(inputTranspose));
     transposeMixSmooth.setCurrentAndTargetValue(inputTranspose == 0 ? 0.0f : 1.0f);
     resetPitchShifter();
+    hardSyncParams = true;
 }
 
 void InputChainProcessor::setParams(float gainDb, float gateDb, bool forceMono, int inputTransposeSemitones)
@@ -67,8 +71,18 @@ void InputChainProcessor::setParams(float gainDb, float gateDb, bool forceMono, 
     currentRouting = forceMono ? Nova::InputRouting::Sum
         : Nova::InputRouting::Stereo;
 
-    transposeRatioSmooth.setTargetValue(semitonesToRatio(inputTranspose));
-    transposeMixSmooth.setTargetValue(inputTranspose == 0 ? 0.0f : 1.0f);
+    if (hardSyncParams)
+    {
+        gain.setGainDecibels(inputGainDb);
+        gain.reset();
+        transposeRatioSmooth.setCurrentAndTargetValue(semitonesToRatio(inputTranspose));
+        transposeMixSmooth.setCurrentAndTargetValue(inputTranspose == 0 ? 0.0f : 1.0f);
+    }
+    else
+    {
+        transposeRatioSmooth.setTargetValue(semitonesToRatio(inputTranspose));
+        transposeMixSmooth.setTargetValue(inputTranspose == 0 ? 0.0f : 1.0f);
+    }
 }
 
 void InputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -118,6 +132,7 @@ void InputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     }
 
     processTranspose(buffer);
+    hardSyncParams = false;
 }
 
 float InputChainProcessor::semitonesToRatio(int semitones)

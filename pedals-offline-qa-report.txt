@@ -1,0 +1,508 @@
+NOVA Offline QA Report
+Generated: 2026-04-21 13:10:03
+Scenarios: 71
+
+[PASS] impulse_transparency_line_a
+notes=Impulse stayed transparent
+output_peak=0.99997616
+output_rms=0.04419312
+peak_index_left=0.00000000
+peak_index_right=0.00000000
+first_sample_left=0.99997616
+first_sample_right=0.99997616
+
+[PASS] dry_only_null_test
+notes=Dry-only path ignored wet-path gain staging and stayed transparent
+null_rms=0.00000000
+input_peak=0.34999999
+output_peak=0.34999999
+
+[PASS] engine_disabled_null_test
+notes=Disabled engine preserved dry input
+null_rms=0.00000000
+input_rms=0.14468681
+output_rms=0.14468681
+
+[PASS] parallel_noise_unity
+notes=Parallel clean path stays near unity
+input_rms=0.11536644
+output_rms=0.11536644
+rms_ratio=1.00000000
+
+[PASS] engine_reenable_recovery
+notes=Engine recovered cleanly after re-enable
+disabled_null_rms=0.00000000
+reenabled_null_rms=0.00000000
+
+[PASS] compressor_flagship_recall
+notes=Studio compressor state recalled cleanly
+state_size_bytes=485.00000000
+null_rms=0.00000000
+baseline_peak=0.32073265
+recalled_peak=0.32073265
+finite=1.00000000
+
+[PASS] compressor_gain_reduction
+notes=Compressor applied decisive gain reduction without instability
+input_body_rms=0.24034225
+output_body_rms=0.03903205
+reduction_ratio=0.16240197
+finite=1.00000000
+
+[PASS] compressor_automation_stress
+notes=Compressor remained finite under full-range parameter motion
+peak=0.48649222
+finite=1.00000000
+iterations=2100.00000000
+
+[PASS] noise_gate_flagship_recall
+notes=Studio gate state recalled cleanly
+state_size_bytes=414.00000000
+null_rms=0.00000000
+baseline_peak=0.11999950
+recalled_peak=0.11999950
+finite=1.00000000
+
+[PASS] noise_gate_clamp
+notes=Gate preserved the played body while decisively clamping the late tail
+body_ratio=1.00000000
+tail_ratio=0.01019684
+finite=1.00000000
+
+[PASS] noise_gate_automation_stress
+notes=Noise gate stayed finite under aggressive detector automation
+peak=0.17499514
+finite=1.00000000
+iterations=2100.00000000
+
+[PASS] eq_flagship_recall
+notes=Studio EQ state recalled cleanly
+state_size_bytes=534.00000000
+null_rms=0.00000000
+baseline_peak=0.32853261
+recalled_peak=0.32853261
+finite=1.00000000
+
+[PASS] eq_surgical_response
+notes=EQ cut and mid-focus controls hit the expected surgical targets
+rumble_ratio=0.10207176
+low_body_ratio=0.89466260
+fizz_ratio=0.31086164
+high_body_ratio=0.95375826
+mid_focus_ratio=3.00611326
+
+[PASS] eq_automation_stress
+notes=EQ remained finite under aggressive full-band automation
+peak=0.67819941
+finite=1.00000000
+iterations=2100.00000000
+
+[PASS] boost_flagship_recall
+notes=Boost flagship state recalled cleanly
+state_size_bytes=365.00000000
+null_rms=0.00000000
+baseline_peak=0.80989623
+recalled_peak=0.80989623
+finite=1.00000000
+
+[PASS] boost_tightening
+notes=Boost tight control materially trimmed low-end energy
+loose_rms=0.48073909
+tight_rms=0.10022547
+tight_ratio=0.20848206
+
+[PASS] boost_automation_stress
+notes=Boost remained finite under aggressive preamp automation
+peak=1.22511041
+finite=1.00000000
+iterations=120.00000000
+
+[PASS] neural_flagship_recall
+notes=Adaptive preamp state recalled cleanly
+state_size_bytes=371.00000000
+null_rms=0.00000000
+baseline_peak=0.39383048
+recalled_peak=0.39383048
+finite=1.00000000
+
+[PASS] neural_focus_tightening
+notes=Neural focus materially tightened low-end energy
+loose_rms=0.34397556
+tight_rms=0.26895925
+tight_ratio=0.78191382
+
+[PASS] neural_automation_stress
+notes=Adaptive preamp remained finite under aggressive automation
+peak=0.81914204
+finite=1.00000000
+iterations=2250.00000000
+
+[PASS] overdrive_flagship_recall
+notes=Modern overdrive state recalled cleanly
+state_size_bytes=306.00000000
+null_rms=0.00000000
+baseline_peak=0.66813141
+recalled_peak=0.66813141
+finite=1.00000000
+
+[PASS] overdrive_voice_reshape
+notes=Tone and texture controls materially reshaped the overdrive voice
+dark_rms=0.40939435
+bright_rms=0.42008430
+rms_delta=0.01068995
+null_rms=0.17443660
+
+[PASS] overdrive_automation_stress
+notes=Overdrive remained finite under aggressive preamp automation
+peak=0.75108153
+finite=1.00000000
+iterations=120.00000000
+
+[PASS] distortion_flagship_recall
+notes=Unified distortion flagship state recalled cleanly
+state_size_bytes=259.00000000
+null_rms=0.00000000
+baseline_peak=1.41467452
+recalled_peak=1.41467452
+finite=1.00000000
+
+[PASS] distortion_mode_distinctness
+notes=Distortion modes stayed distinct and metal tightness closed the integrated gate harder
+vintage_turbo_null=0.49681428
+vintage_amp_null=1.07355487
+turbo_amp_null=1.44199288
+amp_metal_null=0.41824402
+metal_studio_null=0.43713174
+vintage_studio_null=0.97325365
+metal_gate_ratio=0.06609388
+
+[PASS] distortion_automation_stress
+notes=Distortion remained finite under aggressive multi-mode automation
+peak=1.48522329
+finite=1.00000000
+iterations=2250.00000000
+
+[PASS] fuzz_flagship_recall
+notes=Commercial fuzz state recalled cleanly
+state_size_bytes=407.00000000
+null_rms=0.00000000
+baseline_peak=1.57032549
+recalled_peak=1.57032549
+finite=1.00000000
+
+[PASS] fuzz_mode_distinctness
+notes=Fuzz modes stayed distinct and velcro settings clamped the late tail harder
+vintage_muff_null=0.54350255
+vintage_velcro_null=0.28634444
+muff_velcro_null=0.78884579
+velcro_tail_ratio=0.00000024
+
+[PASS] fuzz_automation_stress
+notes=Fuzz remained finite under aggressive mode, gate and bias automation
+peak=1.12346065
+finite=1.00000000
+iterations=2250.00000000
+
+[PASS] wah_flagship_recall
+notes=Unified wah state recalled cleanly
+state_size_bytes=537.00000000
+null_rms=0.00000000
+baseline_peak=0.60112482
+recalled_peak=0.60112482
+finite=1.00000000
+
+[PASS] wah_dynamic_sweep
+notes=Touch wah tracked stronger picking with a meaningfully brighter sweep
+quiet_tilt=5.91910367
+loud_tilt=6.65866233
+low_sens_loud_tilt=2.16137690
+response_null_rms=0.09710445
+
+[PASS] wah_automation_stress
+notes=Unified wah remained finite under rapid mode and envelope automation
+peak=0.67342293
+finite=1.00000000
+iterations=480.00000000
+
+[PASS] octave_flagship_recall
+notes=Commercial octave state recalled cleanly
+state_size_bytes=330.00000000
+null_rms=0.00000000
+baseline_peak=0.22735524
+recalled_peak=0.22735524
+finite=1.00000000
+
+[PASS] octave_voice_tracking
+notes=Octave pedal tracked sub and upper voices while tone materially reshaped the generated voice
+sub_tracking_ratio=3.47744171
+upper_tracking_ratio=3.17229896
+tone_open_ratio=1.59357610
+tone_null_rms=0.06685373
+
+[PASS] octave_automation_stress
+notes=Octave remained finite under linked voice automation
+peak=0.28289080
+finite=1.00000000
+iterations=120.00000000
+
+[PASS] chorus_flagship_recall
+notes=Commercial chorus state recalled cleanly
+state_size_bytes=419.00000000
+null_rms=0.00000000
+baseline_peak=0.26602203
+recalled_peak=0.26602203
+finite=1.00000000
+
+[PASS] chorus_mode_distinctness
+notes=Chorus modes stayed distinct and ensemble mode opened a usable stereo field
+ensemble_corr=-0.58752306
+ensemble_side_ratio=0.86566750
+classic_ensemble_null=0.14574996
+classic_vibrato_null=0.15849863
+finite=1.00000000
+
+[PASS] chorus_automation_stress
+notes=Chorus remained finite under aggressive mode and width automation
+peak=0.18856402
+finite=1.00000000
+iterations=2250.00000000
+
+[PASS] phaser_flagship_recall
+notes=Modulation phaser state recalled cleanly
+state_size_bytes=338.00000000
+null_rms=0.00000000
+baseline_peak=0.27324873
+recalled_peak=0.27324873
+finite=1.00000000
+
+[PASS] phaser_voice_response
+notes=Phaser depth and feedback produced a clearly modulated stereo voice
+voice_null_rms=0.10681750
+deep_corr=-0.00342138
+
+[PASS] phaser_automation_stress
+notes=Phaser remained finite under rapid rate, stage and feedback automation
+peak=0.26329052
+finite=1.00000000
+iterations=120.00000000
+
+[PASS] flanger_flagship_recall
+notes=Commercial flanger state recalled cleanly
+state_size_bytes=483.00000000
+null_rms=0.00000000
+baseline_peak=0.26326609
+recalled_peak=0.26326609
+finite=1.00000000
+
+[PASS] flanger_mode_distinctness
+notes=Flanger modes stayed distinct and Jet mode projected a wider stereo signature
+jet_corr=-0.27262535
+jet_side_ratio=1.35874706
+classic_jet_null=0.19855775
+classic_zero_null=0.16728004
+finite=1.00000000
+
+[PASS] flanger_automation_stress
+notes=Flanger remained finite under aggressive mode, delay and feedback automation
+peak=0.21939617
+finite=1.00000000
+iterations=2250.00000000
+
+[PASS] tremolo_flagship_recall
+notes=Studio tremolo state recalled cleanly
+state_size_bytes=557.00000000
+null_rms=0.00000000
+baseline_peak=0.30491135
+recalled_peak=0.30491135
+finite=1.00000000
+
+[PASS] tremolo_harmonic_response
+notes=Tremolo stereo, harmonic crossover and bias controls all produced strong, measurable voicing changes
+centered_corr=1.00000000
+widened_corr=0.72356059
+high_low_split_ratio=2.08452081
+split_null_rms=0.16348692
+bias_contour_null_rms=0.09287467
+
+[PASS] tremolo_automation_stress
+notes=Tremolo remained finite under aggressive modulation automation
+peak=0.36591470
+finite=1.00000000
+iterations=2250.00000000
+
+[PASS] reverb_tail_quality
+notes=Cloud tail stayed finite, sustained and decayed cleanly
+render_ms=466.89280000
+peak=0.90457606
+rms=0.00185895
+late_rms_0p8_1p3s=0.00073144
+tail_end_rms_last_250ms=0.00000061
+finite=1.00000000
+
+[PASS] reverb_stereo_field
+notes=Hall mode projected a decorrelated stereo tail
+corr_after_50ms=0.39601070
+left_rms_100_1100ms=0.00071932
+right_rms_100_1100ms=0.00063293
+right_to_left_ratio=0.87990499
+finite=1.00000000
+
+[PASS] reverb_mode_distinctness
+notes=Spring, Plate and Hall produce clearly separated impulse signatures
+spring_plate_null_rms=0.00188968
+plate_hall_null_rms=0.00225656
+spring_hall_null_rms=0.00194650
+
+[PASS] reverb_freeze_hold
+notes=Freeze captured and held a stable ambient pad
+early_rms_0p8_1p2s=0.00101738
+held_rms_last_300ms=0.00073440
+finite=1.00000000
+
+[PASS] reverb_ducking_response
+notes=Ducking carved audible space while the source stayed active
+baseline_rms=0.15156462
+ducked_rms=0.03531404
+rms_ratio=0.23299662
+finite=1.00000000
+
+[PASS] reverb_swell_bloom
+notes=Swell softened the wet attack and bloomed afterward
+baseline_early_rms=0.02089215
+swelled_early_rms=0.01416680
+baseline_bloom_rms=0.05382183
+swelled_bloom_rms=0.04205816
+finite=1.00000000
+
+[PASS] reverb_gate_clamp
+notes=Gate kept the body while clamping the late tail
+baseline_body_rms=0.07347616
+gated_body_rms=0.06448937
+baseline_tail_rms=0.01949665
+gated_tail_rms=0.00144910
+finite=1.00000000
+
+[PASS] reverb_reverse_bloom
+notes=Reverse ambience delayed the bloom while keeping useful late energy
+baseline_early_rms=0.02552618
+reverse_early_rms=0.01292117
+baseline_late_rms=0.08979663
+reverse_late_rms=0.06391578
+finite=1.00000000
+
+[PASS] reverb_reverse_swell_combo
+notes=Reverse+swell produced a delayed cinematic bloom without collapsing the body
+baseline_early_rms=0.01464499
+combo_early_rms=0.00859662
+baseline_late_rms=0.06119955
+combo_late_rms=0.03400951
+finite=1.00000000
+
+[PASS] reverb_freeze_reverse_capture
+notes=Freeze captured a stable reverse pad instead of letting it collapse
+capture_rms=0.09080996
+held_rms=0.09863124
+baseline_held_rms=0.03533079
+finite=1.00000000
+
+[PASS] reverb_automation_stress
+notes=Aggressive automation stayed finite and inside a sane ceiling
+peak=0.11939529
+finite=1.00000000
+blocks=2250.00000000
+
+[PASS] delay_tail_decay
+notes=Tape delay tail stayed finite and decayed cleanly
+peak=0.87603855
+late_rms_1p0_1p9s=0.00063566
+end_rms_last_300ms=0.00000030
+finite=1.00000000
+
+[PASS] delay_stereo_field
+notes=Digital delay projected decorrelated stereo repeats
+corr_after_80ms=0.01017799
+left_rms_80_1180ms=0.00424505
+right_rms_80_1180ms=0.00108336
+right_to_left_ratio=0.25520467
+finite=1.00000000
+
+[PASS] delay_mode_distinctness
+notes=Analog, Tape, Digital and Reverse produce clearly separated repeat signatures
+analog_tape_null_rms=0.00386693
+tape_digital_null_rms=0.00420877
+digital_reverse_null_rms=0.00325214
+
+[PASS] delay_flagship_recall
+notes=Flagship delay presets survive state save/load transparently
+worst_null_rms=0.00000000
+finite=1.00000000
+
+[PASS] delay_sync_timing
+notes=Tempo sync landed the first quarter-note repeat close to the host grid
+repeat_peak_index=24000.00000000
+repeat_peak_magnitude=1.02809477
+expected_index=24000.00000000
+delta_ms=0.00000000
+finite=1.00000000
+
+[PASS] delay_modulation_range
+notes=Modulation controls cover a materially wider movement range
+null_rms=0.11755569
+restrained_corr=0.97947586
+animated_corr=0.32454110
+corr_delta=0.65493476
+finite=1.00000000
+
+[PASS] delay_freeze_hold
+notes=Freeze captured and held a stable repeat bed
+capture_rms=0.13599748
+held_rms=0.10847328
+baseline_held_rms=0.01613974
+finite=1.00000000
+
+[PASS] delay_ducking_response
+notes=Ducking carved audible space while the source stayed active
+baseline_rms=0.17252273
+ducked_rms=0.06344031
+ratio=0.36772148
+finite=1.00000000
+
+[PASS] delay_reverse_bloom
+notes=Reverse softened the early repeat body while keeping useful later energy
+baseline_early_rms=0.12287522
+reverse_early_rms=0.09553345
+baseline_late_rms=0.08807023
+reverse_late_rms=0.06847305
+finite=1.00000000
+
+[PASS] delay_swell_bloom
+notes=Swell softened the early repeat onset and bloomed afterward
+baseline_early_rms=0.12214153
+swelled_early_rms=0.07660363
+baseline_bloom_rms=0.13917960
+swelled_bloom_rms=0.14234122
+finite=1.00000000
+
+[PASS] delay_reverse_swell_combo
+notes=Reverse+swell produced a later ambient body without collapsing the mix
+baseline_early_rms=0.11010933
+combo_early_rms=0.03803359
+baseline_late_rms=0.05978273
+combo_late_rms=0.05162650
+finite=1.00000000
+
+[PASS] delay_automation_stress
+notes=Aggressive delay automation stayed finite and inside a sane ceiling
+peak=0.24989191
+finite=1.00000000
+blocks=2400.00000000
+
+[PASS] graph_diagnostic_report
+notes=Diagnostic report reflects graph topology
+report_length_chars=767.00000000
+contains_delay=1.00000000
+contains_reverb=1.00000000
+contains_ids=1.00000000
+
+summary.passed=71
+summary.failed=0
