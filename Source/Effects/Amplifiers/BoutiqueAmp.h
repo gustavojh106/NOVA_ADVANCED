@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 #include "../Pedals/Base/ProcessorBase.h"
 #include "../Pedals/Base/PremiumPedalUI.h"
@@ -30,7 +31,7 @@ class BoutiqueAmp final : public ProcessorBase
 {
 public:
     BoutiqueAmp()
-        : oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
+        : oversampler(2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
         addParameter(driveParam   = new juce::AudioParameterFloat("boutDrive",   "Drive",   0.2f, 3.5f, 1.2f));
         addParameter(warmthParam  = new juce::AudioParameterFloat("boutWarmth",  "Warmth",  0.0f, 1.0f, 0.50f));
@@ -69,11 +70,11 @@ public:
         oversampler.reset();
         oversampler.initProcessing((size_t)juce::jmax(1, samplesPerBlock));
 
-        innerRate = sampleRate * 4.0;
+        innerRate = sampleRate * 8.0;
 
         juce::dsp::ProcessSpec innerSpec;
         innerSpec.sampleRate       = innerRate;
-        innerSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock * 4);
+        innerSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock * 8);
         innerSpec.numChannels      = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
 
         inputHP.prepare(innerSpec);
@@ -137,6 +138,9 @@ public:
         {
             const int channels = (int)upsampled.getNumChannels();
             const int samples  = (int)upsampled.getNumSamples();
+            std::vector<float*> channelData((size_t)channels);
+            for (int ch = 0; ch < channels; ++ch)
+                channelData[(size_t) ch] = upsampled.getChannelPointer((size_t) ch);
 
             for (int s = 0; s < samples; ++s)
             {
@@ -144,7 +148,7 @@ public:
 
                 for (int ch = 0; ch < channels; ++ch)
                 {
-                    auto* data = upsampled.getChannelPointer((size_t)ch);
+                    auto* data = channelData[(size_t) ch];
                     float x = data[s];
 
                     // --- Envelope follower for dynamic response ---
@@ -274,7 +278,7 @@ private:
     juce::AudioParameterFloat* presParam    = nullptr;
     juce::AudioParameterFloat* levelParam   = nullptr;
 
-    double innerRate = 176400.0;
+    double innerRate = 352800.0;
     float cachedWarmth = std::numeric_limits<float>::quiet_NaN();
     float cachedMid    = std::numeric_limits<float>::quiet_NaN();
     float cachedPres   = std::numeric_limits<float>::quiet_NaN();

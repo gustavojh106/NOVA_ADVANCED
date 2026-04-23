@@ -103,6 +103,9 @@ inline float boostClip(float x, float character) noexcept
     const float biased = x + asym;
     float sat = std::tanh(biased * drive);
     sat -= std::tanh(asym * drive);
+    const float tubeWarmth = std::tanh(juce::jmax(0.0f, biased) * (0.82f + drive * 0.42f))
+        - std::tanh(juce::jmax(0.0f, asym) * (0.82f + drive * 0.42f));
+    sat = sat * (0.84f - character * 0.10f) + tubeWarmth * (0.16f + character * 0.10f);
     return juce::jmap(character * 0.5f, x, sat);
 }
 }
@@ -111,7 +114,7 @@ class BoostPedal final : public ProcessorBase
 {
 public:
     BoostPedal()
-        : oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
+        : oversampler(2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
         addParameter(gainParam   = new juce::AudioParameterFloat("boostGain",   "Gain",      0.0f, 24.0f, 8.0f));
         addParameter(toneParam   = new juce::AudioParameterFloat("boostTone",   "Tone",      0.0f, 1.0f,  0.58f));
@@ -268,7 +271,7 @@ public:
 private:
     static int oversamplingFactor() noexcept
     {
-        return 4;
+        return 8;
     }
 
     void resetFilters()

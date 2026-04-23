@@ -12,6 +12,7 @@
 #include "DSP/Global/InputChain.h"
 #include "DSP/Global/OutputChain.h"
 #include "DSP/Services/TunerService.h"
+#include "../Effects/Cabinets/SyntheticIR.h"
 
 namespace
 {
@@ -77,6 +78,23 @@ double computeChannelWindowRms(const juce::AudioBuffer<float>& buffer, int chann
     }
 
     return std::sqrt(sumSquares / (double)safeLength);
+}
+
+double computeChannelMean(const juce::AudioBuffer<float>& buffer, int channel, int startSample, int numSamples)
+{
+    if (!juce::isPositiveAndBelow(channel, buffer.getNumChannels()))
+        return 0.0;
+
+    const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+    const int safeLength = juce::jlimit(0, buffer.getNumSamples() - safeStart, numSamples);
+    if (safeLength <= 0)
+        return 0.0;
+
+    double sum = 0.0;
+    for (int i = 0; i < safeLength; ++i)
+        sum += (double) buffer.getSample(channel, safeStart + i);
+
+    return sum / (double) safeLength;
 }
 
 double computeStereoCorrelation(const juce::AudioBuffer<float>& buffer, int startSample)
@@ -806,28 +824,33 @@ public:
 
     void runTest() override
     {
-        beginTest("InputChain forceMono sums both channels");
+        beginTest("InputChain forceMono collapses both channels to the same summed image");
         {
             InputChainProcessor input;
             input.prepareToPlay(kSampleRate, kBlockSize);
             input.setParams(0.0f, -100.0f, true, 0);
 
-            juce::AudioBuffer<float> buffer(2, 4);
+            juce::AudioBuffer<float> buffer(2, 256);
             juce::MidiBuffer midi;
 
-            const std::vector<float> left{ 1.0f, -0.5f, 0.25f, -0.25f };
-            const std::vector<float> right{ -1.0f, 0.5f, 0.75f, 0.25f };
-
-            buffer.copyFrom(0, 0, left.data(), (int)left.size());
-            buffer.copyFrom(1, 0, right.data(), (int)right.size());
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float phaseA = juce::MathConstants<float>::twoPi * 110.0f * (float) i / (float) kSampleRate;
+                const float phaseB = juce::MathConstants<float>::twoPi * 220.0f * (float) i / (float) kSampleRate;
+                buffer.setSample(0, i, 0.18f * std::sin(phaseA));
+                buffer.setSample(1, i, 0.12f * std::sin(phaseB) + 0.05f);
+            }
 
             input.processBlock(buffer, midi);
 
-            const std::vector<float> summed{ 0.0f, 0.0f, 0.5f, 0.0f };
-            expectStereoSamplesMatch(*this, buffer, summed, summed);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                expect(approximatelyEqual(buffer.getSample(0, i), buffer.getSample(1, i), 1.0e-5f),
+                    "ForceMono should leave both channels sample-identical");
+            }
         }
 
-        beginTest("ChannelStrip is unity at default balance");
+        beginTest("ChannelStrip center pan uses equal-power gain");
         {
             ChannelStripProcessor strip;
             strip.prepareToPlay(kSampleRate, kBlockSize);
@@ -843,7 +866,15 @@ public:
             buffer.copyFrom(1, 0, right.data(), (int)right.size());
 
             strip.processBlock(buffer, midi);
-            expectStereoSamplesMatch(*this, buffer, left, right);
+
+            const float equalPower = std::sqrt(0.5f);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                expect(approximatelyEqual(buffer.getSample(0, i), left[(size_t) i] * equalPower, 2.0e-4f),
+                    "Left channel should follow the equal-power center law");
+                expect(approximatelyEqual(buffer.getSample(1, i), right[(size_t) i] * equalPower, 2.0e-4f),
+                    "Right channel should follow the equal-power center law");
+            }
         }
 
         beginTest("ChannelStrip uses a smooth balance curve");
@@ -864,13 +895,14 @@ public:
 
             strip.processBlock(buffer, midi);
 
-            const float expectedLeft = std::cos(juce::MathConstants<float>::pi * 0.25f);
+            const float expectedLeft = std::cos(juce::MathConstants<float>::pi * 0.375f);
+            const float expectedRight = std::sin(juce::MathConstants<float>::pi * 0.375f);
             for (int i = 0; i < buffer.getNumSamples(); ++i)
             {
                 expect(approximatelyEqual(buffer.getSample(0, i), expectedLeft, 2.0e-4f),
                     "Left channel balance mismatch at sample " + juce::String(i));
-                expect(approximatelyEqual(buffer.getSample(1, i), 1.0f, 2.0e-4f),
-                    "Right channel should remain unity at sample " + juce::String(i));
+                expect(approximatelyEqual(buffer.getSample(1, i), expectedRight, 2.0e-4f),
+                    "Right channel balance mismatch at sample " + juce::String(i));
             }
         }
 
@@ -926,6 +958,185 @@ public:
                 expect(std::abs(buffer.getSample(0, i)) <= 1.0f, "Left channel exceeded digital ceiling");
                 expect(std::abs(buffer.getSample(1, i)) <= 1.0f, "Right channel exceeded digital ceiling");
             }
+        }
+
+        beginTest("InputChain strips DC while preserving guitar-band fundamentals");
+        {
+            InputChainProcessor input;
+            input.prepareToPlay(kSampleRate, 8192);
+            input.setParams(0.0f, -100.0f, false, 0);
+
+            juce::AudioBuffer<float> buffer(2, 8192);
+            juce::MidiBuffer midi;
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 110.0f * (float) i / (float) kSampleRate;
+                const float sample = 0.20f * std::sin(phase);
+                buffer.setSample(0, i, sample + 0.18f);
+                buffer.setSample(1, i, sample - 0.14f);
+            }
+
+            const double inputFundamental = computeFrequencyMagnitude(buffer,
+                kSampleRate,
+                110.0f,
+                2048,
+                4096);
+
+            input.processBlock(buffer, midi);
+
+            const double outputFundamental = computeFrequencyMagnitude(buffer,
+                kSampleRate,
+                110.0f,
+                2048,
+                4096);
+            const double leftDc = std::abs(computeChannelMean(buffer, 0, 2048, 4096));
+            const double rightDc = std::abs(computeChannelMean(buffer, 1, 2048, 4096));
+
+            expect(bufferHasOnlyFiniteSamples(buffer), "Input cleanup render must remain finite");
+            expect(leftDc < 0.01 && rightDc < 0.01, "InputChain should strongly reduce sustained DC bias on both channels");
+            expect(outputFundamental > inputFundamental * 0.78, "InputChain should preserve the 110 Hz fundamental while cleaning subsonic/DC content");
+        }
+
+        beginTest("OutputChain clears sustained DC even when limiter is off");
+        {
+            OutputChainProcessor output;
+            output.prepareToPlay(kSampleRate, 4096);
+            output.setParams(0.0f, 0.0f);
+
+            juce::AudioBuffer<float> buffer(2, 4096);
+            juce::MidiBuffer midi;
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                    buffer.setSample(ch, i, 0.25f);
+
+            output.processBlock(buffer, midi);
+
+            const double lateRms = computeWindowRms(buffer, 3072, 1024);
+            const double leftDc = std::abs(computeChannelMean(buffer, 0, 3072, 1024));
+            const double rightDc = std::abs(computeChannelMean(buffer, 1, 3072, 1024));
+
+            expect(bufferHasOnlyFiniteSamples(buffer), "DC cleanup render must remain finite");
+            expect(lateRms < 0.02, "Always-on DC blocking should drain a sustained offset before the block ends");
+            expect(leftDc < 0.01 && rightDc < 0.01, "OutputChain should not leave a material DC bias in the late window");
+        }
+
+        beginTest("OutputChain protects limiter headroom from biased input");
+        {
+            auto renderMagnitude = [&](float dcOffset)
+            {
+                OutputChainProcessor output;
+                output.prepareToPlay(kSampleRate, 8192);
+                output.setParams(0.0f, -6.0f);
+
+                juce::AudioBuffer<float> buffer(2, 8192);
+                juce::MidiBuffer midi;
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 1000.0f * (float) i / (float) kSampleRate;
+                    const float sample = 0.45f * std::sin(phase) + dcOffset;
+                    buffer.setSample(0, i, sample);
+                    buffer.setSample(1, i, sample);
+                }
+
+                output.processBlock(buffer, midi);
+                return std::make_pair(computeFrequencyMagnitude(buffer, kSampleRate, 1000.0f, 2048, 4096),
+                    std::abs(computeChannelMean(buffer, 0, 2048, 4096)));
+            };
+
+            const auto clean = renderMagnitude(0.0f);
+            const auto biased = renderMagnitude(0.25f);
+
+            expect(biased.first > clean.first * 0.82, "Biased input should keep most of its 1 kHz energy after the limiter once DC is removed upstream");
+            expect(biased.second < 0.01, "Biased input should still leave the post-chain signal centered");
+        }
+
+        beginTest("OutputChain limiter does not add makeup gain below threshold");
+        {
+            auto render = [&](float limiterDb)
+            {
+                OutputChainProcessor output;
+                output.prepareToPlay(kSampleRate, 4096);
+                output.setParams(0.0f, limiterDb);
+
+                juce::AudioBuffer<float> buffer(2, 4096);
+                juce::MidiBuffer midi;
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 440.0f * (float) i / (float) kSampleRate;
+                    const float sample = 0.02f * std::sin(phase);
+                    buffer.setSample(0, i, sample);
+                    buffer.setSample(1, i, sample);
+                }
+
+                output.processBlock(buffer, midi);
+                return buffer;
+            };
+
+            const auto bypassed = render(0.0f);
+            const auto limited = render(-20.0f);
+            const double bypassedRms = computeWindowRms(bypassed, 1024, 2048);
+            const double limitedRms = computeWindowRms(limited, 1024, 2048);
+
+            expect(bufferHasOnlyFiniteSamples(limited), "Limited render must remain finite");
+            expect(limitedRms > bypassedRms * 0.90 && limitedRms < bypassedRms * 1.10,
+                "Limiter should stay effectively transparent for material already below the threshold");
+        }
+
+        beginTest("OutputChain limiter reduces hot peaks without runaway expansion");
+        {
+            auto measurePeak = [](const juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
+            {
+                const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+                const int safeLength = juce::jlimit(0, buffer.getNumSamples() - safeStart, numSamples);
+                float peak = 0.0f;
+
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                    for (int i = 0; i < safeLength; ++i)
+                        peak = juce::jmax(peak, std::abs(buffer.getSample(ch, safeStart + i)));
+
+                return peak;
+            };
+
+            auto render = [&](float limiterDb)
+            {
+                OutputChainProcessor output;
+                output.prepareToPlay(kSampleRate, 8192);
+                output.setParams(0.0f, limiterDb);
+
+                juce::AudioBuffer<float> buffer(2, 8192);
+                juce::MidiBuffer midi;
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 1000.0f * (float) i / (float) kSampleRate;
+                    const float sample = 0.45f * std::sin(phase);
+                    buffer.setSample(0, i, sample);
+                    buffer.setSample(1, i, sample);
+                }
+
+                output.processBlock(buffer, midi);
+                return buffer;
+            };
+
+            const auto bypassed = render(0.0f);
+            const auto limited = render(-20.0f);
+            const float bypassedPeak = measurePeak(bypassed, 2048, 4096);
+            const float limitedPeak = measurePeak(limited, 2048, 4096);
+
+            expect(bufferHasOnlyFiniteSamples(limited), "Hot limited render must remain finite");
+            expect(limitedPeak < bypassedPeak * 0.5f,
+                "Limiter should materially reduce sustained peaks above the threshold");
+            expect(limitedPeak < 0.14f,
+                "Limiter should settle near the requested ceiling instead of re-amplifying the signal");
+        }
+
+        beginTest("Synthetic cabinet IR keeps an approximately constant 23 ms window across sample rates");
+        {
+            const auto ir44 = Nova::CabinetIR::generateAtlas4x12(44100.0);
+            const auto ir96 = Nova::CabinetIR::generateAtlas4x12(96000.0);
+
+            expectEquals(ir44.getNumSamples(), juce::roundToInt(44100.0 * 0.023));
+            expectEquals(ir96.getNumSamples(), juce::roundToInt(96000.0 * 0.023));
+            expect(ir96.getNumSamples() > ir44.getNumSamples(), "Higher sample rates should carry a proportionally longer IR for equivalent time resolution");
         }
 
         beginTest("Overdrive keeps the opposite channel silent");
@@ -1039,9 +1250,9 @@ public:
             const double darkRms = computeWindowRms(darkOutput, (int) (kSampleRate * 0.25), (int) (kSampleRate * 0.45));
             const double brightRms = computeWindowRms(brightOutput, (int) (kSampleRate * 0.25), (int) (kSampleRate * 0.45));
 
-            expect(std::abs(brightRms - darkRms) > 0.008,
+            expect(std::abs(brightRms - darkRms) > 0.030,
                 "Dark and bright settings should not collapse to the same average energy");
-            expect(computeBufferNullRms(darkOutput, brightOutput) > 0.015,
+            expect(computeBufferNullRms(darkOutput, brightOutput) > 0.050,
                 "Tone and texture changes should materially reshape the overdrive voice");
         }
 
@@ -1162,7 +1373,7 @@ public:
             const double looseRms = computeWindowRms(loose, (int) (kSampleRate * 0.35), (int) (kSampleRate * 0.55));
             const double tightRms = computeWindowRms(tight, (int) (kSampleRate * 0.35), (int) (kSampleRate * 0.55));
 
-            expect(tightRms < looseRms * 0.84, "High focus should materially tighten low-end energy");
+            expect(tightRms < looseRms * 0.70, "High focus should materially tighten low-end energy");
         }
 
         beginTest("NeuralPedal automation stress remains finite under aggressive changes");
@@ -1390,6 +1601,89 @@ public:
             buffer.copyFrom(1, 0, right.data(), (int)right.size());
             engine.process(buffer, midi);
             expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
+        }
+
+        beginTest("AudioEngine re-enable refresh re-prepares released pedal processors");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "refresh-overdrive");
+            engine.synchronizeProcessingState();
+
+            auto* overdrive = dynamic_cast<OverdrivePedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0));
+            expect(overdrive != nullptr, "Expected to retrieve the live Overdrive pedal from the graph");
+
+            if (overdrive != nullptr)
+            {
+                overdrive->getDriveParam()->setValueNotifyingHost(overdrive->getDriveParam()->convertTo0to1(88.0f));
+                overdrive->getToneParam()->setValueNotifyingHost(overdrive->getToneParam()->convertTo0to1(0.74f));
+                overdrive->getTextureParam()->setValueNotifyingHost(overdrive->getTextureParam()->convertTo0to1(0.62f));
+                overdrive->getMixParam()->setValueNotifyingHost(overdrive->getMixParam()->convertTo0to1(1.0f));
+                overdrive->getLevelParam()->setValueNotifyingHost(overdrive->getLevelParam()->convertTo0to1(0.78f));
+                overdrive->reset();
+            }
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 12);
+
+            juce::AudioBuffer<float> input(2, kBlockSize * 4);
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                input.setSample(0, i, 0.22f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t));
+                input.setSample(1, i, 0.18f * std::sin(juce::MathConstants<float>::twoPi * 330.0f * t));
+            }
+
+            auto renderEngineOutput = [&](const juce::AudioBuffer<float>& source)
+            {
+                juce::AudioBuffer<float> output(source.getNumChannels(), source.getNumSamples());
+                output.clear();
+                juce::MidiBuffer midi;
+
+                for (int offset = 0; offset < source.getNumSamples(); offset += kBlockSize)
+                {
+                    const int numSamples = juce::jmin(kBlockSize, source.getNumSamples() - offset);
+                    juce::AudioBuffer<float> block(source.getNumChannels(), kBlockSize);
+                    block.clear();
+
+                    for (int ch = 0; ch < source.getNumChannels(); ++ch)
+                        block.copyFrom(ch, 0, source, ch, offset, numSamples);
+
+                    engine.process(block, midi);
+
+                    for (int ch = 0; ch < output.getNumChannels(); ++ch)
+                        output.copyFrom(ch, offset, block, ch, 0, numSamples);
+                }
+
+                return output;
+            };
+
+            const auto activeOutput = renderEngineOutput(input);
+            const double activeNullRms = computeBufferNullRms(input, activeOutput);
+            expect(bufferHasOnlyFiniteSamples(activeOutput), "Prepared overdrive render must stay finite");
+            expect(activeNullRms > 1.0e-3, "Active overdrive should audibly alter the signal before refresh");
+
+            if (overdrive != nullptr)
+                overdrive->releaseResources();
+
+            engine.setEngineEnabled(false);
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 4);
+
+            engine.setEngineEnabled(true);
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 12);
+
+            const auto refreshedOutput = renderEngineOutput(input);
+            const double refreshedNullRms = computeBufferNullRms(input, refreshedOutput);
+            expect(bufferHasOnlyFiniteSamples(refreshedOutput), "Refreshed overdrive render must stay finite");
+            expect(refreshedNullRms > 1.0e-3,
+                "Engine re-enable refresh should re-prepare released pedals and restore audible processing");
         }
 
         beginTest("AudioEngine rebuilds graph latency when bypass changes node latency");
@@ -1684,7 +1978,7 @@ public:
             const auto tight = renderTight(0.92f);
 
             expect(computeWindowRms(tight, (int) (kSampleRate * 0.20), (int) (kSampleRate * 0.5))
-                < computeWindowRms(loose, (int) (kSampleRate * 0.20), (int) (kSampleRate * 0.5)) * 0.72,
+                < computeWindowRms(loose, (int) (kSampleRate * 0.20), (int) (kSampleRate * 0.5)) * 0.35,
                 "High tight should clearly trim low-end energy");
         }
 
@@ -1794,7 +2088,7 @@ public:
             const double subMag = computeFrequencyMagnitude(output, kSampleRate, 110.0f, analysisStart, analysisLength);
             const double fundamentalMag = computeFrequencyMagnitude(output, kSampleRate, 220.0f, analysisStart, analysisLength);
 
-            expect(subMag > fundamentalMag * 1.55, "Sub voice should carry substantially more 110 Hz than the original 220 Hz");
+            expect(subMag > fundamentalMag * 1.70, "Sub voice should carry substantially more 110 Hz than the original 220 Hz");
             expect(computeWindowRms(output, analysisStart, analysisLength) > 0.03,
                 "Tracked sub voice should produce a sustained low octave body");
         }
@@ -1825,7 +2119,7 @@ public:
             const double upperMag = computeFrequencyMagnitude(output, kSampleRate, 440.0f, analysisStart, analysisLength);
             const double fundamentalMag = computeFrequencyMagnitude(output, kSampleRate, 220.0f, analysisStart, analysisLength);
 
-            expect(upperMag > fundamentalMag * 1.15, "Upper voice should lean toward the generated octave harmonic");
+            expect(upperMag > fundamentalMag * 1.18, "Upper voice should lean toward the generated octave harmonic");
             expect(computeWindowRms(output, analysisStart, analysisLength) > 0.02,
                 "Upper voice should produce a usable octave-up sustain");
         }
@@ -1862,7 +2156,7 @@ public:
             const double darkUpperMag = computeFrequencyMagnitude(dark, kSampleRate, 392.0f, analysisStart, analysisLength);
             const double brightUpperMag = computeFrequencyMagnitude(bright, kSampleRate, 392.0f, analysisStart, analysisLength);
 
-            expect(brightUpperMag > darkUpperMag * 1.20,
+            expect(brightUpperMag > darkUpperMag * 1.24,
                 "Higher tone should noticeably open the generated upper octave");
             expect(computeBufferNullRms(dark, bright) > 0.015,
                 "Tone should materially change the octave voicing rather than act as a cosmetic trim");
@@ -1909,6 +2203,7 @@ public:
         beginTest("PhaserPedal round-trips its modulation state");
         {
             PhaserPedal source;
+            source.modeParam->setValueNotifyingHost(normalisedChoiceIndex(source.modeParam, 2));
             source.rateParam->setValueNotifyingHost(source.rateParam->convertTo0to1(1.8f));
             source.depthParam->setValueNotifyingHost(source.depthParam->convertTo0to1(0.81f));
             source.feedbackParam->setValueNotifyingHost(source.feedbackParam->convertTo0to1(0.36f));
@@ -1921,6 +2216,7 @@ public:
             PhaserPedal restored;
             restored.setStateInformation(state.getData(), (int) state.getSize());
 
+            expectEquals(restored.modeParam->getIndex(), 2);
             expect(approximatelyEqual(restored.rateParam->get(), 1.8f, 0.01f));
             expect(approximatelyEqual(restored.depthParam->get(), 0.81f, 1.0e-3f));
             expect(approximatelyEqual(restored.feedbackParam->get(), 0.36f, 0.01f));
@@ -1968,6 +2264,7 @@ public:
 
             PhaserPedal subtle;
             subtle.prepareToPlay(kSampleRate, kBlockSize);
+            subtle.modeParam->setValueNotifyingHost(normalisedChoiceIndex(subtle.modeParam, 0));
             subtle.rateParam->setValueNotifyingHost(subtle.rateParam->convertTo0to1(0.45f));
             subtle.depthParam->setValueNotifyingHost(subtle.depthParam->convertTo0to1(0.22f));
             subtle.feedbackParam->setValueNotifyingHost(subtle.feedbackParam->convertTo0to1(0.0f));
@@ -1978,6 +2275,7 @@ public:
 
             PhaserPedal deep;
             deep.prepareToPlay(kSampleRate, kBlockSize);
+            deep.modeParam->setValueNotifyingHost(normalisedChoiceIndex(deep.modeParam, 2));
             deep.rateParam->setValueNotifyingHost(deep.rateParam->convertTo0to1(1.4f));
             deep.depthParam->setValueNotifyingHost(deep.depthParam->convertTo0to1(0.94f));
             deep.feedbackParam->setValueNotifyingHost(deep.feedbackParam->convertTo0to1(0.68f));
@@ -1986,10 +2284,50 @@ public:
             deep.reset();
             const auto deepOutput = renderPhaserOutput(deep, input, kBlockSize);
 
-            expect(computeBufferNullRms(subtleOutput, deepOutput) > 0.015,
+            expect(computeBufferNullRms(subtleOutput, deepOutput) > 0.022,
                 "Deeper phaser settings should audibly reshape the signal");
-            expect(computeStereoCorrelation(deepOutput, (int) (kSampleRate * 0.4)) < 0.995,
+            expect(computeStereoCorrelation(deepOutput, (int) (kSampleRate * 0.4)) < 0.992,
                 "The upgraded phaser should introduce measurable stereo decorrelation");
+        }
+
+        beginTest("PhaserPedal modes stay distinct");
+        {
+            auto renderMode = [&](int modeIndex)
+            {
+                PhaserPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+                pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(modeIndex == 0 ? 0.58f : modeIndex == 1 ? 1.2f : 1.75f));
+                pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(modeIndex == 0 ? 0.62f : modeIndex == 1 ? 0.78f : 0.90f));
+                pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(modeIndex == 0 ? 0.18f : modeIndex == 1 ? 0.42f : 0.56f));
+                pedal.stagesParam->setValueNotifyingHost(pedal.stagesParam->convertTo0to1(modeIndex == 0 ? 4.0f : modeIndex == 1 ? 8.0f : 10.0f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.76f));
+
+                juce::AudioBuffer<float> input(2, (int) (kSampleRate * 1.6));
+                input.clear();
+                for (int i = 0; i < input.getNumSamples(); ++i)
+                {
+                    const float phaseA = (float) (2.0 * juce::MathConstants<double>::pi * 247.0 * (double) i / kSampleRate);
+                    const float phaseB = (float) (2.0 * juce::MathConstants<double>::pi * 493.0 * (double) i / kSampleRate);
+                    input.setSample(0, i, 0.11f * std::sin(phaseA) + 0.05f * std::sin(phaseB));
+                    input.setSample(1, i, 0.11f * std::sin(phaseA + 0.12f) + 0.05f * std::sin(phaseB + 0.24f));
+                }
+
+                return renderPhaserOutput(pedal, input, kBlockSize);
+            };
+
+            const auto vintage = renderMode(0);
+            const auto modern = renderMode(1);
+            const auto vibe = renderMode(2);
+
+            expect(computeBufferNullRms(vintage, modern) > 0.010,
+                "Vintage and modern phaser voicings should not collapse together");
+            expect(computeBufferNullRms(vintage, vibe) > 0.018,
+                "Vintage and vibe phaser voicings should stay clearly distinct");
+            expect(computeBufferNullRms(modern, vibe) > 0.014,
+                "Modern and vibe phaser voicings should stay clearly distinct");
+            expect(computeStereoCorrelation(vibe, (int) (kSampleRate * 0.35)) < 0.992,
+                "Vibe mode should open a wider stereo image");
         }
 
         beginTest("PhaserPedal automation stress remains finite");
@@ -2003,6 +2341,8 @@ public:
             for (int iteration = 0; iteration < 120; ++iteration)
             {
                 const float t = (float) iteration / 119.0f;
+                const int mode = juce::jlimit(0, 2, (int) std::floor(t * 3.0f));
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
                 pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(juce::jmap(std::sin(t * 5.4f), -1.0f, 1.0f, 0.08f, 6.8f)));
                 pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(juce::jmap(std::cos(t * 7.0f), -1.0f, 1.0f, 0.05f, 0.98f)));
                 pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(juce::jmap(std::sin(t * 8.6f + 0.4f), -1.0f, 1.0f, -0.76f, 0.76f)));
@@ -2021,6 +2361,35 @@ public:
                 pedal.processBlock(block, midi);
                 expect(bufferHasOnlyFiniteSamples(block), "Phaser automation should keep every sample finite");
             }
+        }
+
+        beginTest("PhaserPedal feedback loop rejects DC accumulation under sustained bias");
+        {
+            PhaserPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 2));
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(0.48f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.92f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.78f));
+            pedal.stagesParam->setValueNotifyingHost(pedal.stagesParam->convertTo0to1(10.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            juce::AudioBuffer<float> input(2, (int) (kSampleRate * 3.0));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 196.0f * (float) i / (float) kSampleRate;
+                const float sample = 0.08f * std::sin(phase) + 0.12f;
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto output = renderPhaserOutput(pedal, input, kBlockSize);
+            const double leftDc = std::abs(computeChannelMean(output, 0, (int) (kSampleRate * 1.5), (int) (kSampleRate * 1.0)));
+            const double rightDc = std::abs(computeChannelMean(output, 1, (int) (kSampleRate * 1.5), (int) (kSampleRate * 1.0)));
+
+            expect(bufferHasOnlyFiniteSamples(output), "Biased phaser render must remain finite");
+            expect(leftDc < 0.01 && rightDc < 0.01, "Phaser feedback protection should keep the late wet signal centered");
         }
 
         beginTest("Unified Wah round-trips modern and legacy state");
@@ -2240,6 +2609,38 @@ public:
             expect(output.getMagnitude(0, 0, output.getNumSamples()) < 1.25f, "Cloud tail should stay inside a sane peak ceiling");
             expect(lateRms > 1.0e-4, "Cloud mode should still carry measurable energy after the initial bloom");
             expect(endRms < lateRms * 0.45, "Tail should decay substantially by the end of the render");
+        }
+
+        beginTest("ReverbPedal loop rejects DC accumulation under sustained biased playing");
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(1.0f); // Cloud
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.88f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.92f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.94f));
+            pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(18.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            const int totalSamples = (int) (kSampleRate * 4.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 174.0f * (float) i / (float) kSampleRate;
+                const float sample = 0.10f * std::sin(phase) + 0.10f;
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto output = renderReverbOutput(pedal, input, kBlockSize);
+            const int lateStart = (int) (kSampleRate * 2.5);
+            const int lateLength = (int) (kSampleRate * 1.0);
+            const double leftDc = std::abs(computeChannelMean(output, 0, lateStart, lateLength));
+            const double rightDc = std::abs(computeChannelMean(output, 1, lateStart, lateLength));
+
+            expect(bufferHasOnlyFiniteSamples(output), "Biased reverb render must remain finite");
+            expect(leftDc < 0.01 && rightDc < 0.01, "Reverb loop protection should keep the late wet signal centered");
         }
 
         beginTest("ReverbPedal generates a decorrelated stereo field");

@@ -268,6 +268,8 @@ public:
         gateGain.fill(0.0f);
         gateOpen.fill(false);
         displaySag = 0.0f;
+        driftPhase = 0.0f;
+        sputterPhase = 0.0f;
 
         envAttackCoeff = std::exp(-1.0f / ((float) innerRate * 0.0008f));
         envReleaseCoeff = std::exp(-1.0f / ((float) innerRate * 0.018f));
@@ -307,6 +309,8 @@ public:
         gateGain.fill(0.0f);
         gateOpen.fill(false);
         displaySag = 0.0f;
+        driftPhase = 0.0f;
+        sputterPhase = 0.0f;
 
         fuzzSmooth.setCurrentAndTargetValue(fuzzParam != nullptr ? fuzzParam->get() : 67.0f);
         gateSmooth.setCurrentAndTargetValue(gateParam != nullptr ? gateParam->get() : 0.28f);
@@ -356,10 +360,21 @@ public:
             const float gateAmount = gateSmooth.getNextValue();
             const float biasAmount = biasSmooth.getNextValue();
             const float fuzzNorm = juce::jlimit(0.0f, 1.0f, fuzzAmount * 0.01f);
-            const float stage1Drive = 1.4f + fuzzNorm * 7.8f;
-            const float stage2Drive = 1.0f + fuzzNorm * 5.2f;
             const float octaveBlend = config.octaveBlend * (0.35f + fuzzNorm * 0.95f);
             const float starve = 1.0f - biasAmount;
+            const float driftRateHz = 0.018f + config.sputterAmount * 0.11f;
+            const float sputterRateHz = 0.13f + config.sputterAmount * 0.42f;
+            driftPhase += driftRateHz / (float) innerRate;
+            sputterPhase += sputterRateHz / (float) innerRate;
+            driftPhase -= std::floor(driftPhase);
+            sputterPhase -= std::floor(sputterPhase);
+            const float driftLfo = std::sin(driftPhase * juce::MathConstants<float>::twoPi)
+                + 0.43f * std::sin((driftPhase * 0.37f + 0.19f) * juce::MathConstants<float>::twoPi);
+            const float sputterLfo = std::sin(sputterPhase * juce::MathConstants<float>::twoPi)
+                * std::sin((sputterPhase * 1.73f + 0.11f) * juce::MathConstants<float>::twoPi);
+            const float effectiveBias = juce::jlimit(0.0f,
+                1.0f,
+                biasAmount + driftLfo * (0.010f + config.sputterAmount * 0.045f));
 
             for (int ch = 0; ch < channels; ++ch)
             {
@@ -379,7 +394,8 @@ public:
                     ? absolute + sagAttackCoeff * (sagEnvelope[(size_t) ch] - absolute)
                     : absolute + sagReleaseCoeff * (sagEnvelope[(size_t) ch] - absolute);
 
-                const float gateOpenThresh = gateAmount * 0.030f + config.gateBias * 0.012f + starve * 0.006f;
+                const float gateJitter = config.sputterAmount * (0.0012f + 0.0036f * std::abs(sputterLfo));
+                const float gateOpenThresh = gateAmount * 0.030f + config.gateBias * 0.012f + starve * 0.006f + gateJitter;
                 const float gateCloseThresh = gateOpenThresh * 0.55f;
 
                 if (inputEnvelope[(size_t) ch] > gateOpenThresh)
@@ -396,12 +412,17 @@ public:
                 const float sag = 1.0f - sagEnvelope[(size_t) ch] * config.sagAmount * (0.22f + fuzzNorm * 0.62f);
                 const float sagGain = juce::jlimit(0.28f, 1.0f, sag);
                 sagAccumulator += 1.0f - sagGain;
+                const float cleanup = juce::jlimit(0.58f,
+                    1.0f,
+                    0.58f + inputEnvelope[(size_t) ch] * (2.2f + fuzzNorm * 0.95f));
+                const float stage1Drive = (1.4f + fuzzNorm * 7.8f) * cleanup;
+                const float stage2Drive = (1.0f + fuzzNorm * 5.2f) * (0.76f + cleanup * 0.24f);
 
                 float stage = x * stage1Drive * sagGain;
-                stage = Nova::FuzzDSP::asymExpClip(stage + (biasAmount - 0.5f) * 0.16f,
-                    1.2f + biasAmount * 0.7f,
+                stage = Nova::FuzzDSP::asymExpClip(stage + (effectiveBias - 0.5f) * 0.16f,
+                    1.2f + effectiveBias * 0.7f,
                     1.5f + starve * 0.8f,
-                    0.74f + biasAmount * 0.16f);
+                    0.74f + effectiveBias * 0.16f);
 
                 const float octave = std::tanh(std::abs(stage * stage2Drive) * (1.1f + fuzzNorm * 0.7f));
 
@@ -409,12 +430,12 @@ public:
                 if ((modeParam != nullptr ? modeParam->getIndex() : 0) == 1)
                 {
                     const float squareA = Nova::FuzzDSP::smoothSquare(stage * stage2Drive * 0.72f, 1.45f + fuzzNorm * 1.2f);
-                    const float squareB = Nova::FuzzDSP::smoothSquare(squareA * (1.38f + fuzzNorm * 0.9f), 1.18f + biasAmount * 0.8f);
+                    const float squareB = Nova::FuzzDSP::smoothSquare(squareA * (1.38f + fuzzNorm * 0.9f), 1.18f + effectiveBias * 0.8f);
                     out = squareB * 0.84f + stage * 0.16f;
                 }
                 else if ((modeParam != nullptr ? modeParam->getIndex() : 0) == 2)
                 {
-                    const float threshold = 0.50f + biasAmount * 0.32f;
+                    const float threshold = 0.50f + effectiveBias * 0.32f;
                     const float velcro = Nova::FuzzDSP::starvedClip(stage * stage2Drive * (1.0f + starve * 0.55f),
                         threshold,
                         0.85f + fuzzNorm * 1.05f);
@@ -424,9 +445,9 @@ public:
                 else
                 {
                     const float vintage = Nova::FuzzDSP::asymExpClip(stage * stage2Drive,
-                        1.05f + biasAmount * 0.55f,
+                        1.05f + effectiveBias * 0.55f,
                         1.25f + starve * 0.65f,
-                        0.76f + biasAmount * 0.12f);
+                        0.76f + effectiveBias * 0.12f);
                     out = vintage;
                 }
 
@@ -610,6 +631,8 @@ private:
     float cachedTone = -999.0f;
     float cachedBias = -999.0f;
     int cachedMode = -1;
+    float driftPhase = 0.0f;
+    float sputterPhase = 0.0f;
     bool isPrepared = false;
 };
 

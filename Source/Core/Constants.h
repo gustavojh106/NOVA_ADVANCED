@@ -110,6 +110,16 @@ namespace Nova
         static constexpr float  INPUT_ACTIVE_THRESHOLD        = 0.003f; // peak threshold for "input is live"
         static constexpr float  OUTPUT_SILENT_THRESHOLD       = 0.00008f; // peak threshold for "output is silent"
         static constexpr float  SILENT_OUTPUT_TRIGGER_SECONDS = 0.75f;  // sustained silence before incident
+        static constexpr float  SIGNAL_NEAR_CLIP_THRESHOLD    = 0.98f;  // sample magnitude considered "near clipping"
+        static constexpr float  SIGNAL_SPIKE_DELTA_THRESHOLD  = 0.12f;  // abrupt sample-to-sample delta worth flagging
+        static constexpr float  SIGNAL_DC_ALERT_THRESHOLD     = 0.02f;  // sustained DC magnitude worth flagging
+        static constexpr int    SIGNAL_TELEMETRY_INTERVAL_MS  = 2000;   // periodic signal-health logging cadence
+        static constexpr int    SIGNAL_ALERT_COOLDOWN_MS      = 4000;   // minimum spacing between alert-grade logs
+
+        // ---- Session logging / diagnostics ----
+        static constexpr int    LOGGER_QUEUE_CAPACITY         = 2048;   // async session-log backlog before drops
+        static constexpr int    LOGGER_FLUSH_INTERVAL_MS      = 40;     // async logger wake interval
+        static constexpr int    LOGGER_QUEUE_ALERT_THRESHOLD  = 256;    // queue depth that merits visibility
 
         // ---- CPU metering ----
         static constexpr double CPU_METER_SLOW_COEFF = 0.9; // slow-path weight (exponential moving avg)

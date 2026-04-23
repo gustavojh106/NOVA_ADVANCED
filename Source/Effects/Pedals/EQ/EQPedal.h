@@ -153,14 +153,15 @@ static constexpr float kLowMidBaseQ = 0.82f;
 static constexpr float kLowMidMaxQ = 1.30f;
 static constexpr float kPresenceBaseQ = 0.92f;
 static constexpr float kPresenceMaxQ = 1.45f;
-static constexpr int kCoefficientUpdateInterval = 8;
+static constexpr int kStaticCoefficientUpdateInterval = 8;
 } // namespace Nova::EqDSP
 
 // Studio EQ:
 // - cleanup filters for low-end rumble and top-end fizz
 // - proportional-Q bell sections for more musical boosts/cuts
 // - sweepable mid band with dedicated Q control
-// - smoothed control path with periodic coefficient refresh for safer automation
+// - smoothed control path with immediate coefficient refresh while sweeping,
+//   and lighter periodic refresh when static to keep CPU under control
 class EQPedal final : public ProcessorBase
 {
 public:
@@ -277,13 +278,24 @@ public:
             const float highCutHz = highCutSmooth.getNextValue();
             const float outputGain = levelSmooth.getNextValue();
 
-            if (coefficientUpdateCounter <= 0)
+            const bool sweeping = lowCutSmooth.isSmoothing()
+                || lowSmooth.isSmoothing()
+                || lowMidSmooth.isSmoothing()
+                || midSmooth.isSmoothing()
+                || midFreqSmooth.isSmoothing()
+                || midQSmooth.isSmoothing()
+                || presenceSmooth.isSmoothing()
+                || highSmooth.isSmoothing()
+                || highCutSmooth.isSmoothing();
+
+            if (sweeping || coefficientUpdateCounter <= 0)
             {
                 updateFilters(lowCutHz, lowDb, lowMidDb, midDb, midFreqHz, midQ, presenceDb, highDb, highCutHz);
-                coefficientUpdateCounter = Nova::EqDSP::kCoefficientUpdateInterval;
+                coefficientUpdateCounter = Nova::EqDSP::kStaticCoefficientUpdateInterval;
             }
 
-            --coefficientUpdateCounter;
+            if (!sweeping)
+                --coefficientUpdateCounter;
 
             for (int ch = 0; ch < numChannels; ++ch)
             {

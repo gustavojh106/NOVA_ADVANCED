@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 #include "../Pedals/Base/ProcessorBase.h"
 #include "../Pedals/Base/PremiumPedalUI.h"
@@ -25,7 +26,7 @@ class ChimeAmp final : public ProcessorBase
 {
 public:
     ChimeAmp()
-        : oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
+        : oversampler(2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
         addParameter(driveParam     = new juce::AudioParameterFloat("chimeDrive",     "Drive",     0.3f, 4.0f, 1.6f));
         addParameter(trebleCutParam = new juce::AudioParameterFloat("chimeTrebleCut", "Treble",    0.0f, 1.0f, 0.62f));
@@ -64,11 +65,11 @@ public:
         oversampler.reset();
         oversampler.initProcessing((size_t)juce::jmax(1, samplesPerBlock));
 
-        innerRate = sampleRate * 4.0;
+        innerRate = sampleRate * 8.0;
 
         juce::dsp::ProcessSpec innerSpec;
         innerSpec.sampleRate       = innerRate;
-        innerSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock * 4);
+        innerSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock * 8);
         innerSpec.numChannels      = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
 
         inputHP.prepare(innerSpec);
@@ -133,6 +134,9 @@ public:
         {
             const int channels = (int)upsampled.getNumChannels();
             const int samples  = (int)upsampled.getNumSamples();
+            std::vector<float*> channelData((size_t)channels);
+            for (int ch = 0; ch < channels; ++ch)
+                channelData[(size_t) ch] = upsampled.getChannelPointer((size_t) ch);
 
             for (int s = 0; s < samples; ++s)
             {
@@ -141,7 +145,7 @@ public:
 
                 for (int ch = 0; ch < channels; ++ch)
                 {
-                    auto* data = upsampled.getChannelPointer((size_t)ch);
+                    auto* data = channelData[(size_t) ch];
                     float x = data[s];
 
                     // --- Cathode bias: slow envelope creates spongy compression ---
@@ -252,7 +256,7 @@ private:
     juce::AudioParameterFloat* brillParam     = nullptr;
     juce::AudioParameterFloat* levelParam     = nullptr;
 
-    double innerRate = 176400.0;
+    double innerRate = 352800.0;
     float cachedTreble = std::numeric_limits<float>::quiet_NaN();
     float cachedBass   = std::numeric_limits<float>::quiet_NaN();
     float cachedBrill  = std::numeric_limits<float>::quiet_NaN();

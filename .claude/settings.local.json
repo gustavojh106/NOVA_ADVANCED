@@ -66,7 +66,10 @@
       "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Clean)",
       "Bash(touch:*)",
       "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/amd64/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA.sln\" /t:NOVA_SharedCode:Rebuild /p:Configuration=Debug /p:Platform=x64 /v:minimal)",
-      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/amd64/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA_SharedCode.vcxproj\" -t:Rebuild -p:Configuration=Debug -p:Platform=x64 -v:minimal)"
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/amd64/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA_SharedCode.vcxproj\" -t:Rebuild -p:Configuration=Debug -p:Platform=x64 -v:minimal)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Rebuild)",
+      "Bash(\"C:/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/amd64/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA.sln\" \"/t:Rebuild\" \"/p:Configuration=Debug\" \"/p:Platform=x64\" \"/m\")",
+      "Bash(\"C:/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/amd64/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA.sln\" -t:Rebuild -p:Configuration=Debug -p:Platform=x64 -m)"
     ]
   }
 }

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <array>
+#include <cmath>
 #include "../../Constants.h"
 
 class InputChainProcessor final : public juce::AudioProcessor
@@ -35,13 +37,48 @@ public:
     bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
 
 private:
+    struct DCBlocker
+    {
+        void prepare(double newSampleRate) noexcept
+        {
+            sampleRate = juce::jmax(1.0, newSampleRate);
+            constexpr double cutoff = 18.0;
+            pole = (float) std::exp(-2.0 * juce::MathConstants<double>::pi * cutoff / sampleRate);
+            reset();
+        }
+
+        void reset() noexcept
+        {
+            x1 = 0.0f;
+            y1 = 0.0f;
+        }
+
+        float process(float x) noexcept
+        {
+            const float y = x - x1 + pole * y1;
+            x1 = x;
+            y1 = y;
+            return y;
+        }
+
+        double sampleRate = 44100.0;
+        float pole = 0.995f;
+        float x1 = 0.0f;
+        float y1 = 0.0f;
+    };
+
     static float semitonesToRatio(int semitones);
     float readPitchSample(int channel, float delaySamples) const;
     void resetPitchShifter();
     void processTranspose(juce::AudioBuffer<float>& buffer);
 
+    using HighPassFilter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
+        juce::dsp::IIR::Coefficients<float>>;
+
     juce::dsp::Gain<float> gain;
+    HighPassFilter subsonicHighPass;
     juce::dsp::NoiseGate<float> gate;
+    std::array<DCBlocker, 2> dcBlockers;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> transposeRatioSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> transposeMixSmooth;
     juce::AudioBuffer<float> pitchBuffer;

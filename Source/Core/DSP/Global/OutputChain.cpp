@@ -18,7 +18,7 @@ OutputChainProcessor::OutputChainProcessor()
         .withInput("In", juce::AudioChannelSet::stereo())
         .withOutput("Out", juce::AudioChannelSet::stereo()))
 {
-    limiter.setThreshold(0.0f);
+    limiter.setThresholdDb(0.0f);
     limiter.setRelease(100.0f);
 }
 
@@ -27,7 +27,7 @@ void OutputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     juce::dsp::ProcessSpec spec{ sampleRate, (juce::uint32)samplesPerBlock, 2 };
 
     gain.prepare(spec);
-    limiter.prepare(spec);
+    limiter.prepare(sampleRate);
     for (auto& filter : dcBlockers)
         filter.prepare(sampleRate);
 
@@ -36,6 +36,10 @@ void OutputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     gain.reset();
     limiterSmooth.reset(sampleRate, 0.02);
     limiterSmooth.setCurrentAndTargetValue(limiterThresholdTarget);
+    scratchBuffer.setSize(juce::jmax(1, getTotalNumOutputChannels()),
+        juce::jmax(1, samplesPerBlock), false, false, true);
+    signalTelemetry.reset();
+    debugTelemetry.resetWindow();
     hardSyncParams = true;
 }
 
@@ -50,13 +54,15 @@ void OutputChainProcessor::reset()
     gain.reset();
 
     limiter.reset();
-    limiter.setThreshold(limiterThresholdTarget);
+    limiter.setThresholdDb(limiterThresholdTarget);
     limiter.setRelease(100.0f);
     limiterSmooth.setCurrentAndTargetValue(limiterThresholdTarget);
 
     for (auto& filter : dcBlockers)
         filter.reset();
 
+    signalTelemetry.reset();
+    debugTelemetry.resetWindow();
     hardSyncParams = true;
 }
 
@@ -77,39 +83,124 @@ void OutputChainProcessor::setParams(float volDb, float limitDb)
     }
 }
 
+void OutputChainProcessor::setTelemetryTag(const juce::String& newTag)
+{
+    telemetryTag = newTag.isNotEmpty() ? newTag : juce::String("output-chain");
+    signalTelemetry.setTag(telemetryTag);
+}
+
 void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
+    signalTelemetry.captureInput(buffer);
+
+    if (scratchBuffer.getNumChannels() < buffer.getNumChannels()
+        || scratchBuffer.getNumSamples() < buffer.getNumSamples())
+    {
+        scratchBuffer.setSize(juce::jmax(1, buffer.getNumChannels()),
+            juce::jmax(1, buffer.getNumSamples()), false, false, true);
+    }
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        auto* data = buffer.getWritePointer(ch);
+        auto& dcBlock = dcBlockers[(size_t) juce::jmin(ch, (int) dcBlockers.size() - 1)];
+
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            data[i] = dcBlock.process(data[i]);
+    }
+    debugTelemetry.postDcStage.capture(buffer);
+
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
 
     // 1) Master volume
     gain.setGainDecibels(outputVolDb);
     gain.process(context);
+    debugTelemetry.postGainStage.capture(buffer);
 
     // 2) Limiter with smoothed threshold
     const float limiterThreshold = limiterSmooth.getNextValue();
-    if (limiterThreshold < -0.1f)
-    {
-        limiter.setThreshold(limiterThreshold);
-        limiter.process(context);
-    }
+    const bool limiterActive = limiterThreshold < -0.1f;
+    debugTelemetry.captureControls(outputVolDb, limiterThreshold, limiterActive);
 
-    const bool engageDCBlock = std::abs(outputVolDb) > 0.001f || limiterThreshold < -0.1f;
+    if (limiterActive)
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch),
+                buffer.getReadPointer(ch),
+                buffer.getNumSamples());
+
+        limiter.setThresholdDb(limiterThreshold);
+        limiter.process(buffer);
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            const auto* before = scratchBuffer.getReadPointer(ch);
+            const auto* after = buffer.getReadPointer(ch);
+
+            for (int sampleIndex = 0; sampleIndex < buffer.getNumSamples(); ++sampleIndex)
+            {
+                const float delta = std::abs(before[sampleIndex] - after[sampleIndex]);
+                debugTelemetry.limiterDeltaPeak = juce::jmax(debugTelemetry.limiterDeltaPeak, delta);
+                if (delta >= 1.0e-5f)
+                    ++debugTelemetry.limiterTouchedSamples;
+            }
+        }
+    }
+    debugTelemetry.postLimiterStage.capture(buffer);
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch),
+            buffer.getReadPointer(ch),
+            buffer.getNumSamples());
 
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
     {
         auto* data = buffer.getWritePointer(ch);
-        auto& dcBlock = dcBlockers[(size_t)juce::jmin(ch, (int)dcBlockers.size() - 1)];
+        const auto* preCeiling = scratchBuffer.getReadPointer(ch);
 
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
-            float sample = applySoftCeiling(data[i]);
-            if (engageDCBlock)
-                sample = dcBlock.process(sample);
+            const float shaped = applySoftCeiling(data[i]);
+            const float delta = std::abs(preCeiling[i] - shaped);
+            debugTelemetry.softCeilingDeltaPeak = juce::jmax(debugTelemetry.softCeilingDeltaPeak, delta);
+            if (delta >= 1.0e-5f)
+                ++debugTelemetry.softCeilingTouchedSamples;
 
-            data[i] = sample;
+            data[i] = shaped;
         }
     }
+
+    signalTelemetry.captureOutputAndEmitIfNeeded(buffer,
+        [this]()
+        {
+            auto safeMin = [](float value)
+            {
+                return value >= 1.0e8f ? 0.0f : value;
+            };
+
+            juce::String report;
+            report << debugTelemetry.postDcStage.buildSummary("dcBlock.stage") << juce::newLine
+                   << debugTelemetry.postGainStage.buildSummary("gain.stage") << juce::newLine
+                   << debugTelemetry.postLimiterStage.buildSummary("limiter.stage") << juce::newLine
+                   << "stage.deltas: limiterDeltaPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.limiterDeltaPeak)
+                   << ", limiterTouchedSamples=" << debugTelemetry.limiterTouchedSamples
+                   << ", softCeilingDeltaPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.softCeilingDeltaPeak)
+                   << ", softCeilingTouchedSamples=" << debugTelemetry.softCeilingTouchedSamples
+                   << juce::newLine
+                   << "params: tag=" << telemetryTag
+                   << ", outputVolDbMin=" << NovaDiagnostics::formatTelemetryScalar(safeMin(debugTelemetry.outputVolDbMin))
+                   << ", outputVolDbMax=" << NovaDiagnostics::formatTelemetryScalar(juce::jmax(debugTelemetry.outputVolDbMax, safeMin(debugTelemetry.outputVolDbMin)))
+                   << ", limiterThresholdMin=" << NovaDiagnostics::formatTelemetryScalar(safeMin(debugTelemetry.limiterThresholdMin))
+                   << ", limiterThresholdMax=" << NovaDiagnostics::formatTelemetryScalar(juce::jmax(debugTelemetry.limiterThresholdMax, safeMin(debugTelemetry.limiterThresholdMin)))
+                   << ", limiterActiveBlocks=" << debugTelemetry.limiterActiveBlocks
+                   << ", hardSync=" << (hardSyncParams ? "true" : "false");
+            return report;
+        },
+        [this]()
+        {
+            debugTelemetry.resetWindow();
+        });
 
     hardSyncParams = false;
 }

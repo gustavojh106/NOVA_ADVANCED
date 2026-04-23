@@ -1,0 +1,7 @@
+results=117 passes=1040 failures=4 failingResults=1
+status=FAIL
+FAIL | Audio Engine Validation | Processor switcher cycles through all three routing modes | passes=0 failures=4
+  !!! Test 1 failed: Expected value: 0, Actual value: 1
+  !!! Test 2 failed: Expected value: 2, Actual value: 0
+  !!! Test 3 failed: Expected value: 1, Actual value: 2
+  !!! Test 4 failed: Expected value: 0, Actual value: 1

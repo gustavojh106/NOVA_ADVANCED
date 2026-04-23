@@ -121,7 +121,7 @@ class NeuralPedal final : public ProcessorBase
 {
 public:
     NeuralPedal()
-        : oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
+        : oversampler(2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
         addParameter(driveParam = new juce::AudioParameterFloat("neuralDrive", "Drive", 0.0f, 100.0f, 54.0f));
         addParameter(focusParam = new juce::AudioParameterFloat("neuralFocus", "Focus", 0.0f, 1.0f, 0.58f));
@@ -151,6 +151,8 @@ public:
         focusBody.prepare(innerSampleRate, numChannels);
         toneBody.prepare(innerSampleRate, numChannels);
         airLowPass.prepare(innerSampleRate, numChannels);
+        speakerHighPass.prepare(innerSampleRate, numChannels);
+        speakerLowPass.prepare(innerSampleRate, numChannels);
         dcBlock.prepare(innerSampleRate, numChannels);
         envelopeFollower.prepare(innerSampleRate, numChannels);
 
@@ -202,6 +204,8 @@ public:
         focusBody.reset();
         toneBody.reset();
         airLowPass.reset();
+        speakerHighPass.reset();
+        speakerLowPass.reset();
         dcBlock.reset();
         envelopeFollower.reset();
 
@@ -269,6 +273,8 @@ public:
         focusBody.ensureChannels((size_t) upsampled.getNumChannels());
         toneBody.ensureChannels((size_t) upsampled.getNumChannels());
         airLowPass.ensureChannels((size_t) upsampled.getNumChannels());
+        speakerHighPass.ensureChannels((size_t) upsampled.getNumChannels());
+        speakerLowPass.ensureChannels((size_t) upsampled.getNumChannels());
         dcBlock.ensureChannels((size_t) upsampled.getNumChannels());
         envelopeFollower.ensureChannels((size_t) upsampled.getNumChannels());
 
@@ -314,6 +320,9 @@ public:
                 shaped += lowBody * toneModel.bodyLift;
                 const float airBase = airLowPass.processLowPass(ch, shaped);
                 shaped = airBase + (shaped - airBase) * toneModel.airLift;
+                const float speakerShaped = speakerLowPass.processLowPass(ch,
+                    speakerHighPass.processHighPass(ch, shaped));
+                shaped = Nova::NeuralDSP::blend(shaped, speakerShaped, toneModel.speakerBlend);
                 shaped = dcBlock.processHighPass(ch, shaped);
                 data[sample] = shaped * toneModel.outputTrim;
             }
@@ -366,6 +375,7 @@ private:
         float focusLowTrim = 0.0f;
         float bodyLift = 0.0f;
         float airLift = 0.0f;
+        float speakerBlend = 0.0f;
         float asymmetry = 0.0f;
         float voiceBlend = 0.5f;
         float outputTrim = 1.0f;
@@ -373,7 +383,7 @@ private:
 
     static int oversamplingFactor() noexcept
     {
-        return 4;
+        return 8;
     }
 
     static float snapMixTarget(float mix) noexcept
@@ -415,6 +425,8 @@ private:
         focusBody.setCutoff(juce::jmap(focus, 95.0f, 340.0f));
         toneBody.setCutoff(juce::jmap(juce::jlimit(0.0f, 1.0f, 0.22f + detail * 0.46f), 135.0f, 340.0f));
         airLowPass.setCutoff(juce::jmap(juce::jlimit(0.0f, 1.0f, 0.28f + detail * 0.58f - drive * 0.12f), 3500.0f, 12500.0f));
+        speakerHighPass.setCutoff(juce::jmap(juce::jlimit(0.0f, 1.0f, focus * 0.72f + comp * 0.18f), 52.0f, 145.0f));
+        speakerLowPass.setCutoff(juce::jmap(juce::jlimit(0.0f, 1.0f, 0.24f + detail * 0.48f - drive * 0.10f + focus * 0.08f), 3000.0f, 7600.0f));
         dcBlock.setCutoff(18.0f);
 
         toneModel.stageDriveA = 1.12f + drive * 3.8f + comp * 0.55f;
@@ -424,6 +436,7 @@ private:
         toneModel.focusLowTrim = juce::jmap(focus, 0.0f, 0.46f);
         toneModel.bodyLift = juce::jmap(juce::jlimit(0.0f, 1.0f, detail * 0.56f + comp * 0.16f - focus * 0.22f), -0.04f, 0.18f);
         toneModel.airLift = juce::jmap(detail, 0.42f, 0.98f);
+        toneModel.speakerBlend = juce::jlimit(0.12f, 0.86f, 0.26f + drive * 0.18f + comp * 0.20f - detail * 0.08f);
         toneModel.asymmetry = (detail - 0.5f) * 0.12f + comp * 0.02f;
         toneModel.voiceBlend = juce::jlimit(0.18f, 0.92f, 0.32f + detail * 0.46f + comp * 0.12f);
         toneModel.outputTrim = juce::Decibels::decibelsToGain(juce::jmap(drive, -0.25f, -2.10f));
@@ -434,6 +447,8 @@ private:
     Nova::NeuralDSP::OnePoleFilterBank focusBody;
     Nova::NeuralDSP::OnePoleFilterBank toneBody;
     Nova::NeuralDSP::OnePoleFilterBank airLowPass;
+    Nova::NeuralDSP::OnePoleFilterBank speakerHighPass;
+    Nova::NeuralDSP::OnePoleFilterBank speakerLowPass;
     Nova::NeuralDSP::OnePoleFilterBank dcBlock;
     Nova::NeuralDSP::EnvelopeFollower envelopeFollower;
 

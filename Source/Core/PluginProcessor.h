@@ -89,10 +89,15 @@ private:
     void logRuntimeSnapshot(const juce::String& context, const AudioEngine::RuntimeGlobalParams& snapshot) const;
     void logStateSnapshot(const juce::String& context) const;
     void synchronizeEngineNow();
+    void hardRefreshAudioEngineForCurrentIO();
+    void invalidateEnginePushCaches(bool invalidateEngineEnabled, bool invalidateRuntimeGlobals);
+    bool shouldPushEngineEnabled(bool current);
+    bool shouldPushRuntimeGlobals(const AudioEngine::RuntimeGlobalParams& current, bool force);
     void resetSessionState(bool forgetStartupPreset);
     bool restoreStartupPresetIfAvailable();
 
     AudioEngine audioEngine;
+    mutable juce::SpinLock enginePushStateLock;
     bool hasPushedRuntimeGlobals = false;
     bool hasPushedEngineEnabled = false;
     bool lastEngineEnabled = false;

@@ -203,17 +203,20 @@ protected:
 
         const int numSamples = buffer.getNumSamples();
         const int numChannels = buffer.getNumChannels();
+        constexpr float halfPi = juce::MathConstants<float>::halfPi;
 
         for (int i = 0; i < numSamples; ++i)
         {
             const float wet = wetMix.getNextValue();
-            const float dry = 1.0f - wet;
+            const float wetPhase = juce::jlimit(0.0f, 1.0f, wet) * halfPi;
+            const float dryGain = wet <= 1.0e-5f ? 1.0f : std::cos(wetPhase);
+            const float wetGain = wet >= 0.99999f ? 1.0f : std::sin(wetPhase);
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 auto* out = buffer.getWritePointer(ch);
                 const auto* in = dryBuffer.getReadPointer(ch);
-                out[i] = (out[i] * wet) + (in[i] * dry);
+                out[i] = (out[i] * wetGain) + (in[i] * dryGain);
             }
         }
 

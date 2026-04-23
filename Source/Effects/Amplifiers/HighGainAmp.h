@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 #include "../Pedals/Base/ProcessorBase.h"
 #include "../Pedals/Base/PremiumPedalUI.h"
@@ -12,7 +13,7 @@ class HighGainAmp final : public ProcessorBase
 {
 public:
     HighGainAmp()
-        : oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
+        : oversampler(2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
         addParameter(driveParam = new juce::AudioParameterFloat("hgDrive", "Drive", 1.0f, 10.0f, 5.5f));
         addParameter(toneParam = new juce::AudioParameterFloat("hgTone", "Tone", 0.0f, 1.0f, 0.55f));
@@ -51,11 +52,11 @@ public:
         oversampler.reset();
         oversampler.initProcessing((size_t)juce::jmax(1, samplesPerBlock));
 
-        currentInnerRate = sampleRate * 4.0;
+        currentInnerRate = sampleRate * 8.0;
 
         juce::dsp::ProcessSpec innerSpec;
         innerSpec.sampleRate = currentInnerRate;
-        innerSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock * 4);
+        innerSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock * 8);
         innerSpec.numChannels = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
 
         inputHighPass.prepare(innerSpec);
@@ -124,6 +125,9 @@ public:
         {
             const int channels = (int)upsampled.getNumChannels();
             const int samples = (int)upsampled.getNumSamples();
+            std::vector<float*> channelData((size_t)channels);
+            for (int ch = 0; ch < channels; ++ch)
+                channelData[(size_t) ch] = upsampled.getChannelPointer((size_t) ch);
 
             for (int sample = 0; sample < samples; ++sample)
             {
@@ -132,7 +136,7 @@ public:
 
                 for (int ch = 0; ch < channels; ++ch)
                 {
-                    auto* data = upsampled.getChannelPointer((size_t)ch);
+                    auto* data = channelData[(size_t) ch];
                     float x = data[sample];
 
                     // Power supply sag
@@ -226,7 +230,7 @@ private:
     juce::AudioParameterFloat* tightParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
 
-    double currentInnerRate = 176400.0;
+    double currentInnerRate = 352800.0;
     float cachedTone = std::numeric_limits<float>::quiet_NaN();
     float cachedPresence = std::numeric_limits<float>::quiet_NaN();
     float cachedTight = std::numeric_limits<float>::quiet_NaN();

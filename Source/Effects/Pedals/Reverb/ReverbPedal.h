@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Base/ProcessorBase.h"
+#include "../../../Core/PedalSignalTelemetry.h"
 
 #include <JuceHeader.h>
 #include <array>
@@ -699,6 +700,13 @@ public:
         for (auto& d : dampers) d.reset();
         for (auto& hp : dampHP) hp.reset();
         for (auto& lp : dampLP) lp.reset();
+        for (auto& hp : loopInputHP)
+        {
+            hp.reset();
+            hp.setCutoff(30.0f, sr);
+        }
+        for (auto& dc : feedbackDCBlock)
+            dc.reset();
 
         er.prepare(sr);
         shimmer.prepare(sr);
@@ -744,6 +752,7 @@ public:
         bloomLP.setCutoff(1800.0f, sr);
 
         reset();
+        resetDebugTelemetry();
     }
 
     void reset()
@@ -756,6 +765,8 @@ public:
         for (auto& d : dampers)    d.reset();
         for (auto& hp : dampHP)    hp.reset();
         for (auto& lp : dampLP)    lp.reset();
+        for (auto& hp : loopInputHP) hp.reset();
+        for (auto& dc : feedbackDCBlock) dc.reset();
         er.reset();
         shimmer.reset();
         shimmerLP.reset();
@@ -772,6 +783,7 @@ public:
         duckEnv = 0.0f;
         swellEnv = 0.0f;
         gateEnv = 0.0f;
+        resetDebugTelemetry();
     }
 
     // Call when any parameter changes (cheap — not per-sample)
@@ -1084,13 +1096,15 @@ public:
         // ---- Write back into FDN lines ----
         for (int i = 0; i < NUM_LINES; ++i)
         {
-            float fbSig = gatedFeedback * lineOut[(size_t)i];
+            const float feedbackSample = feedbackDCBlock[(size_t)i].process(lineOut[(size_t)i]);
+            float fbSig = gatedFeedback * feedbackSample;
             // Soft-limit feedback (transparent below ±2.5, compresses above)
             fbSig = std::tanh(fbSig * 0.4f) * 2.5f;
             const float stereoExcite = delayedSide * width * modeStereoExcite * kTapR[(size_t)i]
                 * performance.swellGain;
             float inp = (diffused + stereoExcite) * kInvSqrt8 + fbSig;
             if (useShimmer) inp += shimSig * kInvSqrt8;
+            inp = loopInputHP[(size_t)i].process(inp);
             lines[i].write(inp);
         }
 
@@ -1177,6 +1191,7 @@ public:
             er.process(delayedMid, erL, erR);
             erL = (erL + delayedSide * 0.08f * width) * performance.swellGain;
             erR = (erR - delayedSide * 0.08f * width) * performance.swellGain;
+            debugTelemetry.erPeak = juce::jmax(debugTelemetry.erPeak, juce::jmax(std::abs(erL), std::abs(erR)));
 
             float diffused = delayedMid;
             for (auto& d : diffusers)
@@ -1184,10 +1199,16 @@ public:
             if (useDisp)
                 for (auto& d : dispersion)
                     diffused = d.process(diffused);
+            debugTelemetry.diffusedPeak = juce::jmax(debugTelemetry.diffusedPeak, std::abs(diffused));
 
             const float inputInject = 1.0f - freeze * 0.985f;
             const float loopFeedback = lerp(fb, juce::jmax(fb, 0.9992f), freeze);
             const float gatedFeedback = loopFeedback * performance.gateFeedbackScale;
+            debugTelemetry.inputInjectMin = juce::jmin(debugTelemetry.inputInjectMin, inputInject);
+            debugTelemetry.inputInjectMax = juce::jmax(debugTelemetry.inputInjectMax, inputInject);
+            debugTelemetry.loopFeedbackMax = juce::jmax(debugTelemetry.loopFeedbackMax, loopFeedback);
+            debugTelemetry.gatedFeedbackMax = juce::jmax(debugTelemetry.gatedFeedbackMax, gatedFeedback);
+            debugTelemetry.freezeMax = juce::jmax(debugTelemetry.freezeMax, freeze);
             const float attackExcite = std::tanh(diffused * modeInputDrive * 0.7f)
                 * modeAttackMix * performance.swellGain;
             diffused *= modeInputDrive * inputInject * performance.swellGain;
@@ -1213,6 +1234,7 @@ public:
                 lineOut[(size_t)i] = dampLP[i].process(lineOut[(size_t)i]);
                 if (freeze > 0.0f)
                     lineOut[(size_t)i] = lerp(lineOut[(size_t)i], rawLineOut[(size_t)i], freeze * 0.94f);
+                debugTelemetry.fdnPeak = juce::jmax(debugTelemetry.fdnPeak, std::abs(lineOut[(size_t)i]));
             }
 
             float lateMid = 0.0f, lateSide = 0.0f;
@@ -1234,15 +1256,18 @@ public:
                     monoFdn += lineOut[(size_t)i];
                 monoFdn *= kInvSqrt8;
                 shimSig  = shimmerLP.process(shimmer.process(monoFdn)) * shimmerMix_;
+                debugTelemetry.shimmerPeak = juce::jmax(debugTelemetry.shimmerPeak, std::abs(shimSig));
             }
 
             for (int i = 0; i < NUM_LINES; ++i)
             {
-                float fbSig = std::tanh(gatedFeedback * lineOut[(size_t)i] * 0.4f) * 2.5f;
+                const float feedbackSample = feedbackDCBlock[(size_t)i].process(lineOut[(size_t)i]);
+                float fbSig = std::tanh(gatedFeedback * feedbackSample * 0.4f) * 2.5f;
                 const float stereoExcite = delayedSide * width * modeStereoExcite * kTapR[(size_t)i]
                     * performance.swellGain;
                 float inp = (diffused + stereoExcite) * kInvSqrt8 + fbSig;
                 if (useShimmer) inp += shimSig * kInvSqrt8;
+                inp = loopInputHP[(size_t)i].process(inp);
                 lines[i].write(inp);
             }
 
@@ -1265,14 +1290,22 @@ public:
             const float reverseSeedR = (lateR + erR * 0.24f + attackExcite * 0.36f) * performance.reverseSendScale;
             const float reverseL = reverseVoiceL.process(reverseSeedL);
             const float reverseR = reverseVoiceR.process(reverseSeedR);
+            debugTelemetry.reversePeak = juce::jmax(debugTelemetry.reversePeak, juce::jmax(std::abs(reverseL), std::abs(reverseR)));
             const float reverseDryBlend = 1.0f - shapedReverseAmount * 0.52f;
             const float reverseWetBlend = 0.20f + shapedReverseAmount * (1.28f + modeBloomMix * 0.50f);
             lateL = lateL * reverseDryBlend + reverseL * reverseWetBlend;
             lateR = lateR * reverseDryBlend + reverseR * reverseWetBlend;
+            debugTelemetry.latePeak = juce::jmax(debugTelemetry.latePeak, juce::jmax(std::abs(lateL), std::abs(lateR)));
 
             const float erMix = erLevel * (1.0f - freeze) * (1.0f - shapedReverseAmount * (0.72f + swellAmount * 0.08f));
             const float wetGain = performance.duckGain * performance.gateGain * performance.wetTrim;
             const float freezeHoldTrim = 1.0f + freeze * 0.035f;
+            debugTelemetry.duckGainMin = juce::jmin(debugTelemetry.duckGainMin, performance.duckGain);
+            debugTelemetry.duckGainMax = juce::jmax(debugTelemetry.duckGainMax, performance.duckGain);
+            debugTelemetry.gateGainMin = juce::jmin(debugTelemetry.gateGainMin, performance.gateGain);
+            debugTelemetry.gateGainMax = juce::jmax(debugTelemetry.gateGainMax, performance.gateGain);
+            debugTelemetry.wetTrimMin = juce::jmin(debugTelemetry.wetTrimMin, performance.wetTrim);
+            debugTelemetry.wetTrimMax = juce::jmax(debugTelemetry.wetTrimMax, performance.wetTrim);
             outL[s] = dcL.process((erL * erMix + lateL) * wetGain * freezeHoldTrim);
             outR[s] = dcR.process((erR * erMix + lateR) * wetGain * freezeHoldTrim);
         }
@@ -1280,7 +1313,69 @@ public:
 
     int currentMode = 0;
 
+    juce::String buildAndResetDebugTelemetryReport()
+    {
+        juce::String report;
+        report << "engine.window: mode=" << currentMode
+               << ", fdnPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.fdnPeak)
+               << ", diffusedPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.diffusedPeak)
+               << ", erPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.erPeak)
+               << ", latePeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.latePeak)
+               << ", reversePeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.reversePeak)
+               << ", shimmerPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.shimmerPeak)
+               << juce::newLine
+               << "engine.loop: inputInjectMin=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.inputInjectMin == 1.0e9f ? 0.0f : debugTelemetry.inputInjectMin)
+               << ", inputInjectMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.inputInjectMax)
+               << ", loopFeedbackMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.loopFeedbackMax)
+               << ", gatedFeedbackMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.gatedFeedbackMax)
+               << ", freezeMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.freezeMax)
+               << juce::newLine
+               << "engine.gains: duckMin=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.duckGainMin == 1.0e9f ? 0.0f : debugTelemetry.duckGainMin)
+               << ", duckMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.duckGainMax)
+               << ", gateMin=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.gateGainMin == 1.0e9f ? 0.0f : debugTelemetry.gateGainMin)
+               << ", gateMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.gateGainMax)
+               << ", wetTrimMin=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.wetTrimMin == 1.0e9f ? 0.0f : debugTelemetry.wetTrimMin)
+               << ", wetTrimMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.wetTrimMax);
+        resetDebugTelemetry();
+        return report;
+    }
+
 private:
+    struct DebugTelemetry
+    {
+        float fdnPeak = 0.0f;
+        float diffusedPeak = 0.0f;
+        float erPeak = 0.0f;
+        float latePeak = 0.0f;
+        float reversePeak = 0.0f;
+        float shimmerPeak = 0.0f;
+        float inputInjectMin = 1.0e9f;
+        float inputInjectMax = 0.0f;
+        float loopFeedbackMax = 0.0f;
+        float gatedFeedbackMax = 0.0f;
+        float freezeMax = 0.0f;
+        float duckGainMin = 1.0e9f;
+        float duckGainMax = 0.0f;
+        float gateGainMin = 1.0e9f;
+        float gateGainMax = 0.0f;
+        float wetTrimMin = 1.0e9f;
+        float wetTrimMax = 0.0f;
+
+        void reset() noexcept
+        {
+            *this = {};
+            inputInjectMin = 1.0e9f;
+            duckGainMin = 1.0e9f;
+            gateGainMin = 1.0e9f;
+            wetTrimMin = 1.0e9f;
+        }
+    };
+
+    void resetDebugTelemetry() noexcept
+    {
+        debugTelemetry.reset();
+    }
+
     void updatePerformanceEnvelopes(float midIn, float sideIn) noexcept
     {
         const float detector = std::abs(midIn) + 0.35f * std::abs(sideIn);
@@ -1396,6 +1491,8 @@ private:
     std::array<TwoBandDamper, NUM_LINES>  dampers;
     std::array<OnePoleHP, NUM_LINES>      dampHP;
     std::array<OnePoleLP, NUM_LINES>      dampLP;
+    std::array<OnePoleHP, NUM_LINES>      loopInputHP;
+    std::array<DCBlocker, NUM_LINES>      feedbackDCBlock;
     std::array<float, NUM_LINES>          modPhases{};
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> feedbackSmooth;
@@ -1441,6 +1538,7 @@ private:
     float hallBloomVoiceMix = 0.0f;
 
     DCBlocker dcL, dcR;
+    DebugTelemetry debugTelemetry;
 };
 
 }} // namespace Nova::Reverb
@@ -1513,6 +1611,7 @@ public:
         lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = lastSwell = lastGate = lastReverse = -1.0f;
         lastFreeze = false;
         reset();
+        signalTelemetry.reset();
         isPrepared = true;
     }
 
@@ -1522,6 +1621,7 @@ public:
     {
         engine.reset();
         if (mixParam) mixSmooth.setCurrentAndTargetValue(mixParam->get());
+        signalTelemetry.reset();
     }
 
     void getStateInformation(juce::MemoryBlock& destData) override
@@ -1629,6 +1729,7 @@ public:
             return;
 
         juce::ScopedNoDenormals noDenormals;
+        signalTelemetry.captureInput(buffer);
 
         // ---- Read parameters ----
         const int   mode    = modeParam    ? modeParam->getIndex()  : 0;
@@ -1731,6 +1832,33 @@ public:
                 dstR[s] = dryR[s] * dry + dstR[s] * wet;
         }
 
+        signalTelemetry.captureOutputAndEmitIfNeeded(buffer,
+            [this, decay, tone, size, damp, bass, diff, width, mod, pdMs, duck, swell, gate, reverse, freeze]()
+            {
+                juce::String report;
+                report << "params: mode="
+                       << (modeParam != nullptr ? modeParam->getCurrentChoiceName() : "Spring")
+                       << ", decay=" << NovaDiagnostics::formatTelemetryScalar(decay)
+                       << ", tone=" << NovaDiagnostics::formatTelemetryScalar(tone)
+                       << ", size=" << NovaDiagnostics::formatTelemetryScalar(size)
+                       << ", damping=" << NovaDiagnostics::formatTelemetryScalar(damp)
+                       << ", bassCut=" << NovaDiagnostics::formatTelemetryScalar(bass)
+                       << ", diffusion=" << NovaDiagnostics::formatTelemetryScalar(diff)
+                       << ", width=" << NovaDiagnostics::formatTelemetryScalar(width)
+                       << ", mod=" << NovaDiagnostics::formatTelemetryScalar(mod)
+                       << ", predelayMs=" << NovaDiagnostics::formatTelemetryScalar(pdMs)
+                       << ", mix=" << NovaDiagnostics::formatTelemetryScalar(mixParam ? mixParam->get() : 0.28f)
+                       << ", duck=" << NovaDiagnostics::formatTelemetryScalar(duck)
+                       << ", swell=" << NovaDiagnostics::formatTelemetryScalar(swell)
+                       << ", gate=" << NovaDiagnostics::formatTelemetryScalar(gate)
+                       << ", reverse=" << NovaDiagnostics::formatTelemetryScalar(reverse)
+                       << ", freeze=" << (freeze ? "true" : "false")
+                       << juce::newLine
+                       << engine.buildAndResetDebugTelemetryReport();
+                return report;
+            },
+            []() {});
+
         endBypassProcess(buffer);
     }
 
@@ -1818,6 +1946,7 @@ private:
     float  lastSwell = -1.0f, lastGate = -1.0f, lastReverse = -1.0f;
     bool   lastFreeze = false;
     bool   isPrepared = false;
+    NovaDiagnostics::PedalSignalTelemetry signalTelemetry { "reverb" };
 };
 
 #include "ReverbEditor.h"

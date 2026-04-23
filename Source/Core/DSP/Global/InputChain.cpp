@@ -26,6 +26,13 @@ void InputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
     gate.prepare(spec);
     gain.prepare(spec);
+    subsonicHighPass.prepare(spec);
+    *subsonicHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(sampleRate,
+        20.0f,
+        0.70710678f);
+    subsonicHighPass.reset();
+    for (auto& dcBlock : dcBlockers)
+        dcBlock.prepare(sampleRate);
     gain.setRampDurationSeconds(0.02);
     gain.setGainDecibels(inputGainDb);
     gain.reset();
@@ -55,6 +62,12 @@ void InputChainProcessor::reset()
 
     gain.setGainDecibels(inputGainDb);
     gain.reset();
+    subsonicHighPass.reset();
+    *subsonicHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentSampleRate,
+        20.0f,
+        0.70710678f);
+    for (auto& dcBlock : dcBlockers)
+        dcBlock.reset();
 
     transposeRatioSmooth.setCurrentAndTargetValue(semitonesToRatio(inputTranspose));
     transposeMixSmooth.setCurrentAndTargetValue(inputTranspose == 0 ? 0.0f : 1.0f);
@@ -120,6 +133,17 @@ void InputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
             default:
                 break;
         }
+    }
+
+    subsonicHighPass.process(context);
+
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        auto* data = buffer.getWritePointer(ch);
+        auto& dcBlock = dcBlockers[(size_t) juce::jmin(ch, (int) dcBlockers.size() - 1)];
+
+        for (int i = 0; i < numSamples; ++i)
+            data[i] = dcBlock.process(data[i]);
     }
 
     gain.setGainDecibels(inputGainDb);

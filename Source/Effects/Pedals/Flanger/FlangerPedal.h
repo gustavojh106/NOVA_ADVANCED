@@ -1,10 +1,12 @@
 #pragma once
 
 #include "../Base/ProcessorBase.h"
+#include "../../../Core/PedalSignalTelemetry.h"
 
 #include <JuceHeader.h>
 #include <array>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 namespace Nova { namespace FlangerDSP {
@@ -306,10 +308,14 @@ public:
             filter.reset();
         for (auto& filter : dcBlock)
             filter.reset();
+        for (auto& filter : feedbackLoopDCBlock)
+            filter.reset();
 
         updateFilters(true);
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
+        signalTelemetry.reset();
+        debugTelemetry.resetWindow();
         isPrepared = true;
     }
 
@@ -330,6 +336,8 @@ public:
             filter.reset();
         for (auto& filter : dcBlock)
             filter.reset();
+        for (auto& filter : feedbackLoopDCBlock)
+            filter.reset();
 
         feedbackState.fill(0.0f);
         lastDelayMs.fill(manualToCentreDelayMs(manualParam != nullptr ? manualParam->get() : 0.34f));
@@ -342,12 +350,17 @@ public:
         feedbackSmooth.setCurrentAndTargetValue(feedbackParam != nullptr ? feedbackParam->get() : 0.42f);
         widthSmooth.setCurrentAndTargetValue(widthParam != nullptr ? widthParam->get() : 0.68f);
         mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? mixParam->get() : 0.46f);
+
+        signalTelemetry.reset();
+        debugTelemetry.resetWindow();
     }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
+
+        signalTelemetry.captureInput(buffer);
 
         rateSmooth.setTargetValue(rateParam != nullptr ? rateParam->get() : 0.32f);
         depthSmooth.setTargetValue(depthParam != nullptr ? depthParam->get() : 0.72f);
@@ -378,6 +391,9 @@ public:
             std::array<float, 2> preFiltered { 0.0f, 0.0f };
             std::array<float, 2> wetRaw { 0.0f, 0.0f };
             std::array<float, 2> dampedWet { 0.0f, 0.0f };
+            std::array<float, 2> feedbackSeed { 0.0f, 0.0f };
+            std::array<float, 2> feedbackInject { 0.0f, 0.0f };
+            std::array<float, 2> writeSignal { 0.0f, 0.0f };
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
@@ -412,6 +428,7 @@ public:
                 const float delaySamples = Nova::FlangerDSP::msToSamples(delayMs, sr);
                 const float tapped = delayLines[(size_t) ch].readCubic(delaySamples);
                 const float damped = regenLPF[(size_t) ch].process(tapped);
+                const float dcSafeFeedback = feedbackLoopDCBlock[(size_t) ch].process(damped);
                 float wet = wetLPF[(size_t) ch].process(tapped);
                 wet = dcBlock[(size_t) ch].process(Nova::FlangerDSP::softClip(
                     wet * config.wetTrim,
@@ -425,11 +442,16 @@ public:
                     * width
                     * feedback;
 
-                delayLines[(size_t) ch].write(Nova::FlangerDSP::softClip(
+                const float injectedFeedback = localFeedback + crossFeedback;
+                const float delayWrite = Nova::FlangerDSP::softClip(
                     preFiltered[(size_t) ch] + localFeedback + crossFeedback,
-                    1.02f + config.writeDrive + std::abs(feedback) * 0.24f + depth * 0.16f));
+                    1.02f + config.writeDrive + std::abs(feedback) * 0.24f + depth * 0.16f);
+                delayLines[(size_t) ch].write(delayWrite);
 
                 dampedWet[(size_t) ch] = damped;
+                feedbackSeed[(size_t) ch] = juce::jlimit(-1.15f, 1.15f, dcSafeFeedback);
+                feedbackInject[(size_t) ch] = injectedFeedback;
+                writeSignal[(size_t) ch] = delayWrite;
                 wetRaw[(size_t) ch] = wet * config.wetPolarity;
                 lastDelayMs[(size_t) ch] = delayMs;
             }
@@ -448,7 +470,17 @@ public:
             }
 
             for (int ch = 0; ch < numChannels; ++ch)
-                feedbackState[(size_t) ch] = dampedWet[(size_t) ch] * (0.88f - 0.12f * mix);
+            {
+                feedbackState[(size_t) ch] = feedbackSeed[(size_t) ch] * (0.88f - 0.12f * mix);
+                debugTelemetry.captureChannel(ch,
+                    lastDelayMs[(size_t) ch],
+                    wetRaw[(size_t) ch],
+                    dampedWet[(size_t) ch],
+                    feedbackSeed[(size_t) ch],
+                    feedbackState[(size_t) ch],
+                    feedbackInject[(size_t) ch],
+                    writeSignal[(size_t) ch]);
+            }
 
             const float dryGain = std::cos(mix * halfPi);
             const float wetGain = std::sin(mix * halfPi);
@@ -463,6 +495,16 @@ public:
             if (driftPhase >= 1.0f)
                 driftPhase -= 1.0f;
         }
+
+        signalTelemetry.captureOutputAndEmitIfNeeded(buffer,
+            [this]()
+            {
+                return debugTelemetry.buildReport(*this);
+            },
+            [this]()
+            {
+                debugTelemetry.resetWindow();
+            });
 
         endBypassProcess(buffer);
     }
@@ -494,6 +536,84 @@ public:
     std::array<float, 2> lastDelayMs {};
 
 private:
+    struct DebugTelemetry
+    {
+        std::array<float, 2> delayMsMin{};
+        std::array<float, 2> delayMsMax{};
+        std::array<float, 2> wetPeak{};
+        std::array<float, 2> dampedPeak{};
+        std::array<float, 2> feedbackSeedPeak{};
+        std::array<float, 2> feedbackStatePeak{};
+        std::array<float, 2> feedbackInjectPeak{};
+        std::array<float, 2> writePeak{};
+
+        void resetWindow() noexcept
+        {
+            delayMsMin = { { std::numeric_limits<float>::max(), std::numeric_limits<float>::max() } };
+            delayMsMax = {};
+            wetPeak = {};
+            dampedPeak = {};
+            feedbackSeedPeak = {};
+            feedbackStatePeak = {};
+            feedbackInjectPeak = {};
+            writePeak = {};
+        }
+
+        void captureChannel(int channel,
+            float delayMs,
+            float wet,
+            float damped,
+            float feedbackSeed,
+            float feedbackStateValue,
+            float feedbackInject,
+            float delayWrite) noexcept
+        {
+            const auto idx = (size_t) juce::jlimit(0, 1, channel);
+            delayMsMin[idx] = juce::jmin(delayMsMin[idx], delayMs);
+            delayMsMax[idx] = juce::jmax(delayMsMax[idx], delayMs);
+            wetPeak[idx] = juce::jmax(wetPeak[idx], std::abs(wet));
+            dampedPeak[idx] = juce::jmax(dampedPeak[idx], std::abs(damped));
+            feedbackSeedPeak[idx] = juce::jmax(feedbackSeedPeak[idx], std::abs(feedbackSeed));
+            feedbackStatePeak[idx] = juce::jmax(feedbackStatePeak[idx], std::abs(feedbackStateValue));
+            feedbackInjectPeak[idx] = juce::jmax(feedbackInjectPeak[idx], std::abs(feedbackInject));
+            writePeak[idx] = juce::jmax(writePeak[idx], std::abs(delayWrite));
+        }
+
+        juce::String buildReport(const FlangerPedal& pedal) const
+        {
+            juce::String report;
+            report << "params: mode="
+                   << (pedal.modeParam != nullptr ? pedal.modeParam->getCurrentChoiceName() : "Classic")
+                   << ", rate=" << NovaDiagnostics::formatTelemetryScalar(pedal.rateParam != nullptr ? pedal.rateParam->get() : 0.32f)
+                   << ", depth=" << NovaDiagnostics::formatTelemetryScalar(pedal.depthParam != nullptr ? pedal.depthParam->get() : 0.72f)
+                   << ", manual=" << NovaDiagnostics::formatTelemetryScalar(pedal.manualParam != nullptr ? pedal.manualParam->get() : 0.34f)
+                   << ", feedback=" << NovaDiagnostics::formatTelemetryScalar(pedal.feedbackParam != nullptr ? pedal.feedbackParam->get() : 0.42f)
+                   << ", width=" << NovaDiagnostics::formatTelemetryScalar(pedal.widthParam != nullptr ? pedal.widthParam->get() : 0.68f)
+                   << ", tone=" << NovaDiagnostics::formatTelemetryScalar(pedal.toneParam != nullptr ? pedal.toneParam->get() : 7800.0f)
+                   << ", mix=" << NovaDiagnostics::formatTelemetryScalar(pedal.mixParam != nullptr ? pedal.mixParam->get() : 0.46f)
+                   << juce::newLine
+                   << "delay.window: delayLMinMs=" << NovaDiagnostics::formatTelemetryScalar(delayMsMin[0] == std::numeric_limits<float>::max() ? 0.0f : delayMsMin[0])
+                   << ", delayLMaxMs=" << NovaDiagnostics::formatTelemetryScalar(delayMsMax[0])
+                   << ", delayRMinMs=" << NovaDiagnostics::formatTelemetryScalar(delayMsMin[1] == std::numeric_limits<float>::max() ? 0.0f : delayMsMin[1])
+                   << ", delayRMaxMs=" << NovaDiagnostics::formatTelemetryScalar(delayMsMax[1])
+                   << juce::newLine
+                   << "feedback.loop: seedLMax=" << NovaDiagnostics::formatTelemetryScalar(feedbackSeedPeak[0])
+                   << ", seedRMax=" << NovaDiagnostics::formatTelemetryScalar(feedbackSeedPeak[1])
+                   << ", stateLMax=" << NovaDiagnostics::formatTelemetryScalar(feedbackStatePeak[0])
+                   << ", stateRMax=" << NovaDiagnostics::formatTelemetryScalar(feedbackStatePeak[1])
+                   << ", injectLMax=" << NovaDiagnostics::formatTelemetryScalar(feedbackInjectPeak[0])
+                   << ", injectRMax=" << NovaDiagnostics::formatTelemetryScalar(feedbackInjectPeak[1])
+                   << ", writeLMax=" << NovaDiagnostics::formatTelemetryScalar(writePeak[0])
+                   << ", writeRMax=" << NovaDiagnostics::formatTelemetryScalar(writePeak[1])
+                   << juce::newLine
+                   << "wet.path: wetLMax=" << NovaDiagnostics::formatTelemetryScalar(wetPeak[0])
+                   << ", wetRMax=" << NovaDiagnostics::formatTelemetryScalar(wetPeak[1])
+                   << ", dampedLMax=" << NovaDiagnostics::formatTelemetryScalar(dampedPeak[0])
+                   << ", dampedRMax=" << NovaDiagnostics::formatTelemetryScalar(dampedPeak[1]);
+            return report;
+        }
+    };
+
     void updateFilters(bool force = false)
     {
         const float tone = toneParam != nullptr ? toneParam->get() : 7800.0f;
@@ -519,6 +639,8 @@ private:
             filter.setLowPass(wetCutoff, 0.62f, sr);
         for (auto& filter : dcBlock)
             filter.setHighPass(20.0f, 0.707f, sr);
+        for (auto& filter : feedbackLoopDCBlock)
+            filter.setHighPass(28.0f, 0.707f, sr);
     }
 
     double sr = 44100.0;
@@ -528,6 +650,7 @@ private:
     std::array<Nova::FlangerDSP::Biquad, 2> regenLPF;
     std::array<Nova::FlangerDSP::Biquad, 2> wetLPF;
     std::array<Nova::FlangerDSP::Biquad, 2> dcBlock;
+    std::array<Nova::FlangerDSP::Biquad, 2> feedbackLoopDCBlock;
     std::array<float, 2> feedbackState {};
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> rateSmooth;
@@ -541,6 +664,8 @@ private:
     float cachedTone = -1.0f;
     int cachedMode = -1;
     bool isPrepared = false;
+    NovaDiagnostics::PedalSignalTelemetry signalTelemetry { "flanger" };
+    DebugTelemetry debugTelemetry;
 };
 
 #include "FlangerEditor.h"

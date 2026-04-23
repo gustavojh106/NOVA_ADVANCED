@@ -403,24 +403,20 @@ void NOVAAudioProcessor::refreshEngineGlobalParamsIfNeeded(bool force)
     auto current = sessionCoordinator.getRuntimeGlobalParams();
     applyHostTransportState(*this, current);
 
-    if (!force && hasPushedRuntimeGlobals && !runtimeParamsDiffer(current, lastRuntimeGlobalParams))
+    if (!shouldPushRuntimeGlobals(current, force))
         return;
 
     audioEngine.updateGlobalParams(current);
-    lastRuntimeGlobalParams = current;
-    hasPushedRuntimeGlobals = true;
     logRuntimeSnapshot(force ? "runtime.push.forced" : "runtime.push", current);
 }
 
 void NOVAAudioProcessor::refreshEngineEnabledIfNeeded()
 {
     const bool current = sessionCoordinator.isEngineEnabled();
-    if (hasPushedEngineEnabled && current == lastEngineEnabled)
+    if (!shouldPushEngineEnabled(current))
         return;
 
     audioEngine.setEngineEnabled(current);
-    lastEngineEnabled = current;
-    hasPushedEngineEnabled = true;
     NovaDiagnostics::SessionLogger::logEvent("engine.toggle",
         "Engine state pushed to engineOn=" + boolToText(current));
 }
@@ -528,8 +524,7 @@ void NOVAAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
     }
 
     sessionCoordinator.rebuildEngineFromState(audioEngine);
-    hasPushedEngineEnabled = false;
-    hasPushedRuntimeGlobals = false;
+    invalidateEnginePushCaches(true, true);
     refreshEngineEnabledIfNeeded();
     refreshEngineGlobalParamsIfNeeded(true);
     synchronizeEngineNow();
@@ -562,8 +557,7 @@ bool NOVAAudioProcessor::loadPresetFromFile(const juce::File& file)
     if (!restored)
         return false;
 
-    hasPushedEngineEnabled = false;
-    hasPushedRuntimeGlobals = false;
+    invalidateEnginePushCaches(true, true);
     refreshEngineEnabledIfNeeded();
     refreshEngineGlobalParamsIfNeeded(true);
     synchronizeEngineNow();
@@ -588,8 +582,7 @@ void NOVAAudioProcessor::resetSessionState(bool forgetStartupPreset)
 
     sessionCoordinator.resetSessionState();
     sessionCoordinator.rebuildEngineFromState(audioEngine);
-    hasPushedEngineEnabled = false;
-    hasPushedRuntimeGlobals = false;
+    invalidateEnginePushCaches(true, true);
     refreshEngineEnabledIfNeeded();
     refreshEngineGlobalParamsIfNeeded(true);
     synchronizeEngineNow();
@@ -607,8 +600,7 @@ bool NOVAAudioProcessor::restoreStartupPresetIfAvailable()
 
     if (restored)
     {
-        hasPushedEngineEnabled = false;
-        hasPushedRuntimeGlobals = false;
+        invalidateEnginePushCaches(true, true);
         refreshEngineEnabledIfNeeded();
         refreshEngineGlobalParamsIfNeeded(true);
         synchronizeEngineNow();
@@ -693,8 +685,7 @@ void NOVAAudioProcessor::requestAddPedal(const juce::String& type,
         return;
 
     sessionCoordinator.rebuildEngineFromState(audioEngine);
-    hasPushedRuntimeGlobals = false;
-    hasPushedEngineEnabled = false;
+    invalidateEnginePushCaches(true, true);
     refreshEngineEnabledIfNeeded();
     refreshEngineGlobalParamsIfNeeded(true);
     synchronizeEngineNow();
@@ -717,8 +708,7 @@ void NOVAAudioProcessor::requestRemovePedal(Nova::ChainID chain, int index)
         return;
 
     sessionCoordinator.rebuildEngineFromState(audioEngine);
-    hasPushedRuntimeGlobals = false;
-    hasPushedEngineEnabled = false;
+    invalidateEnginePushCaches(true, true);
     refreshEngineEnabledIfNeeded();
     refreshEngineGlobalParamsIfNeeded(true);
     synchronizeEngineNow();
@@ -735,8 +725,7 @@ void NOVAAudioProcessor::requestMovePedal(Nova::ChainID chain,
         return;
 
     sessionCoordinator.rebuildEngineFromState(audioEngine);
-    hasPushedRuntimeGlobals = false;
-    hasPushedEngineEnabled = false;
+    invalidateEnginePushCaches(true, true);
     refreshEngineEnabledIfNeeded();
     refreshEngineGlobalParamsIfNeeded(true);
     synchronizeEngineNow();
@@ -767,8 +756,13 @@ void NOVAAudioProcessor::toggleEngine()
         return;
 
     const bool newState = !engineOnParam->get();
+
+    if (newState)
+        hardRefreshAudioEngineForCurrentIO();
+
     engineOnParam->setValueNotifyingHost(engineOnParam->convertTo0to1(newState));
     refreshEngineEnabledIfNeeded();
+    refreshEngineGlobalParamsIfNeeded(true);
     synchronizeEngineNow();
     logStateSnapshot("engine.toggled");
 }
@@ -839,7 +833,7 @@ void NOVAAudioProcessor::setSwitcherMode(Nova::SwitcherMode mode)
         return;
 
     switchModeParam->setValueNotifyingHost(switchModeParam->convertTo0to1(static_cast<float>(mode)));
-    hasPushedRuntimeGlobals = false;
+    invalidateEnginePushCaches(false, true);
     refreshEngineGlobalParamsIfNeeded(true);
     synchronizeEngineNow();
     NovaDiagnostics::SessionLogger::logEvent("switcher",
@@ -883,6 +877,60 @@ void NOVAAudioProcessor::logStateSnapshot(const juce::String& context) const
         "context=" + context + juce::newLine + NovaDiagnostics::SessionLogger::dumpValueTree(pluginState));
     NovaDiagnostics::SessionLogger::logEvent("engine.snapshot",
         "context=" + context + juce::newLine + audioEngine.buildDiagnosticReport());
+}
+
+void NOVAAudioProcessor::hardRefreshAudioEngineForCurrentIO()
+{
+    const double sampleRate = getSampleRate();
+    const int ioBlockSize = getBlockSize();
+    const int numInputs = getTotalNumInputChannels();
+    const int numOutputs = getTotalNumOutputChannels();
+
+    if (sampleRate <= 0.0 || ioBlockSize <= 0 || numInputs <= 0 || numOutputs <= 0)
+        return;
+
+    juce::String refreshMessage("Re-preparing AudioEngine from current processor IO before enabling.");
+    refreshMessage << " sampleRate=" << sampleRate
+        << ", blockSize=" << ioBlockSize
+        << ", inputs=" << numInputs
+        << ", outputs=" << numOutputs;
+    NovaDiagnostics::SessionLogger::logEvent("engine.hard_refresh", refreshMessage);
+
+    audioEngine.prepare(sampleRate, ioBlockSize, numInputs, numOutputs);
+    invalidateEnginePushCaches(false, true);
+}
+
+void NOVAAudioProcessor::invalidateEnginePushCaches(bool invalidateEngineEnabled, bool invalidateRuntimeGlobals)
+{
+    const juce::SpinLock::ScopedLockType lock(enginePushStateLock);
+
+    if (invalidateEngineEnabled)
+        hasPushedEngineEnabled = false;
+
+    if (invalidateRuntimeGlobals)
+        hasPushedRuntimeGlobals = false;
+}
+
+bool NOVAAudioProcessor::shouldPushEngineEnabled(bool current)
+{
+    const juce::SpinLock::ScopedLockType lock(enginePushStateLock);
+    if (hasPushedEngineEnabled && current == lastEngineEnabled)
+        return false;
+
+    lastEngineEnabled = current;
+    hasPushedEngineEnabled = true;
+    return true;
+}
+
+bool NOVAAudioProcessor::shouldPushRuntimeGlobals(const AudioEngine::RuntimeGlobalParams& current, bool force)
+{
+    const juce::SpinLock::ScopedLockType lock(enginePushStateLock);
+    if (!force && hasPushedRuntimeGlobals && !runtimeParamsDiffer(current, lastRuntimeGlobalParams))
+        return false;
+
+    lastRuntimeGlobalParams = current;
+    hasPushedRuntimeGlobals = true;
+    return true;
 }
 
 void NOVAAudioProcessor::synchronizeEngineNow()

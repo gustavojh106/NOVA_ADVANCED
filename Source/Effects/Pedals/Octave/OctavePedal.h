@@ -83,70 +83,167 @@ struct PeriodTracker
     void prepare(double sampleRate)
     {
         sr = juce::jmax(1.0, sampleRate);
+        decimatedSr = (float) (sr / (double) kDecimation);
         reset();
     }
 
     void reset() noexcept
     {
-        lastSample = 0.0f;
-        trackedPeriod = (float) (sr / 110.0);
+        history.fill(0.0f);
+        writePos = 0;
+        decimateAccumulator = 0.0f;
+        decimateCounter = 0;
+        analysisCounter = 0;
+        trackedPeriod = juce::jlimit((float) getMinLag(), (float) getMaxLag(), decimatedSr / 110.0f);
         smoothedFreq = 110.0f;
         confidence = 0.0f;
-        sinceLastTrigger = 1000000;
-        idleSamples = 0;
+        bestCorrelation = 0.0f;
     }
 
     float process(float conditioned, float envelope) noexcept
     {
-        ++sinceLastTrigger;
-        ++idleSamples;
-
-        const float threshold = juce::jlimit(0.0025f, 0.06f, 0.004f + envelope * 0.14f);
-        const bool armed = lastSample <= threshold * 0.10f;
-        const bool trigger = armed && conditioned >= threshold && sinceLastTrigger > getMinPeriodSamples();
-
-        if (trigger)
+        decimateAccumulator += conditioned;
+        if (++decimateCounter >= kDecimation)
         {
-            const int candidate = sinceLastTrigger;
-            if (candidate >= getMinPeriodSamples() && candidate <= getMaxPeriodSamples())
-            {
-                const float candidatePeriod = (float) candidate;
-                const float tolerance = juce::jmax(6.0f, trackedPeriod * 0.55f);
-                const float blend = std::abs(candidatePeriod - trackedPeriod) <= tolerance ? 0.24f : 0.11f;
-                trackedPeriod += (candidatePeriod - trackedPeriod) * blend;
-                confidence = juce::jmin(1.0f, confidence + 0.16f);
-                idleSamples = 0;
-            }
-
-            sinceLastTrigger = 0;
-        }
-        else if (idleSamples > (int) std::round(trackedPeriod * 1.8f))
-        {
-            confidence *= 0.995f;
+            pushDecimatedSample(decimateAccumulator * (1.0f / (float) kDecimation), envelope);
+            decimateAccumulator = 0.0f;
+            decimateCounter = 0;
         }
 
-        if (envelope < threshold * 0.75f)
+        const float envelopeFloor = juce::jlimit(0.0025f, 0.04f, 0.0035f + envelope * 0.045f);
+        if (envelope < envelopeFloor)
             confidence *= 0.992f;
 
-        const float targetFreq = juce::jlimit(48.0f, 920.0f, (float) (sr / juce::jmax(1.0f, trackedPeriod)));
-        smoothedFreq += (targetFreq - smoothedFreq) * 0.075f;
-        lastSample = conditioned;
+        const float targetFreq = juce::jlimit(48.0f, 920.0f, decimatedSr / juce::jmax(1.0f, trackedPeriod));
+        const float trackingSlew = juce::jmap(confidence, 0.025f, 0.12f);
+        smoothedFreq += (targetFreq - smoothedFreq) * trackingSlew;
         return smoothedFreq;
     }
 
     float getConfidence() const noexcept { return confidence; }
 
 private:
-    int getMinPeriodSamples() const noexcept { return juce::jmax(6, (int) std::round(sr / 950.0)); }
-    int getMaxPeriodSamples() const noexcept { return juce::jmax(16, (int) std::round(sr / 45.0)); }
+    static constexpr int kDecimation = 4;
+    static constexpr int kHistorySize = 768;
+    static constexpr int kAnalysisHop = 8;
+
+    int getMinLag() const noexcept { return juce::jmax(6, (int) std::round(decimatedSr / 920.0f)); }
+    int getMaxLag() const noexcept { return juce::jmin(kHistorySize / 3, juce::jmax(18, (int) std::round(decimatedSr / 48.0f))); }
+
+    int wrapIndex(int index) const noexcept
+    {
+        while (index < 0)
+            index += kHistorySize;
+        while (index >= kHistorySize)
+            index -= kHistorySize;
+        return index;
+    }
+
+    float historyAt(int offsetFromNewest) const noexcept
+    {
+        return history[(size_t) wrapIndex(writePos - 1 - offsetFromNewest)];
+    }
+
+    float computeCorrelation(int lag, int window) const noexcept
+    {
+        float sumXY = 0.0f;
+        float sumXX = 0.0f;
+        float sumYY = 0.0f;
+
+        for (int i = 0; i < window; ++i)
+        {
+            const float x = historyAt(i);
+            const float y = historyAt(i + lag);
+            sumXY += x * y;
+            sumXX += x * x;
+            sumYY += y * y;
+        }
+
+        const float denom = std::sqrt(juce::jmax(1.0e-12f, sumXX * sumYY));
+        return denom > 0.0f ? sumXY / denom : 0.0f;
+    }
+
+    void analysePitch(float envelope) noexcept
+    {
+        const int minLag = getMinLag();
+        const int maxLag = getMaxLag();
+        const int window = juce::jlimit(96, 256, maxLag + 24);
+
+        float bestScore = -1.0f;
+        int bestLag = juce::jlimit(minLag, maxLag, juce::roundToInt(trackedPeriod));
+        float halfLagScore = -1.0f;
+        const int halfCandidate = juce::jlimit(minLag, maxLag, juce::jmax(minLag, bestLag / 2));
+
+        for (int lag = minLag; lag <= maxLag; ++lag)
+        {
+            const float correlation = computeCorrelation(lag, window);
+            const float continuityBias = 1.0f / (1.0f + std::abs((float) lag - trackedPeriod) * 0.012f);
+            const float biasedScore = correlation * (0.88f + continuityBias * 0.12f);
+
+            if (lag == halfCandidate)
+                halfLagScore = correlation;
+
+            if (biasedScore > bestScore)
+            {
+                bestScore = biasedScore;
+                bestLag = lag;
+            }
+        }
+
+        if (bestLag / 2 >= minLag)
+        {
+            const int candidate = bestLag / 2;
+            const float candidateScore = computeCorrelation(candidate, window);
+            if (candidateScore > bestScore * 0.94f)
+            {
+                bestLag = candidate;
+                bestScore = candidateScore;
+            }
+        }
+        else if (halfLagScore > bestScore * 0.95f)
+        {
+            bestLag = halfCandidate;
+            bestScore = halfLagScore;
+        }
+
+        bestCorrelation = juce::jlimit(0.0f, 1.0f, bestScore);
+
+        const float envelopeWeight = juce::jlimit(0.0f, 1.0f, (envelope - 0.003f) * 38.0f);
+        const float confidenceTarget = juce::jlimit(0.0f, 1.0f,
+            juce::jmap(bestCorrelation, 0.30f, 0.96f, 0.0f, 1.0f) * envelopeWeight);
+
+        if (confidenceTarget > 0.12f)
+        {
+            const float lagBlend = juce::jmap(confidenceTarget, 0.08f, 0.24f);
+            trackedPeriod += ((float) bestLag - trackedPeriod) * lagBlend;
+        }
+
+        confidence += (confidenceTarget - confidence) * (confidenceTarget > confidence ? 0.24f : 0.10f);
+    }
+
+    void pushDecimatedSample(float sample, float envelope) noexcept
+    {
+        history[(size_t) writePos] = sample;
+        writePos = (writePos + 1) % kHistorySize;
+
+        if (++analysisCounter >= kAnalysisHop)
+        {
+            analysisCounter = 0;
+            analysePitch(envelope);
+        }
+    }
 
     double sr = 44100.0;
-    float lastSample = 0.0f;
+    float decimatedSr = 11025.0f;
+    std::array<float, kHistorySize> history {};
+    int writePos = 0;
+    float decimateAccumulator = 0.0f;
+    int decimateCounter = 0;
+    int analysisCounter = 0;
     float trackedPeriod = 0.0f;
     float smoothedFreq = 110.0f;
     float confidence = 0.0f;
-    int sinceLastTrigger = 0;
-    int idleSamples = 0;
+    float bestCorrelation = 0.0f;
 };
 }
 
@@ -284,9 +381,9 @@ public:
             const float upperThird = std::sin(upperPhase * juce::MathConstants<float>::twoPi * 3.0f);
             const float upperFifth = std::sin(upperPhase * juce::MathConstants<float>::twoPi * 5.0f);
             const float upperOscCore = std::tanh((upperFund
-                + upperThird * (0.16f + tone * 0.28f)
-                + upperFifth * (0.04f + tone * 0.10f))
-                * (1.25f + tone * 2.0f)) * (0.12f + voiceLevel * 1.38f);
+                + upperThird * (0.11f + tone * 0.34f)
+                + upperFifth * (0.03f + tone * 0.14f))
+                * (0.95f + tone * 2.6f)) * (0.08f + voiceLevel * (1.04f + tone * 0.56f));
 
             const float wetTrim = 1.0f / (1.0f + subAmt * 0.38f + upperAmt * 0.24f);
 
@@ -298,15 +395,19 @@ public:
                 subVoice = subHighPass[(size_t) ch].process(subVoice);
                 subVoice = subLowPass[(size_t) ch].process(subVoice);
 
-                const float rectified = juce::jmax(0.0f, std::abs(dry) * (1.8f + voiceLevel * 2.8f) - (0.055f - tone * 0.02f));
+                const float rectified = juce::jmax(0.0f, std::abs(dry) * (1.7f + voiceLevel * 2.9f) - (0.060f - tone * 0.024f));
                 float upperTexture = upperTextureHighPass[(size_t) ch].process(rectified);
                 upperTexture = upperTextureLowPass[(size_t) ch].process(upperTexture);
-                const float textureAmount = juce::jlimit(0.0f, 1.0f, 0.22f + tone * 0.68f);
-                float upperVoice = juce::jmap(textureAmount, upperOscCore, upperTexture * (0.40f + tone * 0.34f + voiceLevel * 1.75f));
+                const float textureAmount = juce::jlimit(0.0f, 1.0f, 0.06f + tone * 0.74f);
+                const float harmonicLift = 0.54f + tone * 0.94f;
+                const float textureLift = 0.08f + tone * 0.72f + voiceLevel * 1.55f;
+                const float voicedUpper = upperOscCore * harmonicLift + upperTexture * textureLift;
+                float upperVoice = juce::jmap(textureAmount, upperOscCore, voicedUpper);
                 upperVoice = upperHighPass[(size_t) ch].process(upperVoice);
                 upperVoice = upperLowPass[(size_t) ch].process(upperVoice);
+                upperVoice *= 0.62f + tone * 0.96f;
 
-                float wet = subVoice * (subAmt * 0.96f) + upperVoice * (upperAmt * (0.86f + tone * 0.22f));
+                float wet = subVoice * (subAmt * 0.96f) + upperVoice * (upperAmt * (0.62f + tone * 0.90f));
                 wet = dcBlock[(size_t) ch].process(wet);
 
                 buffer.setSample(ch, sample, (dry * dryAmt + wet) * level * wetTrim);
@@ -363,10 +464,10 @@ private:
 
         const float subHighPassFreq = 18.0f + tone * 42.0f;
         const float subLowPassFreq = 240.0f + tone * 430.0f;
-        const float upperTextureHighPassFreq = 150.0f + tone * 360.0f;
-        const float upperTextureLowPassFreq = 1100.0f + tone * 5100.0f;
-        const float upperHighPassFreq = 260.0f + tone * 340.0f;
-        const float upperLowPassFreq = 1500.0f + tone * 5600.0f;
+        const float upperTextureHighPassFreq = 90.0f + tone * 220.0f;
+        const float upperTextureLowPassFreq = 900.0f + tone * 6200.0f;
+        const float upperHighPassFreq = 120.0f + tone * 130.0f;
+        const float upperLowPassFreq = 1100.0f + tone * 7200.0f;
 
         for (auto& filter : subHighPass)
             filter.setHighPass(subHighPassFreq, 0.707f, sr);

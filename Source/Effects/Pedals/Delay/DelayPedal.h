@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../Core/PedalSignalTelemetry.h"
 #include "../Base/ProcessorBase.h"
 
 #include <JuceHeader.h>
@@ -497,6 +498,8 @@ public:
         diffusionR[1].setDelay(juce::jmax(1, (int) (31.0 * ratio)));
 
         prepareBypassSmoother(sampleRate, samplesPerBlock);
+        signalTelemetry.reset();
+        debugTelemetry.resetWindow();
         reset();
         isPrepared = true;
     }
@@ -552,12 +555,16 @@ public:
 
         lastWetL = 0.0f;
         lastWetR = 0.0f;
+        signalTelemetry.reset();
+        debugTelemetry.resetWindow();
     }
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
+
+        signalTelemetry.captureInput(buffer);
 
         setTargetFromParam(feedbackSmooth, feedbackParam, 0.46f);
         setTargetFromParam(lowCutSmooth, lowCutParam, 70.0f);
@@ -713,6 +720,8 @@ public:
             const float loopTapR = Nova::DelayDSP::softSaturate(fbR, style.drive) * style.feedbackTrim;
             fbL = loopTapL * feedback;
             fbR = loopTapR * feedback;
+            float delayWriteL = inL + fbL;
+            float delayWriteR = inR + fbR;
 
             float freezeBlend = 0.0f;
 
@@ -740,6 +749,8 @@ public:
 
                 const float writeL = Nova::DelayDSP::softSaturate(holdStateL * freezeFeedback * freezeWriteTrim, 1.06f);
                 const float writeR = Nova::DelayDSP::softSaturate(holdStateR * freezeFeedback * freezeWriteTrim, 1.06f);
+                delayWriteL = writeL;
+                delayWriteR = writeR;
                 delayL.write(writeL);
                 delayR.write(writeR);
 
@@ -751,8 +762,8 @@ public:
             {
                 freezeActive = false;
                 freezeAgeSamples = 0;
-                delayL.write(inL + fbL);
-                delayR.write(inR + fbR);
+                delayL.write(delayWriteL);
+                delayR.write(delayWriteR);
             }
 
             const float reverseOutputComp = 1.0f + reverseBlend * 0.42f;
@@ -763,6 +774,32 @@ public:
 
             const float dryGain = std::cos(mix * halfPi);
             const float wetGain = std::sin(mix * halfPi);
+            debugTelemetry.captureChannel(0,
+                delayLSamples * 1000.0f / (float) sr,
+                wetNormalL,
+                reverseWetL,
+                loopTapL,
+                delayWriteL,
+                outWetL,
+                freezeRequested ? delayWriteL : 0.0f);
+            debugTelemetry.captureChannel(1,
+                delayRSamples * 1000.0f / (float) sr,
+                wetNormalR,
+                reverseWetR,
+                loopTapR,
+                delayWriteR,
+                outWetR,
+                freezeRequested ? delayWriteR : 0.0f);
+            debugTelemetry.captureControlWindow(inputSense,
+                duckGain,
+                swellGain,
+                performanceGain,
+                reverseBlend,
+                freezeBlend,
+                feedback,
+                mix,
+                dryGain,
+                wetGain);
 
             buffer.setSample(0, sample, inL * dryGain + outWetL * wetGain);
             if (numChannels > 1)
@@ -780,6 +817,16 @@ public:
 
         lastWetL = blockWetPeakL;
         lastWetR = blockWetPeakR;
+
+        signalTelemetry.captureOutputAndEmitIfNeeded(buffer,
+            [this]()
+            {
+                return debugTelemetry.buildReport(*this);
+            },
+            [this]()
+            {
+                debugTelemetry.resetWindow();
+            });
 
         endBypassProcess(buffer);
     }
@@ -805,6 +852,169 @@ public:
     float lastWetR = 0.0f;
 
 private:
+    struct DebugTelemetry
+    {
+        std::array<float, 2> delayMsMin{};
+        std::array<float, 2> delayMsMax{};
+        std::array<float, 2> wetPeak{};
+        std::array<float, 2> reversePeak{};
+        std::array<float, 2> loopTapPeak{};
+        std::array<float, 2> writePeak{};
+        std::array<float, 2> outputPeak{};
+        std::array<float, 2> freezeWritePeak{};
+        float inputSensePeak = 0.0f;
+        float duckGainMin = 1.0e9f;
+        float duckGainMax = 0.0f;
+        float swellGainMin = 1.0e9f;
+        float swellGainMax = 0.0f;
+        float performanceMin = 1.0e9f;
+        float performanceMax = 0.0f;
+        float reverseBlendMax = 0.0f;
+        float freezeBlendMax = 0.0f;
+        float feedbackMax = 0.0f;
+        float mixMin = 1.0e9f;
+        float mixMax = 0.0f;
+        float dryGainMin = 1.0e9f;
+        float dryGainMax = 0.0f;
+        float wetGainMin = 1.0e9f;
+        float wetGainMax = 0.0f;
+
+        void resetWindow() noexcept
+        {
+            delayMsMin = { { std::numeric_limits<float>::max(), std::numeric_limits<float>::max() } };
+            delayMsMax = {};
+            wetPeak = {};
+            reversePeak = {};
+            loopTapPeak = {};
+            writePeak = {};
+            outputPeak = {};
+            freezeWritePeak = {};
+            inputSensePeak = 0.0f;
+            duckGainMin = 1.0e9f;
+            duckGainMax = 0.0f;
+            swellGainMin = 1.0e9f;
+            swellGainMax = 0.0f;
+            performanceMin = 1.0e9f;
+            performanceMax = 0.0f;
+            reverseBlendMax = 0.0f;
+            freezeBlendMax = 0.0f;
+            feedbackMax = 0.0f;
+            mixMin = 1.0e9f;
+            mixMax = 0.0f;
+            dryGainMin = 1.0e9f;
+            dryGainMax = 0.0f;
+            wetGainMin = 1.0e9f;
+            wetGainMax = 0.0f;
+        }
+
+        void captureChannel(int channel,
+            float delayMs,
+            float wet,
+            float reverseWet,
+            float loopTap,
+            float delayWrite,
+            float outputWet,
+            float freezeWrite) noexcept
+        {
+            const auto idx = (size_t) juce::jlimit(0, 1, channel);
+            delayMsMin[idx] = juce::jmin(delayMsMin[idx], delayMs);
+            delayMsMax[idx] = juce::jmax(delayMsMax[idx], delayMs);
+            wetPeak[idx] = juce::jmax(wetPeak[idx], std::abs(wet));
+            reversePeak[idx] = juce::jmax(reversePeak[idx], std::abs(reverseWet));
+            loopTapPeak[idx] = juce::jmax(loopTapPeak[idx], std::abs(loopTap));
+            writePeak[idx] = juce::jmax(writePeak[idx], std::abs(delayWrite));
+            outputPeak[idx] = juce::jmax(outputPeak[idx], std::abs(outputWet));
+            freezeWritePeak[idx] = juce::jmax(freezeWritePeak[idx], std::abs(freezeWrite));
+        }
+
+        void captureControlWindow(float inputSense,
+            float duckGain,
+            float swellGain,
+            float performanceGain,
+            float reverseBlend,
+            float freezeBlend,
+            float feedback,
+            float mix,
+            float dryGain,
+            float wetGain) noexcept
+        {
+            inputSensePeak = juce::jmax(inputSensePeak, inputSense);
+            duckGainMin = juce::jmin(duckGainMin, duckGain);
+            duckGainMax = juce::jmax(duckGainMax, duckGain);
+            swellGainMin = juce::jmin(swellGainMin, swellGain);
+            swellGainMax = juce::jmax(swellGainMax, swellGain);
+            performanceMin = juce::jmin(performanceMin, performanceGain);
+            performanceMax = juce::jmax(performanceMax, performanceGain);
+            reverseBlendMax = juce::jmax(reverseBlendMax, reverseBlend);
+            freezeBlendMax = juce::jmax(freezeBlendMax, freezeBlend);
+            feedbackMax = juce::jmax(feedbackMax, feedback);
+            mixMin = juce::jmin(mixMin, mix);
+            mixMax = juce::jmax(mixMax, mix);
+            dryGainMin = juce::jmin(dryGainMin, dryGain);
+            dryGainMax = juce::jmax(dryGainMax, dryGain);
+            wetGainMin = juce::jmin(wetGainMin, wetGain);
+            wetGainMax = juce::jmax(wetGainMax, wetGain);
+        }
+
+        juce::String buildReport(const DelayPedal& pedal) const
+        {
+            juce::String report;
+            report << "params: mode="
+                   << (pedal.modeParam != nullptr ? pedal.modeParam->getCurrentChoiceName() : "Analog")
+                   << ", timeMs=" << NovaDiagnostics::formatTelemetryScalar(pedal.timeParam != nullptr ? pedal.timeParam->get() : 480.0f)
+                   << ", sync=" << (pedal.syncParam != nullptr && pedal.syncParam->get() ? "true" : "false")
+                   << ", feedback=" << NovaDiagnostics::formatTelemetryScalar(pedal.feedbackParam != nullptr ? pedal.feedbackParam->get() : 0.46f)
+                   << ", tone=" << NovaDiagnostics::formatTelemetryScalar(pedal.toneParam != nullptr ? pedal.toneParam->get() : 5800.0f)
+                   << ", lowCut=" << NovaDiagnostics::formatTelemetryScalar(pedal.lowCutParam != nullptr ? pedal.lowCutParam->get() : 70.0f)
+                   << ", spread=" << NovaDiagnostics::formatTelemetryScalar(pedal.spreadParam != nullptr ? pedal.spreadParam->get() : 0.42f)
+                   << ", texture=" << NovaDiagnostics::formatTelemetryScalar(pedal.textureParam != nullptr ? pedal.textureParam->get() : 0.45f)
+                   << ", modDepth=" << NovaDiagnostics::formatTelemetryScalar(pedal.modDepthParam != nullptr ? pedal.modDepthParam->get() : 0.42f)
+                   << ", modRate=" << NovaDiagnostics::formatTelemetryScalar(pedal.modRateParam != nullptr ? pedal.modRateParam->get() : 1.35f)
+                   << ", mix=" << NovaDiagnostics::formatTelemetryScalar(pedal.mixParam != nullptr ? pedal.mixParam->get() : 0.32f)
+                   << ", duck=" << NovaDiagnostics::formatTelemetryScalar(pedal.duckParam != nullptr ? pedal.duckParam->get() : 0.0f)
+                   << ", swell=" << NovaDiagnostics::formatTelemetryScalar(pedal.swellParam != nullptr ? pedal.swellParam->get() : 0.0f)
+                   << ", reverse=" << NovaDiagnostics::formatTelemetryScalar(pedal.reverseParam != nullptr ? pedal.reverseParam->get() : 0.0f)
+                   << ", freeze=" << (pedal.freezeParam != nullptr && pedal.freezeParam->get() ? "true" : "false")
+                   << juce::newLine
+                   << "delay.window: delayLMinMs=" << NovaDiagnostics::formatTelemetryScalar(delayMsMin[0] == std::numeric_limits<float>::max() ? 0.0f : delayMsMin[0])
+                   << ", delayLMaxMs=" << NovaDiagnostics::formatTelemetryScalar(delayMsMax[0])
+                   << ", delayRMinMs=" << NovaDiagnostics::formatTelemetryScalar(delayMsMin[1] == std::numeric_limits<float>::max() ? 0.0f : delayMsMin[1])
+                   << ", delayRMaxMs=" << NovaDiagnostics::formatTelemetryScalar(delayMsMax[1])
+                   << juce::newLine
+                   << "feedback.loop: wetLMax=" << NovaDiagnostics::formatTelemetryScalar(wetPeak[0])
+                   << ", wetRMax=" << NovaDiagnostics::formatTelemetryScalar(wetPeak[1])
+                   << ", reverseLMax=" << NovaDiagnostics::formatTelemetryScalar(reversePeak[0])
+                   << ", reverseRMax=" << NovaDiagnostics::formatTelemetryScalar(reversePeak[1])
+                   << ", loopTapLMax=" << NovaDiagnostics::formatTelemetryScalar(loopTapPeak[0])
+                   << ", loopTapRMax=" << NovaDiagnostics::formatTelemetryScalar(loopTapPeak[1])
+                   << ", writeLMax=" << NovaDiagnostics::formatTelemetryScalar(writePeak[0])
+                   << ", writeRMax=" << NovaDiagnostics::formatTelemetryScalar(writePeak[1])
+                   << ", freezeWriteLMax=" << NovaDiagnostics::formatTelemetryScalar(freezeWritePeak[0])
+                   << ", freezeWriteRMax=" << NovaDiagnostics::formatTelemetryScalar(freezeWritePeak[1])
+                   << juce::newLine
+                   << "output.path: outWetLMax=" << NovaDiagnostics::formatTelemetryScalar(outputPeak[0])
+                   << ", outWetRMax=" << NovaDiagnostics::formatTelemetryScalar(outputPeak[1])
+                   << ", inputSensePeak=" << NovaDiagnostics::formatTelemetryScalar(inputSensePeak)
+                   << juce::newLine
+                   << "control.window: duckMin=" << NovaDiagnostics::formatTelemetryScalar(duckGainMin == 1.0e9f ? 0.0f : duckGainMin)
+                   << ", duckMax=" << NovaDiagnostics::formatTelemetryScalar(duckGainMax)
+                   << ", swellMin=" << NovaDiagnostics::formatTelemetryScalar(swellGainMin == 1.0e9f ? 0.0f : swellGainMin)
+                   << ", swellMax=" << NovaDiagnostics::formatTelemetryScalar(swellGainMax)
+                   << ", performanceMin=" << NovaDiagnostics::formatTelemetryScalar(performanceMin == 1.0e9f ? 0.0f : performanceMin)
+                   << ", performanceMax=" << NovaDiagnostics::formatTelemetryScalar(performanceMax)
+                   << ", reverseBlendMax=" << NovaDiagnostics::formatTelemetryScalar(reverseBlendMax)
+                   << ", freezeBlendMax=" << NovaDiagnostics::formatTelemetryScalar(freezeBlendMax)
+                   << ", feedbackMax=" << NovaDiagnostics::formatTelemetryScalar(feedbackMax)
+                   << ", mixMin=" << NovaDiagnostics::formatTelemetryScalar(mixMin == 1.0e9f ? 0.0f : mixMin)
+                   << ", mixMax=" << NovaDiagnostics::formatTelemetryScalar(mixMax)
+                   << ", dryGainMin=" << NovaDiagnostics::formatTelemetryScalar(dryGainMin == 1.0e9f ? 0.0f : dryGainMin)
+                   << ", dryGainMax=" << NovaDiagnostics::formatTelemetryScalar(dryGainMax)
+                   << ", wetGainMin=" << NovaDiagnostics::formatTelemetryScalar(wetGainMin == 1.0e9f ? 0.0f : wetGainMin)
+                   << ", wetGainMax=" << NovaDiagnostics::formatTelemetryScalar(wetGainMax);
+            return report;
+        }
+    };
+
     struct ModeStyle
     {
         float toneScale = 1.0f;
@@ -1126,6 +1336,8 @@ private:
     std::atomic<bool> hostTransportPlaying{ false };
     std::atomic<int> lastAppliedFlagshipPreset{ -1 };
     bool isPrepared = false;
+    NovaDiagnostics::PedalSignalTelemetry signalTelemetry { "delay" };
+    DebugTelemetry debugTelemetry;
 };
 
 #include "DelayEditor.h"

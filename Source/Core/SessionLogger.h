@@ -2,12 +2,22 @@
 
 #include <JuceHeader.h>
 #include <atomic>
+#include <array>
+#include "Constants.h"
 
 namespace NovaDiagnostics
 {
-class SessionLogger final : public juce::Logger
+class SessionLogger final : public juce::Logger,
+                            private juce::Thread
 {
 public:
+    struct QueueStatsSnapshot
+    {
+        int queuedEntries = 0;
+        int peakQueuedEntries = 0;
+        int droppedEntries = 0;
+    };
+
     static SessionLogger& instance()
     {
         static SessionLogger logger;
@@ -43,6 +53,16 @@ public:
     static juce::File getLogFile()
     {
         return instance().logFile;
+    }
+
+    static QueueStatsSnapshot getQueueStats()
+    {
+        auto& logger = instance();
+        QueueStatsSnapshot stats;
+        stats.queuedEntries = logger.queuedEntries.load(std::memory_order_relaxed);
+        stats.peakQueuedEntries = logger.peakQueuedEntries.load(std::memory_order_relaxed);
+        stats.droppedEntries = logger.droppedEntries.load(std::memory_order_relaxed);
+        return stats;
     }
 
     static void logEvent(const juce::String& category, const juce::String& message)
@@ -101,7 +121,17 @@ public:
     }
 
 private:
-    SessionLogger() = default;
+    struct PendingEntry
+    {
+        juce::String timestamp;
+        juce::String category;
+        juce::String message;
+    };
+
+    SessionLogger()
+        : juce::Thread("NOVA SessionLogger")
+    {
+    }
 
     static juce::String makeTimestamp()
     {
@@ -126,13 +156,24 @@ private:
 
     void endSession()
     {
-        const juce::ScopedLock sl(writeLock);
         juce::Logger::setCurrentLogger(nullptr);
+        sessionActive.store(false, std::memory_order_release);
+        queueWakeEvent.signal();
+        stopThread(2000);
+
+        const juce::ScopedLock sl(writeLock);
+        if (outputStream != nullptr)
+            outputStream->flush();
+
         outputStream.reset();
     }
 
     void beginSession()
     {
+        sessionActive.store(false, std::memory_order_release);
+        queueWakeEvent.signal();
+        stopThread(2000);
+
         const juce::ScopedLock sl(writeLock);
 
         logFile = getSessionLogPath();
@@ -147,20 +188,120 @@ private:
             outputStream->truncate();
         }
 
+        resetQueueState();
+        sessionActive.store(true, std::memory_order_release);
         juce::Logger::setCurrentLogger(this);
-        writeLineUnlocked("session", "Session start");
-        writeLineUnlocked("session", "Log file: " + logFile.getFullPathName());
+        startThread();
+        writeEntryUnlocked(makeTimestamp(), "session", "Session start");
+        writeEntryUnlocked(makeTimestamp(), "session", "Log file: " + logFile.getFullPathName());
+        if (outputStream != nullptr)
+            outputStream->flush();
     }
 
     void writeStructured(const juce::String& category, const juce::String& message)
     {
-        const juce::ScopedLock sl(writeLock);
-        writeLineUnlocked(category, message);
+        if (!sessionActive.load(std::memory_order_acquire))
+            return;
+
+        enqueue(makeTimestamp(), category, message);
     }
 
-    void writeLineUnlocked(const juce::String& category, const juce::String& message)
+    void enqueue(const juce::String& timestamp, const juce::String& category, const juce::String& message)
     {
-        const juce::String prefix = "[" + makeTimestamp() + "] [" + category + "] ";
+        bool queuedSuccessfully = false;
+
+        {
+            const juce::SpinLock::ScopedLockType sl(queueLock);
+            if (queuedEntryCount < (int) pendingEntries.size())
+            {
+                auto& entry = pendingEntries[(size_t) queueWriteIndex];
+                entry.timestamp = timestamp;
+                entry.category = category;
+                entry.message = message;
+
+                queueWriteIndex = (queueWriteIndex + 1) % (int) pendingEntries.size();
+                ++queuedEntryCount;
+                queuedEntries.store(queuedEntryCount, std::memory_order_relaxed);
+                peakQueuedEntries.store(juce::jmax(peakQueuedEntries.load(std::memory_order_relaxed), queuedEntryCount),
+                    std::memory_order_relaxed);
+                queuedSuccessfully = true;
+            }
+        }
+
+        if (!queuedSuccessfully)
+            droppedEntries.fetch_add(1, std::memory_order_relaxed);
+
+        queueWakeEvent.signal();
+    }
+
+    bool dequeue(PendingEntry& entry)
+    {
+        const juce::SpinLock::ScopedLockType sl(queueLock);
+        if (queuedEntryCount <= 0)
+            return false;
+
+        entry = std::move(pendingEntries[(size_t) queueReadIndex]);
+        pendingEntries[(size_t) queueReadIndex] = {};
+        queueReadIndex = (queueReadIndex + 1) % (int) pendingEntries.size();
+        --queuedEntryCount;
+        queuedEntries.store(queuedEntryCount, std::memory_order_relaxed);
+        return true;
+    }
+
+    void resetQueueState()
+    {
+        const juce::SpinLock::ScopedLockType sl(queueLock);
+        pendingEntries = {};
+        queueReadIndex = 0;
+        queueWriteIndex = 0;
+        queuedEntryCount = 0;
+        queuedEntries.store(0, std::memory_order_relaxed);
+        peakQueuedEntries.store(0, std::memory_order_relaxed);
+        droppedEntries.store(0, std::memory_order_relaxed);
+    }
+
+    void run() override
+    {
+        while (!threadShouldExit())
+        {
+            flushPendingEntries();
+            queueWakeEvent.wait(Nova::Config::LOGGER_FLUSH_INTERVAL_MS);
+        }
+
+        flushPendingEntries();
+    }
+
+    void flushPendingEntries()
+    {
+        const int droppedSinceLastFlush = droppedEntries.exchange(0, std::memory_order_acq_rel);
+        PendingEntry entry;
+        bool wroteAnything = false;
+
+        const juce::ScopedLock sl(writeLock);
+        if (outputStream == nullptr)
+            return;
+
+        if (droppedSinceLastFlush > 0)
+        {
+            writeEntryUnlocked(makeTimestamp(),
+                "session.logger",
+                "Dropped " + juce::String(droppedSinceLastFlush) + " async log events because the queue filled");
+            wroteAnything = true;
+        }
+
+        while (dequeue(entry))
+        {
+            writeEntryUnlocked(entry.timestamp, entry.category, entry.message);
+            wroteAnything = true;
+        }
+
+        if (wroteAnything)
+            outputStream->flush();
+    }
+
+    void writeEntryUnlocked(const juce::String& timestamp, const juce::String& category, const juce::String& message)
+    {
+        const juce::String prefix = "[" + timestamp + "] [" + category + "] ";
 
         if (outputStream == nullptr)
             return;
@@ -176,13 +317,21 @@ private:
             const auto& line = lines[i];
             outputStream->writeText(prefix + line + juce::newLine, false, false, "\n");
         }
-
-        outputStream->flush();
     }
 
     juce::CriticalSection writeLock;
     std::unique_ptr<juce::FileOutputStream> outputStream;
     juce::File logFile;
     std::atomic<int> ownerCount{ 0 };
+    std::atomic<bool> sessionActive{ false };
+    std::atomic<int> queuedEntries{ 0 };
+    std::atomic<int> peakQueuedEntries{ 0 };
+    std::atomic<int> droppedEntries{ 0 };
+    juce::SpinLock queueLock;
+    std::array<PendingEntry, Nova::Config::LOGGER_QUEUE_CAPACITY> pendingEntries;
+    int queueReadIndex = 0;
+    int queueWriteIndex = 0;
+    int queuedEntryCount = 0;
+    juce::WaitableEvent queueWakeEvent;
 };
 }

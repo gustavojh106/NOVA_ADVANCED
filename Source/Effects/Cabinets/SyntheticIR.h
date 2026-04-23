@@ -10,7 +10,7 @@
 //
 //  Generates unique impulse responses for each cabinet type by filtering a
 //  unit impulse through a speaker/cabinet model. The result is a short IR
-//  (1024 samples) that captures the frequency response and phase
+//  (~23 ms at the current sample rate) that captures the frequency response and phase
 //  characteristics of the speaker+cabinet combination.
 //
 //  Approach:
@@ -24,7 +24,7 @@
 namespace Nova::CabinetIR
 {
 
-static constexpr int kIRLength = 1024;
+static constexpr double kIRDurationSeconds = 0.023;
 
 // -------------------------------------------------------------------
 //  Single biquad filter section (direct form II transposed)
@@ -142,7 +142,8 @@ inline juce::AudioBuffer<float> generateIR(
     float secondReflectDelay = 0.0f,
     float secondReflectGain  = 0.0f)
 {
-    juce::AudioBuffer<float> ir(1, kIRLength);
+    const int irLength = juce::jmax(256, juce::roundToInt(sampleRate * kIRDurationSeconds));
+    juce::AudioBuffer<float> ir(1, irLength);
     ir.clear();
 
     auto* data = ir.getWritePointer(0);
@@ -154,7 +155,7 @@ inline juce::AudioBuffer<float> generateIR(
     for (auto& f : filters)
     {
         f.reset();
-        for (int i = 0; i < kIRLength; ++i)
+        for (int i = 0; i < irLength; ++i)
             data[i] = f.process(data[i]);
     }
 
@@ -162,28 +163,28 @@ inline juce::AudioBuffer<float> generateIR(
     // This creates the subtle resonance and "boxiness" of a real cabinet
     if (boxReflectDelay > 0.0f && std::abs(boxReflectGain) > 0.001f)
     {
-        const int delay1 = juce::jlimit(1, kIRLength - 1, (int)std::round(boxReflectDelay));
-        for (int i = kIRLength - 1; i >= delay1; --i)
+        const int delay1 = juce::jlimit(1, irLength - 1, (int)std::round(boxReflectDelay));
+        for (int i = irLength - 1; i >= delay1; --i)
             data[i] += data[i - delay1] * boxReflectGain;
     }
 
     if (secondReflectDelay > 0.0f && std::abs(secondReflectGain) > 0.001f)
     {
-        const int delay2 = juce::jlimit(1, kIRLength - 1, (int)std::round(secondReflectDelay));
-        for (int i = kIRLength - 1; i >= delay2; --i)
+        const int delay2 = juce::jlimit(1, irLength - 1, (int)std::round(secondReflectDelay));
+        for (int i = irLength - 1; i >= delay2; --i)
             data[i] += data[i - delay2] * secondReflectGain;
     }
 
     // Exponential decay envelope
     float env = 1.0f;
-    for (int i = 0; i < kIRLength; ++i)
+    for (int i = 0; i < irLength; ++i)
     {
         data[i] *= env;
         env *= decayRate;
     }
 
     // Normalize to peak
-    const float peak = ir.getMagnitude(0, kIRLength);
+    const float peak = ir.getMagnitude(0, irLength);
     if (peak > 0.0001f)
         ir.applyGain(0.85f / peak);
 

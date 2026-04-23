@@ -656,6 +656,7 @@ private:
 
     static void configureFlagshipPhaser(PhaserPedal& pedal)
     {
+        pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 2));
         pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(1.8f));
         pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.81f));
         pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.36f));
@@ -877,6 +878,7 @@ private:
         results.push_back(runChorusAutomationStressScenario());
         results.push_back(runPhaserFlagshipRecallScenario());
         results.push_back(runPhaserVoiceScenario());
+        results.push_back(runPhaserModeDistinctnessScenario());
         results.push_back(runPhaserAutomationStressScenario());
         results.push_back(runFlangerFlagshipRecallScenario());
         results.push_back(runFlangerModeDistinctnessScenario());
@@ -1490,7 +1492,7 @@ private:
         result.metrics.push_back({ "loose_rms", looseRms });
         result.metrics.push_back({ "tight_rms", tightRms });
         result.metrics.push_back({ "tight_ratio", ratio });
-        result.passed = ratio < 0.72;
+        result.passed = ratio < 0.35;
         result.notes = result.passed
             ? "Boost tight control materially trimmed low-end energy"
             : "Boost tight control did not cut enough low-end bloom";
@@ -1581,7 +1583,7 @@ private:
         result.metrics.push_back({ "loose_rms", looseRms });
         result.metrics.push_back({ "tight_rms", tightRms });
         result.metrics.push_back({ "tight_ratio", ratio });
-        result.passed = ratio < 0.84;
+        result.passed = ratio < 0.70;
         result.notes = result.passed
             ? "Neural focus materially tightened low-end energy"
             : "Neural focus did not tighten the low end enough";
@@ -1679,7 +1681,7 @@ private:
         result.metrics.push_back({ "bright_rms", brightRms });
         result.metrics.push_back({ "rms_delta", std::abs(brightRms - darkRms) });
         result.metrics.push_back({ "null_rms", nullRms });
-        result.passed = std::abs(brightRms - darkRms) > 0.008 && nullRms > 0.015;
+        result.passed = std::abs(brightRms - darkRms) > 0.030 && nullRms > 0.050;
         result.notes = result.passed
             ? "Tone and texture controls materially reshaped the overdrive voice"
             : "Overdrive tone/texture changes collapsed toward the same response";
@@ -2235,9 +2237,9 @@ private:
         result.metrics.push_back({ "upper_tracking_ratio", upperRatio });
         result.metrics.push_back({ "tone_open_ratio", toneOpenRatio });
         result.metrics.push_back({ "tone_null_rms", toneNull });
-        result.passed = subRatio > 1.55
-            && upperRatio > 1.15
-            && toneOpenRatio > 1.20
+        result.passed = subRatio > 1.70
+            && upperRatio > 1.18
+            && toneOpenRatio > 1.24
             && toneNull > 0.015;
         result.notes = result.passed
             ? "Octave pedal tracked sub and upper voices while tone materially reshaped the generated voice"
@@ -2438,10 +2440,62 @@ private:
 
         result.metrics.push_back({ "voice_null_rms", nullRms });
         result.metrics.push_back({ "deep_corr", deepCorr });
-        result.passed = nullRms > 0.015 && deepCorr < 0.995;
+        result.passed = nullRms > 0.022 && deepCorr < 0.992;
         result.notes = result.passed
             ? "Phaser depth and feedback produced a clearly modulated stereo voice"
             : "Phaser voice response was too subtle or remained too mono";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runPhaserModeDistinctnessScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "phaser_mode_distinctness";
+
+        auto renderMode = [](int modeIndex)
+        {
+            PhaserPedal pedal;
+            pedal.prepareToPlay(sampleRate, blockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(modeIndex == 0 ? 0.58f : modeIndex == 1 ? 1.2f : 1.75f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(modeIndex == 0 ? 0.62f : modeIndex == 1 ? 0.78f : 0.90f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(modeIndex == 0 ? 0.18f : modeIndex == 1 ? 0.42f : 0.56f));
+            pedal.stagesParam->setValueNotifyingHost(pedal.stagesParam->convertTo0to1(modeIndex == 0 ? 4.0f : modeIndex == 1 ? 8.0f : 10.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.76f));
+            pedal.reset();
+
+            juce::AudioBuffer<float> input(2, (int)(sampleRate * 1.6));
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float phaseA = (float) (2.0 * juce::MathConstants<double>::pi * 247.0 * (double) i / sampleRate);
+                const float phaseB = (float) (2.0 * juce::MathConstants<double>::pi * 493.0 * (double) i / sampleRate);
+                input.setSample(0, i, 0.11f * std::sin(phaseA) + 0.05f * std::sin(phaseB));
+                input.setSample(1, i, 0.11f * std::sin(phaseA + 0.12f) + 0.05f * std::sin(phaseB + 0.24f));
+            }
+
+            return renderPedalOutput(pedal, input);
+        };
+
+        const auto vintage = renderMode(0);
+        const auto modern = renderMode(1);
+        const auto vibe = renderMode(2);
+        const double vintageModernNull = computeNullRms(vintage, modern);
+        const double vintageVibeNull = computeNullRms(vintage, vibe);
+        const double modernVibeNull = computeNullRms(modern, vibe);
+        const double vibeCorr = computeStereoCorrelation(vibe, (int) (sampleRate * 0.35));
+
+        result.metrics.push_back({ "vintage_modern_null", vintageModernNull });
+        result.metrics.push_back({ "vintage_vibe_null", vintageVibeNull });
+        result.metrics.push_back({ "modern_vibe_null", modernVibeNull });
+        result.metrics.push_back({ "vibe_corr", vibeCorr });
+        result.passed = vintageModernNull > 0.010
+            && vintageVibeNull > 0.018
+            && modernVibeNull > 0.014
+            && vibeCorr < 0.992;
+        result.notes = result.passed
+            ? "Phaser voicings stayed meaningfully distinct and the vibe voice opened a wider stereo image"
+            : "Phaser voicings collapsed toward the same response";
         return result;
     }
 
@@ -2452,6 +2506,8 @@ private:
             [](PhaserPedal&) {},
             [](PhaserPedal& pedal, float t)
             {
+                const int mode = juce::jlimit(0, 2, (int) std::floor(t * 3.0f));
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, mode));
                 pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(juce::jmap(std::sin(t * 5.4f), -1.0f, 1.0f, 0.08f, 6.8f)));
                 pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(juce::jmap(std::cos(t * 7.0f), -1.0f, 1.0f, 0.05f, 0.98f)));
                 pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(juce::jmap(std::sin(t * 8.6f + 0.4f), -1.0f, 1.0f, -0.76f, 0.76f)));

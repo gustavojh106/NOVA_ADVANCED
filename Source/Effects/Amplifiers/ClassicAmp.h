@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 #include "../Pedals/Base/ProcessorBase.h"
 #include "../Pedals/Base/PremiumPedalUI.h"
@@ -12,7 +13,7 @@ class ClassicAmp final : public ProcessorBase
 {
 public:
     ClassicAmp()
-        : oversampler(2, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
+        : oversampler(2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR)
     {
         addParameter(driveParam = new juce::AudioParameterFloat("ampDrive", "Drive", 0.5f, 6.0f, 2.8f));
         addParameter(toneParam = new juce::AudioParameterFloat("ampTone", "Tone", 0.0f, 1.0f, 0.58f));
@@ -51,11 +52,11 @@ public:
         oversampler.reset();
         oversampler.initProcessing((size_t)juce::jmax(1, samplesPerBlock));
 
-        currentInnerRate = sampleRate * 4.0;
+        currentInnerRate = sampleRate * 8.0;
 
         juce::dsp::ProcessSpec innerSpec;
         innerSpec.sampleRate = currentInnerRate;
-        innerSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock * 4);
+        innerSpec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock * 8);
         innerSpec.numChannels = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
 
         inputHighPass.prepare(innerSpec);
@@ -158,6 +159,9 @@ private:
             auto&& block = context.getOutputBlock();
             const int channels = (int)block.getNumChannels();
             const int samples = (int)block.getNumSamples();
+            std::vector<float*> channelData((size_t)channels);
+            for (int ch = 0; ch < channels; ++ch)
+                channelData[(size_t) ch] = block.getChannelPointer((size_t) ch);
 
             for (int sample = 0; sample < samples; ++sample)
             {
@@ -166,7 +170,7 @@ private:
 
                 for (int ch = 0; ch < channels; ++ch)
                 {
-                    auto* data = block.getChannelPointer((size_t)ch);
+                    auto* data = channelData[(size_t) ch];
                     const float x = data[sample];
 
                     sagEnvelope[(size_t)ch] = juce::jmax(std::abs(x), sagEnvelope[(size_t)ch] * Nova::Config::AMP_SAG_DECAY);
@@ -240,7 +244,7 @@ private:
     juce::AudioParameterFloat* depthParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
 
-    double currentInnerRate = 176400.0;
+    double currentInnerRate = 352800.0;
     float cachedTone = std::numeric_limits<float>::quiet_NaN();
     float cachedPresence = std::numeric_limits<float>::quiet_NaN();
     float cachedDepth = std::numeric_limits<float>::quiet_NaN();
