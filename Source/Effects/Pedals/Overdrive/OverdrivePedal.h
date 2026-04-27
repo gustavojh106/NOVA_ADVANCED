@@ -5,6 +5,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 #include <cmath>
+#include <array>
 #include <vector>
 
 class OverdrivePedal final : public ProcessorBase
@@ -40,7 +41,9 @@ public:
         oversampler.initProcessing((size_t) juce::jmax(1, samplesPerBlock));
 
         currentInnerSampleRate = sampleRate * (double) oversamplingFactor();
-        const auto numChannels = (size_t) juce::jmax(1, getTotalNumOutputChannels());
+        preparedBlockSize = juce::jmax(1, samplesPerBlock);
+        preparedChannels = juce::jmax(2, getTotalNumOutputChannels());
+        const auto numChannels = (size_t) preparedChannels;
 
         inputTighten.prepare(currentInnerSampleRate, numChannels);
         presenceSplit.prepare(currentInnerSampleRate, numChannels);
@@ -50,6 +53,7 @@ public:
         outputLowPassB.prepare(currentInnerSampleRate, numChannels);
         airRestoreFilter.prepare(currentInnerSampleRate, numChannels);
         dcBlock.prepare(currentInnerSampleRate, numChannels);
+        finalDcBlock.prepare(sampleRate, numChannels);
         driveStage.prepare(currentInnerSampleRate, numChannels);
 
         driveControlSmooth.reset(sampleRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
@@ -72,8 +76,8 @@ public:
         levelSmooth.setCurrentAndTargetValue(level);
         wetTrimSmooth.setCurrentAndTargetValue(wetTrimFromControls(drive, texture));
 
-        scratchBuffer.setSize(juce::jmax(2, getTotalNumOutputChannels()),
-            juce::jmax(1, samplesPerBlock),
+        scratchBuffer.setSize(preparedChannels,
+            preparedBlockSize,
             false,
             false,
             true);
@@ -105,6 +109,7 @@ public:
         outputLowPassB.reset();
         airRestoreFilter.reset();
         dcBlock.reset();
+        finalDcBlock.reset();
         driveStage.reset();
 
         const float drive = driveParam != nullptr ? *driveParam : 30.0f;
@@ -134,18 +139,25 @@ public:
         const int numChannels = buffer.getNumChannels();
         const int numSamples = buffer.getNumSamples();
 
-        if (scratchBuffer.getNumChannels() < numChannels
-            || scratchBuffer.getNumSamples() < numSamples)
+        if (numChannels > preparedChannels || numSamples > preparedBlockSize)
         {
-            scratchBuffer.setSize(numChannels,
-                numSamples,
-                false,
-                false,
-                true);
+            ++debugTelemetry.blockOverflowCount;
+            endBypassProcess(buffer);
+            return;
         }
+
+        const auto guardStats = scrubBuffer(buffer);
+        debugTelemetry.guardInvalidSamples += guardStats.invalidSamples;
+        debugTelemetry.guardClippedSamples += guardStats.clippedSamples;
+        debugTelemetry.guardDenormalSamples += guardStats.denormalSamples;
 
         for (int ch = 0; ch < numChannels; ++ch)
             juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch), buffer.getReadPointer(ch), numSamples);
+
+        const float inputPeak = measurePeak(buffer);
+        const float inputTrim = wetFeedTrimForPeak(inputPeak);
+        debugTelemetry.captureInputTrim(inputTrim);
+        multiplyBuffer(buffer, inputTrim);
 
         const float targetDrive = driveParam != nullptr ? *driveParam : 30.0f;
         const float targetTone = toneParam != nullptr ? *toneParam : 0.58f;
@@ -165,16 +177,6 @@ public:
         auto upsampled = oversampler.processSamplesUp(block);
         const int innerSamples = (int) upsampled.getNumSamples();
         const int oversampleRatio = juce::jmax(1, innerSamples / juce::jmax(1, numSamples));
-
-        inputTighten.ensureChannels((size_t) upsampled.getNumChannels());
-        presenceSplit.ensureChannels((size_t) upsampled.getNumChannels());
-        preShapeFilter.ensureChannels((size_t) upsampled.getNumChannels());
-        bodyFilter.ensureChannels((size_t) upsampled.getNumChannels());
-        outputLowPassA.ensureChannels((size_t) upsampled.getNumChannels());
-        outputLowPassB.ensureChannels((size_t) upsampled.getNumChannels());
-        airRestoreFilter.ensureChannels((size_t) upsampled.getNumChannels());
-        dcBlock.ensureChannels((size_t) upsampled.getNumChannels());
-        driveStage.ensureChannels((size_t) upsampled.getNumChannels());
 
         float currentDrive = driveControlSmooth.getCurrentValue();
         float currentTone = toneControlSmooth.getCurrentValue();
@@ -214,12 +216,34 @@ public:
                 x = outputLowPassB.processLowPass(ch, x);
                 x += airRestoreFilter.processHighPass(ch, x) * toneModel.airRestoreAmount;
                 x = dcBlock.processHighPass(ch, x);
+                x = softCeiling(x, 1.15f);
                 debugTelemetry.capturePostFilter(x);
                 data[sample] = x;
             }
         }
 
         oversampler.processSamplesDown(block);
+
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+
+            for (int sample = 0; sample < numSamples; ++sample)
+            {
+                const float original = sanitizeAudioSample(data[sample]);
+                float cleaned = finalDcBlock.processHighPass(ch, original);
+
+                // DC cleanup is not counted as limiting. Only count true overs.
+                if (std::abs(cleaned) > 1.15f)
+                {
+                    const float safe = softCeiling(cleaned, 1.20f);
+                    debugTelemetry.captureSafety(cleaned, safe);
+                    cleaned = safe;
+                }
+
+                data[sample] = cleaned;
+            }
+        }
 
         for (int sample = 0; sample < numSamples; ++sample)
         {
@@ -243,7 +267,11 @@ public:
                 const float clean = scratchBuffer.getSample(ch, sample);
                 const float wet = buffer.getSample(ch, sample) * wetTrim;
                 debugTelemetry.captureWetMix(wet);
-                buffer.setSample(ch, sample, ((clean * dryGain) + (wet * wetGain)) * level);
+
+                const float original = sanitizeAudioSample(((clean * dryGain) + (wet * wetGain)) * level);
+                const float safe = std::abs(original) > 1.08f ? softCeiling(original, 1.18f) : original;
+                debugTelemetry.captureSafety(original, safe);
+                buffer.setSample(ch, sample, safe);
             }
         }
 
@@ -261,6 +289,120 @@ public:
     }
 
 private:
+
+    struct LocalGuardStats
+    {
+        int invalidSamples = 0;
+        int clippedSamples = 0;
+        int denormalSamples = 0;
+    };
+
+    static float sanitizeAudioSample(float x) noexcept
+    {
+        if (!std::isfinite(x))
+            return 0.0f;
+
+        if (std::abs(x) < 1.0e-30f)
+            return 0.0f;
+
+        return juce::jlimit(-8.0f, 8.0f, x);
+    }
+
+    static float softCeiling(float x, float ceiling) noexcept
+    {
+        if (!std::isfinite(x))
+            return 0.0f;
+
+        ceiling = juce::jmax(0.001f, ceiling);
+
+        // V2: transparent safety.
+        // V1 used an 88% threshold and touched too much normal guitar signal.
+        // This only catches real overs close to the requested ceiling.
+        const float threshold = ceiling * 0.985f;
+        const float mag = std::abs(x);
+
+        if (mag <= threshold)
+            return x;
+
+        const float sign = x < 0.0f ? -1.0f : 1.0f;
+        const float knee = juce::jmax(0.0001f, ceiling - threshold);
+        const float shaped = threshold + knee * std::tanh((mag - threshold) / knee);
+
+        return sign * juce::jmin(ceiling, shaped);
+    }
+
+    static float emergencyCeiling(float x) noexcept
+    {
+        // Last-resort protection only. Normal overdrive tone should not live here.
+        return softCeiling(x, 1.20f);
+    }
+
+    static float measurePeak(const juce::AudioBuffer<float>& buffer) noexcept
+    {
+        float peak = 0.0f;
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            const auto* data = buffer.getReadPointer(ch);
+
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                peak = juce::jmax(peak, std::abs(data[i]));
+        }
+
+        return peak;
+    }
+
+    static float wetFeedTrimForPeak(float peak) noexcept
+    {
+        if (!std::isfinite(peak))
+            return 1.0f;
+
+        peak = std::abs(peak);
+
+        // V2: do not choke the pedal on normal amp-chain levels.
+        // Only trim when the wet engine is being hit unusually hard.
+        if (peak <= 1.25f)
+            return 1.0f;
+
+        return juce::jlimit(0.78f, 1.0f, 1.25f / peak);
+    }
+
+    static LocalGuardStats scrubBuffer(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        LocalGuardStats stats;
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float original = data[i];
+                const float safe = sanitizeAudioSample(original);
+
+                if (!std::isfinite(original))
+                    ++stats.invalidSamples;
+                else if (original != 0.0f && std::abs(original) < 1.0e-30f)
+                    ++stats.denormalSamples;
+                else if (std::abs(original) > 8.0f)
+                    ++stats.clippedSamples;
+
+                data[i] = safe;
+            }
+        }
+
+        return stats;
+    }
+
+    static void multiplyBuffer(juce::AudioBuffer<float>& buffer, float gain) noexcept
+    {
+        if (std::abs(gain - 1.0f) <= 1.0e-6f)
+            return;
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            juce::FloatVectorOperations::multiply(buffer.getWritePointer(ch), gain, buffer.getNumSamples());
+    }
+
     struct DebugTelemetry
     {
         float preDrivePeak = 0.0f;
@@ -271,6 +413,14 @@ private:
         float wetTrimMax = 0.0f;
         float levelMin = 1.0e9f;
         float levelMax = 0.0f;
+        float inputTrimMin = 1.0e9f;
+        float inputTrimMax = 0.0f;
+        float safetyDeltaPeak = 0.0f;
+        int safetyTouchedSamples = 0;
+        int blockOverflowCount = 0;
+        int guardInvalidSamples = 0;
+        int guardClippedSamples = 0;
+        int guardDenormalSamples = 0;
 
         void resetWindow() noexcept
         {
@@ -282,6 +432,14 @@ private:
             wetTrimMax = 0.0f;
             levelMin = 1.0e9f;
             levelMax = 0.0f;
+            inputTrimMin = 1.0e9f;
+            inputTrimMax = 0.0f;
+            safetyDeltaPeak = 0.0f;
+            safetyTouchedSamples = 0;
+            blockOverflowCount = 0;
+            guardInvalidSamples = 0;
+            guardClippedSamples = 0;
+            guardDenormalSamples = 0;
         }
 
         void capturePreDrive(float value) noexcept
@@ -312,6 +470,20 @@ private:
             levelMax = juce::jmax(levelMax, level);
         }
 
+        void captureInputTrim(float value) noexcept
+        {
+            inputTrimMin = juce::jmin(inputTrimMin, value);
+            inputTrimMax = juce::jmax(inputTrimMax, value);
+        }
+
+        void captureSafety(float original, float safe) noexcept
+        {
+            const float delta = std::abs(original - safe);
+            safetyDeltaPeak = juce::jmax(safetyDeltaPeak, delta);
+            if (delta >= 1.0e-5f)
+                ++safetyTouchedSamples;
+        }
+
         juce::String buildReport(const OverdrivePedal& pedal) const
         {
             juce::String report;
@@ -331,7 +503,17 @@ private:
                    << "gain.window: wetTrimMin=" << NovaDiagnostics::formatTelemetryScalar(wetTrimMin == 1.0e9f ? 0.0f : wetTrimMin)
                    << ", wetTrimMax=" << NovaDiagnostics::formatTelemetryScalar(wetTrimMax)
                    << ", levelMin=" << NovaDiagnostics::formatTelemetryScalar(levelMin == 1.0e9f ? 0.0f : levelMin)
-                   << ", levelMax=" << NovaDiagnostics::formatTelemetryScalar(levelMax);
+                   << ", levelMax=" << NovaDiagnostics::formatTelemetryScalar(levelMax)
+                   << juce::newLine
+                   << "safety.window: inputTrimMin=" << NovaDiagnostics::formatTelemetryScalar(inputTrimMin == 1.0e9f ? 0.0f : inputTrimMin)
+                   << ", inputTrimMax=" << NovaDiagnostics::formatTelemetryScalar(inputTrimMax)
+                   << ", safetyDeltaPeak=" << NovaDiagnostics::formatTelemetryScalar(safetyDeltaPeak)
+                   << ", safetyTouchedSamples=" << safetyTouchedSamples
+                   << ", blockOverflow=" << blockOverflowCount
+                   << juce::newLine
+                   << "guard: invalid=" << guardInvalidSamples
+                   << ", clipped=" << guardClippedSamples
+                   << ", denormals=" << guardDenormalSamples;
             return report;
         }
     };
@@ -346,10 +528,10 @@ private:
             setCutoff(1000.0f);
         }
 
-        void ensureChannels(size_t numChannels)
+        void ensureChannels(size_t) noexcept
         {
-            if (states.size() < numChannels)
-                states.resize(numChannels, 0.0f);
+            // Intentionally no-op in the audio path.
+            // Channel count must be allocated in prepareToPlay().
         }
 
         void reset()
@@ -407,10 +589,10 @@ private:
             reset();
         }
 
-        void ensureChannels(size_t numChannels)
+        void ensureChannels(size_t) noexcept
         {
-            if (channelState.size() < numChannels)
-                channelState.resize(numChannels, {});
+            // Intentionally no-op in the audio path.
+            // Channel count must be allocated in prepareToPlay().
         }
 
         void reset()
@@ -442,7 +624,7 @@ private:
             // Asymmetric, signal-dependent bias for tube-style even harmonics.
             // It tracks the envelope so a silent input still produces silence
             // (the bias modulates the active signal, it does not inject DC).
-            const float biasAmount = 0.04f + texture * 0.08f + drive * 0.02f;
+            const float biasAmount = 0.026f + texture * 0.050f + drive * 0.014f;
             const float bias = biasAmount * state.envelope;
 
             float x = (input * stage1Gain * sag) + bias;
@@ -463,8 +645,8 @@ private:
             // Compensates for the level loss caused by tanh saturation so
             // that the wet stage feeds the rest of the chain at a roughly
             // unity perceived level across the whole drive range.
-            const float makeup = 0.92f - drive * 0.18f;               // 0.74..0.92
-            return x * makeup;
+            const float makeup = 0.90f - drive * 0.14f;               // 0.76..0.90
+            return OverdrivePedal::softCeiling(x * makeup, 1.05f);
         }
 
     private:
@@ -494,7 +676,7 @@ private:
 
     static float levelFromControl(float control) noexcept
     {
-        const float levelDb = juce::jmap(juce::jlimit(0.0f, 1.0f, control), -18.0f, 6.0f);
+        const float levelDb = juce::jmap(juce::jlimit(0.0f, 1.0f, control), -18.0f, 4.5f);
         return juce::Decibels::decibelsToGain(levelDb);
     }
 
@@ -515,7 +697,7 @@ private:
         // 0 dBFS even with bright EQ and the post-drive body/air boosts.
         const float drive = juce::jlimit(0.0f, 1.0f, driveControl / 100.0f);
         const float texture = juce::jlimit(0.0f, 1.0f, textureControl);
-        const float compensationDb = juce::jmap(drive, -0.20f, -1.80f) + juce::jmap(texture, 0.0f, -0.60f);
+        const float compensationDb = juce::jmap(drive, -0.35f, -2.20f) + juce::jmap(texture, -0.05f, -0.70f);
         return juce::Decibels::decibelsToGain(compensationDb);
     }
 
@@ -544,12 +726,14 @@ private:
         // output above 0 dBFS even when all three pile up in phase.
         // Worst-case headroom: 1.0 + 0.18 (body) + 0.16 (air) ≈ 1.34, still
         // safely tamed by the downstream output-chain limiter / soft ceiling.
-        toneModel.presenceAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, tone * 0.82f + texture * 0.16f), -0.08f, 0.40f);
-        toneModel.bodyAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, texture * 0.66f + drive * 0.16f - tone * 0.16f), -0.06f, 0.18f);
+        // V2 musical-safe tone stack:
+        // more open than V1, still less explosive than the original.
+        toneModel.presenceAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, tone * 0.76f + texture * 0.13f), -0.07f, 0.32f);
+        toneModel.bodyAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, texture * 0.58f + drive * 0.14f - tone * 0.13f), -0.055f, 0.14f);
         toneModel.preShapeBlend = juce::jmap(juce::jlimit(0.0f, 1.0f,
-            drive * 0.52f + texture * 0.20f - tone * 0.08f), 0.04f, 0.20f);
+            drive * 0.47f + texture * 0.17f - tone * 0.06f), 0.035f, 0.17f);
         toneModel.airRestoreAmount = juce::jmap(juce::jlimit(0.0f, 1.0f,
-            tone * 0.72f + texture * 0.12f + drive * 0.08f), 0.02f, 0.16f);
+            tone * 0.66f + texture * 0.09f + drive * 0.06f), 0.012f, 0.12f);
     }
 
     juce::dsp::Oversampling<float> oversampler;
@@ -561,6 +745,7 @@ private:
     OnePoleFilterBank outputLowPassB;
     OnePoleFilterBank airRestoreFilter;
     OnePoleFilterBank dcBlock;
+    OnePoleFilterBank finalDcBlock;
     ResponsiveDriveStage driveStage;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveControlSmooth;
@@ -578,6 +763,8 @@ private:
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentInnerSampleRate = 176400.0;
+    int preparedBlockSize = 512;
+    int preparedChannels = 2;
     ToneModel toneModel;
     bool isPrepared = false;
     NovaDiagnostics::PedalSignalTelemetry signalTelemetry { "overdrive" };
