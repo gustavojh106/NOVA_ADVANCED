@@ -240,7 +240,8 @@ inline ClassicWahEditor::ClassicWahEditor(ClassicWahPedal& pedal)
     {
         label.setText(text, juce::dontSendNotification);
         label.setJustificationType(value ? juce::Justification::centredLeft : juce::Justification::centredLeft);
-        label.setFont(juce::Font(value ? 12.0f : 11.0f, value ? juce::Font::plain : juce::Font::bold));
+        label.setFont(juce::Font(juce::FontOptions(value ? 12.0f : 11.0f,
+            value ? juce::Font::plain : juce::Font::bold)));
         label.setColour(juce::Label::textColourId, value ? textBright : textDim);
         addAndMakeVisible(label);
     };
@@ -301,12 +302,12 @@ inline ClassicWahEditor::ClassicWahEditor(ClassicWahPedal& pedal)
     addAndMakeVisible(resetButton);
 
     treadleLabel.setText("PEDAL", juce::dontSendNotification);
-    treadleLabel.setFont(juce::Font(12.0f, juce::Font::bold));
+    treadleLabel.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
     treadleLabel.setColour(juce::Label::textColourId, textDim);
     treadleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(treadleLabel);
 
-    treadleValue.setFont(juce::Font(12.0f));
+    treadleValue.setFont(juce::Font(juce::FontOptions(12.0f)));
     treadleValue.setColour(juce::Label::textColourId, accentGlow);
     treadleValue.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(treadleValue);
@@ -340,12 +341,12 @@ inline ClassicWahEditor::ClassicWahEditor(ClassicWahPedal& pedal)
 
         label.setText(name, juce::dontSendNotification);
         label.setJustificationType(juce::Justification::centred);
-        label.setFont(juce::Font(11.0f, juce::Font::bold));
+        label.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         label.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(label);
 
         value.setJustificationType(juce::Justification::centred);
-        value.setFont(juce::Font(11.0f));
+        value.setFont(juce::Font(juce::FontOptions(11.0f)));
         value.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(value);
     };
@@ -592,10 +593,10 @@ inline void ClassicWahEditor::paint(juce::Graphics& g)
     g.fillRect(0.0f, 0.0f, (float) getWidth(), 2.0f);
 
     g.setColour(textBright);
-    g.setFont(juce::Font(26.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(26.0f, juce::Font::bold)));
     g.drawText("WAH", 28, 16, 120, 28, juce::Justification::centredLeft);
     g.setColour(accentGlow);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText("One pedal. Manual, touch and hybrid sweep.", 28, 44, 360, 18, juce::Justification::centredLeft);
 
     paintWahViz(g, vizBounds);
@@ -626,7 +627,7 @@ inline void ClassicWahEditor::paintWahViz(juce::Graphics& g, juce::Rectangle<flo
 
     const float gridFreqs[] = { 200.0f, 300.0f, 500.0f, 800.0f, 1200.0f, 2000.0f, 3200.0f, 5000.0f };
     const char* gridLabels[] = { "200", "300", "500", "800", "1.2k", "2k", "3.2k", "5k" };
-    g.setFont(juce::Font(8.0f));
+    g.setFont(juce::Font(juce::FontOptions(8.0f)));
 
     for (int i = 0; i < 8; ++i)
     {
@@ -712,13 +713,13 @@ inline void ClassicWahEditor::paintWahViz(juce::Graphics& g, juce::Rectangle<flo
     g.fillRoundedRectangle(inner.getX(), envBarY, juce::jmax(2.0f, displayEnvelope * w), 5.0f, 2.5f);
 
     g.setColour(textDim.withAlpha(0.45f));
-    g.setFont(juce::Font(9.0f));
+    g.setFont(juce::Font(juce::FontOptions(9.0f)));
     g.drawText("manual", (int) manualX - 24, (int) inner.getY() + 2, 48, 12, juce::Justification::centred);
     g.drawText("live", (int) liveX - 18, (int) inner.getY() + 18, 36, 12, juce::Justification::centred);
     g.drawText("envelope", (int) inner.getX(), (int) envBarY - 14, 70, 12, juce::Justification::centredLeft);
 
     g.setColour(accentGlow);
-    g.setFont(juce::Font(10.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     const juce::String freqLabel = freq >= 1000.0f
         ? juce::String(freq * 0.001f, 2) + " kHz"
         : juce::String((int) std::round(freq)) + " Hz";

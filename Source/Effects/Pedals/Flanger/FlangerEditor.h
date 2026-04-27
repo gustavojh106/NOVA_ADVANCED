@@ -133,12 +133,12 @@ inline FlangerEditor::FlangerEditor(FlangerPedal& pedal)
 
         name.setText(text, juce::dontSendNotification);
         name.setJustificationType(juce::Justification::centred);
-        name.setFont(juce::Font(11.0f, juce::Font::bold));
+        name.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         name.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(name);
 
         value.setJustificationType(juce::Justification::centred);
-        value.setFont(juce::Font(11.0f));
+        value.setFont(juce::Font(juce::FontOptions(11.0f)));
         value.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(value);
     };
@@ -174,7 +174,7 @@ inline FlangerEditor::FlangerEditor(FlangerPedal& pedal)
     wireFloat(sldMix, proc.mixParam);
 
     modeLabel.setText("MODE", juce::dontSendNotification);
-    modeLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    modeLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     modeLabel.setColour(juce::Label::textColourId, textDim);
     addAndMakeVisible(modeLabel);
 
@@ -195,12 +195,12 @@ inline FlangerEditor::FlangerEditor(FlangerPedal& pedal)
     };
     addAndMakeVisible(modeBox);
 
-    modeSummaryLabel.setFont(juce::Font(12.0f));
+    modeSummaryLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
     modeSummaryLabel.setColour(juce::Label::textColourId, textDim.withAlpha(0.96f));
     modeSummaryLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(modeSummaryLabel);
 
-    stereoHintLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    stereoHintLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     stereoHintLabel.setColour(juce::Label::textColourId, accentGlow.withAlpha(0.88f));
     stereoHintLabel.setJustificationType(juce::Justification::centredRight);
     stereoHintLabel.setText("Stereo wings stay wide without blowing up the centre image", juce::dontSendNotification);
@@ -283,10 +283,10 @@ inline void FlangerEditor::paint(juce::Graphics& g)
     g.fillRect(0.0f, 0.0f, (float) getWidth(), 2.0f);
 
     g.setColour(textBright);
-    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
     g.drawText("FLANGER", 28, 10, 220, 30, juce::Justification::centredLeft);
     g.setColour(accent);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText("Commercial stereo flange with pro voicings", 28, 36, 320, 18, juce::Justification::centredLeft);
 
     paintCombViz(g, vizBounds);
@@ -313,7 +313,7 @@ inline void FlangerEditor::paintCombViz(juce::Graphics& g, juce::Rectangle<float
 
     const float gridFreqs[] = { 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f };
     const char* gridLabels[] = { "100", "200", "500", "1k", "2k", "5k", "10k" };
-    g.setFont(juce::Font(8.5f));
+    g.setFont(juce::Font(juce::FontOptions(8.5f)));
 
     for (int i = 0; i < 7; ++i)
     {
@@ -377,13 +377,13 @@ inline void FlangerEditor::paintCombViz(juce::Graphics& g, juce::Rectangle<float
     g.setColour(accent.withAlpha(0.46f));
     g.strokePath(rightPath, juce::PathStrokeType(1.1f, juce::PathStrokeType::curved));
 
-    g.setFont(juce::Font(9.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
     g.setColour(accentGlow.withAlpha(0.56f));
     g.drawText("L", (int) inner.getX() + 2, (int) inner.getY() + 2, 14, 12, juce::Justification::centredLeft);
     g.setColour(accent.withAlpha(0.35f));
     g.drawText("R", (int) inner.getX() + 16, (int) inner.getY() + 2, 14, 12, juce::Justification::centredLeft);
 
-    g.setFont(juce::Font(9.0f));
+    g.setFont(juce::Font(juce::FontOptions(9.0f)));
     g.setColour(textDim.withAlpha(0.58f));
     g.drawText(juce::String(delayL, 2) + " / " + juce::String(delayR, 2) + " ms",
         (int) (inner.getRight() - 92.0f), (int) inner.getY() + 2, 88, 12, juce::Justification::centredRight);

@@ -147,12 +147,12 @@ inline ReverbEditor::ReverbEditor(ReverbPedal& pedal)
 
         label.setText(name, juce::dontSendNotification);
         label.setJustificationType(juce::Justification::centred);
-        label.setFont(juce::Font(11.0f, juce::Font::bold));
+        label.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         label.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(label);
 
         value.setJustificationType(juce::Justification::centred);
-        value.setFont(juce::Font(11.0f));
+        value.setFont(juce::Font(juce::FontOptions(11.0f)));
         value.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(value);
     };
@@ -373,18 +373,18 @@ inline void ReverbEditor::paint(juce::Graphics& g)
     g.setColour(accent.withAlpha(0.12f));
     g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 7.0f, 1.0f);
     g.setColour(textBright);
-    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
     g.drawText("REVERB", 28, 12, 220, 30, juce::Justification::centredLeft);
     g.setColour(accent);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText("Nimbus Commercial Series", 28, 40, 260, 18, juce::Justification::centredLeft);
 
     g.setColour(textDim);
-    g.setFont(juce::Font(12.0f));
+    g.setFont(juce::Font(juce::FontOptions(12.0f)));
     g.drawText("Dense tails, shaped attacks, reverse blooms and gated ambience.", 28, 62, 460, 18, juce::Justification::centredLeft);
 
     g.setColour(textDim);
-    g.setFont(juce::Font(10.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     g.drawText("PERFORMANCE", btnFreeze.getX() - 96, btnFreeze.getY(), 90, btnFreeze.getHeight(),
         juce::Justification::centredRight);
 
@@ -392,7 +392,7 @@ inline void ReverbEditor::paint(juce::Graphics& g)
     if (btnPitch5th.isVisible())
     {
         g.setColour(textDim);
-        g.setFont(juce::Font(10.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
         g.drawText("SHIMMER PITCH", btnPitch5th.getX() - 90, btnPitch5th.getY(), 84, 24,
             juce::Justification::centredRight);
     }
@@ -488,7 +488,7 @@ inline void ReverbEditor::paintDecayCurve(juce::Graphics& g, juce::Rectangle<flo
 
     const char* modeNames[] = { "SPRING", "PLATE", "HALL", "ROOM", "SHIMMER", "CLOUD" };
     g.setColour(textDim);
-    g.setFont(juce::Font(11.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     g.drawText(modeNames[juce::jlimit(0, 5, mode)], (int) bounds.getRight() - 106, (int) bounds.getY() + 8, 92, 16, juce::Justification::centredRight);
 }
 

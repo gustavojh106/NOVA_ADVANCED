@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "../../PedalSignalTelemetry.h"
+#include "../SignalGuard.h"
 #include <array>
 #include <cmath>
 
@@ -43,9 +44,12 @@ public:
 private:
     struct PeakLimiter
     {
-        void prepare(double newSampleRate) noexcept
+        void prepare(double newSampleRate, int maxChannels) noexcept
         {
             sampleRate = juce::jmax(1.0, newSampleRate);
+            preparedChannels = juce::jlimit(1, (int) previousInputSamples.size(), maxChannels);
+            lookaheadSamples = juce::jmax(1, juce::roundToInt(sampleRate * lookaheadMs * 0.001));
+            delayBuffer.setSize(preparedChannels, lookaheadSamples + 1, false, false, true);
             updateReleaseCoefficient();
             reset();
         }
@@ -53,12 +57,15 @@ private:
         void reset() noexcept
         {
             currentGain = 1.0f;
+            writeIndex = 0;
+            delayBuffer.clear();
+            previousInputSamples.fill(0.0f);
         }
 
         void setThresholdDb(float newThresholdDb) noexcept
         {
             thresholdDb = newThresholdDb;
-            thresholdLinear = juce::Decibels::decibelsToGain(thresholdDb, 0.0f);
+            thresholdLinear = juce::Decibels::decibelsToGain(thresholdDb, -120.0f);
         }
 
         void setRelease(float newReleaseMs) noexcept
@@ -76,34 +83,118 @@ private:
             if (numChannels <= 0 || numSamples <= 0)
                 return;
 
+            if (delayBuffer.getNumChannels() < numChannels
+                || delayBuffer.getNumSamples() <= lookaheadSamples)
+            {
+                processWithoutLookahead(buffer);
+                return;
+            }
+
+            const int delaySize = delayBuffer.getNumSamples();
+            const int linkedChannels = juce::jmin(numChannels, (int) previousInputSamples.size());
+
             for (int sampleIndex = 0; sampleIndex < numSamples; ++sampleIndex)
             {
-                float peak = 0.0f;
+                const float peak = estimateLinkedTruePeak(buffer, sampleIndex, linkedChannels);
+
+                updateGainForPeak(peak);
+
+                const int readIndex = (writeIndex + delaySize - lookaheadSamples) % delaySize;
+
                 for (int ch = 0; ch < numChannels; ++ch)
-                    peak = juce::jmax(peak, std::abs(buffer.getSample(ch, sampleIndex)));
+                {
+                    delayBuffer.setSample(ch, writeIndex, buffer.getSample(ch, sampleIndex));
+                    buffer.setSample(ch, sampleIndex, delayBuffer.getSample(ch, readIndex) * currentGain);
+                }
 
-                const float desiredGain = peak > thresholdLinear && thresholdLinear > 0.0f
-                    ? (thresholdLinear / peak)
-                    : 1.0f;
+                if (++writeIndex >= delaySize)
+                    writeIndex = 0;
+            }
+        }
 
-                if (desiredGain < currentGain)
-                    currentGain = desiredGain;
-                else
-                    currentGain = desiredGain + releaseCoefficient * (currentGain - desiredGain);
+        int getLookaheadSamples() const noexcept
+        {
+            return lookaheadSamples;
+        }
+
+        double sampleRate = 44100.0;
+        float thresholdDb = 0.0f;
+        float thresholdLinear = 1.0f;
+        float lookaheadMs = 1.5f;
+        float releaseMs = 100.0f;
+        float releaseCoefficient = 0.0f;
+        float currentGain = 1.0f;
+        int lookaheadSamples = 66;
+        int preparedChannels = 2;
+        int writeIndex = 0;
+        juce::AudioBuffer<float> delayBuffer;
+        std::array<float, 8> previousInputSamples {};
+
+    private:
+        template <typename BufferType>
+        float estimateLinkedTruePeak(BufferType& buffer, int sampleIndex, int numChannels) noexcept
+        {
+            float peak = 0.0f;
+            const int numSamples = buffer.getNumSamples();
+
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                const float x0 = previousInputSamples[(size_t) ch];
+                const float x1 = buffer.getSample(ch, sampleIndex);
+                const float x2 = sampleIndex + 1 < numSamples ? buffer.getSample(ch, sampleIndex + 1) : x1;
+                const float x3 = sampleIndex + 2 < numSamples ? buffer.getSample(ch, sampleIndex + 2) : x2;
+
+                peak = juce::jmax(peak, std::abs(x1));
+                peak = juce::jmax(peak, std::abs(catmullRom(x0, x1, x2, x3, 0.25f)));
+                peak = juce::jmax(peak, std::abs(catmullRom(x0, x1, x2, x3, 0.50f)));
+                peak = juce::jmax(peak, std::abs(catmullRom(x0, x1, x2, x3, 0.75f)));
+
+                previousInputSamples[(size_t) ch] = x1;
+            }
+
+            return peak;
+        }
+
+        static float catmullRom(float x0, float x1, float x2, float x3, float t) noexcept
+        {
+            const float t2 = t * t;
+            const float t3 = t2 * t;
+            return 0.5f * ((2.0f * x1)
+                + ((-x0 + x2) * t)
+                + ((2.0f * x0 - 5.0f * x1 + 4.0f * x2 - x3) * t2)
+                + ((-x0 + 3.0f * x1 - 3.0f * x2 + x3) * t3));
+        }
+
+        void updateGainForPeak(float peak) noexcept
+        {
+            const float desiredGain = peak > thresholdLinear && thresholdLinear > 0.0f
+                ? (thresholdLinear / peak)
+                : 1.0f;
+
+            if (desiredGain < currentGain)
+                currentGain = desiredGain;
+            else
+                currentGain = desiredGain + releaseCoefficient * (currentGain - desiredGain);
+        }
+
+        template <typename BufferType>
+        void processWithoutLookahead(BufferType& buffer) noexcept
+        {
+            const int numChannels = buffer.getNumChannels();
+            const int numSamples = buffer.getNumSamples();
+            const int linkedChannels = juce::jmin(numChannels, (int) previousInputSamples.size());
+
+            for (int sampleIndex = 0; sampleIndex < numSamples; ++sampleIndex)
+            {
+                const float peak = estimateLinkedTruePeak(buffer, sampleIndex, linkedChannels);
+
+                updateGainForPeak(peak);
 
                 for (int ch = 0; ch < numChannels; ++ch)
                     buffer.setSample(ch, sampleIndex, buffer.getSample(ch, sampleIndex) * currentGain);
             }
         }
 
-        double sampleRate = 44100.0;
-        float thresholdDb = 0.0f;
-        float thresholdLinear = 1.0f;
-        float releaseMs = 100.0f;
-        float releaseCoefficient = 0.0f;
-        float currentGain = 1.0f;
-
-    private:
         void updateReleaseCoefficient() noexcept
         {
             const auto releaseSeconds = juce::jmax(0.001, (double) releaseMs * 0.001);
@@ -121,6 +212,9 @@ private:
         int limiterTouchedSamples = 0;
         int softCeilingTouchedSamples = 0;
         int limiterActiveBlocks = 0;
+        int guardInvalidSamples = 0;
+        int guardClippedSamples = 0;
+        int guardDenormalSamples = 0;
         float limiterThresholdMin = 1.0e9f;
         float limiterThresholdMax = -1.0e9f;
         float outputVolDbMin = 1.0e9f;
@@ -136,6 +230,9 @@ private:
             limiterTouchedSamples = 0;
             softCeilingTouchedSamples = 0;
             limiterActiveBlocks = 0;
+            guardInvalidSamples = 0;
+            guardClippedSamples = 0;
+            guardDenormalSamples = 0;
             limiterThresholdMin = 1.0e9f;
             limiterThresholdMax = -1.0e9f;
             outputVolDbMin = 1.0e9f;

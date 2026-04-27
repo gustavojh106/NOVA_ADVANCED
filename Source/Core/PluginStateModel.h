@@ -91,8 +91,6 @@ inline void applyDefaultValues(juce::ValueTree state)
             settings.setProperty(IDs::INPUT_GATE, -100.0f, nullptr);
         if (!settings.hasProperty(IDs::FORCE_MONO))
             settings.setProperty(IDs::FORCE_MONO, false, nullptr);
-        if (!settings.hasProperty(IDs::INPUT_TRANS))
-            settings.setProperty(IDs::INPUT_TRANS, 0, nullptr);
         if (!settings.hasProperty(IDs::OUTPUT_VOL))
             settings.setProperty(IDs::OUTPUT_VOL, 0.0f, nullptr);
         if (!settings.hasProperty(IDs::OUTPUT_LIMITER))
@@ -243,7 +241,6 @@ inline void resetToCleanState(juce::ValueTree state)
         settings.setProperty(IDs::INPUT_GAIN, 0.0f, nullptr);
         settings.setProperty(IDs::INPUT_GATE, -100.0f, nullptr);
         settings.setProperty(IDs::FORCE_MONO, false, nullptr);
-        settings.setProperty(IDs::INPUT_TRANS, 0, nullptr);
         settings.setProperty(IDs::OUTPUT_VOL, 0.0f, nullptr);
         settings.setProperty(IDs::OUTPUT_LIMITER, 0.0f, nullptr);
         settings.setProperty(IDs::OUTPUT_MIX, 100.0f, nullptr);

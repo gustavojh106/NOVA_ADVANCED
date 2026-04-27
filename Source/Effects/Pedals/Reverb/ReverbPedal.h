@@ -233,6 +233,7 @@ struct PerformanceGains
     float wetTrim = 1.0f;
     float reverseSendScale = 1.0f;
     float reverseMixScale = 1.0f;
+    float comboAttackDamp = 1.0f;
 };
 
 struct ReverseBloomVoice
@@ -747,6 +748,8 @@ public:
         duckReleaseCoeff = (float)std::exp(-1.0 / (sr * 0.180));
         swellAttackCoeff = (float)std::exp(-1.0 / (sr * 0.085));
         swellReleaseCoeff = (float)std::exp(-1.0 / (sr * 0.110));
+        comboAttackCoeff = (float)std::exp(-1.0 / (sr * 0.260));
+        comboReleaseCoeff = (float)std::exp(-1.0 / (sr * 0.150));
         gateAttackCoeff = (float)std::exp(-1.0 / (sr * 0.006));
         gateReleaseCoeff = (float)std::exp(-1.0 / (sr * 0.145));
         bloomLP.setCutoff(1800.0f, sr);
@@ -782,6 +785,7 @@ public:
         modPhases.fill(0.0f);
         duckEnv = 0.0f;
         swellEnv = 0.0f;
+        comboEnv = 0.0f;
         gateEnv = 0.0f;
         resetDebugTelemetry();
     }
@@ -1024,8 +1028,8 @@ public:
         // ---- Early reflections ----
         float erL = 0.0f, erR = 0.0f;
         er.process(delayedMid, erL, erR);
-        erL = (erL + delayedSide * 0.08f * width) * performance.swellGain;
-        erR = (erR - delayedSide * 0.08f * width) * performance.swellGain;
+        erL = (erL + delayedSide * 0.08f * width) * performance.swellGain * performance.comboAttackDamp;
+        erR = (erR - delayedSide * 0.08f * width) * performance.swellGain * performance.comboAttackDamp;
 
         // ---- Input diffusion (6 cascaded all-pass stages) ----
         float diffused = delayedMid;
@@ -1041,7 +1045,7 @@ public:
         const float loopFeedback = lerp(fb, juce::jmax(fb, 0.9992f), freeze);
         const float gatedFeedback = loopFeedback * performance.gateFeedbackScale;
         const float attackExcite = std::tanh(diffused * modeInputDrive * 0.7f)
-            * modeAttackMix * performance.swellGain;
+            * modeAttackMix * performance.swellGain * performance.comboAttackDamp;
         diffused *= modeInputDrive * inputInject * performance.swellGain;
 
         // ---- Read FDN lines (modulated, cubic interpolation) ----
@@ -1189,8 +1193,8 @@ public:
 
             float erL = 0.0f, erR = 0.0f;
             er.process(delayedMid, erL, erR);
-            erL = (erL + delayedSide * 0.08f * width) * performance.swellGain;
-            erR = (erR - delayedSide * 0.08f * width) * performance.swellGain;
+            erL = (erL + delayedSide * 0.08f * width) * performance.swellGain * performance.comboAttackDamp;
+            erR = (erR - delayedSide * 0.08f * width) * performance.swellGain * performance.comboAttackDamp;
             debugTelemetry.erPeak = juce::jmax(debugTelemetry.erPeak, juce::jmax(std::abs(erL), std::abs(erR)));
 
             float diffused = delayedMid;
@@ -1210,7 +1214,7 @@ public:
             debugTelemetry.gatedFeedbackMax = juce::jmax(debugTelemetry.gatedFeedbackMax, gatedFeedback);
             debugTelemetry.freezeMax = juce::jmax(debugTelemetry.freezeMax, freeze);
             const float attackExcite = std::tanh(diffused * modeInputDrive * 0.7f)
-                * modeAttackMix * performance.swellGain;
+                * modeAttackMix * performance.swellGain * performance.comboAttackDamp;
             diffused *= modeInputDrive * inputInject * performance.swellGain;
 
             // FDN read + damping (unrolled inner loop)
@@ -1385,6 +1389,9 @@ private:
         const float swellCoeff = detector > swellEnv ? swellAttackCoeff : swellReleaseCoeff;
         swellEnv = detector + swellCoeff * (swellEnv - detector);
 
+        const float comboCoeff = detector > comboEnv ? comboAttackCoeff : comboReleaseCoeff;
+        comboEnv = detector + comboCoeff * (comboEnv - detector);
+
         const float gateCoeff = detector > gateEnv ? gateAttackCoeff : gateReleaseCoeff;
         gateEnv = detector + gateCoeff * (gateEnv - detector);
     }
@@ -1406,9 +1413,18 @@ private:
         const float swellThreshold = 0.004f + swellAmount * 0.010f;
         float swellOpen = juce::jlimit(0.0f, 1.0f, (swellEnv - swellThreshold) / (0.11f + swellThreshold));
         swellOpen = swellOpen * swellOpen * (3.0f - 2.0f * swellOpen);
-        const float effectiveSwellAmount = swellAmount * (1.0f - reverseBlend * 0.10f);
+        const float effectiveSwellAmount = juce::jmin(1.0f, swellAmount + reverseSwellCombo * 0.10f);
         gains.swellGain = lerp(1.0f, 0.18f + swellOpen * 0.82f, effectiveSwellAmount);
         gains.swellGain = lerp(gains.swellGain, 1.0f, freeze);
+
+        // Reverse+swell combo: slow envelope holds direct/early content down for a true bloom delay,
+        // while leaving FDN feedback excitation alone so the late body keeps building.
+        const float comboThreshold = 0.005f + swellAmount * 0.012f;
+        float comboOpen = juce::jlimit(0.0f, 1.0f, (comboEnv - comboThreshold) / (0.18f + comboThreshold));
+        comboOpen = comboOpen * comboOpen * (3.0f - 2.0f * comboOpen);
+        const float comboFloor = 0.05f;
+        gains.comboAttackDamp = lerp(1.0f, comboFloor + comboOpen * (1.0f - comboFloor), reverseSwellCombo);
+        gains.comboAttackDamp = lerp(gains.comboAttackDamp, 1.0f, freeze);
 
         const float effectiveGateAmount = gateAmount * (1.0f - reverseBlend * 0.24f);
         const float gateThreshold = 0.010f + effectiveGateAmount * 0.040f;
@@ -1524,6 +1540,9 @@ private:
     float swellEnv = 0.0f;
     float swellAttackCoeff = 0.999f;
     float swellReleaseCoeff = 0.999f;
+    float comboEnv = 0.0f;
+    float comboAttackCoeff = 0.999f;
+    float comboReleaseCoeff = 0.999f;
     float gateEnv = 0.0f;
     float gateAttackCoeff = 0.98f;
     float gateReleaseCoeff = 0.999f;

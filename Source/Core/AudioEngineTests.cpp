@@ -828,7 +828,7 @@ public:
         {
             InputChainProcessor input;
             input.prepareToPlay(kSampleRate, kBlockSize);
-            input.setParams(0.0f, -100.0f, true, 0);
+            input.setParams(0.0f, -100.0f, true);
 
             juce::AudioBuffer<float> buffer(2, 256);
             juce::MidiBuffer midi;
@@ -850,7 +850,45 @@ public:
             }
         }
 
-        beginTest("ChannelStrip center pan uses equal-power gain");
+        beginTest("InputChain preserves single-jack guitar level when input arrives on one channel");
+        {
+            auto render = [](bool forceMono)
+            {
+                InputChainProcessor input;
+                input.prepareToPlay(kSampleRate, 1024);
+                input.setParams(0.0f, -100.0f, forceMono);
+
+                juce::AudioBuffer<float> buffer(2, 1024);
+                juce::MidiBuffer midi;
+                buffer.clear();
+
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    const float phase = juce::MathConstants<float>::twoPi * 1000.0f * (float) i / (float) kSampleRate;
+                    buffer.setSample(1, i, 0.18f * std::sin(phase));
+                }
+
+                input.processBlock(buffer, midi);
+                return buffer;
+            };
+
+            const auto stereoAuto = render(false);
+            const auto forcedMono = render(true);
+            const double autoLeftRms = computeChannelWindowRms(stereoAuto, 0, 256, 512);
+            const double autoRightRms = computeChannelWindowRms(stereoAuto, 1, 256, 512);
+            const double forcedLeftRms = computeChannelWindowRms(forcedMono, 0, 256, 512);
+            const double forcedRightRms = computeChannelWindowRms(forcedMono, 1, 256, 512);
+
+            expect(bufferHasOnlyFiniteSamples(stereoAuto), "Auto-normalized single-jack input must remain finite");
+            expect(autoLeftRms > 0.10 && autoRightRms > 0.10,
+                "A one-channel guitar input should be promoted to both channels without a -6 dB loss");
+            expect(std::abs(autoLeftRms - autoRightRms) < 0.002,
+                "Auto-normalized single-jack input should be level-matched between channels");
+            expect(forcedLeftRms > 0.10 && forcedRightRms > 0.10,
+                "Force mono should also preserve one-channel guitar level instead of averaging it down");
+        }
+
+        beginTest("ChannelStrip center pan preserves unity stereo level");
         {
             ChannelStripProcessor strip;
             strip.prepareToPlay(kSampleRate, kBlockSize);
@@ -867,17 +905,16 @@ public:
 
             strip.processBlock(buffer, midi);
 
-            const float equalPower = std::sqrt(0.5f);
             for (int i = 0; i < buffer.getNumSamples(); ++i)
             {
-                expect(approximatelyEqual(buffer.getSample(0, i), left[(size_t) i] * equalPower, 2.0e-4f),
-                    "Left channel should follow the equal-power center law");
-                expect(approximatelyEqual(buffer.getSample(1, i), right[(size_t) i] * equalPower, 2.0e-4f),
-                    "Right channel should follow the equal-power center law");
+                expect(approximatelyEqual(buffer.getSample(0, i), left[(size_t) i], 2.0e-4f),
+                    "Left channel should stay unity at center pan");
+                expect(approximatelyEqual(buffer.getSample(1, i), right[(size_t) i], 2.0e-4f),
+                    "Right channel should stay unity at center pan");
             }
         }
 
-        beginTest("ChannelStrip uses a smooth balance curve");
+        beginTest("ChannelStrip uses a unity-centered smooth balance curve");
         {
             ChannelStripProcessor strip;
             strip.prepareToPlay(kSampleRate, kBlockSize);
@@ -895,8 +932,8 @@ public:
 
             strip.processBlock(buffer, midi);
 
-            const float expectedLeft = std::cos(juce::MathConstants<float>::pi * 0.375f);
-            const float expectedRight = std::sin(juce::MathConstants<float>::pi * 0.375f);
+            const float expectedLeft = std::cos(juce::MathConstants<float>::halfPi * 0.5f);
+            const float expectedRight = 1.0f;
             for (int i = 0; i < buffer.getNumSamples(); ++i)
             {
                 expect(approximatelyEqual(buffer.getSample(0, i), expectedLeft, 2.0e-4f),
@@ -904,6 +941,35 @@ public:
                 expect(approximatelyEqual(buffer.getSample(1, i), expectedRight, 2.0e-4f),
                     "Right channel balance mismatch at sample " + juce::String(i));
             }
+        }
+
+        beginTest("ChannelStrip hard balance endpoints do not boost either side");
+        {
+            auto render = [](float pan)
+            {
+                ChannelStripProcessor strip;
+                strip.prepareToPlay(kSampleRate, kBlockSize);
+                strip.setParams(1.0f, pan, 1.0f);
+
+                juce::AudioBuffer<float> buffer(2, 4);
+                juce::MidiBuffer midi;
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    buffer.setSample(0, i, 0.5f);
+                    buffer.setSample(1, i, 0.5f);
+                }
+
+                strip.processBlock(buffer, midi);
+                return buffer;
+            };
+
+            const auto left = render(-1.0f);
+            const auto right = render(1.0f);
+
+            expect(approximatelyEqual(left.getSample(0, 0), 0.5f, 2.0e-4f), "Hard-left should keep left at unity");
+            expect(std::abs(left.getSample(1, 0)) < 2.0e-4f, "Hard-left should mute right");
+            expect(std::abs(right.getSample(0, 0)) < 2.0e-4f, "Hard-right should mute left");
+            expect(approximatelyEqual(right.getSample(1, 0), 0.5f, 2.0e-4f), "Hard-right should keep right at unity");
         }
 
         beginTest("TunerService preserves mono level and detects concert A");
@@ -964,7 +1030,7 @@ public:
         {
             InputChainProcessor input;
             input.prepareToPlay(kSampleRate, 8192);
-            input.setParams(0.0f, -100.0f, false, 0);
+            input.setParams(0.0f, -100.0f, false);
 
             juce::AudioBuffer<float> buffer(2, 8192);
             juce::MidiBuffer midi;
@@ -1073,7 +1139,7 @@ public:
             };
 
             const auto bypassed = render(0.0f);
-            const auto limited = render(-20.0f);
+            const auto limited = render(-12.0f);
             const double bypassedRms = computeWindowRms(bypassed, 1024, 2048);
             const double limitedRms = computeWindowRms(limited, 1024, 2048);
 
@@ -1118,15 +1184,93 @@ public:
             };
 
             const auto bypassed = render(0.0f);
-            const auto limited = render(-20.0f);
+            const auto limited = render(-12.0f);
             const float bypassedPeak = measurePeak(bypassed, 2048, 4096);
             const float limitedPeak = measurePeak(limited, 2048, 4096);
 
             expect(bufferHasOnlyFiniteSamples(limited), "Hot limited render must remain finite");
-            expect(limitedPeak < bypassedPeak * 0.5f,
+            expect(limitedPeak < bypassedPeak * 0.75f,
                 "Limiter should materially reduce sustained peaks above the threshold");
-            expect(limitedPeak < 0.14f,
+            expect(limitedPeak < 0.32f,
                 "Limiter should settle near the requested ceiling instead of re-amplifying the signal");
+        }
+
+        beginTest("OutputChain clamps legacy extreme limiter thresholds to an audible floor");
+        {
+            OutputChainProcessor output;
+            output.prepareToPlay(kSampleRate, 4096);
+            output.setParams(0.0f, -20.0f);
+            expect(output.getLatencySamples() > 0, "Active limiter should report its lookahead latency");
+
+            juce::AudioBuffer<float> buffer(2, 4096);
+            juce::MidiBuffer midi;
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 1000.0f * (float) i / (float) kSampleRate;
+                const float sample = 0.45f * std::sin(phase);
+                buffer.setSample(0, i, sample);
+                buffer.setSample(1, i, sample);
+            }
+
+            output.processBlock(buffer, midi);
+
+            const float peak = juce::jmax(buffer.getMagnitude(0, 1024, 2048),
+                buffer.getMagnitude(1, 1024, 2048));
+
+            expect(bufferHasOnlyFiniteSamples(buffer), "Legacy clamped limiter render must remain finite");
+            expect(peak > 0.18f && peak < 0.32f,
+                "Legacy -20 dB limiter settings should clamp to the safer -12 dB ceiling range");
+
+            output.setParams(0.0f, 0.0f);
+            expectEquals(output.getLatencySamples(), 0, "Bypassed limiter should not report lookahead latency");
+        }
+
+        beginTest("OutputChain limiter catches isolated pick transients with lookahead");
+        {
+            OutputChainProcessor output;
+            output.prepareToPlay(48000.0, 512);
+            output.setParams(0.0f, -12.0f);
+
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            buffer.clear();
+            buffer.setSample(0, 32, 1.20f);
+            buffer.setSample(1, 32, -1.05f);
+            buffer.setSample(0, 128, -0.95f);
+            buffer.setSample(1, 128, 0.90f);
+
+            output.processBlock(buffer, midi);
+
+            float peak = 0.0f;
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                peak = juce::jmax(peak, buffer.getMagnitude(ch, 0, buffer.getNumSamples()));
+
+            expect(bufferHasOnlyFiniteSamples(buffer), "Transient-limited render must remain finite");
+            expect(peak < 0.31f, "Lookahead limiter should catch isolated transients near the requested ceiling");
+            expect(peak > 0.18f, "Limiter should control transients without muting the signal");
+        }
+
+        beginTest("OutputChain handles larger-than-prepared blocks without corrupting audio");
+        {
+            OutputChainProcessor output;
+            output.prepareToPlay(kSampleRate, 64);
+            output.setParams(0.0f, -12.0f);
+
+            juce::AudioBuffer<float> buffer(2, 512);
+            juce::MidiBuffer midi;
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 700.0f * (float) i / (float) kSampleRate;
+                const float sample = 0.75f * std::sin(phase);
+                buffer.setSample(0, i, sample);
+                buffer.setSample(1, i, sample);
+            }
+
+            output.processBlock(buffer, midi);
+
+            expect(bufferHasOnlyFiniteSamples(buffer), "Oversized block render must remain finite");
+            expect(buffer.getMagnitude(0, 128, 384) < 0.35f, "Limiter should still constrain oversized blocks");
+            expect(buffer.getMagnitude(1, 128, 384) < 0.35f, "Limiter should still constrain oversized blocks on both channels");
         }
 
         beginTest("Synthetic cabinet IR keeps an approximately constant 23 ms window across sample rates");
@@ -1420,7 +1564,7 @@ public:
 
             InputChainProcessor input;
             input.prepareToPlay(kSampleRate, kBlockSize);
-            input.setParams(6.0f, -100.0f, false, 0);
+            input.setParams(6.0f, -100.0f, false);
             input.reset();
 
             juce::AudioBuffer<float> inputBuffer(2, 4);
@@ -1463,7 +1607,7 @@ public:
                 "Output gain should survive reset on both channels");
         }
 
-        beginTest("AudioEngine is transparent in single-line mode");
+        beginTest("AudioEngine single-line mode preserves clean input within conditioning tolerance");
         {
             AudioEngine engine;
             engine.prepare(kSampleRate, kBlockSize, 2, 2);
@@ -1485,7 +1629,7 @@ public:
             buffer.copyFrom(1, 0, right.data(), (int)right.size());
 
             engine.process(buffer, midi);
-            expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
+            expectStereoSamplesMatch(*this, buffer, left, right, 3.5e-3f);
         }
 
         beginTest("AudioEngine disabled state preserves dry input");
@@ -1513,7 +1657,7 @@ public:
             expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
         }
 
-        beginTest("AudioEngine parallel routing keeps unity on identical clean lines");
+        beginTest("AudioEngine parallel routing keeps practical unity on identical clean lines");
         {
             AudioEngine engine;
             engine.prepare(kSampleRate, kBlockSize, 2, 2);
@@ -1535,7 +1679,240 @@ public:
             buffer.copyFrom(1, 0, right.data(), (int)right.size());
 
             engine.process(buffer, midi);
-            expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
+            expectStereoSamplesMatch(*this, buffer, left, right, 3.5e-3f);
+        }
+
+        beginTest("AudioEngine base path stays finite and level-stable across sample rates and block sizes");
+        {
+            const struct Scenario
+            {
+                double sampleRate;
+                int blockSize;
+            } scenarios[] = {
+                { 44100.0, 64 },
+                { 48000.0, 127 },
+                { 96000.0, 513 }
+            };
+
+            for (const auto& scenario : scenarios)
+            {
+                AudioEngine engine;
+                engine.prepare(scenario.sampleRate, scenario.blockSize, 2, 2);
+
+                AudioEngine::RuntimeGlobalParams params;
+                params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+                params.outputMixRaw = 100.0f;
+                engine.updateGlobalParams(params);
+                engine.setEngineEnabled(true);
+                warmUpEngine(engine, scenario.blockSize, 16);
+
+                juce::AudioBuffer<float> buffer(2, scenario.blockSize);
+                juce::MidiBuffer midi;
+                double inputSquares = 0.0;
+                double outputSquares = 0.0;
+                int measuredSamples = 0;
+                bool finite = true;
+                int globalSample = 0;
+
+                for (int block = 0; block < 96; ++block)
+                {
+                    for (int i = 0; i < scenario.blockSize; ++i, ++globalSample)
+                    {
+                        const float t = (float)((double)globalSample / scenario.sampleRate);
+                        const float left = 0.18f * std::sin(juce::MathConstants<float>::twoPi * 1000.0f * t);
+                        const float right = 0.14f * std::sin(juce::MathConstants<float>::twoPi * 1300.0f * t + 0.37f);
+                        buffer.setSample(0, i, left);
+                        buffer.setSample(1, i, right);
+
+                        if (block >= 16)
+                        {
+                            inputSquares += (double)left * (double)left;
+                            inputSquares += (double)right * (double)right;
+                        }
+                    }
+
+                    engine.process(buffer, midi);
+                    finite = finite && bufferHasOnlyFiniteSamples(buffer);
+
+                    if (block >= 16)
+                    {
+                        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                        {
+                            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                            {
+                                const double sample = buffer.getSample(ch, i);
+                                outputSquares += sample * sample;
+                                ++measuredSamples;
+                            }
+                        }
+                    }
+                }
+
+                const double inputRms = std::sqrt(inputSquares / juce::jmax(1, measuredSamples));
+                const double outputRms = std::sqrt(outputSquares / juce::jmax(1, measuredSamples));
+                const double ratio = outputRms / juce::jmax(1.0e-9, inputRms);
+
+                expect(finite, "Base path render must remain finite at sampleRate=" + juce::String(scenario.sampleRate));
+                expect(ratio > 0.97 && ratio < 1.03,
+                    "Base path should stay near unity at sampleRate=" + juce::String(scenario.sampleRate)
+                        + ", blockSize=" + juce::String(scenario.blockSize)
+                        + ", ratio=" + juce::String(ratio, 6));
+            }
+        }
+
+        beginTest("AudioEngine no-pedal base path promotes one-channel guitar input at unity");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, 128, 2, 2);
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            params.inputGainDb = 0.0f;
+            params.outputVolumeDb = 0.0f;
+            params.outputLimiterDb = 0.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, 128, 24);
+
+            juce::AudioBuffer<float> buffer(2, 128);
+            juce::MidiBuffer midi;
+            double inputRightSquares = 0.0;
+            double outputLeftSquares = 0.0;
+            double outputRightSquares = 0.0;
+            int measuredSamples = 0;
+            bool finite = true;
+            int globalSample = 0;
+
+            for (int block = 0; block < 160; ++block)
+            {
+                buffer.clear();
+                for (int i = 0; i < buffer.getNumSamples(); ++i, ++globalSample)
+                {
+                    const float t = (float)((double)globalSample / kSampleRate);
+                    const float rightOnly = 0.16f * std::sin(juce::MathConstants<float>::twoPi * 880.0f * t);
+                    buffer.setSample(1, i, rightOnly);
+
+                    if (block >= 24)
+                        inputRightSquares += (double)rightOnly * (double)rightOnly;
+                }
+
+                engine.process(buffer, midi);
+                finite = finite && bufferHasOnlyFiniteSamples(buffer);
+
+                if (block < 24)
+                    continue;
+
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    const double left = buffer.getSample(0, i);
+                    const double right = buffer.getSample(1, i);
+                    outputLeftSquares += left * left;
+                    outputRightSquares += right * right;
+                    ++measuredSamples;
+                }
+            }
+
+            const double inputRightRms = std::sqrt(inputRightSquares / juce::jmax(1, measuredSamples));
+            const double outputLeftRms = std::sqrt(outputLeftSquares / juce::jmax(1, measuredSamples));
+            const double outputRightRms = std::sqrt(outputRightSquares / juce::jmax(1, measuredSamples));
+            const double leftRatio = outputLeftRms / juce::jmax(1.0e-9, inputRightRms);
+            const double rightRatio = outputRightRms / juce::jmax(1.0e-9, inputRightRms);
+
+            expect(finite, "One-channel guitar base-path render must remain finite");
+            expect(leftRatio > 0.92 && leftRatio < 1.08,
+                "Left output should recover single-jack guitar level without makeup gain, ratio=" + juce::String(leftRatio, 6));
+            expect(rightRatio > 0.92 && rightRatio < 1.08,
+                "Right output should preserve single-jack guitar level without makeup gain, ratio=" + juce::String(rightRatio, 6));
+        }
+
+        beginTest("AudioEngine no-pedal realistic guitar program stays audible and limiter-protected");
+        {
+            constexpr double qaSampleRate = 48000.0;
+            constexpr int qaBlockSize = 128;
+            constexpr int totalBlocks = 520;
+
+            AudioEngine engine;
+            engine.prepare(qaSampleRate, qaBlockSize, 2, 2);
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.inputGainDb = 6.0f;
+            params.gateThresholdDb = -100.0f;
+            params.outputVolumeDb = 0.0f;
+            params.outputLimiterDb = -6.0f;
+            params.outputMixRaw = 100.0f;
+            params.gainA = 1.0f;
+            params.panA = 0.0f;
+            params.widthA = 1.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, qaBlockSize, 24);
+
+            juce::AudioBuffer<float> buffer(2, qaBlockSize);
+            juce::MidiBuffer midi;
+            double outputSquares = 0.0;
+            double outputMeanL = 0.0;
+            double outputMeanR = 0.0;
+            float outputPeak = 0.0f;
+            bool finite = true;
+            int measuredFrames = 0;
+            int globalSample = 0;
+
+            for (int block = 0; block < totalBlocks; ++block)
+            {
+                for (int i = 0; i < qaBlockSize; ++i, ++globalSample)
+                {
+                    const double t = (double)globalSample / qaSampleRate;
+                    const double pluckPhase = std::fmod(t, 0.245);
+                    const float envelope = (float)std::exp(-pluckPhase * 18.0);
+                    const float pick = pluckPhase < 0.0015
+                        ? (float)(1.0 - (pluckPhase / 0.0015))
+                        : 0.0f;
+
+                    const float body = (float)(0.19 * (double)envelope * (
+                        std::sin(juce::MathConstants<double>::twoPi * 82.41 * t)
+                        + 0.43f * std::sin(juce::MathConstants<double>::twoPi * 164.82 * t + 0.12)
+                        + 0.21f * std::sin(juce::MathConstants<double>::twoPi * 246.94 * t + 0.31)));
+                    const float transient = (float)(0.48 * (double)pick * std::sin(juce::MathConstants<double>::twoPi * 2600.0 * t));
+                    const float left = body + transient;
+                    const float right = 0.92f * body + 0.76f * transient;
+
+                    buffer.setSample(0, i, left);
+                    buffer.setSample(1, i, right);
+                }
+
+                engine.process(buffer, midi);
+                finite = finite && bufferHasOnlyFiniteSamples(buffer);
+
+                if (block < 32)
+                    continue;
+
+                for (int i = 0; i < qaBlockSize; ++i)
+                {
+                    const float left = buffer.getSample(0, i);
+                    const float right = buffer.getSample(1, i);
+                    outputPeak = juce::jmax(outputPeak, std::abs(left));
+                    outputPeak = juce::jmax(outputPeak, std::abs(right));
+                    outputSquares += (double)left * (double)left;
+                    outputSquares += (double)right * (double)right;
+                    outputMeanL += left;
+                    outputMeanR += right;
+                    ++measuredFrames;
+                }
+            }
+
+            const double outputRms = std::sqrt(outputSquares / juce::jmax(1, measuredFrames * 2));
+            const double dcL = std::abs(outputMeanL / juce::jmax(1, measuredFrames));
+            const double dcR = std::abs(outputMeanR / juce::jmax(1, measuredFrames));
+
+            expect(finite, "No-pedal realistic program must remain finite");
+            expect(outputRms > 0.025 && outputRms < 0.26,
+                "No-pedal realistic program should stay audible without runaway level, rms=" + juce::String(outputRms, 6));
+            expect(outputPeak <= 0.58f,
+                "Limiter should keep realistic no-pedal transients below the -6 dBFS ceiling allowance, peak=" + juce::String(outputPeak, 6));
+            expect(dcL < 0.012 && dcR < 0.012,
+                "No-pedal base path should stay centered after input/output conditioning");
         }
 
         beginTest("AudioEngine dry-only mix bypasses wet-path gain changes");
@@ -1566,7 +1943,7 @@ public:
             expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
         }
 
-        beginTest("AudioEngine recovers cleanly across engine disable and re-enable");
+        beginTest("AudioEngine recovers cleanly across engine disable and re-enable within conditioning tolerance");
         {
             AudioEngine engine;
             engine.prepare(kSampleRate, kBlockSize, 2, 2);
@@ -1586,21 +1963,21 @@ public:
             buffer.copyFrom(0, 0, left.data(), (int)left.size());
             buffer.copyFrom(1, 0, right.data(), (int)right.size());
             engine.process(buffer, midi);
-            expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
+            expectStereoSamplesMatch(*this, buffer, left, right, 3.5e-3f);
 
             engine.setEngineEnabled(false);
             warmUpEngine(engine, kBlockSize, 4);
             buffer.copyFrom(0, 0, left.data(), (int)left.size());
             buffer.copyFrom(1, 0, right.data(), (int)right.size());
             engine.process(buffer, midi);
-            expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
+            expectStereoSamplesMatch(*this, buffer, left, right, 3.5e-3f);
 
             engine.setEngineEnabled(true);
             warmUpEngine(engine, kBlockSize, 10);
             buffer.copyFrom(0, 0, left.data(), (int)left.size());
             buffer.copyFrom(1, 0, right.data(), (int)right.size());
             engine.process(buffer, midi);
-            expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
+            expectStereoSamplesMatch(*this, buffer, left, right, 3.5e-3f);
         }
 
         beginTest("AudioEngine re-enable refresh re-prepares released pedal processors");

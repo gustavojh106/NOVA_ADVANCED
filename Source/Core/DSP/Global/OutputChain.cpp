@@ -2,15 +2,22 @@
 
 float OutputChainProcessor::applySoftCeiling(float x) noexcept
 {
-    constexpr float ceiling = 0.9999f; // leave clean full-scale material intact, only soften true overs
-    const float sign = juce::jlimit(-1.0f, 1.0f, x < 0.0f ? -1.0f : 1.0f);
+    // Brick-wall soft clipper. Clean material below the threshold passes
+    // untouched; samples between threshold and ceiling are tapered with a
+    // smooth tanh knee that asymptotes at the digital ceiling (1.0). This
+    // gives commercial-grade transparency for normal peaks while guaranteeing
+    // |y| <= 1.0 as a hard guarantee for the host.
+    constexpr float ceiling   = 1.0f;
+    constexpr float threshold = 0.99f;          // ≈ -0.087 dBFS (clean material is untouched)
+    constexpr float knee      = ceiling - threshold;
     const float mag = std::abs(x);
-    if (mag <= ceiling)
+    if (mag <= threshold)
         return x;
 
-    const float normalized = (mag - ceiling) / juce::jmax(0.0001f, 1.0f - ceiling);
-    const float shaped = ceiling + ((1.0f - ceiling) * std::tanh(normalized));
-    return sign * juce::jmin(1.0f, shaped);
+    const float sign  = x < 0.0f ? -1.0f : 1.0f;
+    const float over  = (mag - threshold) / knee;
+    const float shaped = threshold + knee * std::tanh(over);
+    return sign * juce::jmin(ceiling, shaped);
 }
 
 OutputChainProcessor::OutputChainProcessor()
@@ -27,7 +34,7 @@ void OutputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     juce::dsp::ProcessSpec spec{ sampleRate, (juce::uint32)samplesPerBlock, 2 };
 
     gain.prepare(spec);
-    limiter.prepare(sampleRate);
+    limiter.prepare(sampleRate, getTotalNumOutputChannels());
     for (auto& filter : dcBlockers)
         filter.prepare(sampleRate);
 
@@ -36,6 +43,7 @@ void OutputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     gain.reset();
     limiterSmooth.reset(sampleRate, 0.02);
     limiterSmooth.setCurrentAndTargetValue(limiterThresholdTarget);
+    setLatencySamples(limiterThresholdTarget < -0.1f ? limiter.getLookaheadSamples() : 0);
     scratchBuffer.setSize(juce::jmax(1, getTotalNumOutputChannels()),
         juce::jmax(1, samplesPerBlock), false, false, true);
     signalTelemetry.reset();
@@ -56,6 +64,7 @@ void OutputChainProcessor::reset()
     limiter.reset();
     limiter.setThresholdDb(limiterThresholdTarget);
     limiter.setRelease(100.0f);
+    setLatencySamples(limiterThresholdTarget < -0.1f ? limiter.getLookaheadSamples() : 0);
     limiterSmooth.setCurrentAndTargetValue(limiterThresholdTarget);
 
     for (auto& filter : dcBlockers)
@@ -69,17 +78,18 @@ void OutputChainProcessor::reset()
 void OutputChainProcessor::setParams(float volDb, float limitDb)
 {
     outputVolDb = volDb;
-    limiterThresholdTarget = limitDb;
+    limiterThresholdTarget = juce::jlimit(-12.0f, 0.0f, limitDb);
+    setLatencySamples(limiterThresholdTarget < -0.1f ? limiter.getLookaheadSamples() : 0);
 
     if (hardSyncParams)
     {
         gain.setGainDecibels(outputVolDb);
         gain.reset();
-        limiterSmooth.setCurrentAndTargetValue(limitDb);
+        limiterSmooth.setCurrentAndTargetValue(limiterThresholdTarget);
     }
     else
     {
-        limiterSmooth.setTargetValue(limitDb);
+        limiterSmooth.setTargetValue(limiterThresholdTarget);
     }
 }
 
@@ -93,12 +103,17 @@ void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 {
     signalTelemetry.captureInput(buffer);
 
-    if (scratchBuffer.getNumChannels() < buffer.getNumChannels()
-        || scratchBuffer.getNumSamples() < buffer.getNumSamples())
-    {
-        scratchBuffer.setSize(juce::jmax(1, buffer.getNumChannels()),
-            juce::jmax(1, buffer.getNumSamples()), false, false, true);
-    }
+    // Final-stage safety scrub: catches anything the upstream chains and
+    // mixer let through (NaN/Inf, runaway peaks, denormals) before the master
+    // gain ramp, lookahead limiter, and soft ceiling see it. Without this the
+    // limiter's gain reduction can lock to garbage for many milliseconds.
+    const auto guardStats = Nova::DSP::scrub(buffer);
+    debugTelemetry.guardInvalidSamples += guardStats.invalidSamples;
+    debugTelemetry.guardClippedSamples += guardStats.clippedSamples;
+    debugTelemetry.guardDenormalSamples += guardStats.denormalSamples;
+
+    const bool scratchAvailable = scratchBuffer.getNumChannels() >= buffer.getNumChannels()
+        && scratchBuffer.getNumSamples() >= buffer.getNumSamples();
 
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
     {
@@ -125,44 +140,43 @@ void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 
     if (limiterActive)
     {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-            juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch),
-                buffer.getReadPointer(ch),
-                buffer.getNumSamples());
+        if (scratchAvailable)
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch),
+                    buffer.getReadPointer(ch),
+                    buffer.getNumSamples());
 
         limiter.setThresholdDb(limiterThreshold);
         limiter.process(buffer);
 
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        if (scratchAvailable)
         {
-            const auto* before = scratchBuffer.getReadPointer(ch);
-            const auto* after = buffer.getReadPointer(ch);
-
-            for (int sampleIndex = 0; sampleIndex < buffer.getNumSamples(); ++sampleIndex)
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
-                const float delta = std::abs(before[sampleIndex] - after[sampleIndex]);
-                debugTelemetry.limiterDeltaPeak = juce::jmax(debugTelemetry.limiterDeltaPeak, delta);
-                if (delta >= 1.0e-5f)
-                    ++debugTelemetry.limiterTouchedSamples;
+                const auto* before = scratchBuffer.getReadPointer(ch);
+                const auto* after = buffer.getReadPointer(ch);
+
+                for (int sampleIndex = 0; sampleIndex < buffer.getNumSamples(); ++sampleIndex)
+                {
+                    const float delta = std::abs(before[sampleIndex] - after[sampleIndex]);
+                    debugTelemetry.limiterDeltaPeak = juce::jmax(debugTelemetry.limiterDeltaPeak, delta);
+                    if (delta >= 1.0e-5f)
+                        ++debugTelemetry.limiterTouchedSamples;
+                }
             }
         }
     }
     debugTelemetry.postLimiterStage.capture(buffer);
 
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch),
-            buffer.getReadPointer(ch),
-            buffer.getNumSamples());
-
-    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
     {
         auto* data = buffer.getWritePointer(ch);
-        const auto* preCeiling = scratchBuffer.getReadPointer(ch);
 
         for (int i = 0; i < buffer.getNumSamples(); ++i)
         {
-            const float shaped = applySoftCeiling(data[i]);
-            const float delta = std::abs(preCeiling[i] - shaped);
+            const float original = data[i];
+            const float shaped = applySoftCeiling(original);
+            const float delta = std::abs(original - shaped);
             debugTelemetry.softCeilingDeltaPeak = juce::jmax(debugTelemetry.softCeilingDeltaPeak, delta);
             if (delta >= 1.0e-5f)
                 ++debugTelemetry.softCeilingTouchedSamples;
@@ -194,7 +208,12 @@ void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
                    << ", limiterThresholdMin=" << NovaDiagnostics::formatTelemetryScalar(safeMin(debugTelemetry.limiterThresholdMin))
                    << ", limiterThresholdMax=" << NovaDiagnostics::formatTelemetryScalar(juce::jmax(debugTelemetry.limiterThresholdMax, safeMin(debugTelemetry.limiterThresholdMin)))
                    << ", limiterActiveBlocks=" << debugTelemetry.limiterActiveBlocks
-                   << ", hardSync=" << (hardSyncParams ? "true" : "false");
+                   << juce::newLine
+                   << "guard: invalid=" << debugTelemetry.guardInvalidSamples
+                   << ", clipped=" << debugTelemetry.guardClippedSamples
+                   << ", denormals=" << debugTelemetry.guardDenormalSamples
+                   << juce::newLine
+                   << "params: hardSync=" << (hardSyncParams ? "true" : "false");
             return report;
         },
         [this]()

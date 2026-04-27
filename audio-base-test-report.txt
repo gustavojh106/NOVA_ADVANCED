@@ -1,0 +1,4 @@
+results=133 passes=1338 failures=1 failingResults=1
+status=FAIL
+FAIL | Audio Engine Validation | PhaserPedal feedback loop rejects DC accumulation under sustained bias | passes=1 failures=1
+  !!! Test 2 failed: Phaser feedback protection should keep the late wet signal centered

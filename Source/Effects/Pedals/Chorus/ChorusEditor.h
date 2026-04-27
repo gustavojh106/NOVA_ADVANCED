@@ -124,12 +124,12 @@ inline ChorusEditor::ChorusEditor(ChorusPedal& pedal)
 
         name.setText(text, juce::dontSendNotification);
         name.setJustificationType(juce::Justification::centred);
-        name.setFont(juce::Font(11.0f, juce::Font::bold));
+        name.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         name.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(name);
 
         value.setJustificationType(juce::Justification::centred);
-        value.setFont(juce::Font(11.0f));
+        value.setFont(juce::Font(juce::FontOptions(11.0f)));
         value.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(value);
     };
@@ -163,7 +163,7 @@ inline ChorusEditor::ChorusEditor(ChorusPedal& pedal)
     wireFloat(sldMix, proc.mixParam);
 
     modeLabel.setText("MODE", juce::dontSendNotification);
-    modeLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    modeLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     modeLabel.setColour(juce::Label::textColourId, textDim);
     addAndMakeVisible(modeLabel);
 
@@ -184,12 +184,12 @@ inline ChorusEditor::ChorusEditor(ChorusPedal& pedal)
     };
     addAndMakeVisible(modeBox);
 
-    modeSummaryLabel.setFont(juce::Font(12.0f));
+    modeSummaryLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
     modeSummaryLabel.setColour(juce::Label::textColourId, textDim.withAlpha(0.96f));
     modeSummaryLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(modeSummaryLabel);
 
-    stereoHintLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    stereoHintLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     stereoHintLabel.setColour(juce::Label::textColourId, accentGlow.withAlpha(0.88f));
     stereoHintLabel.setJustificationType(juce::Justification::centredRight);
     stereoHintLabel.setText("Mono-safe centre, expanded stereo edges", juce::dontSendNotification);
@@ -267,11 +267,11 @@ inline void ChorusEditor::paint(juce::Graphics& g)
     g.fillRect(0.0f, 0.0f, (float) getWidth(), 3.0f);
 
     g.setColour(textBright);
-    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
     g.drawText("CHORUS", 26, 12, 220, 30, juce::Justification::centredLeft);
 
     g.setColour(accentGlow);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText(modeBox.getText().isNotEmpty() ? modeBox.getText() : juce::String("Classic"),
         26, 38, 220, 18, juce::Justification::centredLeft);
 
@@ -342,7 +342,7 @@ inline void ChorusEditor::paintLfoViz(juce::Graphics& g, juce::Rectangle<float> 
     g.setColour(panelEdge.withAlpha(0.85f));
     g.drawLine(inner.getX(), midY, inner.getRight(), midY, 0.6f);
 
-    g.setFont(juce::Font(10.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     g.setColour(accentGlow.withAlpha(0.75f));
     g.drawText("L", (int) inner.getX() + 4, (int) inner.getY() + 2, 18, 14, juce::Justification::centredLeft);
     g.setColour(accent.withAlpha(0.55f));

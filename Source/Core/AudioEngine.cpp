@@ -47,7 +47,6 @@ juce::String formatRuntimeParams(const AudioEngine::RuntimeGlobalParams& snapsho
     result << "inputGainDb=" << snapshot.inputGainDb
         << ", gateThresholdDb=" << snapshot.gateThresholdDb
         << ", forceMono=" << boolToText(snapshot.forceMono)
-        << ", inputTranspose=" << snapshot.inputTranspose
         << ", hostTempoBpm=" << snapshot.hostTempoBpm
         << ", hostTempoValid=" << boolToText(snapshot.hostTempoValid)
         << ", hostTransportPlaying=" << boolToText(snapshot.hostTransportPlaying)
@@ -346,7 +345,6 @@ void AudioEngine::updateGlobalParams(const juce::ValueTree& settings,
         snapshot.inputGainDb = (float)settings.getProperty(Nova::IDs::INPUT_GAIN, 0.0f);
         snapshot.gateThresholdDb = (float)settings.getProperty(Nova::IDs::INPUT_GATE, -100.0f);
         snapshot.forceMono = (bool)settings.getProperty(Nova::IDs::FORCE_MONO, false);
-        snapshot.inputTranspose = (int)settings.getProperty(Nova::IDs::INPUT_TRANS, 0);
 
         snapshot.outputVolumeDb = (float)settings.getProperty(Nova::IDs::OUTPUT_VOL, 0.0f);
         snapshot.outputLimiterDb = (float)settings.getProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f);
@@ -923,8 +921,7 @@ void AudioEngine::applyGlobalParamsNow(const RuntimeGlobalParams& snapshot)
 
             p->setParams(snapshot.inputGainDb,
                 gateThreshold,
-                snapshot.forceMono,
-                snapshot.inputTranspose);
+                snapshot.forceMono);
         }
     }
 

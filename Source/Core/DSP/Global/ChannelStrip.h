@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "../../PedalSignalTelemetry.h"
+#include "../SignalGuard.h"
 
 class ChannelStripProcessor final : public juce::AudioProcessor
 {
@@ -54,6 +55,9 @@ private:
         float panGainRMax = 0.0f;
         float muteLeakPeak = 0.0f;
         int muteLeakSamples = 0;
+        int guardInvalidSamples = 0;
+        int guardClippedSamples = 0;
+        int guardDenormalSamples = 0;
 
         void resetWindow() noexcept
         {
@@ -69,6 +73,9 @@ private:
             panGainRMax = 0.0f;
             muteLeakPeak = 0.0f;
             muteLeakSamples = 0;
+            guardInvalidSamples = 0;
+            guardClippedSamples = 0;
+            guardDenormalSamples = 0;
         }
 
         void captureStereo(float mid,

@@ -134,12 +134,12 @@ inline AutoWahEditor::AutoWahEditor(AutoWahPedal& pedal)
 
         name.setText(text, juce::dontSendNotification);
         name.setJustificationType(juce::Justification::centred);
-        name.setFont(juce::Font(11.0f, juce::Font::bold));
+        name.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         name.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(name);
 
         value.setJustificationType(juce::Justification::centred);
-        value.setFont(juce::Font(11.0f));
+        value.setFont(juce::Font(juce::FontOptions(11.0f)));
         value.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(value);
     };
@@ -224,11 +224,11 @@ inline void AutoWahEditor::paint(juce::Graphics& g)
     g.fillRect(0.0f, 0.0f, (float) getWidth(), 3.0f);
 
     g.setColour(textBright);
-    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
     g.drawText("AUTO WAH", 26, 12, 220, 30, juce::Justification::centredLeft);
 
     g.setColour(accentGlow);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText("Envelope-driven vocal filter", 26, 38, 240, 18, juce::Justification::centredLeft);
 
     paintSweep(g, sweepBounds);
@@ -260,7 +260,7 @@ inline void AutoWahEditor::paintSweep(juce::Graphics& g, juce::Rectangle<float> 
     const float gridFreqs[] = { 150.0f, 250.0f, 400.0f, 700.0f, 1200.0f, 2000.0f, 3200.0f, 5000.0f };
     const char* gridLabels[] = { "150", "250", "400", "700", "1.2k", "2k", "3.2k", "5k" };
 
-    g.setFont(juce::Font(8.0f));
+    g.setFont(juce::Font(juce::FontOptions(8.0f)));
     for (int i = 0; i < 8; ++i)
     {
         const float x = freqToX(gridFreqs[i]);
@@ -340,7 +340,7 @@ inline void AutoWahEditor::paintSweep(juce::Graphics& g, juce::Rectangle<float> 
     g.setColour(accent.withAlpha(0.76f));
     g.fillRoundedRectangle(inner.getX(), envBarY, juce::jmax(2.0f, displayEnvelope * width), 5.0f, 2.5f);
 
-    g.setFont(juce::Font(10.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     g.setColour(accentGlow.withAlpha(0.78f));
     const juce::String freqLabel = freq >= 1000.0f
         ? juce::String(freq * 0.001f, 2) + " kHz"

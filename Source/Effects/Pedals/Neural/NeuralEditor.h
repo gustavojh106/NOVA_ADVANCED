@@ -110,12 +110,12 @@ inline NeuralEditor::NeuralEditor(NeuralPedal& pedal)
 
         name.setText(text, juce::dontSendNotification);
         name.setJustificationType(juce::Justification::centred);
-        name.setFont(juce::Font(11.0f, juce::Font::bold));
+        name.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         name.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(name);
 
         value.setJustificationType(juce::Justification::centred);
-        value.setFont(juce::Font(11.0f));
+        value.setFont(juce::Font(juce::FontOptions(11.0f)));
         value.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(value);
     };
@@ -190,11 +190,11 @@ inline void NeuralEditor::paint(juce::Graphics& g)
     g.fillRect(0.0f, 0.0f, (float) getWidth(), 3.0f);
 
     g.setColour(textBright);
-    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
     g.drawText("NEURAL", 26, 12, 180, 30, juce::Justification::centredLeft);
 
     g.setColour(accentGlow);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText("Adaptive preamp", 26, 38, 180, 18, juce::Justification::centredLeft);
 
     paintCurve(g, curveBounds);
@@ -209,7 +209,6 @@ inline void NeuralEditor::paintCurve(juce::Graphics& g, juce::Rectangle<float> b
 
     auto inner = bounds.reduced(18.0f, 12.0f);
     const float width = inner.getWidth();
-    const float height = inner.getHeight();
 
     for (int i = 0; i < 5; ++i)
     {
@@ -256,7 +255,7 @@ inline void NeuralEditor::paintCurve(juce::Graphics& g, juce::Rectangle<float> b
     g.setColour(accentGlow.withAlpha(0.88f));
     g.strokePath(curve, juce::PathStrokeType(1.8f, juce::PathStrokeType::curved));
 
-    g.setFont(juce::Font(10.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     g.setColour(accentGlow.withAlpha(0.74f));
     g.drawText("TRANSFER", (int) inner.getX() + 4, (int) inner.getY() + 2, 80, 14, juce::Justification::centredLeft);
 }

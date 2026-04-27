@@ -29,7 +29,6 @@ public:
         float inputGainDb = 0.0f;
         float gateThresholdDb = -100.0f;
         bool forceMono = false;
-        int inputTranspose = 0;
         float hostTempoBpm = 120.0f;
         bool hostTempoValid = false;
         bool hostTransportPlaying = false;

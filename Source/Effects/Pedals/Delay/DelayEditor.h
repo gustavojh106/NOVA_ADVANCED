@@ -160,12 +160,12 @@ inline DelayEditor::DelayEditor(DelayPedal& pedal)
 
         label.setText(name, juce::dontSendNotification);
         label.setJustificationType(juce::Justification::centred);
-        label.setFont(juce::Font(11.0f, juce::Font::bold));
+        label.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         label.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(label);
 
         value.setJustificationType(juce::Justification::centred);
-        value.setFont(juce::Font(11.0f));
+        value.setFont(juce::Font(juce::FontOptions(11.0f)));
         value.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(value);
     };
@@ -211,7 +211,7 @@ inline DelayEditor::DelayEditor(DelayPedal& pedal)
     wireFloat(sldMix, proc.mixParam);
 
     modeLabel.setText("MODE", juce::dontSendNotification);
-    modeLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    modeLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     modeLabel.setColour(juce::Label::textColourId, textDim);
     addAndMakeVisible(modeLabel);
 
@@ -234,7 +234,7 @@ inline DelayEditor::DelayEditor(DelayPedal& pedal)
     syncModeFromProcessor();
 
     divisionLabel.setText("DIVISION", juce::dontSendNotification);
-    divisionLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    divisionLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     divisionLabel.setColour(juce::Label::textColourId, textDim);
     addAndMakeVisible(divisionLabel);
 
@@ -291,18 +291,18 @@ inline DelayEditor::DelayEditor(DelayPedal& pedal)
     syncFreezeFromProcessor();
 
     tempoStatusLabel.setJustificationType(juce::Justification::centredRight);
-    tempoStatusLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    tempoStatusLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     tempoStatusLabel.setColour(juce::Label::textColourId, accentGlow);
     addAndMakeVisible(tempoStatusLabel);
 
     presetBankLabel.setText("FLAGSHIP VOICES", juce::dontSendNotification);
-    presetBankLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    presetBankLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     presetBankLabel.setColour(juce::Label::textColourId, textDim);
     addAndMakeVisible(presetBankLabel);
 
     presetHintLabel.setText("Commercial-ready contours with one click", juce::dontSendNotification);
     presetHintLabel.setJustificationType(juce::Justification::centredRight);
-    presetHintLabel.setFont(juce::Font(11.0f));
+    presetHintLabel.setFont(juce::Font(juce::FontOptions(11.0f)));
     presetHintLabel.setColour(juce::Label::textColourId, textDim.withAlpha(0.88f));
     addAndMakeVisible(presetHintLabel);
 
@@ -443,14 +443,14 @@ inline void DelayEditor::paint(juce::Graphics& g)
     g.fillRect(0.0f, 0.0f, (float) getWidth(), 2.0f);
 
     g.setColour(textBright);
-    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
     g.drawText("DELAY", 28, 12, 240, 30, juce::Justification::centredLeft);
     g.setColour(accent);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText("Orbit Flagship Series", 28, 38, 240, 18, juce::Justification::centredLeft);
 
     g.setColour(textDim);
-    g.setFont(juce::Font(11.0f));
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.drawText("Host-sync premium delay with flagship voicings, modulation and performance shaping", 28, 56, 620, 16, juce::Justification::centredLeft);
 
     const int activePreset = proc.getLastAppliedFlagshipPreset();
@@ -462,7 +462,7 @@ inline void DelayEditor::paint(juce::Graphics& g)
         g.setColour(accent.withAlpha(0.34f));
         g.drawRoundedRectangle(pill, 14.0f, 1.0f);
         g.setColour(accentGlow);
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText(DelayPedal::getFlagshipPresetName(activePreset), pill.toNearestInt(), juce::Justification::centred);
     }
 
@@ -535,11 +535,11 @@ inline void DelayEditor::paintDelayViz(juce::Graphics& g, juce::Rectangle<float>
         g.setColour(accent.withAlpha(0.12f));
         g.fillRoundedRectangle(inner.getX() + 10.0f, inner.getY() + 12.0f, width - 20.0f, padHeight, 5.0f);
         g.setColour(accentGlow.withAlpha(0.72f));
-        g.setFont(juce::Font(11.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         g.drawText("HOLD", inner.toNearestInt().removeFromTop(28), juce::Justification::centred);
     }
 
-    g.setFont(juce::Font(8.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(8.0f, juce::Font::bold)));
     g.setColour(textDim.withAlpha(0.55f));
     g.drawText("DRY", (int) inner.getX(), (int) (baseY + 4.0f), 30, 10, juce::Justification::centredLeft);
     g.drawText(proc.modeParam != nullptr ? proc.modeParam->choices[proc.modeParam->getIndex()] : juce::String("Mode"),

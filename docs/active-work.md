@@ -4,11 +4,17 @@ This file is the live operational context for NOVA. Keep it short and current. C
 
 ## Current Focus
 
-- No active focus recorded yet.
+- Hardening the base no-pedal audio path for MVP quality.
 
 ## Latest Decisions
 
-- No decisions recorded yet.
+- Remove input transpose from the MVP instead of carrying a rarely used pitch-shift path in the base signal flow.
+- Treat the current low-output symptom as limiter state first: logs showed the output limiter at `-20 dB`, clamping peaks to `0.100000`.
+- Clamp limiter ceiling control to `-12..0 dB` so legacy or accidental `-20 dB` states no longer make the base path feel nearly muted.
+- The base limiter now uses lookahead, linked stereo gain reduction, sub-sample true-peak estimation, and explicit latency reporting while active.
+- Single-jack guitar input is auto-promoted to both channels at unity before input gain, gate, pedals, and output processing, so users should not need to overdrive input/master just to recover level.
+- Validate the base no-pedal path with `scripts/run-base-audio-validation.ps1`, which fails on base regressions while ignoring the two known pedal-only failures.
+- Validate DSP changes with a real Standalone rebuild plus audio validation, not compile-only checks.
 
 ## Known Constraints
 

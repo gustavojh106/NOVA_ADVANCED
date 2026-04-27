@@ -137,12 +137,12 @@ inline BoostEditor::BoostEditor(BoostPedal& pedal)
 
         lbl.setText(name, juce::dontSendNotification);
         lbl.setJustificationType(juce::Justification::centred);
-        lbl.setFont(juce::Font(11.0f, juce::Font::bold));
+        lbl.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         lbl.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(lbl);
 
         val.setJustificationType(juce::Justification::centred);
-        val.setFont(juce::Font(11.0f));
+        val.setFont(juce::Font(juce::FontOptions(11.0f)));
         val.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(val);
     };
@@ -244,10 +244,10 @@ inline void BoostEditor::paint(juce::Graphics& g)
 
     // Title
     g.setColour(textBright);
-    g.setFont(juce::Font(22.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(22.0f, juce::Font::bold)));
     g.drawText("BOOSTER", 28, 10, 200, 28, juce::Justification::centredLeft);
     g.setColour(accent);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     {
         float ch = (float)sldChar.getValue();
         const char* subtitle = ch < 0.33f ? "Clean Boost" : ch < 0.66f ? "Warm Preamp" : "Pushed Drive";
@@ -280,7 +280,7 @@ inline void BoostEditor::paintResponseCurve(juce::Graphics& g, juce::Rectangle<f
     };
 
     // dB grid lines
-    g.setFont(juce::Font(9.0f));
+    g.setFont(juce::Font(juce::FontOptions(9.0f)));
     for (float db : { -9.0f, -6.0f, -3.0f, 0.0f, 3.0f, 6.0f, 9.0f })
     {
         float y = dbToY(db);
@@ -382,7 +382,7 @@ inline void BoostEditor::paintResponseCurve(juce::Graphics& g, juce::Rectangle<f
     {
         // Show gain as a label in the top-right of the viz
         g.setColour(accentGlow.withAlpha(0.6f));
-        g.setFont(juce::Font(13.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(13.0f, juce::Font::bold)));
         g.drawText("+" + juce::String(gainDb, 1) + " dB",
             (int)(inner.getRight() - 90), (int)(inner.getY() + 4), 84, 16,
             juce::Justification::centredRight);

@@ -129,12 +129,12 @@ inline OctaveEditor::OctaveEditor(OctavePedal& pedal)
 
         lbl.setText(name, juce::dontSendNotification);
         lbl.setJustificationType(juce::Justification::centred);
-        lbl.setFont(juce::Font(11.0f, juce::Font::bold));
+        lbl.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         lbl.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(lbl);
 
         val.setJustificationType(juce::Justification::centred);
-        val.setFont(juce::Font(11.0f));
+        val.setFont(juce::Font(juce::FontOptions(11.0f)));
         val.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(val);
     };
@@ -220,10 +220,10 @@ inline void OctaveEditor::paint(juce::Graphics& g)
 
     // Header
     g.setColour(textBright);
-    g.setFont(juce::Font(22.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(22.0f, juce::Font::bold)));
     g.drawText("OCTAVE", 28, 10, 200, 28, juce::Justification::centredLeft);
     g.setColour(accent);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText("Polaris", 28, 33, 200, 18, juce::Justification::centredLeft);
 
     // Blend visualization
@@ -282,7 +282,7 @@ inline void OctaveEditor::paintBlendViz(juce::Graphics& g, juce::Rectangle<float
 
         // Label below
         g.setColour(textDim);
-        g.setFont(juce::Font(10.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
         g.drawText(bars[i].label, (int)(bx - 8.0f), (int)(inner.getBottom() + 4.0f),
             (int)(barW + 16.0f), 14, juce::Justification::centred);
     }

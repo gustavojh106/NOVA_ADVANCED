@@ -239,7 +239,6 @@ private:
             settings.setProperty(Nova::IDs::INPUT_GAIN, snapshot.inputGainDb, nullptr);
             settings.setProperty(Nova::IDs::INPUT_GATE, snapshot.gateThresholdDb, nullptr);
             settings.setProperty(Nova::IDs::FORCE_MONO, snapshot.forceMono, nullptr);
-            settings.setProperty(Nova::IDs::INPUT_TRANS, snapshot.inputTranspose, nullptr);
             settings.setProperty(Nova::IDs::OUTPUT_VOL, snapshot.outputVolumeDb, nullptr);
             settings.setProperty(Nova::IDs::OUTPUT_LIMITER, snapshot.outputLimiterDb, nullptr);
             settings.setProperty(Nova::IDs::OUTPUT_MIX, snapshot.outputMixRaw, nullptr);

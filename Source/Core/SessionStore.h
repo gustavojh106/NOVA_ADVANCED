@@ -15,7 +15,6 @@ public:
         juce::AudioParameterChoice* switchMode = nullptr;
         juce::AudioParameterFloat* inputGain = nullptr;
         juce::AudioParameterFloat* inputGate = nullptr;
-        juce::AudioParameterInt* inputTranspose = nullptr;
         juce::AudioParameterBool* forceMono = nullptr;
         juce::AudioParameterFloat* gainA = nullptr;
         juce::AudioParameterFloat* panA = nullptr;
@@ -204,7 +203,6 @@ public:
             settings.setProperty(Nova::IDs::INPUT_GAIN, bindings.inputGain != nullptr ? bindings.inputGain->get() : 0.0f, nullptr);
             settings.setProperty(Nova::IDs::INPUT_GATE, bindings.inputGate != nullptr ? bindings.inputGate->get() : -100.0f, nullptr);
             settings.setProperty(Nova::IDs::FORCE_MONO, bindings.forceMono != nullptr ? bindings.forceMono->get() : false, nullptr);
-            settings.setProperty(Nova::IDs::INPUT_TRANS, bindings.inputTranspose != nullptr ? bindings.inputTranspose->get() : 0, nullptr);
             settings.setProperty(Nova::IDs::OUTPUT_VOL, bindings.outputVolume != nullptr ? bindings.outputVolume->get() : 0.0f, nullptr);
             settings.setProperty(Nova::IDs::OUTPUT_LIMITER, bindings.outputLimiter != nullptr ? bindings.outputLimiter->get() : 0.0f, nullptr);
             settings.setProperty(Nova::IDs::OUTPUT_MIX, bindings.outputMix != nullptr ? bindings.outputMix->get() : 100.0f, nullptr);
@@ -259,10 +257,6 @@ public:
             if (bindings.forceMono != nullptr)
                 bindings.forceMono->setValueNotifyingHost(bindings.forceMono->convertTo0to1(
                     (bool)settings.getProperty(Nova::IDs::FORCE_MONO, false)));
-
-            if (bindings.inputTranspose != nullptr)
-                bindings.inputTranspose->setValueNotifyingHost(bindings.inputTranspose->convertTo0to1(
-                    static_cast<float>((int)settings.getProperty(Nova::IDs::INPUT_TRANS, 0))));
 
             if (bindings.outputVolume != nullptr)
                 bindings.outputVolume->setValueNotifyingHost(bindings.outputVolume->convertTo0to1(
@@ -333,7 +327,6 @@ private:
         snapshot.inputGainDb = bindings.inputGain != nullptr ? bindings.inputGain->get() : 0.0f;
         snapshot.gateThresholdDb = bindings.inputGate != nullptr ? bindings.inputGate->get() : -100.0f;
         snapshot.forceMono = bindings.forceMono != nullptr ? bindings.forceMono->get() : false;
-        snapshot.inputTranspose = bindings.inputTranspose != nullptr ? bindings.inputTranspose->get() : 0;
         snapshot.outputVolumeDb = bindings.outputVolume != nullptr ? bindings.outputVolume->get() : 0.0f;
         snapshot.outputLimiterDb = bindings.outputLimiter != nullptr ? bindings.outputLimiter->get() : 0.0f;
         snapshot.outputMixRaw = bindings.outputMix != nullptr ? bindings.outputMix->get() : 100.0f;
@@ -364,7 +357,6 @@ private:
             snapshot.inputGainDb = (float)settings.getProperty(Nova::IDs::INPUT_GAIN, 0.0f);
             snapshot.gateThresholdDb = (float)settings.getProperty(Nova::IDs::INPUT_GATE, -100.0f);
             snapshot.forceMono = (bool)settings.getProperty(Nova::IDs::FORCE_MONO, false);
-            snapshot.inputTranspose = (int)settings.getProperty(Nova::IDs::INPUT_TRANS, 0);
             snapshot.outputVolumeDb = (float)settings.getProperty(Nova::IDs::OUTPUT_VOL, 0.0f);
             snapshot.outputLimiterDb = (float)settings.getProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f);
             snapshot.outputMixRaw = (float)settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f);
@@ -427,8 +419,6 @@ private:
             runtimeParamsCache.gateThresholdDb = convert(bindings.inputGate);
         else if (paramID == Nova::IDs::FORCE_MONO.toString())
             runtimeParamsCache.forceMono = convert(bindings.forceMono) >= 0.5f;
-        else if (paramID == Nova::IDs::INPUT_TRANS.toString())
-            runtimeParamsCache.inputTranspose = juce::roundToInt(convert(bindings.inputTranspose));
         else if (paramID == Nova::IDs::MIXER_GAIN_A.toString())
             runtimeParamsCache.gainA = convert(bindings.gainA);
         else if (paramID == Nova::IDs::MIXER_PAN_A.toString())

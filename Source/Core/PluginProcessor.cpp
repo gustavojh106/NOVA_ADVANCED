@@ -160,7 +160,6 @@ bool runtimeParamsDiffer(const AudioEngine::RuntimeGlobalParams& lhs,
     return different(lhs.inputGainDb, rhs.inputGainDb)
         || different(lhs.gateThresholdDb, rhs.gateThresholdDb)
         || lhs.forceMono != rhs.forceMono
-        || lhs.inputTranspose != rhs.inputTranspose
         || different(lhs.hostTempoBpm, rhs.hostTempoBpm)
         || lhs.hostTempoValid != rhs.hostTempoValid
         || lhs.hostTransportPlaying != rhs.hostTransportPlaying
@@ -315,7 +314,6 @@ NOVAAudioProcessor::NOVAAudioProcessor()
         switchModeParam,
         inputGainParam,
         inputGateParam,
-        inputTransposeParam,
         forceMonoParam,
         gainAParam,
         panAParam,
@@ -362,8 +360,6 @@ void NOVAAudioProcessor::createGlobalParameters()
         Nova::IDs::INPUT_GAIN.toString(), "Input Gain", -60.0f, 24.0f, 0.0f));
     addParameter(inputGateParam = new juce::AudioParameterFloat(
         Nova::IDs::INPUT_GATE.toString(), "Input Gate", -100.0f, 0.0f, -100.0f));
-    addParameter(inputTransposeParam = new juce::AudioParameterInt(
-        Nova::IDs::INPUT_TRANS.toString(), "Input Transpose", -12, 12, 0));
     addParameter(forceMonoParam = new juce::AudioParameterBool(
         Nova::IDs::FORCE_MONO.toString(), "Force Mono", false));
 
@@ -384,7 +380,7 @@ void NOVAAudioProcessor::createGlobalParameters()
     addParameter(outputVolParam = new juce::AudioParameterFloat(
         Nova::IDs::OUTPUT_VOL.toString(), "Output Volume", -60.0f, 12.0f, 0.0f));
     addParameter(outputLimiterParam = new juce::AudioParameterFloat(
-        Nova::IDs::OUTPUT_LIMITER.toString(), "Output Limiter", -20.0f, 0.0f, 0.0f));
+        Nova::IDs::OUTPUT_LIMITER.toString(), "Output Limiter", -12.0f, 0.0f, 0.0f));
     addParameter(outputMixParam = new juce::AudioParameterFloat(
         Nova::IDs::OUTPUT_MIX.toString(), "Output Mix", 0.0f, 100.0f, 100.0f));
 }
@@ -857,7 +853,6 @@ void NOVAAudioProcessor::logRuntimeSnapshot(const juce::String& context, const A
         << ", inputGainDb=" << snapshot.inputGainDb
         << ", gateThresholdDb=" << snapshot.gateThresholdDb
         << ", forceMono=" << boolToText(snapshot.forceMono)
-        << ", inputTranspose=" << snapshot.inputTranspose
         << ", gainA=" << snapshot.gainA
         << ", panA=" << snapshot.panA
         << ", widthA=" << snapshot.widthA

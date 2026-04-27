@@ -2335,10 +2335,6 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     setupKnob(inputGate, "GATE", -100.0f, 0.0f, -100.0f);
     inputGate.setTextValueSuffix(" dB");
 
-    setupKnob(inputTranspose, "TRANS", -12.0f, 12.0f, 0.0f);
-    inputTranspose.setRange(-12.0, 12.0, 1.0);
-    inputTranspose.setTextValueSuffix(" st");
-
     addAndMakeVisible(btnMonoStereo);
     btnMonoStereo.setButtonText("MONO");
     btnMonoStereo.setClickingTogglesState(true);
@@ -2398,7 +2394,7 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     setupKnob(outputVolume, "MASTER", -60.0f, 12.0f, 0.0f);
     outputVolume.setTextValueSuffix(" dB");
 
-    setupKnob(outputGain, "LIMIT", -20.0f, 0.0f, 0.0f);
+    setupKnob(outputGain, "CEILING", -12.0f, 0.0f, 0.0f);
     outputGain.setLookAndFeel(studioTrimLnf);
     outputGain.setTextValueSuffix(" dB");
 
@@ -2409,8 +2405,6 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
         inputVolumeAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, inputVolume);
     if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::INPUT_GATE.toString()))
         inputGateAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, inputGate);
-    if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::INPUT_TRANS.toString()))
-        inputTransposeAttachment = std::make_unique<juce::SliderParameterAttachment>(*param, inputTranspose);
     if (auto* param = audioProcessor.getGlobalParameter(Nova::IDs::FORCE_MONO.toString()))
         monoAttachment = std::make_unique<juce::ButtonParameterAttachment>(*param, btnMonoStereo);
 
@@ -2519,7 +2513,7 @@ NOVAAudioProcessorEditor::~NOVAAudioProcessorEditor()
     cancelPendingUpdate();
     activePedalEditors.clear();
 
-    for (auto* knob : { &inputVolume, &inputGate, &inputTranspose,
+    for (auto* knob : { &inputVolume, &inputGate,
         &volSliderA, &panSliderA, &widthSliderA,
         &volSliderB, &panSliderB, &widthSliderB,
         &outputVolume, &outputGain, &outputMix })
@@ -3169,7 +3163,7 @@ void NOVAAudioProcessorEditor::drawChannelStrip(juce::Graphics& g, juce::Rectang
 
     const int controlsBottom = isInput
         ? juce::jmax(inputVolume.getBottom(),
-            juce::jmax(inputGate.getBottom(), juce::jmax(inputTranspose.getBottom(), btnMonoStereo.getBottom())))
+            juce::jmax(inputGate.getBottom(), btnMonoStereo.getBottom()))
         : juce::jmax(outputVolume.getBottom(), juce::jmax(outputGain.getBottom(), outputMix.getBottom()));
 
     const int meterTop = juce::jmax(originalArea.getY() + 42, controlsBottom + 14);
@@ -3229,12 +3223,11 @@ void NOVAAudioProcessorEditor::drawChannelStrip(juce::Graphics& g, juce::Rectang
     {
         drawLabel("Gain", inputVolume);
         drawLabel("Gate", inputGate);
-        drawLabel("Trans", inputTranspose);
     }
     else
     {
         drawLabel("Master", outputVolume);
-        drawLabel("Limit", outputGain);
+        drawLabel("Ceiling", outputGain);
         drawLabel("Mix", outputMix);
     }
 }
@@ -3353,7 +3346,6 @@ void NOVAAudioProcessorEditor::resized()
         int y = controlsTop;
         inputVolume.setBounds(kX, y, kW, kH);    y += kH + gap;
         inputGate.setBounds(kX, y, kW, kH);      y += kH + gap;
-        inputTranspose.setBounds(kX, y, kW, kH); y += kH + gap;
         btnMonoStereo.setBounds(toggleX, y, toggleW, toggleH);
     }
 
@@ -3938,8 +3930,6 @@ void NOVAAudioProcessorEditor::updatePedalGui()
                 const int actualRows = (visibleCount + layout.cols - 1) / layout.cols;
 
                 // Center the entire grid block within the zone
-                const int colsFirstRow = juce::jmin(layout.cols, visibleCount);
-                const int blockW = colsFirstRow * layout.cardW + (colsFirstRow - 1) * layout.gapH;
                 const int blockH = actualRows * layout.cardH + juce::jmax(0, actualRows - 1) * layout.gapV;
                 const int blockStartY = zoneAbsY + (zoneH - blockH) / 2;
 

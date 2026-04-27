@@ -107,7 +107,6 @@ private:
     juce::AudioParameterChoice* switchModeParam = nullptr;
     juce::AudioParameterFloat* inputGainParam = nullptr;
     juce::AudioParameterFloat* inputGateParam = nullptr;
-    juce::AudioParameterInt* inputTransposeParam = nullptr;
     juce::AudioParameterBool* forceMonoParam = nullptr;
     juce::AudioParameterFloat* gainAParam = nullptr;
     juce::AudioParameterFloat* panAParam = nullptr;

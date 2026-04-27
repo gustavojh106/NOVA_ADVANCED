@@ -124,12 +124,12 @@ inline DistortionEditor::DistortionEditor(DistortionPedal& pedal)
 
         label.setText(text, juce::dontSendNotification);
         label.setJustificationType(juce::Justification::centred);
-        label.setFont(juce::Font(11.0f, juce::Font::bold));
+        label.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         label.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(label);
 
         value.setJustificationType(juce::Justification::centred);
-        value.setFont(juce::Font(11.0f));
+        value.setFont(juce::Font(juce::FontOptions(11.0f)));
         value.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(value);
     };
@@ -163,7 +163,7 @@ inline DistortionEditor::DistortionEditor(DistortionPedal& pedal)
     wireFloat(sldLevel, proc.levelParam);
 
     modeLabel.setText("MODE", juce::dontSendNotification);
-    modeLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    modeLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     modeLabel.setColour(juce::Label::textColourId, textDim);
     addAndMakeVisible(modeLabel);
 
@@ -184,12 +184,12 @@ inline DistortionEditor::DistortionEditor(DistortionPedal& pedal)
     };
     addAndMakeVisible(modeBox);
 
-    modeSummaryLabel.setFont(juce::Font(12.0f));
+    modeSummaryLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
     modeSummaryLabel.setColour(juce::Label::textColourId, textDim.withAlpha(0.96f));
     modeSummaryLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(modeSummaryLabel);
 
-    attackHintLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    attackHintLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     attackHintLabel.setColour(juce::Label::textColourId, accentGlow.withAlpha(0.86f));
     attackHintLabel.setJustificationType(juce::Justification::centredRight);
     attackHintLabel.setText("Tight controls attack, bloom and palm-mute weight", juce::dontSendNotification);
@@ -270,11 +270,11 @@ inline void DistortionEditor::paint(juce::Graphics& g)
     g.fillRect(0.0f, 0.0f, (float) getWidth(), 3.0f);
 
     g.setColour(textBright);
-    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
     g.drawText("DISTORTION", 26, 12, 250, 30, juce::Justification::centredLeft);
 
     g.setColour(accentGlow);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText(modeBox.getText().isNotEmpty() ? modeBox.getText() : juce::String("Vintage"),
         26, 38, 220, 18, juce::Justification::centredLeft);
 
@@ -291,7 +291,7 @@ inline void DistortionEditor::paint(juce::Graphics& g)
         g.setColour(gateColour);
         g.fillRoundedRectangle((float) getWidth() - 124.0f, 16.0f, 8.0f, 8.0f, 4.0f);
         g.setColour(textDim.withAlpha(0.72f));
-        g.setFont(juce::Font(10.0f, juce::Font::bold));
+        g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
         g.drawText("ADAPTIVE GATE", getWidth() - 112, 13, 92, 14, juce::Justification::centredLeft);
     }
 
@@ -318,7 +318,7 @@ inline void DistortionEditor::paintCurveViz(juce::Graphics& g, juce::Rectangle<f
     g.drawLine(centreX, inner.getY(), centreX, inner.getBottom(), 0.6f);
     g.drawLine(inner.getX(), inner.getBottom(), inner.getRight(), inner.getY(), 0.45f);
 
-    g.setFont(juce::Font(8.5f));
+    g.setFont(juce::Font(juce::FontOptions(8.5f)));
     g.setColour(textDim.withAlpha(0.42f));
     g.drawText("IN", (int) inner.getX() + 2, (int) inner.getBottom() - 12, 20, 10, juce::Justification::centredLeft);
     g.drawText("OUT", (int) inner.getRight() - 28, (int) inner.getY() + 2, 24, 10, juce::Justification::centredRight);
@@ -350,7 +350,7 @@ inline void DistortionEditor::paintCurveViz(juce::Graphics& g, juce::Rectangle<f
     const float bottomSample = std::abs(DistortionPedal::computeClipCurve(-1.0f, gain, mode));
     const float asymmetry = std::abs(topSample - bottomSample) / juce::jmax(0.01f, topSample + bottomSample) * 2.0f;
 
-    g.setFont(juce::Font(9.0f));
+    g.setFont(juce::Font(juce::FontOptions(9.0f)));
     g.setColour(textDim.withAlpha(0.56f));
     const juce::String character = gain < 22.0f ? "Crunch"
         : gain < 46.0f ? "Drive"
@@ -361,7 +361,7 @@ inline void DistortionEditor::paintCurveViz(juce::Graphics& g, juce::Rectangle<f
 
     if (asymmetry > 0.02f)
     {
-        g.setFont(juce::Font(8.0f));
+        g.setFont(juce::Font(juce::FontOptions(8.0f)));
         g.setColour(accent.withAlpha(0.44f));
         g.drawText("Asym " + juce::String((int) std::round(asymmetry * 100.0f)) + "%",
             (int) inner.getX() + 3, (int) inner.getY() + 2, 62, 10,

@@ -382,6 +382,19 @@ private:
         std::vector<float> states;
     };
 
+    // Two-stage soft tanh saturator, modelled after a Tube-Screamer-style
+    // op-amp clipper followed by a gentler diode-style stage. The signal
+    // is hard-bounded by tanh at every stage so the output magnitude can
+    // never exceed ~1.0 regardless of input or drive — this is what kills
+    // the "dirty / clipping at high drive" behaviour of the legacy stage.
+    //
+    // Tone character comes from:
+    //   * a small DC bias added before stage 1 → asymmetric clipping →
+    //     even-order harmonics (warm, tube-like) without DC drift
+    //   * a fast envelope that gently sags the pre-gain on transients →
+    //     touch-sensitive feel, prevents instantaneous overshoot
+    //   * a per-channel DC blocker that removes the bias residue so the
+    //     downstream graph never sees a sustained offset
     class ResponsiveDriveStage
     {
     public:
@@ -389,6 +402,8 @@ private:
         {
             sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
             channelState.assign(numChannels, {});
+            // 8 Hz one-pole DC trap (innocuous on guitar fundamentals)
+            dcCoeff = (float) (1.0 - std::exp(-juce::MathConstants<double>::twoPi * 8.0 / sampleRate));
             reset();
         }
 
@@ -407,47 +422,60 @@ private:
         float processSample(int channel, float input, float driveControl, float textureControl) noexcept
         {
             auto& state = channelState[(size_t) channel];
-            const float drive = juce::jlimit(0.0f, 1.0f, driveControl / 100.0f);
+            const float drive   = juce::jlimit(0.0f, 1.0f, driveControl / 100.0f);
             const float texture = juce::jlimit(0.0f, 1.0f, textureControl);
 
+            // ---- Touch-sensitive envelope (controls supply sag) ----
             const float detector = std::abs(input);
-            const float fastCoeff = detector > state.envelopeFast
-                ? (0.20f + drive * 0.04f)
-                : (0.0032f + drive * 0.0012f);
-            const float slowCoeff = detector > state.envelopeSlow ? 0.022f : 0.0009f;
-            state.envelopeFast += (detector - state.envelopeFast) * fastCoeff;
-            state.envelopeSlow += (detector - state.envelopeSlow) * slowCoeff;
-            const float sagEnvelope = state.envelopeFast * 0.68f + state.envelopeSlow * 0.32f;
+            const float atkCoeff = detector > state.envelope ? 0.20f : 0.005f;
+            state.envelope += atkCoeff * (detector - state.envelope);
 
-            const float inputGain = juce::Decibels::decibelsToGain(5.0f + drive * 22.0f);
-            const float sag = 1.0f / (1.0f + sagEnvelope * (0.16f + texture * 0.38f) * (1.0f + drive * 1.22f));
-            float x = input * inputGain * sag;
+            // ---- Stage 1: clean op-amp gain into soft tanh ----
+            // Cap the pre-gain at +20 dB. Anything beyond that just pushes
+            // tanh further into saturation without adding musical content.
+            // The sag term shaves up to ~3 dB during loud transients to
+            // keep the saturator out of brick-wall territory.
+            const float stage1GainDb = 4.0f + drive * 16.0f;          // 4..20 dB
+            const float stage1Gain   = juce::Decibels::decibelsToGain(stage1GainDb);
+            const float sag          = 1.0f / (1.0f + state.envelope * (0.18f + texture * 0.22f) * (0.6f + drive * 1.4f));
 
-            const float bias = (0.018f + texture * 0.085f + drive * 0.03f) * std::tanh(x * 0.70f);
-            const float soft = std::tanh((x + bias) * (1.10f + texture * 0.85f + drive * 0.25f));
-            const float dense = std::atan((x + bias * 0.45f) * (1.30f + texture * 2.10f + drive * 0.55f))
-                * (2.0f / juce::MathConstants<float>::pi);
-            const float polynomialInput = juce::jlimit(-1.65f, 1.65f, x + bias * (0.65f + texture * 0.25f));
-            const float polynomial = polynomialInput - 0.185f * polynomialInput * polynomialInput * polynomialInput;
+            // Asymmetric, signal-dependent bias for tube-style even harmonics.
+            // It tracks the envelope so a silent input still produces silence
+            // (the bias modulates the active signal, it does not inject DC).
+            const float biasAmount = 0.04f + texture * 0.08f + drive * 0.02f;
+            const float bias = biasAmount * state.envelope;
 
-            const float denseBlend = soft * (0.48f - texture * 0.12f) + dense * (0.24f + texture * 0.18f);
-            const float richer = juce::jmap(texture, denseBlend + polynomial * 0.28f, denseBlend + polynomial * 0.56f);
-            float y = juce::jmap(texture, soft, richer);
-            y = std::tanh(y * (1.02f + drive * 0.14f));
+            float x = (input * stage1Gain * sag) + bias;
+            x = std::tanh(x);                                          // bounded [-1, 1]
 
-            state.dcOffset = (state.dcOffset * Nova::Config::DC_OFFSET_DECAY) + (y * Nova::Config::DC_OFFSET_ATTACK);
-            return y - state.dcOffset;
+            // ---- Stage 2: secondary diode-style soft clip ----
+            // Stage 1 already brings the signal close to the saturator's
+            // shoulder. Stage 2 applies a smaller secondary curve to add
+            // upper harmonics without re-clipping the signal hard.
+            const float stage2Drive = 1.0f + drive * 1.4f + texture * 0.4f; // 1.0..2.8
+            x = std::tanh(x * stage2Drive);                           // bounded [-1, 1]
+
+            // ---- DC trap: remove the asymmetry residue ----
+            state.dcAvg += dcCoeff * (x - state.dcAvg);
+            x -= state.dcAvg;
+
+            // ---- Internal makeup gain ----
+            // Compensates for the level loss caused by tanh saturation so
+            // that the wet stage feeds the rest of the chain at a roughly
+            // unity perceived level across the whole drive range.
+            const float makeup = 0.92f - drive * 0.18f;               // 0.74..0.92
+            return x * makeup;
         }
 
     private:
         struct ChannelState
         {
-            float envelopeFast = 0.0f;
-            float envelopeSlow = 0.0f;
-            float dcOffset = 0.0f;
+            float envelope = 0.0f;
+            float dcAvg    = 0.0f;
         };
 
         double sampleRate = 44100.0;
+        float dcCoeff = 0.001f;
         std::vector<ChannelState> channelState;
     };
 
@@ -481,9 +509,13 @@ private:
 
     static float wetTrimFromControls(float driveControl, float textureControl) noexcept
     {
+        // The new two-stage saturator already produces a roughly unity-level
+        // wet signal, so the trim is mostly cosmetic now: a hair of attenuation
+        // at high drive / texture to keep cumulative tone-stack peaks below
+        // 0 dBFS even with bright EQ and the post-drive body/air boosts.
         const float drive = juce::jlimit(0.0f, 1.0f, driveControl / 100.0f);
         const float texture = juce::jlimit(0.0f, 1.0f, textureControl);
-        const float compensationDb = juce::jmap(drive, -0.35f, -4.60f) + juce::jmap(texture, 0.0f, -1.35f);
+        const float compensationDb = juce::jmap(drive, -0.20f, -1.80f) + juce::jmap(texture, 0.0f, -0.60f);
         return juce::Decibels::decibelsToGain(compensationDb);
     }
 
@@ -507,12 +539,17 @@ private:
             0.20f + tone * 0.62f + texture * 0.10f), 1500.0f, 4200.0f));
         dcBlock.setCutoff(18.0f);
 
-        toneModel.presenceAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, tone * 0.82f + texture * 0.16f), -0.10f, 0.54f);
-        toneModel.bodyAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, texture * 0.66f + drive * 0.16f - tone * 0.16f), -0.08f, 0.24f);
+        // Tone-stack amounts trimmed so the cumulative post-drive boost
+        // (body + air + presence) cannot push the saturator's [-1, 1]
+        // output above 0 dBFS even when all three pile up in phase.
+        // Worst-case headroom: 1.0 + 0.18 (body) + 0.16 (air) ≈ 1.34, still
+        // safely tamed by the downstream output-chain limiter / soft ceiling.
+        toneModel.presenceAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, tone * 0.82f + texture * 0.16f), -0.08f, 0.40f);
+        toneModel.bodyAmount = juce::jmap(juce::jlimit(0.0f, 1.0f, texture * 0.66f + drive * 0.16f - tone * 0.16f), -0.06f, 0.18f);
         toneModel.preShapeBlend = juce::jmap(juce::jlimit(0.0f, 1.0f,
-            drive * 0.52f + texture * 0.20f - tone * 0.08f), 0.04f, 0.24f);
+            drive * 0.52f + texture * 0.20f - tone * 0.08f), 0.04f, 0.20f);
         toneModel.airRestoreAmount = juce::jmap(juce::jlimit(0.0f, 1.0f,
-            tone * 0.72f + texture * 0.12f + drive * 0.08f), 0.02f, 0.22f);
+            tone * 0.72f + texture * 0.12f + drive * 0.08f), 0.02f, 0.16f);
     }
 
     juce::dsp::Oversampling<float> oversampler;

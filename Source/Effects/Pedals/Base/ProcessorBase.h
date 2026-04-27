@@ -40,9 +40,9 @@ public:
 
     // Call this instead of setLatencySamples() from prepareToPlay() in derived
     // classes. It stores the value and respects the current bypass state.
-    void setProcessingLatency(int latencySamples)
+    void setProcessingLatency(int newLatencySamples)
     {
-        activeLatency = latencySamples;
+        activeLatency = newLatencySamples;
         setLatencySamples(isBypassed.load() ? 0 : activeLatency);
     }
 

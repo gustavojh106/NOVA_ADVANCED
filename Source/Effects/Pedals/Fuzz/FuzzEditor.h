@@ -124,12 +124,12 @@ inline FuzzEditor::FuzzEditor(FuzzPedal& pedal)
 
         label.setText(text, juce::dontSendNotification);
         label.setJustificationType(juce::Justification::centred);
-        label.setFont(juce::Font(11.0f, juce::Font::bold));
+        label.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         label.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(label);
 
         value.setJustificationType(juce::Justification::centred);
-        value.setFont(juce::Font(11.0f));
+        value.setFont(juce::Font(juce::FontOptions(11.0f)));
         value.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(value);
     };
@@ -163,7 +163,7 @@ inline FuzzEditor::FuzzEditor(FuzzPedal& pedal)
     wireFloat(sldLevel, proc.levelParam);
 
     modeLabel.setText("MODE", juce::dontSendNotification);
-    modeLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    modeLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     modeLabel.setColour(juce::Label::textColourId, textDim);
     addAndMakeVisible(modeLabel);
 
@@ -184,12 +184,12 @@ inline FuzzEditor::FuzzEditor(FuzzPedal& pedal)
     };
     addAndMakeVisible(modeBox);
 
-    modeSummaryLabel.setFont(juce::Font(12.0f));
+    modeSummaryLabel.setFont(juce::Font(juce::FontOptions(12.0f)));
     modeSummaryLabel.setColour(juce::Label::textColourId, textDim.withAlpha(0.96f));
     modeSummaryLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(modeSummaryLabel);
 
-    sagHintLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    sagHintLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     sagHintLabel.setColour(juce::Label::textColourId, accentGlow.withAlpha(0.88f));
     sagHintLabel.setJustificationType(juce::Justification::centredRight);
     sagHintLabel.setText("Bias steers sustain vs starve; gate sharpens decay", juce::dontSendNotification);
@@ -268,11 +268,11 @@ inline void FuzzEditor::paint(juce::Graphics& g)
     g.fillRect(0.0f, 0.0f, (float) getWidth(), 3.0f);
 
     g.setColour(textBright);
-    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
     g.drawText("FUZZ", 26, 12, 220, 30, juce::Justification::centredLeft);
 
     g.setColour(accentGlow);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText(modeBox.getText().isNotEmpty() ? modeBox.getText() : juce::String("Vintage"),
         26, 38, 220, 18, juce::Justification::centredLeft);
 
@@ -323,7 +323,7 @@ inline void FuzzEditor::paintTransferCurve(juce::Graphics& g, juce::Rectangle<fl
     g.setColour(accentGlow.withAlpha(0.88f));
     g.strokePath(curvePath, juce::PathStrokeType(1.9f, juce::PathStrokeType::curved));
 
-    g.setFont(juce::Font(8.5f));
+    g.setFont(juce::Font(juce::FontOptions(8.5f)));
     g.setColour(textDim.withAlpha(0.44f));
     g.drawText("IN", (int) inner.getRight() - 18, (int) midY + 2, 18, 10, juce::Justification::centredRight);
     g.drawText("OUT", (int) midX + 3, (int) inner.getY() + 1, 24, 10, juce::Justification::centredLeft);
@@ -340,7 +340,7 @@ inline void FuzzEditor::paintTransferCurve(juce::Graphics& g, juce::Rectangle<fl
     g.setColour(accent.interpolatedWith(juce::Colour(0xffFB7185), sag).withAlpha(0.78f));
     g.fillRoundedRectangle(sagBarX, sagBarY + sagBarMaxH - sagBarH, sagBarW, sagBarH, 1.5f);
 
-    g.setFont(juce::Font(7.5f));
+    g.setFont(juce::Font(juce::FontOptions(7.5f)));
     g.setColour(textDim.withAlpha(0.45f));
     g.drawText("SAG", (int) sagBarX - 7, (int) (sagBarY + sagBarMaxH + 2), 22, 8, juce::Justification::centred);
 
@@ -348,7 +348,7 @@ inline void FuzzEditor::paintTransferCurve(juce::Graphics& g, juce::Rectangle<fl
         : fuzzAmount < 48.0f ? "Growl"
         : fuzzAmount < 74.0f ? "Roar"
         : "Wall";
-    g.setFont(juce::Font(9.0f));
+    g.setFont(juce::Font(juce::FontOptions(9.0f)));
     g.setColour(accent.withAlpha(0.54f));
     g.drawText(character, (int) inner.getX(), (int) inner.getY() + 2, 72, 12, juce::Justification::centredLeft);
 }

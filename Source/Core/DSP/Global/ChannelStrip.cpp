@@ -72,6 +72,14 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 {
     signalTelemetry.captureInput(buffer);
 
+    // Per-chain safety scrub: catch any NaN/Inf or runaway peaks produced by
+    // the upstream pedal chain so they cannot poison this strip's gain ramp,
+    // M/S width math, or downstream merger / limiter state.
+    const auto guardStats = Nova::DSP::scrub(buffer);
+    debugTelemetry.guardInvalidSamples += guardStats.invalidSamples;
+    debugTelemetry.guardClippedSamples += guardStats.clippedSamples;
+    debugTelemetry.guardDenormalSamples += guardStats.denormalSamples;
+
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> context(block);
 
@@ -87,6 +95,10 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
                 juce::String report;
                 report << debugTelemetry.postGainStage.buildSummary("gain.stage") << juce::newLine
                        << "stereo.window: unavailable=non-stereo"
+                       << juce::newLine
+                       << "guard: invalid=" << debugTelemetry.guardInvalidSamples
+                       << ", clipped=" << debugTelemetry.guardClippedSamples
+                       << ", denormals=" << debugTelemetry.guardDenormalSamples
                        << juce::newLine
                        << "params: tag=" << telemetryTag
                        << ", targetGain=" << NovaDiagnostics::formatTelemetryScalar(targetGain)
@@ -106,7 +118,6 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
     auto* r = buffer.getWritePointer(1);
     const int numSamples = buffer.getNumSamples();
 
-    constexpr float quarterPi = juce::MathConstants<float>::pi * 0.25f;
     const bool expectMuted = targetGain <= 1.0e-4f;
 
     // 2) Width + smooth balance curve with per-sample smoothing
@@ -123,9 +134,13 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         float sampleL = (mid + side) * widthComp;
         float sampleR = (mid - side) * widthComp;
 
-        const float panAngle = (juce::jlimit(-1.0f, 1.0f, pan) + 1.0f) * quarterPi;
-        const float gainL = std::cos(panAngle);
-        const float gainR = std::sin(panAngle);
+        const float clampedPan = juce::jlimit(-1.0f, 1.0f, pan);
+        const float gainL = clampedPan > 0.0f
+            ? std::cos(clampedPan * juce::MathConstants<float>::halfPi)
+            : 1.0f;
+        const float gainR = clampedPan < 0.0f
+            ? std::cos(-clampedPan * juce::MathConstants<float>::halfPi)
+            : 1.0f;
 
         const float outL = sampleL * gainL;
         const float outR = sampleR * gainR;
@@ -165,6 +180,10 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
                    << ", panGainRMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.panGainRMax)
                    << ", muteLeakPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.muteLeakPeak)
                    << ", muteLeakSamples=" << debugTelemetry.muteLeakSamples
+                   << juce::newLine
+                   << "guard: invalid=" << debugTelemetry.guardInvalidSamples
+                   << ", clipped=" << debugTelemetry.guardClippedSamples
+                   << ", denormals=" << debugTelemetry.guardDenormalSamples
                    << juce::newLine
                    << "params: tag=" << telemetryTag
                    << ", targetGain=" << NovaDiagnostics::formatTelemetryScalar(targetGain)

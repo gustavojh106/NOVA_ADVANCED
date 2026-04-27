@@ -42,7 +42,6 @@ namespace Nova
 
         static const juce::Identifier INPUT_GAIN("inGain");
         static const juce::Identifier INPUT_GATE("gateThresh");
-        static const juce::Identifier INPUT_TRANS("transpose");
         static const juce::Identifier FORCE_MONO("forceMono");
 
         static const juce::Identifier MIXER_GAIN_A("gainA");

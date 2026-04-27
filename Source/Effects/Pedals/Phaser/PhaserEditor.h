@@ -137,12 +137,12 @@ inline PhaserEditor::PhaserEditor(PhaserPedal& pedal)
 
         lbl.setText(name, juce::dontSendNotification);
         lbl.setJustificationType(juce::Justification::centred);
-        lbl.setFont(juce::Font(11.0f, juce::Font::bold));
+        lbl.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         lbl.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(lbl);
 
         val.setJustificationType(juce::Justification::centred);
-        val.setFont(juce::Font(11.0f));
+        val.setFont(juce::Font(juce::FontOptions(11.0f)));
         val.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(val);
     };
@@ -222,10 +222,10 @@ inline void PhaserEditor::paint(juce::Graphics& g)
 
     // Header
     g.setColour(textBright);
-    g.setFont(juce::Font(22.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(22.0f, juce::Font::bold)));
     g.drawText("PHASER", 28, 10, 200, 28, juce::Justification::centredLeft);
     g.setColour(accent);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText("Vortex", 28, 33, 200, 18, juce::Justification::centredLeft);
 
     // Sweep visualization
@@ -272,7 +272,7 @@ inline void PhaserEditor::paintSweepViz(juce::Graphics& g, juce::Rectangle<float
     // Frequency axis grid lines
     const float gridFreqs[] = { 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f };
     const char* gridLabels[] = { "100", "200", "500", "1k", "2k", "5k", "10k" };
-    g.setFont(juce::Font(8.0f));
+    g.setFont(juce::Font(juce::FontOptions(8.0f)));
 
     for (int i = 0; i < 7; ++i)
     {
@@ -339,7 +339,7 @@ inline void PhaserEditor::paintSweepViz(juce::Graphics& g, juce::Rectangle<float
     }
 
     // L/R legend
-    g.setFont(juce::Font(9.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
     g.setColour(accentGlow.withAlpha(0.5f));
     g.drawText("L", (int)inner.getX() + 2, (int)inner.getY() + 2, 12, 12, juce::Justification::centredLeft);
     g.setColour(accent.withAlpha(0.35f));

@@ -132,7 +132,6 @@ private:
     juce::SharedResourcePointer<UI::StudioTrimKnobLnF> studioTrimLnf;
     juce::Slider inputVolume;
     juce::Slider inputGate;
-    juce::Slider inputTranspose;
     juce::ToggleButton btnMonoStereo{ "Mono/Stereo" };
 
     // --- 4. MIXER (Centro) ---
@@ -184,7 +183,6 @@ private:
 
     std::unique_ptr<juce::SliderParameterAttachment> inputVolumeAttachment;
     std::unique_ptr<juce::SliderParameterAttachment> inputGateAttachment;
-    std::unique_ptr<juce::SliderParameterAttachment> inputTransposeAttachment;
     std::unique_ptr<juce::ButtonParameterAttachment> monoAttachment;
     std::unique_ptr<juce::ButtonParameterAttachment> engineAttachment;
     std::unique_ptr<juce::SliderParameterAttachment> volAAttachment;

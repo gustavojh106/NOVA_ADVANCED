@@ -126,12 +126,12 @@ inline OverdriveEditor::OverdriveEditor(OverdrivePedal& pedal)
 
         name.setText(text, juce::dontSendNotification);
         name.setJustificationType(juce::Justification::centred);
-        name.setFont(juce::Font(11.0f, juce::Font::bold));
+        name.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         name.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(name);
 
         value.setJustificationType(juce::Justification::centred);
-        value.setFont(juce::Font(11.0f));
+        value.setFont(juce::Font(juce::FontOptions(11.0f)));
         value.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(value);
     };
@@ -162,12 +162,12 @@ inline OverdriveEditor::OverdriveEditor(OverdrivePedal& pedal)
     wireFloat(sldMix, proc.getMixParam());
     wireFloat(sldLevel, proc.getLevelParam());
 
-    driveDescLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    driveDescLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     driveDescLabel.setColour(juce::Label::textColourId, accentGlow.withAlpha(0.88f));
     driveDescLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(driveDescLabel);
 
-    voiceHintLabel.setFont(juce::Font(11.0f, juce::Font::bold));
+    voiceHintLabel.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
     voiceHintLabel.setColour(juce::Label::textColourId, accentGlow.withAlpha(0.86f));
     voiceHintLabel.setJustificationType(juce::Justification::centredRight);
     voiceHintLabel.setText("Texture shapes grain, Mix blends parallel dry signal", juce::dontSendNotification);
@@ -220,12 +220,12 @@ inline void OverdriveEditor::paint(juce::Graphics& g)
 
     // Title
     g.setColour(textBright);
-    g.setFont(juce::Font(24.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
     g.drawText("OVERDRIVE", 26, 12, 250, 30, juce::Justification::centredLeft);
 
     // Subtitle - current drive character
     g.setColour(accentGlow);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText(describeDrive((float) sldDrive.getValue()),
         26, 38, 220, 18, juce::Justification::centredLeft);
 
@@ -290,7 +290,7 @@ inline void OverdriveEditor::paintCurveViz(juce::Graphics& g, juce::Rectangle<fl
     g.strokePath(curve, juce::PathStrokeType(1.9f, juce::PathStrokeType::curved));
 
     // Character label
-    g.setFont(juce::Font(9.0f));
+    g.setFont(juce::Font(juce::FontOptions(9.0f)));
     g.setColour(textDim.withAlpha(0.56f));
     const juce::String character = drive < 28.0f ? "Edge push"
         : drive < 58.0f ? "Focused crunch"
@@ -300,7 +300,7 @@ inline void OverdriveEditor::paintCurveViz(juce::Graphics& g, juce::Rectangle<fl
         juce::Justification::centredRight);
 
     // Labels
-    g.setFont(juce::Font(10.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
     g.setColour(accentGlow.withAlpha(0.75f));
     g.drawText("RESPONSE", (int) inner.getX() + 4, (int) inner.getY() + 2, 80, 14, juce::Justification::centredLeft);
 }

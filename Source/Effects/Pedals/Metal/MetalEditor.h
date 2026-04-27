@@ -138,12 +138,12 @@ inline MetalEditor::MetalEditor(MetalDistortionPedal& pedal)
 
         lbl.setText(name, juce::dontSendNotification);
         lbl.setJustificationType(juce::Justification::centred);
-        lbl.setFont(juce::Font(11.0f, juce::Font::bold));
+        lbl.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
         lbl.setColour(juce::Label::textColourId, textDim);
         addAndMakeVisible(lbl);
 
         val.setJustificationType(juce::Justification::centred);
-        val.setFont(juce::Font(11.0f));
+        val.setFont(juce::Font(juce::FontOptions(11.0f)));
         val.setColour(juce::Label::textColourId, accentGlow);
         addAndMakeVisible(val);
     };
@@ -238,10 +238,10 @@ inline void MetalEditor::paint(juce::Graphics& g)
 
     // Header
     g.setColour(textBright);
-    g.setFont(juce::Font(22.0f, juce::Font::bold));
+    g.setFont(juce::Font(juce::FontOptions(22.0f, juce::Font::bold)));
     g.drawText("METAL DISTORTION", 28, 10, 280, 28, juce::Justification::centredLeft);
     g.setColour(accent);
-    g.setFont(juce::Font(13.0f));
+    g.setFont(juce::Font(juce::FontOptions(13.0f)));
     g.drawText("Metal Stack", 28, 33, 200, 18, juce::Justification::centredLeft);
 
     // Gate indicator
@@ -253,7 +253,7 @@ inline void MetalEditor::paint(juce::Graphics& g)
         g.setColour(gateCol);
         g.fillRoundedRectangle((float)getWidth() - 80.0f, 16.0f, 8.0f, 8.0f, 4.0f);
         g.setColour(textDim.withAlpha(0.5f));
-        g.setFont(juce::Font(10.0f));
+        g.setFont(juce::Font(juce::FontOptions(10.0f)));
         g.drawText("GATE", getWidth() - 68, 13, 40, 14, juce::Justification::centredLeft);
     }
 
@@ -283,7 +283,7 @@ inline void MetalEditor::paintEqViz(juce::Graphics& g, juce::Rectangle<float> bo
     // Frequency axis grid lines
     const float gridFreqs[] = { 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f };
     const char* gridLabels[] = { "100", "200", "500", "1k", "2k", "5k", "10k" };
-    g.setFont(juce::Font(8.0f));
+    g.setFont(juce::Font(juce::FontOptions(8.0f)));
 
     for (int i = 0; i < 7; ++i)
     {
@@ -309,7 +309,7 @@ inline void MetalEditor::paintEqViz(juce::Graphics& g, juce::Rectangle<float> bo
 
     // 0dB label
     g.setColour(textDim.withAlpha(0.3f));
-    g.setFont(juce::Font(8.0f));
+    g.setFont(juce::Font(juce::FontOptions(8.0f)));
     g.drawText("0", (int)inner.getX() - 14, (int)(midY - 5), 12, 10, juce::Justification::centredRight);
 
     // Compute and draw EQ response curve
@@ -367,7 +367,7 @@ inline void MetalEditor::paintEqViz(juce::Graphics& g, juce::Rectangle<float> bo
     g.fillEllipse(mfX - 3.0f, midY - 3.0f, 6.0f, 6.0f);
 
     // Gain character label
-    g.setFont(juce::Font(9.0f));
+    g.setFont(juce::Font(juce::FontOptions(9.0f)));
     g.setColour(textDim.withAlpha(0.4f));
     const char* character = gain < 25.0f ? "Crunch" : gain < 55.0f ? "High gain"
         : gain < 80.0f ? "Metal" : "Brutal";
