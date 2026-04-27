@@ -951,6 +951,9 @@ void AudioEngine::resetAudioRuntimeState(bool resetMeters)
     if (resetMeters)
     {
         audioPlane.cpuUsage.store(0.0, std::memory_order_relaxed);
+        audioPlane.lastProcessTimeMs.store(0.0, std::memory_order_relaxed);
+        audioPlane.averageProcessTimeMs.store(0.0, std::memory_order_relaxed);
+        audioPlane.peakProcessTimeMs.store(0.0, std::memory_order_relaxed);
         audioPlane.lastInputPeak.store(0.0f, std::memory_order_relaxed);
         audioPlane.lastOutputPeak.store(0.0f, std::memory_order_relaxed);
         audioPlane.lastInputRms.store(0.0f, std::memory_order_relaxed);
@@ -1011,9 +1014,17 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         resetAudioRuntimeState(false);
 
     const auto mode = static_cast<DiagnosticsMode>(diagnosticsMode.load(std::memory_order_relaxed));
-    const bool fullDiagnostics = (mode == DiagnosticsMode::Full);
-    const bool profileThisBlock = fullDiagnostics;
-    const auto startMs = profileThisBlock ? juce::Time::getMillisecondCounterHiRes() : 0.0;
+
+    // Lightweight realtime timing meter.
+    // This replaces the old heavy per-block diagnostic timing, but keeps CPU/process-time
+    // visible in the UI in every diagnostics mode. It only reads the high-resolution timer
+    // at block entry/exit and updates atomics; no strings, no locks, no allocation.
+    const double timingStartMs = juce::Time::getMillisecondCounterHiRes();
+    const auto commitTiming = [this, timingStartMs, &buffer]() noexcept
+        {
+            updateRealtimeTimingMeters(juce::Time::getMillisecondCounterHiRes() - timingStartMs,
+                buffer.getNumSamples());
+        };
 
     const float mixTarget = params.outputMixNormalized.load(std::memory_order_relaxed);
     audioPlane.wetMixRamp.setTarget(mixTarget);
@@ -1024,6 +1035,7 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     {
         const auto health = sanitizeAndMeterOutput(buffer, inputPeak, mode != DiagnosticsMode::Production);
         handleHealthAfterBlock(health, buffer.getNumSamples(), false);
+        commitTiming();
         return;
     }
 
@@ -1032,6 +1044,7 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         --audioPlane.startupCounter;
         const auto health = sanitizeAndMeterOutput(buffer, inputPeak, mode != DiagnosticsMode::Production);
         handleHealthAfterBlock(health, buffer.getNumSamples(), false);
+        commitTiming();
         return;
     }
 
@@ -1041,6 +1054,7 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         buffer.clear();
         const auto health = sanitizeAndMeterOutput(buffer, inputPeak, false);
         handleHealthAfterBlock(health, buffer.getNumSamples(), false);
+        commitTiming();
         return;
     }
 
@@ -1050,6 +1064,7 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         buffer.clear();
         const auto health = sanitizeAndMeterOutput(buffer, inputPeak, true);
         handleHealthAfterBlock(health, buffer.getNumSamples(), false);
+        commitTiming();
         return;
     }
 
@@ -1066,18 +1081,7 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     health.hadCorruption = health.hadCorruption || outputHealth.hadCorruption;
 
     handleHealthAfterBlock(health, buffer.getNumSamples(), true);
-
-    if (profileThisBlock && audioPlane.currentSampleRate > 0.0)
-    {
-        const double elapsedMs = juce::Time::getMillisecondCounterHiRes() - startMs;
-        const double blockMs = (buffer.getNumSamples() / audioPlane.currentSampleRate) * 1000.0;
-        if (blockMs > 0.0)
-        {
-            const double cpu = (elapsedMs / blockMs) * 100.0;
-            audioPlane.cpuUsage.store(audioPlane.cpuUsage.load(std::memory_order_relaxed) * 0.90 + cpu * 0.10,
-                std::memory_order_relaxed);
-        }
-    }
+    commitTiming();
 }
 
 void AudioEngine::processWithSampleAccurateDryWet(GraphRuntime& runtime,
@@ -1318,6 +1322,43 @@ void AudioEngine::handleHealthAfterBlock(const BlockHealthStats& health,
     }
 }
 
+
+void AudioEngine::updateRealtimeTimingMeters(double elapsedMs, int numSamples) noexcept
+{
+    if (!std::isfinite(elapsedMs))
+        return;
+
+    elapsedMs = juce::jlimit(0.0, 10000.0, elapsedMs);
+
+    audioPlane.lastProcessTimeMs.store(elapsedMs, std::memory_order_relaxed);
+
+    const double previousAverage = audioPlane.averageProcessTimeMs.load(std::memory_order_relaxed);
+    const double average = previousAverage <= 0.0
+        ? elapsedMs
+        : (previousAverage * 0.90) + (elapsedMs * 0.10);
+    audioPlane.averageProcessTimeMs.store(average, std::memory_order_relaxed);
+
+    const double previousPeak = audioPlane.peakProcessTimeMs.load(std::memory_order_relaxed);
+    const double decayedPeak = previousPeak * 0.995;
+    audioPlane.peakProcessTimeMs.store(juce::jmax(elapsedMs, decayedPeak), std::memory_order_relaxed);
+
+    const double sampleRate = audioPlane.currentSampleRate;
+    if (sampleRate <= 0.0 || numSamples <= 0)
+        return;
+
+    const double blockMs = ((double)numSamples / sampleRate) * 1000.0;
+    if (blockMs <= 0.0)
+        return;
+
+    const double blockCpu = juce::jlimit(0.0, 10000.0, (elapsedMs / blockMs) * 100.0);
+    const double previousCpu = audioPlane.cpuUsage.load(std::memory_order_relaxed);
+    const double smoothedCpu = previousCpu <= 0.0
+        ? blockCpu
+        : (previousCpu * 0.90) + (blockCpu * 0.10);
+
+    audioPlane.cpuUsage.store(smoothedCpu, std::memory_order_relaxed);
+}
+
 // ========================================================== 
 // INFO / DIAGNOSTICS
 // ========================================================== 
@@ -1355,6 +1396,21 @@ juce::AudioProcessor* AudioEngine::getProcessorForPedal(Nova::ChainID chain, int
 double AudioEngine::getCpuLoad() const
 {
     return audioPlane.cpuUsage.load(std::memory_order_relaxed);
+}
+
+double AudioEngine::getLastProcessTimeMs() const
+{
+    return audioPlane.lastProcessTimeMs.load(std::memory_order_relaxed);
+}
+
+double AudioEngine::getAverageProcessTimeMs() const
+{
+    return audioPlane.averageProcessTimeMs.load(std::memory_order_relaxed);
+}
+
+double AudioEngine::getPeakProcessTimeMs() const
+{
+    return audioPlane.peakProcessTimeMs.load(std::memory_order_relaxed);
 }
 
 int AudioEngine::getLatencyNumSamples() const
@@ -1451,6 +1507,9 @@ juce::String AudioEngine::buildDiagnosticReport() const
         << ", wetMixTarget=" << params.outputMixNormalized.load(std::memory_order_relaxed)
         << ", wetMixCurrent=" << audioPlane.wetMixRamp.getCurrent()
         << ", cpuLoad=" << audioPlane.cpuUsage.load(std::memory_order_relaxed)
+        << ", lastProcessMs=" << audioPlane.lastProcessTimeMs.load(std::memory_order_relaxed)
+        << ", avgProcessMs=" << audioPlane.averageProcessTimeMs.load(std::memory_order_relaxed)
+        << ", peakProcessMs=" << audioPlane.peakProcessTimeMs.load(std::memory_order_relaxed)
         << ", autoHealCount=" << audioPlane.autoHealCount.load(std::memory_order_relaxed)
         << ", audioBlocks=" << (juce::int64)audioPlane.audioBlockCounter.load(std::memory_order_relaxed)
         << juce::newLine

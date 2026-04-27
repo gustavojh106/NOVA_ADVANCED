@@ -100,6 +100,9 @@ public:
     juce::AudioProcessor* getProcessorForPedal(Nova::ChainID chain, int index);
 
     double getCpuLoad() const;
+    double getLastProcessTimeMs() const;
+    double getAverageProcessTimeMs() const;
+    double getPeakProcessTimeMs() const;
     int getLatencyNumSamples() const;
     float getLastInputPeak() const;
     float getLastOutputPeak() const;
@@ -285,6 +288,9 @@ private:
         std::atomic<bool> tunerEnabled{ false };
         std::atomic<int> tuningOffset{ 0 };
         std::atomic<double> cpuUsage{ 0.0 };
+        std::atomic<double> lastProcessTimeMs{ 0.0 };
+        std::atomic<double> averageProcessTimeMs{ 0.0 };
+        std::atomic<double> peakProcessTimeMs{ 0.0 };
 
         double currentSampleRate = 44100.0;
         int currentBlockSize = 512;
@@ -385,6 +391,7 @@ private:
     void handleHealthAfterBlock(const BlockHealthStats& health,
         int numSamples,
         bool engineActuallyProcessed) noexcept;
+    void updateRealtimeTimingMeters(double elapsedMs, int numSamples) noexcept;
 
     void handleAsyncUpdate() override;
 

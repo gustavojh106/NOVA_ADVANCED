@@ -1,36 +1,57 @@
 #include "InputChain.h"
 
+float InputChainProcessor::sanitizeInputGainDb(float value) noexcept
+{
+    if (!std::isfinite(value))
+        return 0.0f;
+
+    return juce::jlimit(-36.0f, 24.0f, value);
+}
+
+float InputChainProcessor::sanitizeGateDb(float value) noexcept
+{
+    if (!std::isfinite(value))
+        return -100.0f;
+
+    return juce::jlimit(-120.0f, 0.0f, value);
+}
+
+float InputChainProcessor::gateDbToLinear(float gateDb) noexcept
+{
+    const float cleanGateDb = sanitizeGateDb(gateDb);
+
+    if (cleanGateDb <= -95.0f)
+        return 0.0f;
+
+    return juce::Decibels::decibelsToGain(cleanGateDb, -120.0f);
+}
+
 InputChainProcessor::InputChainProcessor()
     : AudioProcessor(BusesProperties()
         .withInput("In", juce::AudioChannelSet::stereo())
         .withOutput("Out", juce::AudioChannelSet::stereo()))
 {
-    gate.setThreshold(-100.0f);
-    gate.setRatio(12.0f);
-    gate.setAttack(0.5f);
-    gate.setRelease(50.0f);
-
-    gain.setGainDecibels(0.0f);
 }
 
 void InputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    juce::dsp::ProcessSpec spec{ sampleRate, (juce::uint32)samplesPerBlock, 2 };
+    juce::ignoreUnused(samplesPerBlock);
 
-    currentSampleRate = sampleRate;
+    conditioner.prepare(sampleRate);
+    autoRouting.reset();
+    inputGate.prepare(sampleRate);
 
-    gate.prepare(spec);
-    gain.prepare(spec);
-    subsonicHighPass.prepare(spec);
-    *subsonicHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(sampleRate,
-        20.0f,
-        0.70710678f);
-    subsonicHighPass.reset();
-    for (auto& dcBlock : dcBlockers)
-        dcBlock.prepare(sampleRate);
-    gain.setRampDurationSeconds(0.02);
-    gain.setGainDecibels(inputGainDb);
-    gain.reset();
+    currentInputGainDb = sanitizeInputGainDb(targetInputGainDb.load(std::memory_order_acquire));
+    currentGateDb = sanitizeGateDb(targetGateDb.load(std::memory_order_acquire));
+    currentForceMono = targetForceMono.load(std::memory_order_acquire);
+
+    inputGainLinearSmooth.reset(sampleRate, 0.020);
+    monoBlendSmooth.reset(sampleRate, 0.012);
+    gateThresholdLinearSmooth.reset(sampleRate, 0.035);
+
+    inputGainLinearSmooth.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(currentInputGainDb, -120.0f));
+    monoBlendSmooth.setCurrentAndTargetValue(currentForceMono ? 1.0f : 0.0f);
+    gateThresholdLinearSmooth.setCurrentAndTargetValue(gateDbToLinear(currentGateDb));
 
     hardSyncParams = true;
 }
@@ -42,136 +63,144 @@ void InputChainProcessor::releaseResources()
 
 void InputChainProcessor::reset()
 {
-    gate.reset();
-    gate.setThreshold(gateThreshold);
-    gate.setRatio(12.0f);
-    gate.setAttack(0.5f);
-    gate.setRelease(50.0f);
+    conditioner.reset();
+    autoRouting.reset();
+    inputGate.reset();
 
-    gain.setGainDecibels(inputGainDb);
-    gain.reset();
-    subsonicHighPass.reset();
-    *subsonicHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentSampleRate,
-        20.0f,
-        0.70710678f);
-    for (auto& dcBlock : dcBlockers)
-        dcBlock.reset();
+    currentInputGainDb = sanitizeInputGainDb(targetInputGainDb.load(std::memory_order_acquire));
+    currentGateDb = sanitizeGateDb(targetGateDb.load(std::memory_order_acquire));
+    currentForceMono = targetForceMono.load(std::memory_order_acquire);
+
+    inputGainLinearSmooth.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(currentInputGainDb, -120.0f));
+    monoBlendSmooth.setCurrentAndTargetValue(currentForceMono ? 1.0f : 0.0f);
+    gateThresholdLinearSmooth.setCurrentAndTargetValue(gateDbToLinear(currentGateDb));
 
     hardSyncParams = true;
 }
 
 void InputChainProcessor::setParams(float gainDb, float gateDb, bool forceMono)
 {
-    inputGainDb = gainDb;
-    gateThreshold = gateDb;
+    targetInputGainDb.store(sanitizeInputGainDb(gainDb), std::memory_order_release);
+    targetGateDb.store(sanitizeGateDb(gateDb), std::memory_order_release);
+    targetForceMono.store(forceMono, std::memory_order_release);
+}
 
-    currentRouting = forceMono ? Nova::InputRouting::Sum
-        : Nova::InputRouting::Stereo;
+void InputChainProcessor::applyParameterTargets(bool forceSync) noexcept
+{
+    currentInputGainDb = sanitizeInputGainDb(targetInputGainDb.load(std::memory_order_acquire));
+    currentGateDb = sanitizeGateDb(targetGateDb.load(std::memory_order_acquire));
+    currentForceMono = targetForceMono.load(std::memory_order_acquire);
 
-    if (hardSyncParams)
+    const float inputGainLinear = juce::Decibels::decibelsToGain(currentInputGainDb, -120.0f);
+    const float monoBlend = currentForceMono ? 1.0f : 0.0f;
+    const float gateThresholdLinear = gateDbToLinear(currentGateDb);
+
+    if (forceSync)
     {
-        gain.setGainDecibels(inputGainDb);
-        gain.reset();
+        inputGainLinearSmooth.setCurrentAndTargetValue(inputGainLinear);
+        monoBlendSmooth.setCurrentAndTargetValue(monoBlend);
+        gateThresholdLinearSmooth.setCurrentAndTargetValue(gateThresholdLinear);
+    }
+    else
+    {
+        inputGainLinearSmooth.setTargetValue(inputGainLinear);
+        monoBlendSmooth.setTargetValue(monoBlend);
+        gateThresholdLinearSmooth.setTargetValue(gateThresholdLinear);
     }
 }
 
-void InputChainProcessor::normalizeInstrumentRouting(juce::AudioBuffer<float>& buffer, Nova::InputRouting routing) noexcept
+void InputChainProcessor::applyForceMonoBlend(juce::AudioBuffer<float>& buffer) noexcept
 {
     if (buffer.getNumChannels() < 2 || buffer.getNumSamples() <= 0)
         return;
 
     auto* l = buffer.getWritePointer(0);
     auto* r = buffer.getWritePointer(1);
-    const int numSamples = buffer.getNumSamples();
+    const int samples = buffer.getNumSamples();
 
-    switch (routing)
+    if (!monoBlendSmooth.isSmoothing())
     {
-        case Nova::InputRouting::Left:
-            juce::FloatVectorOperations::copy(r, l, numSamples);
+        const float blend = monoBlendSmooth.getCurrentValue();
+
+        if (blend <= 1.0e-6f)
             return;
 
-        case Nova::InputRouting::Right:
-            juce::FloatVectorOperations::copy(l, r, numSamples);
-            return;
-
-        default:
-            break;
-    }
-
-    float peakL = 0.0f;
-    float peakR = 0.0f;
-    for (int i = 0; i < numSamples; ++i)
-    {
-        peakL = juce::jmax(peakL, std::abs(l[i]));
-        peakR = juce::jmax(peakR, std::abs(r[i]));
-    }
-
-    constexpr float activeThreshold = 0.0005f;
-    constexpr float inactiveRelativeToActive = 0.08f;
-    const bool leftOnly = peakL >= activeThreshold && peakR < peakL * inactiveRelativeToActive;
-    const bool rightOnly = peakR >= activeThreshold && peakL < peakR * inactiveRelativeToActive;
-
-    if (leftOnly)
-    {
-        juce::FloatVectorOperations::copy(r, l, numSamples);
-        return;
-    }
-
-    if (rightOnly)
-    {
-        juce::FloatVectorOperations::copy(l, r, numSamples);
-        return;
-    }
-
-    if (routing == Nova::InputRouting::Sum)
-    {
-        for (int i = 0; i < numSamples; ++i)
+        for (int i = 0; i < samples; ++i)
         {
-            const float sum = (l[i] + r[i]) * 0.5f;
-            l[i] = sum;
-            r[i] = sum;
+            const float mono = (l[i] + r[i]) * 0.5f;
+            l[i] = l[i] + ((mono - l[i]) * blend);
+            r[i] = r[i] + ((mono - r[i]) * blend);
         }
+
+        return;
+    }
+
+    for (int i = 0; i < samples; ++i)
+    {
+        const float blend = monoBlendSmooth.getNextValue();
+        const float mono = (l[i] + r[i]) * 0.5f;
+
+        l[i] = l[i] + ((mono - l[i]) * blend);
+        r[i] = r[i] + ((mono - r[i]) * blend);
+    }
+}
+
+void InputChainProcessor::applyInputGain(juce::AudioBuffer<float>& buffer) noexcept
+{
+    const int channels = juce::jmin(buffer.getNumChannels(), kMaxChannels);
+    const int samples = buffer.getNumSamples();
+
+    if (channels <= 0 || samples <= 0)
+        return;
+
+    std::array<float*, kMaxChannels> data{};
+    for (int ch = 0; ch < channels; ++ch)
+        data[(size_t)ch] = buffer.getWritePointer(ch);
+
+    if (!inputGainLinearSmooth.isSmoothing())
+    {
+        const float g = inputGainLinearSmooth.getCurrentValue();
+
+        if (std::abs(g - 1.0f) <= 1.0e-6f)
+            return;
+
+        for (int ch = 0; ch < channels; ++ch)
+            juce::FloatVectorOperations::multiply(data[(size_t)ch], g, samples);
+
+        return;
+    }
+
+    for (int i = 0; i < samples; ++i)
+    {
+        const float g = inputGainLinearSmooth.getNextValue();
+
+        for (int ch = 0; ch < channels; ++ch)
+            data[(size_t)ch][i] *= g;
     }
 }
 
 void InputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
-    // Scrub host-side garbage (NaN/Inf, denormals, runaway peaks) before any DSP
-    // touches it. Without this, a corrupt input poisons the subsonic HP / DC
-    // blocker IIR state for many blocks, requiring an engine-level auto-heal.
+    juce::ScopedNoDenormals noDenormals;
+
+    applyParameterTargets(hardSyncParams);
+
     const auto guardStats = Nova::DSP::scrub(buffer);
+
     if (guardStats.invalidSamples > 0)
         invalidSampleCount.fetch_add(guardStats.invalidSamples, std::memory_order_relaxed);
+
     if (guardStats.clippedSamples > 0)
         clippedSampleCount.fetch_add(guardStats.clippedSamples, std::memory_order_relaxed);
 
-    juce::dsp::AudioBlock<float> block(buffer);
-    juce::dsp::ProcessContextReplacing<float> context(block);
+    if (guardStats.denormalSamples > 0)
+        denormalSampleCount.fetch_add(guardStats.denormalSamples, std::memory_order_relaxed);
 
-    const int numSamples = buffer.getNumSamples();
-    const int numCh = buffer.getNumChannels();
-
-    normalizeInstrumentRouting(buffer, currentRouting);
-
-    subsonicHighPass.process(context);
-
-    for (int ch = 0; ch < numCh; ++ch)
-    {
-        auto* data = buffer.getWritePointer(ch);
-        auto& dcBlock = dcBlockers[(size_t) juce::jmin(ch, (int) dcBlockers.size() - 1)];
-
-        for (int i = 0; i < numSamples; ++i)
-            data[i] = dcBlock.process(data[i]);
-    }
-
-    gain.setGainDecibels(inputGainDb);
-    gain.process(context);
-
-    if (gateThreshold > -95.0f)
-    {
-        gate.setThreshold(gateThreshold);
-        gate.process(context);
-    }
+    autoRouting.process(buffer);
+    applyForceMonoBlend(buffer);
+    conditioner.process(buffer);
+    applyInputGain(buffer);
+    inputGate.process(buffer, gateThresholdLinearSmooth);
 
     hardSyncParams = false;
 }

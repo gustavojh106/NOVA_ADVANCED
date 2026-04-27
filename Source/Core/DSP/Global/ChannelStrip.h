@@ -4,6 +4,22 @@
 #include "../../PedalSignalTelemetry.h"
 #include "../SignalGuard.h"
 
+#include <array>
+#include <atomic>
+#include <cmath>
+
+/*
+    NOVA ChannelStripProcessor - professional line strip
+
+    Goals:
+    - No locks and no allocations in processBlock().
+    - Thread-safe parameter handoff through atomics.
+    - Sample-accurate smoothing for gain, pan and width.
+    - Reliable mute behavior with early clear once fully muted.
+    - Safer stereo width law with high-width compensation.
+    - Better mono/non-stereo fallback.
+*/
+
 class ChannelStripProcessor final : public juce::AudioProcessor
 {
 public:
@@ -21,7 +37,6 @@ public:
     void setParams(float gainVal, float panVal, float widthVal);
     void setTelemetryTag(const juce::String& newTag);
 
-    // Boilerplate (JUCE)
     const juce::String getName() const override { return "ChannelStrip"; }
     bool hasEditor() const override { return false; }
     juce::AudioProcessorEditor* createEditor() override { return nullptr; }
@@ -38,7 +53,18 @@ public:
 
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
-    bool isBusesLayoutSupported(const BusesLayout&) const override { return true; }
+
+    bool isBusesLayoutSupported(const BusesLayout& layouts) const override
+    {
+        const auto in = layouts.getMainInputChannelSet();
+        const auto out = layouts.getMainOutputChannelSet();
+
+        if (in != out)
+            return false;
+
+        return in == juce::AudioChannelSet::mono()
+            || in == juce::AudioChannelSet::stereo();
+    }
 
 private:
     struct DebugTelemetry
@@ -55,9 +81,16 @@ private:
         float panGainRMax = 0.0f;
         float muteLeakPeak = 0.0f;
         int muteLeakSamples = 0;
+        int mutedFastPathBlocks = 0;
         int guardInvalidSamples = 0;
         int guardClippedSamples = 0;
         int guardDenormalSamples = 0;
+        float gainMin = 1.0e9f;
+        float gainMax = 0.0f;
+        float panMin = 1.0e9f;
+        float panMax = -1.0e9f;
+        float widthMin = 1.0e9f;
+        float widthMax = 0.0f;
 
         void resetWindow() noexcept
         {
@@ -73,9 +106,26 @@ private:
             panGainRMax = 0.0f;
             muteLeakPeak = 0.0f;
             muteLeakSamples = 0;
+            mutedFastPathBlocks = 0;
             guardInvalidSamples = 0;
             guardClippedSamples = 0;
             guardDenormalSamples = 0;
+            gainMin = 1.0e9f;
+            gainMax = 0.0f;
+            panMin = 1.0e9f;
+            panMax = -1.0e9f;
+            widthMin = 1.0e9f;
+            widthMax = 0.0f;
+        }
+
+        void captureControls(float gain, float pan, float width) noexcept
+        {
+            gainMin = juce::jmin(gainMin, gain);
+            gainMax = juce::jmax(gainMax, gain);
+            panMin = juce::jmin(panMin, pan);
+            panMax = juce::jmax(panMax, pan);
+            widthMin = juce::jmin(widthMin, width);
+            widthMax = juce::jmax(widthMax, width);
         }
 
         void captureStereo(float mid,
@@ -108,15 +158,31 @@ private:
         }
     };
 
-    juce::dsp::Gain<float> gain;
+    static float sanitizeGain(float value) noexcept;
+    static float sanitizePan(float value) noexcept;
+    static float sanitizeWidth(float value) noexcept;
+    static float calculateWidthCompensation(float width) noexcept;
+    static void calculateBalanceGains(float pan, float& gainL, float& gainR) noexcept;
+
+    void applyParameterTargets(bool forceSync) noexcept;
+    void applyGainOnly(juce::AudioBuffer<float>& buffer, bool expectMuted) noexcept;
+    void emitTelemetry(juce::AudioBuffer<float>& buffer, bool stereoAvailable, bool expectMuted);
+
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> gainSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> panSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmooth;
-    NovaDiagnostics::PedalSignalTelemetry signalTelemetry { "channel-strip" };
-    DebugTelemetry debugTelemetry;
-    juce::String telemetryTag { "channel-strip" };
 
-    float targetGain = 1.0f;
-    float targetPan = 0.0f;
-    float targetWidth = 1.0f;
+    NovaDiagnostics::PedalSignalTelemetry signalTelemetry{ "channel-strip" };
+    DebugTelemetry debugTelemetry;
+    juce::String telemetryTag{ "channel-strip" };
+
+    std::atomic<float> targetGain{ 1.0f };
+    std::atomic<float> targetPan{ 0.0f };
+    std::atomic<float> targetWidth{ 1.0f };
+
+    float currentTargetGain = 1.0f;
+    float currentTargetPan = 0.0f;
+    float currentTargetWidth = 1.0f;
+
     bool hardSyncParams = true;
 };
