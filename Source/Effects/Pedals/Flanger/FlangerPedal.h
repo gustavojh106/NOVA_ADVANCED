@@ -314,7 +314,7 @@ public:
         updateFilters(true);
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
-        signalTelemetry.reset();
+        signalTelemetry.prepare(sampleRate);
         debugTelemetry.resetWindow();
         isPrepared = true;
     }
@@ -496,15 +496,8 @@ public:
                 driftPhase -= 1.0f;
         }
 
-        signalTelemetry.captureOutputAndEmitIfNeeded(buffer,
-            [this]()
-            {
-                return debugTelemetry.buildReport(*this);
-            },
-            [this]()
-            {
-                debugTelemetry.resetWindow();
-            });
+        if (signalTelemetry.captureOutputAndPublishIfNeeded(buffer))
+            debugTelemetry.resetWindow();
 
         endBypassProcess(buffer);
     }

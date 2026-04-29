@@ -16,6 +16,7 @@ void ensureAudioEngineValidationTestsLinked();
 namespace
 {
 namespace PluginState = Nova::PluginStateModel;
+constexpr int kHostTransportPollIntervalBlocks = 8;
 
 #if JUCE_DEBUG
 juce::String buildUnitTestReport(const juce::UnitTestRunner& runner)
@@ -115,6 +116,23 @@ void maybeRunOfflineQADiagnosticsOnce()
     NovaDiagnostics::SessionLogger::logEvent("qa.offline", "Finished offline QA diagnostics");
 }
 #endif
+
+void maybeRunRtProfileDiagnosticsOnce()
+{
+    static bool hasRun = false;
+
+    if (hasRun)
+        return;
+
+    const auto envValue = juce::SystemStats::getEnvironmentVariable("NOVA_RUN_RT_PROFILE", {});
+    if (envValue != "1")
+        return;
+
+    hasRun = true;
+    NovaDiagnostics::SessionLogger::logEvent("rt.profile", "Running RT profile scenarios from NOVA_RUN_RT_PROFILE=1");
+    NovaDiagnostics::OfflineQADiagnostics::runRtProfileAndWriteReport();
+    NovaDiagnostics::SessionLogger::logEvent("rt.profile", "Finished RT profile scenarios");
+}
 
 juce::String boolToText(bool value)
 {
@@ -292,6 +310,48 @@ void seedBundledDelayPresetsIfMissing()
 }
 }
 
+void NOVAAudioProcessor::RuntimeGlobalParamAtomics::store(const AudioEngine::RuntimeGlobalParams& snapshot) noexcept
+{
+    inputGainDb.store(snapshot.inputGainDb, std::memory_order_release);
+    gateThresholdDb.store(snapshot.gateThresholdDb, std::memory_order_release);
+    forceMono.store(snapshot.forceMono, std::memory_order_release);
+    hostTempoBpm.store(snapshot.hostTempoBpm, std::memory_order_release);
+    hostTempoValid.store(snapshot.hostTempoValid, std::memory_order_release);
+    hostTransportPlaying.store(snapshot.hostTransportPlaying, std::memory_order_release);
+    outputVolumeDb.store(snapshot.outputVolumeDb, std::memory_order_release);
+    outputLimiterDb.store(snapshot.outputLimiterDb, std::memory_order_release);
+    outputMixRaw.store(snapshot.outputMixRaw, std::memory_order_release);
+    switchMode.store(snapshot.switchMode, std::memory_order_release);
+    gainA.store(snapshot.gainA, std::memory_order_release);
+    panA.store(snapshot.panA, std::memory_order_release);
+    widthA.store(snapshot.widthA, std::memory_order_release);
+    gainB.store(snapshot.gainB, std::memory_order_release);
+    panB.store(snapshot.panB, std::memory_order_release);
+    widthB.store(snapshot.widthB, std::memory_order_release);
+}
+
+AudioEngine::RuntimeGlobalParams NOVAAudioProcessor::RuntimeGlobalParamAtomics::load() const noexcept
+{
+    AudioEngine::RuntimeGlobalParams snapshot;
+    snapshot.inputGainDb = inputGainDb.load(std::memory_order_acquire);
+    snapshot.gateThresholdDb = gateThresholdDb.load(std::memory_order_acquire);
+    snapshot.forceMono = forceMono.load(std::memory_order_acquire);
+    snapshot.hostTempoBpm = hostTempoBpm.load(std::memory_order_acquire);
+    snapshot.hostTempoValid = hostTempoValid.load(std::memory_order_acquire);
+    snapshot.hostTransportPlaying = hostTransportPlaying.load(std::memory_order_acquire);
+    snapshot.outputVolumeDb = outputVolumeDb.load(std::memory_order_acquire);
+    snapshot.outputLimiterDb = outputLimiterDb.load(std::memory_order_acquire);
+    snapshot.outputMixRaw = outputMixRaw.load(std::memory_order_acquire);
+    snapshot.switchMode = switchMode.load(std::memory_order_acquire);
+    snapshot.gainA = gainA.load(std::memory_order_acquire);
+    snapshot.panA = panA.load(std::memory_order_acquire);
+    snapshot.widthA = widthA.load(std::memory_order_acquire);
+    snapshot.gainB = gainB.load(std::memory_order_acquire);
+    snapshot.panB = panB.load(std::memory_order_acquire);
+    snapshot.widthB = widthB.load(std::memory_order_acquire);
+    return snapshot;
+}
+
 // ==============================================================================
 // Constructor / Destructor
 // ==============================================================================
@@ -333,6 +393,7 @@ NOVAAudioProcessor::NOVAAudioProcessor()
     resetSessionState(false);
     restoreStartupPresetIfAvailable();
     logStateSnapshot("processor.constructed");
+    maybeRunRtProfileDiagnosticsOnce();
 }
 
 NOVAAudioProcessor::~NOVAAudioProcessor()
@@ -394,27 +455,62 @@ void NOVAAudioProcessor::parameterValueChanged(int parameterIndex, float newValu
         sessionCoordinator.noteParameterValueChanged(ranged->paramID, newValue);
 }
 
-void NOVAAudioProcessor::refreshEngineGlobalParamsIfNeeded(bool force)
+void NOVAAudioProcessor::refreshEngineGlobalParamsIfNeeded(bool force, bool allowLogging)
 {
     auto current = sessionCoordinator.getRuntimeGlobalParams();
-    applyHostTransportState(*this, current);
+    bool refreshHostTransport = force;
+    if (!refreshHostTransport)
+    {
+        const int pollTicket = hostTransportPollCounter.fetch_add(1, std::memory_order_relaxed) + 1;
+        refreshHostTransport = (pollTicket % kHostTransportPollIntervalBlocks) == 0;
+    }
+
+    if (refreshHostTransport)
+    {
+        applyHostTransportState(*this, current);
+    }
+    else
+    {
+        const auto cached = lastRuntimeGlobalParams.load();
+        current.hostTempoBpm = cached.hostTempoBpm;
+        current.hostTempoValid = cached.hostTempoValid;
+        current.hostTransportPlaying = cached.hostTransportPlaying;
+    }
 
     if (!shouldPushRuntimeGlobals(current, force))
         return;
 
     audioEngine.updateGlobalParams(current);
-    logRuntimeSnapshot(force ? "runtime.push.forced" : "runtime.push", current);
+
+    if (allowLogging)
+    {
+        const bool hadDeferredLog = deferredRuntimeSnapshotLog.exchange(false, std::memory_order_acq_rel);
+        logRuntimeSnapshot(force || hadDeferredLog ? "runtime.push.forced" : "runtime.push", current);
+    }
+    else
+    {
+        deferredRuntimeSnapshotLog.store(true, std::memory_order_release);
+    }
 }
 
-void NOVAAudioProcessor::refreshEngineEnabledIfNeeded()
+void NOVAAudioProcessor::refreshEngineEnabledIfNeeded(bool allowLogging)
 {
     const bool current = sessionCoordinator.isEngineEnabled();
     if (!shouldPushEngineEnabled(current))
         return;
 
     audioEngine.setEngineEnabled(current);
-    NovaDiagnostics::SessionLogger::logEvent("engine.toggle",
-        "Engine state pushed to engineOn=" + boolToText(current));
+
+    if (allowLogging)
+    {
+        deferredEngineToggleLog.store(false, std::memory_order_release);
+        NovaDiagnostics::SessionLogger::logEvent("engine.toggle",
+            "Engine state pushed to engineOn=" + boolToText(current));
+    }
+    else
+    {
+        deferredEngineToggleLog.store(true, std::memory_order_release);
+    }
 }
 
 // ==============================================================================
@@ -433,6 +529,8 @@ void NOVAAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         getTotalNumInputChannels(),
         getTotalNumOutputChannels());
 
+    hostTransportPollCounter.store(0, std::memory_order_release);
+
     refreshEngineEnabledIfNeeded();
     refreshEngineGlobalParamsIfNeeded(true);
     logStateSnapshot("processor.prepared");
@@ -446,8 +544,8 @@ void NOVAAudioProcessor::releaseResources()
 void NOVAAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-    refreshEngineEnabledIfNeeded();
-    refreshEngineGlobalParamsIfNeeded(false);
+    refreshEngineEnabledIfNeeded(false);
+    refreshEngineGlobalParamsIfNeeded(false, false);
     audioEngine.process(buffer, midi);
     audioVisualizer.pushBuffer(buffer);
 }
@@ -897,34 +995,33 @@ void NOVAAudioProcessor::hardRefreshAudioEngineForCurrentIO()
 
 void NOVAAudioProcessor::invalidateEnginePushCaches(bool invalidateEngineEnabled, bool invalidateRuntimeGlobals)
 {
-    const juce::SpinLock::ScopedLockType lock(enginePushStateLock);
-
     if (invalidateEngineEnabled)
-        hasPushedEngineEnabled = false;
+        hasPushedEngineEnabled.store(false, std::memory_order_release);
 
     if (invalidateRuntimeGlobals)
-        hasPushedRuntimeGlobals = false;
+        hasPushedRuntimeGlobals.store(false, std::memory_order_release);
 }
 
 bool NOVAAudioProcessor::shouldPushEngineEnabled(bool current)
 {
-    const juce::SpinLock::ScopedLockType lock(enginePushStateLock);
-    if (hasPushedEngineEnabled && current == lastEngineEnabled)
+    if (hasPushedEngineEnabled.load(std::memory_order_acquire)
+        && current == lastEngineEnabled.load(std::memory_order_acquire))
         return false;
 
-    lastEngineEnabled = current;
-    hasPushedEngineEnabled = true;
+    lastEngineEnabled.store(current, std::memory_order_release);
+    hasPushedEngineEnabled.store(true, std::memory_order_release);
     return true;
 }
 
 bool NOVAAudioProcessor::shouldPushRuntimeGlobals(const AudioEngine::RuntimeGlobalParams& current, bool force)
 {
-    const juce::SpinLock::ScopedLockType lock(enginePushStateLock);
-    if (!force && hasPushedRuntimeGlobals && !runtimeParamsDiffer(current, lastRuntimeGlobalParams))
+    if (!force
+        && hasPushedRuntimeGlobals.load(std::memory_order_acquire)
+        && !runtimeParamsDiffer(current, lastRuntimeGlobalParams.load()))
         return false;
 
-    lastRuntimeGlobalParams = current;
-    hasPushedRuntimeGlobals = true;
+    lastRuntimeGlobalParams.store(current);
+    hasPushedRuntimeGlobals.store(true, std::memory_order_release);
     return true;
 }
 

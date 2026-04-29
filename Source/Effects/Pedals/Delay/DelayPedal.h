@@ -498,7 +498,7 @@ public:
         diffusionR[1].setDelay(juce::jmax(1, (int) (31.0 * ratio)));
 
         prepareBypassSmoother(sampleRate, samplesPerBlock);
-        signalTelemetry.reset();
+        signalTelemetry.prepare(sampleRate);
         debugTelemetry.resetWindow();
         reset();
         isPrepared = true;
@@ -818,15 +818,8 @@ public:
         lastWetL = blockWetPeakL;
         lastWetR = blockWetPeakR;
 
-        signalTelemetry.captureOutputAndEmitIfNeeded(buffer,
-            [this]()
-            {
-                return debugTelemetry.buildReport(*this);
-            },
-            [this]()
-            {
-                debugTelemetry.resetWindow();
-            });
+        if (signalTelemetry.captureOutputAndPublishIfNeeded(buffer))
+            debugTelemetry.resetWindow();
 
         endBypassProcess(buffer);
     }

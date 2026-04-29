@@ -128,8 +128,7 @@ public:
 
     AudioEngine::RuntimeGlobalParams getRuntimeGlobalParams() const
     {
-        const juce::SpinLock::ScopedLockType lock(runtimeCacheLock);
-        return runtimeParamsCache;
+        return runtimeParamsCache.load();
     }
 
     bool isEngineEnabled() const noexcept
@@ -301,6 +300,68 @@ public:
     }
 
 private:
+    struct RuntimeGlobalParamAtomics
+    {
+        std::atomic<float> inputGainDb{ 0.0f };
+        std::atomic<float> gateThresholdDb{ -100.0f };
+        std::atomic<bool> forceMono{ false };
+        std::atomic<float> hostTempoBpm{ 120.0f };
+        std::atomic<bool> hostTempoValid{ false };
+        std::atomic<bool> hostTransportPlaying{ false };
+        std::atomic<float> outputVolumeDb{ 0.0f };
+        std::atomic<float> outputLimiterDb{ 0.0f };
+        std::atomic<float> outputMixRaw{ 100.0f };
+        std::atomic<int> switchMode{ (int)Nova::SwitcherMode::LineA_Only };
+        std::atomic<float> gainA{ 1.0f };
+        std::atomic<float> panA{ 0.0f };
+        std::atomic<float> widthA{ 1.0f };
+        std::atomic<float> gainB{ 1.0f };
+        std::atomic<float> panB{ 0.0f };
+        std::atomic<float> widthB{ 1.0f };
+
+        void store(const AudioEngine::RuntimeGlobalParams& snapshot) noexcept
+        {
+            inputGainDb.store(snapshot.inputGainDb, std::memory_order_release);
+            gateThresholdDb.store(snapshot.gateThresholdDb, std::memory_order_release);
+            forceMono.store(snapshot.forceMono, std::memory_order_release);
+            hostTempoBpm.store(snapshot.hostTempoBpm, std::memory_order_release);
+            hostTempoValid.store(snapshot.hostTempoValid, std::memory_order_release);
+            hostTransportPlaying.store(snapshot.hostTransportPlaying, std::memory_order_release);
+            outputVolumeDb.store(snapshot.outputVolumeDb, std::memory_order_release);
+            outputLimiterDb.store(snapshot.outputLimiterDb, std::memory_order_release);
+            outputMixRaw.store(snapshot.outputMixRaw, std::memory_order_release);
+            switchMode.store(snapshot.switchMode, std::memory_order_release);
+            gainA.store(snapshot.gainA, std::memory_order_release);
+            panA.store(snapshot.panA, std::memory_order_release);
+            widthA.store(snapshot.widthA, std::memory_order_release);
+            gainB.store(snapshot.gainB, std::memory_order_release);
+            panB.store(snapshot.panB, std::memory_order_release);
+            widthB.store(snapshot.widthB, std::memory_order_release);
+        }
+
+        AudioEngine::RuntimeGlobalParams load() const noexcept
+        {
+            AudioEngine::RuntimeGlobalParams snapshot;
+            snapshot.inputGainDb = inputGainDb.load(std::memory_order_acquire);
+            snapshot.gateThresholdDb = gateThresholdDb.load(std::memory_order_acquire);
+            snapshot.forceMono = forceMono.load(std::memory_order_acquire);
+            snapshot.hostTempoBpm = hostTempoBpm.load(std::memory_order_acquire);
+            snapshot.hostTempoValid = hostTempoValid.load(std::memory_order_acquire);
+            snapshot.hostTransportPlaying = hostTransportPlaying.load(std::memory_order_acquire);
+            snapshot.outputVolumeDb = outputVolumeDb.load(std::memory_order_acquire);
+            snapshot.outputLimiterDb = outputLimiterDb.load(std::memory_order_acquire);
+            snapshot.outputMixRaw = outputMixRaw.load(std::memory_order_acquire);
+            snapshot.switchMode = switchMode.load(std::memory_order_acquire);
+            snapshot.gainA = gainA.load(std::memory_order_acquire);
+            snapshot.panA = panA.load(std::memory_order_acquire);
+            snapshot.widthA = widthA.load(std::memory_order_acquire);
+            snapshot.gainB = gainB.load(std::memory_order_acquire);
+            snapshot.panB = panB.load(std::memory_order_acquire);
+            snapshot.widthB = widthB.load(std::memory_order_acquire);
+            return snapshot;
+        }
+    };
+
     void resetSessionState()
     {
         Nova::PluginStateModel::resetToCleanState(sessionState);
@@ -339,8 +400,7 @@ private:
         snapshot.panB = bindings.panB != nullptr ? bindings.panB->get() : 0.0f;
         snapshot.widthB = bindings.widthB != nullptr ? bindings.widthB->get() : 1.0f;
 
-        const juce::SpinLock::ScopedLockType lock(runtimeCacheLock);
-        runtimeParamsCache = snapshot;
+        runtimeParamsCache.store(snapshot);
         engineEnabledCache.store(bindings.engineOn != nullptr ? bindings.engineOn->get() : false,
             std::memory_order_release);
     }
@@ -384,8 +444,7 @@ private:
             snapshot.widthB = (float)lineB.getProperty(Nova::IDs::MIXER_WIDTH_B, 1.0f);
         }
 
-        const juce::SpinLock::ScopedLockType lock(runtimeCacheLock);
-        runtimeParamsCache = snapshot;
+        runtimeParamsCache.store(snapshot);
     }
 
     bool hasParameterBindings() const noexcept
@@ -403,8 +462,6 @@ private:
             return param != nullptr ? param->convertFrom0to1(normalizedValue) : normalizedValue;
         };
 
-        const juce::SpinLock::ScopedLockType lock(runtimeCacheLock);
-
         if (paramID == Nova::IDs::ENGINE_ON.toString())
         {
             engineEnabledCache.store(convert(bindings.engineOn) >= 0.5f, std::memory_order_release);
@@ -412,38 +469,37 @@ private:
         }
 
         if (paramID == Nova::IDs::SWITCH_MODE.toString())
-            runtimeParamsCache.switchMode = juce::roundToInt(convert(bindings.switchMode));
+            runtimeParamsCache.switchMode.store(juce::roundToInt(convert(bindings.switchMode)), std::memory_order_release);
         else if (paramID == Nova::IDs::INPUT_GAIN.toString())
-            runtimeParamsCache.inputGainDb = convert(bindings.inputGain);
+            runtimeParamsCache.inputGainDb.store(convert(bindings.inputGain), std::memory_order_release);
         else if (paramID == Nova::IDs::INPUT_GATE.toString())
-            runtimeParamsCache.gateThresholdDb = convert(bindings.inputGate);
+            runtimeParamsCache.gateThresholdDb.store(convert(bindings.inputGate), std::memory_order_release);
         else if (paramID == Nova::IDs::FORCE_MONO.toString())
-            runtimeParamsCache.forceMono = convert(bindings.forceMono) >= 0.5f;
+            runtimeParamsCache.forceMono.store(convert(bindings.forceMono) >= 0.5f, std::memory_order_release);
         else if (paramID == Nova::IDs::MIXER_GAIN_A.toString())
-            runtimeParamsCache.gainA = convert(bindings.gainA);
+            runtimeParamsCache.gainA.store(convert(bindings.gainA), std::memory_order_release);
         else if (paramID == Nova::IDs::MIXER_PAN_A.toString())
-            runtimeParamsCache.panA = convert(bindings.panA);
+            runtimeParamsCache.panA.store(convert(bindings.panA), std::memory_order_release);
         else if (paramID == Nova::IDs::MIXER_WIDTH_A.toString())
-            runtimeParamsCache.widthA = convert(bindings.widthA);
+            runtimeParamsCache.widthA.store(convert(bindings.widthA), std::memory_order_release);
         else if (paramID == Nova::IDs::MIXER_GAIN_B.toString())
-            runtimeParamsCache.gainB = convert(bindings.gainB);
+            runtimeParamsCache.gainB.store(convert(bindings.gainB), std::memory_order_release);
         else if (paramID == Nova::IDs::MIXER_PAN_B.toString())
-            runtimeParamsCache.panB = convert(bindings.panB);
+            runtimeParamsCache.panB.store(convert(bindings.panB), std::memory_order_release);
         else if (paramID == Nova::IDs::MIXER_WIDTH_B.toString())
-            runtimeParamsCache.widthB = convert(bindings.widthB);
+            runtimeParamsCache.widthB.store(convert(bindings.widthB), std::memory_order_release);
         else if (paramID == Nova::IDs::OUTPUT_VOL.toString())
-            runtimeParamsCache.outputVolumeDb = convert(bindings.outputVolume);
+            runtimeParamsCache.outputVolumeDb.store(convert(bindings.outputVolume), std::memory_order_release);
         else if (paramID == Nova::IDs::OUTPUT_LIMITER.toString())
-            runtimeParamsCache.outputLimiterDb = convert(bindings.outputLimiter);
+            runtimeParamsCache.outputLimiterDb.store(convert(bindings.outputLimiter), std::memory_order_release);
         else if (paramID == Nova::IDs::OUTPUT_MIX.toString())
-            runtimeParamsCache.outputMixRaw = convert(bindings.outputMix);
+            runtimeParamsCache.outputMixRaw.store(convert(bindings.outputMix), std::memory_order_release);
     }
 
     juce::ValueTree sessionState;
     ParameterBindings bindings;
 
-    mutable juce::SpinLock runtimeCacheLock;
-    AudioEngine::RuntimeGlobalParams runtimeParamsCache;
+    RuntimeGlobalParamAtomics runtimeParamsCache;
     std::atomic<bool> engineEnabledCache{ false };
     std::atomic<bool> suppressParameterMirroring{ false };
 };

@@ -24,6 +24,19 @@
 class OutputChainProcessor final : public juce::AudioProcessor
 {
 public:
+    struct DebugSnapshot
+    {
+        int limiterTouchedSamples = 0;
+        int limiterActiveBlocks = 0;
+        int softCeilingTouchedSamples = 0;
+        int guardInvalidSamples = 0;
+        int guardClippedSamples = 0;
+        int guardDenormalSamples = 0;
+        float limiterMaxReductionDb = 0.0f;
+        float limiterDeltaPeak = 0.0f;
+        float softCeilingDeltaPeak = 0.0f;
+    };
+
     OutputChainProcessor();
     ~OutputChainProcessor() override = default;
 
@@ -36,6 +49,7 @@ public:
     // limitDb: limiter threshold in dB. 0.0 = transparent safety mode.
     void setParams(float volDb, float limitDb);
     void setTelemetryTag(const juce::String& newTag);
+    DebugSnapshot getDebugSnapshot() const noexcept;
 
     // JUCE boilerplate
     const juce::String getName() const override { return "OutputChain"; }
@@ -78,7 +92,7 @@ private:
 
             // Two gentle cascaded one-pole DC blockers.
             // Strong enough to keep limiters honest, but low enough to avoid thinning guitar tone.
-            setCutoffHz(20.0f);
+            setCutoffHz(10.0f);
             reset();
         }
 
@@ -239,8 +253,8 @@ private:
         double sampleRate = 44100.0;
         float lookaheadMs = 2.0f;
         float holdMs = 6.0f;
-        float releaseFastMs = 70.0f;
-        float releaseSlowMs = 650.0f;
+        float releaseFastMs = 45.0f;
+        float releaseSlowMs = 180.0f;
         float currentGain = 1.0f;
         int lookaheadSamples = 88;
         int holdSamples = 265;
@@ -447,11 +461,13 @@ private:
     static float sanitizeOutputVolumeDb(float value) noexcept;
     static float sanitizeLimiterDb(float value) noexcept;
     static float limiterDbToLinear(float limiterDb) noexcept;
+    static bool isLimiterActiveDb(float limiterDb) noexcept;
 
     void applyParameterTargets(bool forceSync) noexcept;
     void applyMasterGain(juce::AudioBuffer<float>& buffer) noexcept;
     void applyDcBlockers(juce::AudioBuffer<float>& buffer) noexcept;
     void applyFinalSoftCeiling(juce::AudioBuffer<float>& buffer) noexcept;
+    void updateReportedLatencyForLimiter(float limiterDb);
 
     PeakLimiter limiter;
     std::array<DCBlocker, kMaxOutputChannels> dcBlockers{};

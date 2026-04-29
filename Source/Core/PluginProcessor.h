@@ -7,6 +7,8 @@
 #include "Visualizer.h"
 #include "Constants.h"
 
+#include <atomic>
+
 class NOVAAudioProcessor final : public juce::AudioProcessor,
     public juce::AudioProcessorParameter::Listener
 {
@@ -84,8 +86,8 @@ private:
 
     // Host bridge helpers.
     void createGlobalParameters();
-    void refreshEngineEnabledIfNeeded();
-    void refreshEngineGlobalParamsIfNeeded(bool force);
+    void refreshEngineEnabledIfNeeded(bool allowLogging = true);
+    void refreshEngineGlobalParamsIfNeeded(bool force, bool allowLogging = true);
     void logRuntimeSnapshot(const juce::String& context, const AudioEngine::RuntimeGlobalParams& snapshot) const;
     void logStateSnapshot(const juce::String& context) const;
     void synchronizeEngineNow();
@@ -96,12 +98,37 @@ private:
     void resetSessionState(bool forgetStartupPreset);
     bool restoreStartupPresetIfAvailable();
 
+    struct RuntimeGlobalParamAtomics
+    {
+        std::atomic<float> inputGainDb{ 0.0f };
+        std::atomic<float> gateThresholdDb{ -100.0f };
+        std::atomic<bool> forceMono{ false };
+        std::atomic<float> hostTempoBpm{ 120.0f };
+        std::atomic<bool> hostTempoValid{ false };
+        std::atomic<bool> hostTransportPlaying{ false };
+        std::atomic<float> outputVolumeDb{ 0.0f };
+        std::atomic<float> outputLimiterDb{ 0.0f };
+        std::atomic<float> outputMixRaw{ 100.0f };
+        std::atomic<int> switchMode{ (int)Nova::SwitcherMode::LineA_Only };
+        std::atomic<float> gainA{ 1.0f };
+        std::atomic<float> panA{ 0.0f };
+        std::atomic<float> widthA{ 1.0f };
+        std::atomic<float> gainB{ 1.0f };
+        std::atomic<float> panB{ 0.0f };
+        std::atomic<float> widthB{ 1.0f };
+
+        void store(const AudioEngine::RuntimeGlobalParams& snapshot) noexcept;
+        AudioEngine::RuntimeGlobalParams load() const noexcept;
+    };
+
     AudioEngine audioEngine;
-    mutable juce::SpinLock enginePushStateLock;
-    bool hasPushedRuntimeGlobals = false;
-    bool hasPushedEngineEnabled = false;
-    bool lastEngineEnabled = false;
-    AudioEngine::RuntimeGlobalParams lastRuntimeGlobalParams;
+    std::atomic<bool> hasPushedRuntimeGlobals{ false };
+    std::atomic<bool> hasPushedEngineEnabled{ false };
+    std::atomic<bool> lastEngineEnabled{ false };
+    std::atomic<bool> deferredRuntimeSnapshotLog{ false };
+    std::atomic<bool> deferredEngineToggleLog{ false };
+    std::atomic<int> hostTransportPollCounter{ 0 };
+    RuntimeGlobalParamAtomics lastRuntimeGlobalParams;
 
     juce::AudioParameterBool* engineOnParam = nullptr;
     juce::AudioParameterChoice* switchModeParam = nullptr;

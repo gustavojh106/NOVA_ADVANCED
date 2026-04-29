@@ -2,9 +2,9 @@
 
 #include <JuceHeader.h>
 #include <juce_dsp/juce_dsp.h>
+#include <array>
 #include <cmath>
 #include <limits>
-#include <vector>
 
 #include "../Pedals/Base/ProcessorBase.h"
 #include "../Pedals/Base/PremiumPedalUI.h"
@@ -138,15 +138,16 @@ public:
         {
             const int channels = (int)upsampled.getNumChannels();
             const int samples  = (int)upsampled.getNumSamples();
-            std::vector<float*> channelData((size_t)channels);
-            for (int ch = 0; ch < channels; ++ch)
+            std::array<float*, kMaxAmpChannels> channelData{};
+            const int channelsToProcess = juce::jmin(channels, kMaxAmpChannels);
+            for (int ch = 0; ch < channelsToProcess; ++ch)
                 channelData[(size_t) ch] = upsampled.getChannelPointer((size_t) ch);
 
             for (int s = 0; s < samples; ++s)
             {
                 const float drive = driveSmooth.getNextValue();
 
-                for (int ch = 0; ch < channels; ++ch)
+                for (int ch = 0; ch < channelsToProcess; ++ch)
                 {
                     auto* data = channelData[(size_t) ch];
                     float x = data[s];
@@ -242,15 +243,15 @@ private:
         // Output LP: gentle rolloff to prevent harshness (boutique amps are never fizzy)
         const float lpFreq = juce::jmap(pres, 7000.0f, 14000.0f);
 
-        *inputHP.state       = *juce::dsp::IIR::Coefficients<float>::makeHighPass(innerRate, 25.0f);
-        *warmthShelf.state   = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(innerRate,
+        *inputHP.state       = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(innerRate, 25.0f);
+        *warmthShelf.state   = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(innerRate,
                                     200.0f, 0.72f, juce::Decibels::decibelsToGain(warmthGain));
-        *midPeak.state       = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(innerRate,
+        *midPeak.state       = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(innerRate,
                                     800.0f, 1.0f, juce::Decibels::decibelsToGain(midGain));
-        *presenceShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(innerRate,
+        *presenceShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(innerRate,
                                     4000.0f, 0.68f, juce::Decibels::decibelsToGain(presGain));
-        *outputLP.state      = *juce::dsp::IIR::Coefficients<float>::makeLowPass(innerRate, lpFreq, 0.55f);
-        *dcBlock.state       = *juce::dsp::IIR::Coefficients<float>::makeHighPass(innerRate, 18.0f);
+        *outputLP.state      = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass(innerRate, lpFreq, 0.55f);
+        *dcBlock.state       = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(innerRate, 18.0f);
     }
 
     // Envelope follower coefficients at 4x rate (~176.4 kHz)
@@ -270,7 +271,8 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> masterSmooth;
 
-    std::array<float, 2> envelope { 0.0f, 0.0f };
+    static constexpr int kMaxAmpChannels = 8;
+    std::array<float, kMaxAmpChannels> envelope{};
 
     juce::AudioParameterFloat* driveParam   = nullptr;
     juce::AudioParameterFloat* warmthParam  = nullptr;

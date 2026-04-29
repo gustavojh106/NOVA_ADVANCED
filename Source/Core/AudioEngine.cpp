@@ -645,6 +645,15 @@ void AudioEngine::applyPedalBypassToActiveGraph(Nova::ChainID chain, int index, 
         if (!bypassed)
             slot.processor->reset();
     }
+
+    if (runtime->graph != nullptr)
+    {
+        runtime->graph->rebuild();
+        runtime->latencySamples = juce::jlimit(0,
+            Nova::Config::MAX_GRAPH_LATENCY_SAMPLES,
+            runtime->graph->getLatencySamples());
+        updateDryDelayLatency(runtime->latencySamples);
+    }
 }
 
 // ========================================================== 
@@ -1087,7 +1096,7 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
 void AudioEngine::processWithSampleAccurateDryWet(GraphRuntime& runtime,
     juce::AudioBuffer<float>& buffer,
     juce::MidiBuffer& midi,
-    BlockHealthStats& health)
+    BlockHealthStats&)
 {
     const int numSamples = buffer.getNumSamples();
     const int numChannels = juce::jmin(buffer.getNumChannels(), audioPlane.scratchChannelCapacity);
@@ -1113,9 +1122,6 @@ void AudioEngine::processWithSampleAccurateDryWet(GraphRuntime& runtime,
             (void)audioPlane.wetMixRamp.getNext();
         return;
     }
-
-    audioPlane.dryScratch.setSize(numChannels, numSamples, false, false, true);
-    audioPlane.delayedDryScratch.setSize(numChannels, numSamples, false, false, true);
 
     for (int ch = 0; ch < numChannels; ++ch)
         audioPlane.dryScratch.copyFrom(ch, 0, buffer, ch, 0, numSamples);
@@ -1419,6 +1425,14 @@ int AudioEngine::getLatencyNumSamples() const
     return runtime != nullptr ? runtime->latencySamples : 0;
 }
 
+OutputChainProcessor::DebugSnapshot AudioEngine::getOutputChainDebugSnapshot() const
+{
+    GraphRuntime* runtime = audioPlane.activeGraphRaw.load(std::memory_order_acquire);
+    return runtime != nullptr && runtime->outputChain != nullptr
+        ? runtime->outputChain->getDebugSnapshot()
+        : OutputChainProcessor::DebugSnapshot{};
+}
+
 float AudioEngine::getLastInputPeak() const
 {
     return audioPlane.lastInputPeak.load(std::memory_order_relaxed);
@@ -1504,6 +1518,7 @@ juce::String AudioEngine::buildDiagnosticReport() const
         << ", activeGraph=" << (runtime != nullptr ? "true" : "false")
         << ", generation=" << (runtime != nullptr ? (juce::int64)runtime->generation : (juce::int64)0)
         << ", graphLatencySamples=" << (runtime != nullptr ? runtime->latencySamples : 0)
+        << ", wetMix=" << audioPlane.wetMixRamp.getCurrent()
         << ", wetMixTarget=" << params.outputMixNormalized.load(std::memory_order_relaxed)
         << ", wetMixCurrent=" << audioPlane.wetMixRamp.getCurrent()
         << ", cpuLoad=" << audioPlane.cpuUsage.load(std::memory_order_relaxed)

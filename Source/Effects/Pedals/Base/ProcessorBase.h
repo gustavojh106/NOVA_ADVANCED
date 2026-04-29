@@ -32,6 +32,7 @@ public:
         if (previous == shouldBypass)
             return;
 
+        setLatencySamples(shouldBypass ? 0 : activeLatency.load(std::memory_order_acquire));
         bypassChanged.store(true, std::memory_order_release);
     }
 
@@ -41,9 +42,8 @@ public:
     }
 
     // Call this instead of setLatencySamples() from derived processors.
-    // Important: latency remains stable even when bypassed.
-    // The bypass path is delayed internally so the graph does not need to rebuild
-    // or change latency when bypass is toggled.
+    // Active latency is reported while the processor is enabled.
+    // During bypass transitions the dry path is delayed internally to keep the crossfade aligned.
     void setProcessingLatency(int newLatencySamples)
     {
         const int safeLatency = juce::jmax(0, newLatencySamples);
@@ -239,21 +239,22 @@ protected:
 
         const bool shouldBypass = isBypassed.load(std::memory_order_acquire);
         const bool smoothing = wetMix.isSmoothing();
-        const bool latencyStableBypassNeeded = getProcessingLatency() > 0;
+        const int processingLatency = getProcessingLatency();
+        const bool latencyMatchedDryNeeded = processingLatency > 0 && (!shouldBypass || transitionActive || smoothing);
 
-        const bool needDryCopy = transitionActive || smoothing || shouldBypass || latencyStableBypassNeeded;
+        const bool needDryCopy = transitionActive || smoothing || shouldBypass || latencyMatchedDryNeeded;
         dryBufferValidForCurrentBlock = false;
 
         if (needDryCopy)
         {
             copyInputToDryBuffer(buffer, numChannels, numSamples);
 
-            if (latencyStableBypassNeeded)
+            if (latencyMatchedDryNeeded)
                 applyBypassLatencyToDryBuffer(numChannels, numSamples);
 
             dryBufferValidForCurrentBlock = true;
         }
-        else if (latencyStableBypassNeeded)
+        else if (processingLatency > 0)
         {
             // Defensive only. The branch above should already catch this.
             feedBypassLatencyLines(buffer, numChannels, numSamples);
@@ -339,9 +340,9 @@ protected:
 private:
     static constexpr int kMaxBypassChannels = 2;
 
-    void prepareBypassLatencyLines(int latencySamples)
+    void prepareBypassLatencyLines(int requestedLatencySamples)
     {
-        const int safeLatency = juce::jmax(0, latencySamples);
+        const int safeLatency = juce::jmax(0, requestedLatencySamples);
         const int maxDelay = juce::jmax(1, safeLatency + juce::jmax(1, preparedMaxBlockSize) + 1);
 
         juce::dsp::ProcessSpec spec;

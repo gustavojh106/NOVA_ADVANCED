@@ -15,7 +15,7 @@
 #include "DSP/Services/TunerService.h"
 
 class ProcessorBase;
-class TempoSyncable;
+struct TempoSyncable;
 
 class AudioEngine : public juce::Thread,
     private juce::AsyncUpdater
@@ -104,6 +104,8 @@ public:
     double getAverageProcessTimeMs() const;
     double getPeakProcessTimeMs() const;
     int getLatencyNumSamples() const;
+    // Offline diagnostics only; do not poll this from UI/control code while audio is running.
+    OutputChainProcessor::DebugSnapshot getOutputChainDebugSnapshot() const;
     float getLastInputPeak() const;
     float getLastOutputPeak() const;
     int getAutoHealCount() const;
@@ -374,7 +376,7 @@ private:
     void processWithSampleAccurateDryWet(GraphRuntime& runtime,
         juce::AudioBuffer<float>& buffer,
         juce::MidiBuffer& midi,
-        BlockHealthStats& health);
+        BlockHealthStats&);
     void mixWetDrySampleAccurate(juce::AudioBuffer<float>& wetBuffer,
         const juce::AudioBuffer<float>& dryBuffer,
         int numChannels,

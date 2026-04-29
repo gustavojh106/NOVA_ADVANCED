@@ -72,7 +72,7 @@ void ChannelStripProcessor::prepareToPlay(double sampleRate, int samplesPerBlock
     panSmooth.setCurrentAndTargetValue(currentTargetPan);
     widthSmooth.setCurrentAndTargetValue(currentTargetWidth);
 
-    signalTelemetry.reset();
+    signalTelemetry.prepare(sampleRate);
     debugTelemetry.resetWindow();
 
     hardSyncParams = true;
@@ -178,66 +178,10 @@ void ChannelStripProcessor::applyGainOnly(juce::AudioBuffer<float>& buffer, bool
     }
 }
 
-void ChannelStripProcessor::emitTelemetry(juce::AudioBuffer<float>& buffer,
-    bool stereoAvailable,
-    bool expectMuted)
+void ChannelStripProcessor::emitTelemetry(juce::AudioBuffer<float>& buffer)
 {
-    signalTelemetry.captureOutputAndEmitIfNeeded(buffer,
-        [this, stereoAvailable, expectMuted]()
-        {
-            auto safeMin = [](float value)
-                {
-                    return value >= 1.0e8f ? 0.0f : value;
-                };
-
-            juce::String report;
-            report << debugTelemetry.postGainStage.buildSummary("gain.stage") << juce::newLine;
-
-            if (stereoAvailable)
-            {
-                report << "stereo.window: midPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.midPeak)
-                    << ", sideInputPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.sideInputPeak)
-                    << ", sideOutputPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.sideOutputPeak)
-                    << ", widthCompMin=" << NovaDiagnostics::formatTelemetryScalar(safeMin(debugTelemetry.widthCompMin))
-                    << ", widthCompMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.widthCompMax)
-                    << ", panGainLMin=" << NovaDiagnostics::formatTelemetryScalar(safeMin(debugTelemetry.panGainLMin))
-                    << ", panGainLMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.panGainLMax)
-                    << ", panGainRMin=" << NovaDiagnostics::formatTelemetryScalar(safeMin(debugTelemetry.panGainRMin))
-                    << ", panGainRMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.panGainRMax)
-                    << ", muteLeakPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.muteLeakPeak)
-                    << ", muteLeakSamples=" << debugTelemetry.muteLeakSamples
-                    << ", mutedFastPathBlocks=" << debugTelemetry.mutedFastPathBlocks
-                    << juce::newLine;
-            }
-            else
-            {
-                report << "stereo.window: unavailable=non-stereo"
-                    << ", mutedFastPathBlocks=" << debugTelemetry.mutedFastPathBlocks
-                    << juce::newLine;
-            }
-
-            report << "guard: invalid=" << debugTelemetry.guardInvalidSamples
-                << ", clipped=" << debugTelemetry.guardClippedSamples
-                << ", denormals=" << debugTelemetry.guardDenormalSamples
-                << juce::newLine
-                << "params: tag=" << telemetryTag
-                << ", targetGain=" << NovaDiagnostics::formatTelemetryScalar(currentTargetGain)
-                << ", targetPan=" << NovaDiagnostics::formatTelemetryScalar(currentTargetPan)
-                << ", targetWidth=" << NovaDiagnostics::formatTelemetryScalar(currentTargetWidth)
-                << ", gainMin=" << NovaDiagnostics::formatTelemetryScalar(safeMin(debugTelemetry.gainMin))
-                << ", gainMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.gainMax)
-                << ", panMin=" << NovaDiagnostics::formatTelemetryScalar(safeMin(debugTelemetry.panMin))
-                << ", panMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.panMax <= -1.0e8f ? 0.0f : debugTelemetry.panMax)
-                << ", widthMin=" << NovaDiagnostics::formatTelemetryScalar(safeMin(debugTelemetry.widthMin))
-                << ", widthMax=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.widthMax)
-                << ", expectedMuted=" << (expectMuted ? "true" : "false")
-                << ", hardSync=" << (hardSyncParams ? "true" : "false");
-            return report;
-        },
-        [this]()
-        {
-            debugTelemetry.resetWindow();
-        });
+    if (signalTelemetry.captureOutputAndPublishIfNeeded(buffer))
+        debugTelemetry.resetWindow();
 }
 
 void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -260,7 +204,7 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
 
     if (buffer.getNumChannels() != 2)
     {
-        emitTelemetry(buffer, false, expectMuted);
+        emitTelemetry(buffer);
         hardSyncParams = false;
         return;
     }
@@ -270,7 +214,7 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         && gainSmooth.getCurrentValue() <= 1.0e-6f)
     {
         // Already cleared in applyGainOnly().
-        emitTelemetry(buffer, true, expectMuted);
+        emitTelemetry(buffer);
         hardSyncParams = false;
         return;
     }
@@ -325,7 +269,7 @@ void ChannelStripProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce:
         r[i] = outR;
     }
 
-    emitTelemetry(buffer, true, expectMuted);
+    emitTelemetry(buffer);
 
     hardSyncParams = false;
 }

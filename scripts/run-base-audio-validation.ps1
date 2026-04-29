@@ -46,36 +46,57 @@ if (-not (Test-Path $reportPath)) {
 }
 
 $report = Get-Content -LiteralPath $reportPath
-$knownPedalFailures = @(
-    "PhaserPedal feedback loop rejects DC accumulation under sustained bias",
-    "ReverbPedal reverse and swell create a delayed cinematic bloom"
-)
+function Get-ValidationFailureGroup {
+    param(
+        [string]$TestName
+    )
 
-$unexpectedFailures = @()
-foreach ($line in $report) {
-    if (-not $line.StartsWith("FAIL |")) {
-        continue
-    }
-
-    $isKnownPedalFailure = $false
-    foreach ($known in $knownPedalFailures) {
-        if ($line.Contains($known)) {
-            $isKnownPedalFailure = $true
-            break
-        }
-    }
-
-    if (-not $isKnownPedalFailure) {
-        $unexpectedFailures += $line
-    }
+    if ($TestName -like "P1 *") { return "P1 Pedal Safety" }
+    if ($TestName -like "Reverb*") { return "Reverb" }
+    if ($TestName -like "OutputChain*") { return "OutputChain" }
+    if ($TestName -like "AudioEngine*") { return "AudioEngine" }
+    if ($TestName -like "InputChain*" -or $TestName -like "ChannelStrip*" -or $TestName -like "Processor switcher*") { return "Routing" }
+    if ($TestName -like "Global processors*" -or $TestName -like "TunerService*") { return "Core" }
+    return "Regression"
 }
 
-if ($unexpectedFailures.Count -gt 0) {
-    Write-Host "Unexpected validation failures:"
-    $unexpectedFailures | ForEach-Object { Write-Host $_ }
+$allFailures = @()
+$failureGroups = @{
+    "Core" = 0
+    "P1 Pedal Safety" = 0
+    "Reverb" = 0
+    "Routing" = 0
+    "OutputChain" = 0
+    "AudioEngine" = 0
+    "Regression" = 0
+}
+
+foreach ($line in $report) {
+    if (-not $line.StartsWith("FAIL |")) { continue }
+
+    $allFailures += $line
+    $parts = $line -split "\|"
+    $testName = if ($parts.Count -ge 2) { $parts[1].Trim() } else { "" }
+    $group = Get-ValidationFailureGroup -TestName $testName
+    if (-not $failureGroups.ContainsKey($group)) { $group = "Regression" }
+    $failureGroups[$group] += 1
+}
+
+if ($allFailures.Count -gt 0) {
+    Write-Host "Validation failures by group:"
+    foreach ($groupName in @("Core", "P1 Pedal Safety", "Reverb", "Routing", "OutputChain", "AudioEngine", "Regression")) {
+        Write-Host ("  [{0}] {1}" -f $groupName, $failureGroups[$groupName])
+    }
+    Write-Host ""
+    Write-Host "Validation failures:"
+    $allFailures | ForEach-Object { Write-Host $_ }
     throw "Base audio validation failed. See $reportPath"
 }
 
 $summary = $report | Select-Object -First 2
 $summary | ForEach-Object { Write-Host $_ }
-Write-Host "Base audio validation passed. Known pedal-only failures are ignored by this script."
+Write-Host "Validation failures by group:"
+foreach ($groupName in @("Core", "P1 Pedal Safety", "Reverb", "Routing", "OutputChain", "AudioEngine", "Regression")) {
+    Write-Host ("  [{0}] {1}" -f $groupName, $failureGroups[$groupName])
+}
+Write-Host "Base audio validation passed. No known failures are ignored by this script."

@@ -4,6 +4,7 @@
 
 #include <JuceHeader.h>
 #include <array>
+#include <atomic>
 #include <cmath>
 
 // ============================================================================
@@ -41,6 +42,8 @@ public:
 
         sr = sampleRate;
         piOverSr = juce::MathConstants<float>::pi / (float) sr;
+        preparedBlockSize = juce::jmax(1, samplesPerBlock);
+        preparedChannels = juce::jlimit(1, kMaxProcessingChannels, juce::jmax(2, getTotalNumOutputChannels()));
 
         rateSmooth.reset(sr, 0.04);
         depthSmooth.reset(sr, 0.04);
@@ -54,6 +57,8 @@ public:
         for (auto& filter : feedbackHighPass)
             filter.prepare(sampleRate, 20.0f);
         for (auto& dcBlock : feedbackDcBlock)
+            dcBlock.prepare(sampleRate, 18.0f);
+        for (auto& dcBlock : outputDcBlock)
             dcBlock.prepare(sampleRate, 18.0f);
 
         prepareBypassSmoother(sampleRate, samplesPerBlock);
@@ -75,6 +80,8 @@ public:
             filter.reset();
         for (auto& dcBlock : feedbackDcBlock)
             dcBlock.reset();
+        for (auto& dcBlock : outputDcBlock)
+            dcBlock.reset();
 
         rateSmooth.setCurrentAndTargetValue(rateParam != nullptr ? *rateParam : 0.65f);
         depthSmooth.setCurrentAndTargetValue(depthParam != nullptr ? *depthParam : 0.72f);
@@ -86,6 +93,15 @@ public:
     {
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
+
+        scrubInvalidSamples(buffer);
+
+        if (!canProcessBlock(buffer))
+        {
+            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
+            endBypassProcess(buffer);
+            return;
+        }
 
         rateSmooth.setTargetValue(rateParam != nullptr ? *rateParam : 0.65f);
         depthSmooth.setTargetValue(depthParam != nullptr ? *depthParam : 0.72f);
@@ -181,7 +197,8 @@ public:
                 float feedbackSample = feedbackHighPass[(size_t) ch].process(feedbackDampState[(size_t) ch]);
                 feedbackSample = feedbackDcBlock[(size_t) ch].process(feedbackSample);
                 feedbackState[(size_t) ch] = feedbackSample;
-                x = std::tanh(x * profile.outputDrive) / juce::jmax(1.0f, profile.outputDrive);
+                float wet = std::tanh(x * profile.outputDrive) / juce::jmax(1.0f, profile.outputDrive);
+                wet = outputDcBlock[(size_t) ch].process(wet);
 
                 if (mix <= 0.0001f)
                 {
@@ -191,7 +208,7 @@ public:
 
                 const float dryGain = std::cos(mix * halfPi);
                 const float wetGain = mix >= 0.9999f ? 1.0f : std::sin(mix * halfPi);
-                buffer.setSample(ch, sample, dry * dryGain + x * wetGain * profile.wetTrim);
+                buffer.setSample(ch, sample, dry * dryGain + wet * wetGain * profile.wetTrim);
             }
 
             lfoPhase = wrapPhase(lfoPhase + rate / (float) sr);
@@ -208,8 +225,37 @@ public:
     juce::AudioParameterChoice* modeParam    = nullptr;
     float lfoPhase = 0.0f;
 
+    int getRealtimeFallbackCount() const noexcept
+    {
+        return fallbackBlockCount.load(std::memory_order_relaxed);
+    }
+
+    void clearRealtimeFallbackCount() noexcept
+    {
+        fallbackBlockCount.store(0, std::memory_order_relaxed);
+    }
+
 private:
+    static constexpr int kMaxProcessingChannels = 2;
     static constexpr int kMaxStages = 12;
+
+    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
+    {
+        return buffer.getNumSamples() <= preparedBlockSize
+            && buffer.getNumChannels() <= preparedChannels
+            && buffer.getNumChannels() <= kMaxProcessingChannels;
+    }
+
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (!std::isfinite(data[i]))
+                    data[i] = 0.0f;
+        }
+    }
 
     struct FeedbackHighPass
     {
@@ -345,7 +391,11 @@ private:
     std::array<float, 2> feedbackDampState {};
     std::array<FeedbackHighPass, 2> feedbackHighPass {};
     std::array<FeedbackDCBlocker, 2> feedbackDcBlock {};
+    std::array<FeedbackDCBlocker, 2> outputDcBlock {};
     std::array<float, 2> driftPhase {};
+    int preparedBlockSize = 0;
+    int preparedChannels = 0;
+    std::atomic<int> fallbackBlockCount{ 0 };
     bool isPrepared = false;
 };
 

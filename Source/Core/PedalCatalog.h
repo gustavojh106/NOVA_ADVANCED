@@ -30,6 +30,9 @@ inline juce::String resolveAlias(const juce::String& requestedType)
 {
     const auto cleaned = requestedType.trim();
 
+    // Keep legacy names mapped to the modernized processors.
+    // Do not register legacy AutoWah/Metal classes directly until they are
+    // upgraded to the P1 realtime no-allocation policy.
     if (cleaned.equalsIgnoreCase("Auto Wah")
         || cleaned.equalsIgnoreCase("Autowah")
         || cleaned.equalsIgnoreCase("AutoWah"))

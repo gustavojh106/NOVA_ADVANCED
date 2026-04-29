@@ -2,9 +2,9 @@
 
 #include <JuceHeader.h>
 #include <juce_dsp/juce_dsp.h>
+#include <array>
 #include <cmath>
 #include <limits>
-#include <vector>
 
 #include "../Pedals/Base/ProcessorBase.h"
 #include "../Pedals/Base/PremiumPedalUI.h"
@@ -159,8 +159,9 @@ private:
             auto&& block = context.getOutputBlock();
             const int channels = (int)block.getNumChannels();
             const int samples = (int)block.getNumSamples();
-            std::vector<float*> channelData((size_t)channels);
-            for (int ch = 0; ch < channels; ++ch)
+            std::array<float*, kMaxCoreChannels> channelData{};
+            const int channelsToProcess = juce::jmin(channels, kMaxCoreChannels);
+            for (int ch = 0; ch < channelsToProcess; ++ch)
                 channelData[(size_t) ch] = block.getChannelPointer((size_t) ch);
 
             for (int sample = 0; sample < samples; ++sample)
@@ -168,7 +169,7 @@ private:
                 const float drive = driveSmooth.getNextValue();
                 const float stagePush = 1.7f + drive * 0.22f;
 
-                for (int ch = 0; ch < channels; ++ch)
+                for (int ch = 0; ch < channelsToProcess; ++ch)
                 {
                     auto* data = channelData[(size_t) ch];
                     const float x = data[sample];
@@ -187,8 +188,9 @@ private:
         }
 
     private:
+        static constexpr int kMaxCoreChannels = 8;
         juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveSmooth;
-        std::array<float, 2> sagEnvelope{ 0.0f, 0.0f };
+        std::array<float, kMaxCoreChannels> sagEnvelope{};
     };
 
     using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
@@ -214,19 +216,19 @@ private:
         const float presenceGain = juce::jmap(presence, -1.0f, 6.5f);
         const float depthGain = juce::jmap(depth, -3.0f, 7.5f);
 
-        *inputHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentInnerRate, 32.0f);
-        *depthShelf.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentInnerRate,
+        *inputHighPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(currentInnerRate, 32.0f);
+        *depthShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(currentInnerRate,
             155.0f,
             0.78f,
             juce::Decibels::decibelsToGain(depthGain));
-        *contourLowPass.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(currentInnerRate,
+        *contourLowPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass(currentInnerRate,
             cutoff,
             0.66f);
-        *presenceShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(currentInnerRate,
+        *presenceShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(currentInnerRate,
             2400.0f,
             0.72f,
             juce::Decibels::decibelsToGain(presenceGain));
-        *dcBlock.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentInnerRate, 18.0f);
+        *dcBlock.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(currentInnerRate, 18.0f);
     }
 
     juce::dsp::Oversampling<float> oversampler;

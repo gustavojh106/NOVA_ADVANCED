@@ -113,8 +113,11 @@ public:
             return;
 
         currentSampleRate = sampleRate;
-        dryBuffer.setSize(juce::jmax(1, getTotalNumOutputChannels()),
-            juce::jmax(1, samplesPerBlock),
+        preparedBlockSize = juce::jmax(1, samplesPerBlock);
+        preparedChannels = juce::jlimit(1, kMaxProcessingChannels, juce::jmax(2, getTotalNumOutputChannels()));
+
+        dryBuffer.setSize(preparedChannels,
+            preparedBlockSize,
             false,
             false,
             true);
@@ -174,14 +177,14 @@ public:
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
-        if (dryBuffer.getNumChannels() < buffer.getNumChannels()
-            || dryBuffer.getNumSamples() < buffer.getNumSamples())
+        scrubInvalidSamples(buffer);
+
+        if (!canProcessBlock(buffer))
         {
-            dryBuffer.setSize(buffer.getNumChannels(),
-                buffer.getNumSamples(),
-                false,
-                false,
-                true);
+            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
+            currentGainReductionDb.store(0.0f);
+            endBypassProcess(buffer);
+            return;
         }
 
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -313,6 +316,16 @@ public:
         return currentGainReductionDb.load();
     }
 
+    int getRealtimeFallbackCount() const noexcept
+    {
+        return fallbackBlockCount.load(std::memory_order_relaxed);
+    }
+
+    void clearRealtimeFallbackCount() noexcept
+    {
+        fallbackBlockCount.store(0, std::memory_order_relaxed);
+    }
+
     juce::AudioParameterFloat* thresholdParam = nullptr;
     juce::AudioParameterFloat* ratioParam = nullptr;
     juce::AudioParameterFloat* attackParam = nullptr;
@@ -323,6 +336,26 @@ public:
     juce::AudioParameterFloat* makeupParam = nullptr;
 
 private:
+    static constexpr int kMaxProcessingChannels = 2;
+
+    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
+    {
+        return buffer.getNumSamples() <= preparedBlockSize
+            && buffer.getNumChannels() <= preparedChannels
+            && buffer.getNumChannels() <= kMaxProcessingChannels;
+    }
+
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (!std::isfinite(data[i]))
+                    data[i] = 0.0f;
+        }
+    }
+
     float coefficientForTime(float milliseconds) const noexcept
     {
         const float clampedMs = juce::jmax(0.02f, milliseconds);
@@ -356,9 +389,12 @@ private:
     Nova::CompressorDSP::HybridDetector detector;
 
     double currentSampleRate = 44100.0;
+    int preparedBlockSize = 0;
+    int preparedChannels = 0;
     float linkedGainReductionDb = 0.0f;
     float cachedFocus = -1.0f;
     std::atomic<float> currentGainReductionDb{ 0.0f };
+    std::atomic<int> fallbackBlockCount{ 0 };
     bool isPrepared = false;
 };
 

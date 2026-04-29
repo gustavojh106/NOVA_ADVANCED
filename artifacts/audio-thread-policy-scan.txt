@@ -1,0 +1,63 @@
+NOVA Audio Thread Policy Scan
+Generated: 2026-04-29 15:19:15
+status=WARN
+summary.activeFiles=29
+summary.activeRanges=30
+summary.failures=0
+summary.warnings=4
+summary.allowlistedWarnings=0
+summary.legacyWarnings=4
+summary.allowListEntries=2
+
+Active files scanned:
+  - Source/Core/AudioEngine.cpp
+  - Source/Core/DSP/Global/ChannelStrip.cpp
+  - Source/Core/DSP/Global/InputChain.cpp
+  - Source/Core/DSP/Global/OutputChain.cpp
+  - Source/Core/PluginProcessor.cpp
+  - Source/Effects/Amplifiers/BoutiqueAmp.h
+  - Source/Effects/Amplifiers/ChimeAmp.h
+  - Source/Effects/Amplifiers/ClassicAmp.h
+  - Source/Effects/Amplifiers/CleanAmp.h
+  - Source/Effects/Amplifiers/HighGainAmp.h
+  - Source/Effects/Cabinets/CabinetPedal.h
+  - Source/Effects/Cabinets/Modern4x12Cabinet.h
+  - Source/Effects/Cabinets/Vintage2x12Cabinet.h
+  - Source/Effects/Pedals/Boost/BoostPedal.h
+  - Source/Effects/Pedals/Chorus/ChorusPedal.h
+  - Source/Effects/Pedals/Compressor/CompressorPedal.h
+  - Source/Effects/Pedals/Delay/DelayPedal.h
+  - Source/Effects/Pedals/Distortion/DistortionPedal.h
+  - Source/Effects/Pedals/EQ/EQPedal.h
+  - Source/Effects/Pedals/Flanger/FlangerPedal.h
+  - Source/Effects/Pedals/Fuzz/FuzzPedal.h
+  - Source/Effects/Pedals/Gate/NoiseGatePedal.h
+  - Source/Effects/Pedals/Neural/NeuralPedal.h
+  - Source/Effects/Pedals/Octave/OctavePedal.h
+  - Source/Effects/Pedals/Overdrive/OverdrivePedal.h
+  - Source/Effects/Pedals/Phaser/PhaserPedal.h
+  - Source/Effects/Pedals/Reverb/ReverbPedal.h
+  - Source/Effects/Pedals/Tremolo/TremoloPedal.h
+  - Source/Effects/Pedals/Wah/ClassicWahPedal.h
+
+Allowlist entries:
+  - file=Source/Core/PluginProcessor.cpp pattern=dynamic_cast reason=Parameter listener path, not audio callback.
+  - file=Source/Core/AudioEngine.cpp pattern=graph_rebuild reason=Atomic flag only; rebuild is executed on control thread.
+
+No FAIL findings in active audio routes.
+
+Legacy findings (WARN, non-blocking):
+  - [AudioBuffer::setSize in process path] Source/Effects/Pedals/ChorusPedal.h:107
+    classification=legacy-no-active-reference inJucer=False inRegistry=False
+    line=scratchBuffer.setSize(buffer.getNumChannels(),
+  - [AudioBuffer::setSize in process path] Source/Effects/Pedals/CompressorPedal.h:102
+    classification=legacy-no-active-reference inJucer=False inRegistry=False
+    line=dryBuffer.setSize(buffer.getNumChannels(),
+  - [AudioBuffer::setSize in process path] Source/Effects/Pedals/Metal/MetalDistortionPedal.h:118
+    classification=legacy-in-jucer inJucer=True inRegistry=False
+    line=scratchBuffer.setSize(numChannels,
+  - [AudioBuffer::setSize in process path] Source/Effects/Pedals/Wah/AutoWahPedal.h:108
+    classification=legacy-in-jucer inJucer=True inRegistry=False
+    line=scratchBuffer.setSize(numChannels, numSamples, false, false, true);
+
+Policy result: WARN

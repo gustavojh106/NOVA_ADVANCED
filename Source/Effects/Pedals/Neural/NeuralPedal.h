@@ -4,6 +4,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <vector>
 
@@ -37,10 +38,9 @@ public:
         setCutoff(1000.0f);
     }
 
-    void ensureChannels(size_t numChannels)
+    bool hasChannels(size_t numChannels) const noexcept
     {
-        if (states.size() < numChannels)
-            states.resize(numChannels, 0.0f);
+        return states.size() >= numChannels;
     }
 
     void reset()
@@ -82,10 +82,9 @@ public:
         states.assign(numChannels, 0.0f);
     }
 
-    void ensureChannels(size_t numChannels)
+    bool hasChannels(size_t numChannels) const noexcept
     {
-        if (states.size() < numChannels)
-            states.resize(numChannels, 0.0f);
+        return states.size() >= numChannels;
     }
 
     void reset()
@@ -143,10 +142,12 @@ public:
             return;
 
         oversampler.reset();
-        oversampler.initProcessing((size_t) juce::jmax(1, samplesPerBlock));
+        preparedBlockSize = juce::jmax(1, samplesPerBlock);
+        preparedChannels = juce::jlimit(1, kMaxProcessingChannels, juce::jmax(2, getTotalNumOutputChannels()));
+        oversampler.initProcessing((size_t) preparedBlockSize);
         innerSampleRate = sampleRate * (double) oversamplingFactor();
 
-        const auto numChannels = (size_t) juce::jmax(1, getTotalNumOutputChannels());
+        const auto numChannels = (size_t) preparedChannels;
         inputTighten.prepare(innerSampleRate, numChannels);
         focusBody.prepare(innerSampleRate, numChannels);
         toneBody.prepare(innerSampleRate, numChannels);
@@ -179,8 +180,8 @@ public:
         levelSmooth.setCurrentAndTargetValue(level);
         wetTrimSmooth.setCurrentAndTargetValue(wetTrimFromControls(drive, focus, detail, comp));
 
-        scratchBuffer.setSize(juce::jmax(2, getTotalNumOutputChannels()),
-            juce::jmax(1, samplesPerBlock),
+        scratchBuffer.setSize(preparedChannels,
+            preparedBlockSize,
             false,
             false,
             true);
@@ -235,14 +236,13 @@ public:
         const int numChannels = buffer.getNumChannels();
         const int numSamples = buffer.getNumSamples();
 
-        if (scratchBuffer.getNumChannels() < numChannels
-            || scratchBuffer.getNumSamples() < numSamples)
+        scrubInvalidSamples(buffer);
+
+        if (!canProcessBlock(buffer))
         {
-            scratchBuffer.setSize(numChannels,
-                numSamples,
-                false,
-                false,
-                true);
+            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
+            endBypassProcess(buffer);
+            return;
         }
 
         for (int ch = 0; ch < numChannels; ++ch)
@@ -269,14 +269,23 @@ public:
         const int innerSamples = (int) upsampled.getNumSamples();
         const int oversampleRatio = juce::jmax(1, innerSamples / juce::jmax(1, numSamples));
 
-        inputTighten.ensureChannels((size_t) upsampled.getNumChannels());
-        focusBody.ensureChannels((size_t) upsampled.getNumChannels());
-        toneBody.ensureChannels((size_t) upsampled.getNumChannels());
-        airLowPass.ensureChannels((size_t) upsampled.getNumChannels());
-        speakerHighPass.ensureChannels((size_t) upsampled.getNumChannels());
-        speakerLowPass.ensureChannels((size_t) upsampled.getNumChannels());
-        dcBlock.ensureChannels((size_t) upsampled.getNumChannels());
-        envelopeFollower.ensureChannels((size_t) upsampled.getNumChannels());
+        const auto upsampledChannels = (size_t) upsampled.getNumChannels();
+        if (!inputTighten.hasChannels(upsampledChannels)
+            || !focusBody.hasChannels(upsampledChannels)
+            || !toneBody.hasChannels(upsampledChannels)
+            || !airLowPass.hasChannels(upsampledChannels)
+            || !speakerHighPass.hasChannels(upsampledChannels)
+            || !speakerLowPass.hasChannels(upsampledChannels)
+            || !dcBlock.hasChannels(upsampledChannels)
+            || !envelopeFollower.hasChannels(upsampledChannels))
+        {
+            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
+            oversampler.processSamplesDown(block);
+            for (int ch = 0; ch < numChannels; ++ch)
+                juce::FloatVectorOperations::copy(buffer.getWritePointer(ch), scratchBuffer.getReadPointer(ch), numSamples);
+            endBypassProcess(buffer);
+            return;
+        }
 
         float currentDrive = driveSmooth.getCurrentValue();
         float currentFocus = focusSmooth.getCurrentValue();
@@ -357,6 +366,16 @@ public:
     juce::AudioParameterFloat* mixParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
 
+    int getRealtimeFallbackCount() const noexcept
+    {
+        return fallbackBlockCount.load(std::memory_order_relaxed);
+    }
+
+    void clearRealtimeFallbackCount() noexcept
+    {
+        fallbackBlockCount.store(0, std::memory_order_relaxed);
+    }
+
     static float computeDisplayCurve(float input, float drive, float detail, float comp)
     {
         const float driveNorm = juce::jlimit(0.0f, 1.0f, drive * 0.01f);
@@ -366,6 +385,8 @@ public:
     }
 
 private:
+    static constexpr int kMaxProcessingChannels = 2;
+
     struct ToneModel
     {
         float stageDriveA = 1.0f;
@@ -412,6 +433,24 @@ private:
             + juce::jmap(comp, 0.0f, -1.35f)
             + juce::jmap(focus, 0.15f, -1.05f);
         return juce::Decibels::decibelsToGain(compensationDb);
+    }
+
+    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
+    {
+        return buffer.getNumSamples() <= preparedBlockSize
+            && buffer.getNumChannels() <= preparedChannels
+            && buffer.getNumChannels() <= kMaxProcessingChannels;
+    }
+
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (!std::isfinite(data[i]))
+                    data[i] = 0.0f;
+        }
     }
 
     void updateToneModel(float driveControl, float focusControl, float detailControl, float compControl)
@@ -462,7 +501,10 @@ private:
     juce::AudioBuffer<float> scratchBuffer;
 
     double innerSampleRate = 176400.0;
+    int preparedBlockSize = 0;
+    int preparedChannels = 0;
     ToneModel toneModel;
+    std::atomic<int> fallbackBlockCount{ 0 };
     bool isPrepared = false;
 };
 

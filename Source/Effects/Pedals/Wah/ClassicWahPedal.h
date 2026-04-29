@@ -159,6 +159,8 @@ public:
 
         sr = sampleRate;
         piOverSr = juce::MathConstants<float>::pi / (float) sr;
+        preparedBlockSize = juce::jmax(1, samplesPerBlock);
+        preparedChannels = juce::jlimit(1, kMaxProcessingChannels, juce::jmax(2, getTotalNumOutputChannels()));
 
         sweepSmooth.reset(sr, 0.012);
         sensSmooth.reset(sr, 0.040);
@@ -181,6 +183,8 @@ public:
             filter.reset();
         for (auto& filter : svfCascade)
             filter.reset();
+        for (auto& dcBlock : outputDcBlock)
+            dcBlock.prepare(sr, 18.0f);
 
         envelope = 0.0f;
         envelopeSmoothed = 0.0f;
@@ -189,8 +193,8 @@ public:
         currentManualSweep = currentSweep;
         currentEnvelope = 0.0f;
 
-        scratchBuffer.setSize(juce::jmax(2, getTotalNumOutputChannels()),
-            juce::jmax(1, samplesPerBlock),
+        scratchBuffer.setSize(preparedChannels,
+            preparedBlockSize,
             false,
             false,
             true);
@@ -216,6 +220,8 @@ public:
             filter.reset();
         for (auto& filter : svfCascade)
             filter.reset();
+        for (auto& dcBlock : outputDcBlock)
+            dcBlock.reset();
 
         syncSmoothedTargets(true);
     }
@@ -228,10 +234,13 @@ public:
         const int numChannels = juce::jmin(2, buffer.getNumChannels());
         const int numSamples = buffer.getNumSamples();
 
-        if (scratchBuffer.getNumChannels() < numChannels
-            || scratchBuffer.getNumSamples() < numSamples)
+        scrubInvalidSamples(buffer);
+
+        if (!canProcessBlock(buffer))
         {
-            scratchBuffer.setSize(numChannels, numSamples, false, false, true);
+            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
+            endBypassProcess(buffer);
+            return;
         }
 
         for (int ch = 0; ch < numChannels; ++ch)
@@ -363,6 +372,7 @@ public:
                         juce::jlimit(0.0f, 1.0f, touchSweep * 0.14f + touchAccent * 0.44f));
 
                 wet = Nova::WahDSP::smoothClip(wet * 0.95f) * gainComp * 1.08f;
+                wet = outputDcBlock[(size_t) ch].process(wet);
                 buffer.setSample(ch, sampleIndex, dry * dryGain + wet * wetGain);
             }
         }
@@ -640,6 +650,16 @@ public:
     float currentManualSweep = 0.46f;
     float currentEnvelope = 0.0f;
 
+    int getRealtimeFallbackCount() const noexcept
+    {
+        return fallbackBlockCount.load(std::memory_order_relaxed);
+    }
+
+    void clearRealtimeFallbackCount() noexcept
+    {
+        fallbackBlockCount.store(0, std::memory_order_relaxed);
+    }
+
 protected:
     static void applyNormalisedValue(juce::RangedAudioParameter* parameter, float normalisedValue)
     {
@@ -648,6 +668,55 @@ protected:
     }
 
 private:
+    static constexpr int kMaxProcessingChannels = 2;
+
+    struct DcBlocker
+    {
+        void prepare(double sampleRate, float cutoffHz) noexcept
+        {
+            const auto safeSampleRate = juce::jmax(1.0, sampleRate);
+            const auto safeCutoff = juce::jlimit(5.0f, (float) (safeSampleRate * 0.45), cutoffHz);
+            pole = (float) std::exp(-juce::MathConstants<double>::twoPi * (double) safeCutoff / safeSampleRate);
+            reset();
+        }
+
+        float process(float x) noexcept
+        {
+            const float y = x - x1 + pole * y1;
+            x1 = x;
+            y1 = y;
+            return y;
+        }
+
+        void reset() noexcept
+        {
+            x1 = 0.0f;
+            y1 = 0.0f;
+        }
+
+        float pole = 0.995f;
+        float x1 = 0.0f;
+        float y1 = 0.0f;
+    };
+
+    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
+    {
+        return buffer.getNumSamples() <= preparedBlockSize
+            && buffer.getNumChannels() <= preparedChannels
+            && buffer.getNumChannels() <= kMaxProcessingChannels;
+    }
+
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (!std::isfinite(data[i]))
+                    data[i] = 0.0f;
+        }
+    }
+
     void syncSmoothedTargets(bool snap)
     {
         auto sync = [snap](auto& smoother, juce::AudioParameterFloat* parameter, float fallback)
@@ -675,6 +744,7 @@ private:
     std::array<Nova::WahDSP::Biquad, 2> detectorBandPass;
     std::array<Nova::WahDSP::SVF, 2> svf;
     std::array<Nova::WahDSP::SVF, 2> svfCascade;
+    std::array<DcBlocker, 2> outputDcBlock;
 
     float envelope = 0.0f;
     float envelopeSmoothed = 0.0f;
@@ -690,8 +760,11 @@ private:
 
     std::atomic<int> controlSource { (int) ExternalControlSource::MouseWheel };
     std::atomic<int> shortcutKeyCode { juce::KeyPress::spaceKey };
+    std::atomic<int> fallbackBlockCount{ 0 };
 
     juce::AudioBuffer<float> scratchBuffer;
+    int preparedBlockSize = 0;
+    int preparedChannels = 0;
     bool isPrepared = false;
 };
 

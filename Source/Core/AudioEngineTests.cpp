@@ -1,5 +1,7 @@
 #include <JuceHeader.h>
+#include <array>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include "AudioEngine.h"
@@ -812,6 +814,246 @@ void warmUpEngine(AudioEngine& engine, int blockSize, int blocks = 10)
         scratch.clear();
         engine.process(scratch, midi);
     }
+}
+
+enum class P1PedalSignal
+{
+    Silence,
+    Impulse,
+    Sine100,
+    Sine1k,
+    Sine5k,
+    DcOffset,
+    StrongPeaks,
+    NanInf,
+    LowNoise
+};
+
+juce::String p1SignalName(P1PedalSignal signal)
+{
+    switch (signal)
+    {
+        case P1PedalSignal::Silence:     return "silence";
+        case P1PedalSignal::Impulse:     return "impulse";
+        case P1PedalSignal::Sine100:     return "sine100";
+        case P1PedalSignal::Sine1k:      return "sine1k";
+        case P1PedalSignal::Sine5k:      return "sine5k";
+        case P1PedalSignal::DcOffset:    return "dc";
+        case P1PedalSignal::StrongPeaks: return "strongPeaks";
+        case P1PedalSignal::NanInf:      return "nanInf";
+        case P1PedalSignal::LowNoise:    return "lowNoise";
+    }
+
+    return "unknown";
+}
+
+void fillP1PedalSignal(juce::AudioBuffer<float>& buffer,
+    P1PedalSignal signal,
+    double sampleRate,
+    int seed = 0)
+{
+    buffer.clear();
+
+    auto fillSine = [&](float frequency, float amplitude)
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+            {
+                const double phase = juce::MathConstants<double>::twoPi
+                    * (double) frequency
+                    * (double) sample
+                    / sampleRate;
+                data[sample] = amplitude * (float) std::sin(phase);
+            }
+        }
+    };
+
+    switch (signal)
+    {
+        case P1PedalSignal::Silence:
+            break;
+
+        case P1PedalSignal::Impulse:
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                buffer.setSample(ch, 0, ch == 0 ? 0.8f : -0.8f);
+            break;
+
+        case P1PedalSignal::Sine100:
+            fillSine(100.0f, 0.35f);
+            break;
+
+        case P1PedalSignal::Sine1k:
+            fillSine(1000.0f, 0.35f);
+            break;
+
+        case P1PedalSignal::Sine5k:
+            fillSine(5000.0f, 0.28f);
+            break;
+
+        case P1PedalSignal::DcOffset:
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                buffer.applyGain(ch, 0, buffer.getNumSamples(), 0.0f);
+
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+                    buffer.setSample(ch, sample, ch == 0 ? 0.25f : -0.22f);
+            break;
+
+        case P1PedalSignal::StrongPeaks:
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+                    buffer.setSample(ch, sample, (sample % 5) == 0 ? (ch == 0 ? 1.8f : -1.8f) : 0.0f);
+            break;
+
+        case P1PedalSignal::NanInf:
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                if (buffer.getNumSamples() > 0)
+                    buffer.setSample(ch, 0, std::numeric_limits<float>::quiet_NaN());
+                if (buffer.getNumSamples() > 1)
+                    buffer.setSample(ch, 1, std::numeric_limits<float>::infinity());
+                if (buffer.getNumSamples() > 2)
+                    buffer.setSample(ch, 2, -std::numeric_limits<float>::infinity());
+
+                for (int sample = 3; sample < buffer.getNumSamples(); ++sample)
+                    buffer.setSample(ch, sample, 0.1f * std::sin(0.013f * (float)(sample + 11 * ch)));
+            }
+            break;
+
+        case P1PedalSignal::LowNoise:
+        {
+            juce::Random rng(seed);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+                    buffer.setSample(ch, sample, 0.025f * ((rng.nextFloat() * 2.0f) - 1.0f));
+            break;
+        }
+    }
+}
+
+double p1BufferPeak(const juce::AudioBuffer<float>& buffer)
+{
+    double peak = 0.0;
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        peak = juce::jmax(peak, (double) buffer.getMagnitude(ch, 0, buffer.getNumSamples()));
+    return peak;
+}
+
+double p1AdjacentDeltaPeak(const juce::AudioBuffer<float>& buffer)
+{
+    double peak = 0.0;
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        for (int sample = 1; sample < buffer.getNumSamples(); ++sample)
+        {
+            const double delta = std::abs((double) buffer.getSample(ch, sample)
+                - (double) buffer.getSample(ch, sample - 1));
+            peak = juce::jmax(peak, delta);
+        }
+    }
+
+    return peak;
+}
+
+template <typename ProcessorType>
+void runP1PreparedMatrix(juce::UnitTest& test, const juce::String& processorName)
+{
+    constexpr std::array<int, 6> blockSizes { 32, 64, 128, 256, 480, 512 };
+    constexpr std::array<double, 3> sampleRates { 44100.0, 48000.0, 96000.0 };
+    constexpr std::array<P1PedalSignal, 9> signals {
+        P1PedalSignal::Silence,
+        P1PedalSignal::Impulse,
+        P1PedalSignal::Sine100,
+        P1PedalSignal::Sine1k,
+        P1PedalSignal::Sine5k,
+        P1PedalSignal::DcOffset,
+        P1PedalSignal::StrongPeaks,
+        P1PedalSignal::NanInf,
+        P1PedalSignal::LowNoise
+    };
+
+    juce::MidiBuffer midi;
+
+    for (double sampleRate : sampleRates)
+    {
+        for (int blockSize : blockSizes)
+        {
+            ProcessorType processor;
+            processor.prepareToPlay(sampleRate, blockSize);
+
+            for (P1PedalSignal signal : signals)
+            {
+                processor.reset();
+                processor.clearRealtimeFallbackCount();
+
+                juce::AudioBuffer<float> buffer(2, blockSize);
+                fillP1PedalSignal(buffer, signal, sampleRate, blockSize + (int) sampleRate);
+
+                processor.processBlock(buffer, midi);
+
+                const auto label = processorName
+                    + " sr=" + juce::String((int) sampleRate)
+                    + " block=" + juce::String(blockSize)
+                    + " signal=" + p1SignalName(signal);
+
+                test.expect(bufferHasOnlyFiniteSamples(buffer), label + " must stay finite");
+                test.expectEquals(processor.getRealtimeFallbackCount(), 0, label + " must not hit fallback under prepared conditions");
+                test.expect(p1BufferPeak(buffer) < 16.0, label + " must stay under the P1 emergency peak ceiling");
+            }
+        }
+    }
+}
+
+template <typename ProcessorType>
+void runP1OversizedFallback(juce::UnitTest& test, const juce::String& processorName)
+{
+    constexpr int preparedBlockSize = 32;
+    constexpr int hostBlockSize = 64;
+    constexpr double sampleRate = 48000.0;
+
+    ProcessorType processor;
+    processor.prepareToPlay(sampleRate, preparedBlockSize);
+    processor.clearRealtimeFallbackCount();
+
+    juce::AudioBuffer<float> buffer(2, hostBlockSize);
+    fillP1PedalSignal(buffer, P1PedalSignal::Sine1k, sampleRate, 0x5151);
+
+    juce::AudioBuffer<float> inputCopy(buffer);
+    juce::MidiBuffer midi;
+    processor.processBlock(buffer, midi);
+
+    test.expect(bufferHasOnlyFiniteSamples(buffer), processorName + " oversized fallback must stay finite");
+    test.expectEquals(processor.getRealtimeFallbackCount(), 1, processorName + " oversized block must increment the realtime fallback counter");
+    test.expect(computeBufferNullRms(buffer, inputCopy) < 1.0e-7,
+        processorName + " oversized fallback should preserve dry audio without allocation");
+}
+
+template <typename ProcessorType>
+void runP1BypassToggleContinuity(juce::UnitTest& test, const juce::String& processorName)
+{
+    constexpr int blockSize = 128;
+    constexpr double sampleRate = 48000.0;
+
+    ProcessorType processor;
+    processor.prepareToPlay(sampleRate, blockSize);
+
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> buffer(2, blockSize);
+
+    fillP1PedalSignal(buffer, P1PedalSignal::Sine1k, sampleRate, 0xB1);
+    processor.processBlock(buffer, midi);
+    const double activeDelta = p1AdjacentDeltaPeak(buffer);
+
+    fillP1PedalSignal(buffer, P1PedalSignal::Sine1k, sampleRate, 0xB2);
+    processor.setBypassed(true);
+    processor.processBlock(buffer, midi);
+    const double bypassDelta = p1AdjacentDeltaPeak(buffer);
+
+    test.expect(bufferHasOnlyFiniteSamples(buffer), processorName + " bypass transition must remain finite");
+    test.expect(bypassDelta < juce::jmax(2.5, activeDelta + 2.0),
+        processorName + " bypass transition should not introduce a large single-sample jump");
 }
 
 class AudioEngineValidationTests final : public juce::UnitTest
@@ -5751,11 +5993,63 @@ public:
     }
 };
 
+class P1PedalSafetyTests final : public juce::UnitTest
+{
+public:
+    P1PedalSafetyTests()
+        : juce::UnitTest("P1 Pedal Safety", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        beginTest("P1 pedals stay finite without fallback across prepared block sizes and sample rates");
+        {
+            runP1PreparedMatrix<CabinetPedal>(*this, "Cabinet");
+            runP1PreparedMatrix<Vintage2x12Cabinet>(*this, "Vintage2x12");
+            runP1PreparedMatrix<Modern4x12Cabinet>(*this, "Modern4x12");
+            runP1PreparedMatrix<CompressorPedal>(*this, "Compressor");
+            runP1PreparedMatrix<DistortionPedal>(*this, "Distortion");
+            runP1PreparedMatrix<FuzzPedal>(*this, "Fuzz");
+            runP1PreparedMatrix<NeuralPedal>(*this, "Neural");
+            runP1PreparedMatrix<ClassicWahPedal>(*this, "Wah");
+            runP1PreparedMatrix<PhaserPedal>(*this, "Phaser");
+        }
+
+        beginTest("P1 pedals use dry no-allocation fallback when host exceeds prepared block size");
+        {
+            runP1OversizedFallback<CabinetPedal>(*this, "Cabinet");
+            runP1OversizedFallback<Vintage2x12Cabinet>(*this, "Vintage2x12");
+            runP1OversizedFallback<Modern4x12Cabinet>(*this, "Modern4x12");
+            runP1OversizedFallback<CompressorPedal>(*this, "Compressor");
+            runP1OversizedFallback<DistortionPedal>(*this, "Distortion");
+            runP1OversizedFallback<FuzzPedal>(*this, "Fuzz");
+            runP1OversizedFallback<NeuralPedal>(*this, "Neural");
+            runP1OversizedFallback<ClassicWahPedal>(*this, "Wah");
+            runP1OversizedFallback<PhaserPedal>(*this, "Phaser");
+        }
+
+        beginTest("P1 pedals keep bypass transitions finite and bounded");
+        {
+            runP1BypassToggleContinuity<CabinetPedal>(*this, "Cabinet");
+            runP1BypassToggleContinuity<Vintage2x12Cabinet>(*this, "Vintage2x12");
+            runP1BypassToggleContinuity<Modern4x12Cabinet>(*this, "Modern4x12");
+            runP1BypassToggleContinuity<CompressorPedal>(*this, "Compressor");
+            runP1BypassToggleContinuity<DistortionPedal>(*this, "Distortion");
+            runP1BypassToggleContinuity<FuzzPedal>(*this, "Fuzz");
+            runP1BypassToggleContinuity<NeuralPedal>(*this, "Neural");
+            runP1BypassToggleContinuity<ClassicWahPedal>(*this, "Wah");
+            runP1BypassToggleContinuity<PhaserPedal>(*this, "Phaser");
+        }
+    }
+};
+
 static AudioEngineValidationTests audioEngineValidationTests;
+static P1PedalSafetyTests p1PedalSafetyTests;
 
 void touchAudioEngineValidationTests()
 {
-    juce::ignoreUnused(audioEngineValidationTests);
+    juce::ignoreUnused(audioEngineValidationTests, p1PedalSafetyTests);
 }
 }
 

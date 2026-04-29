@@ -1,9 +1,11 @@
 #pragma once
 
+#include <JuceHeader.h>
+
 #include "Constants.h"
-#include "SessionLogger.h"
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <utility>
 
@@ -172,25 +174,114 @@ struct PedalSignalWindowAccumulator
     }
 };
 
+struct RealtimeSignalTelemetryEvent
+{
+    static constexpr size_t kMaxTagChars = 64;
+
+    std::array<char, kMaxTagChars> tag{};
+    PedalSignalWindowAccumulator window;
+    uint32_t elapsedMs = 0;
+    bool alert = false;
+};
+
+class RealtimeSignalTelemetryQueue final
+{
+public:
+    static RealtimeSignalTelemetryQueue& instance() noexcept
+    {
+        static RealtimeSignalTelemetryQueue queue;
+        return queue;
+    }
+
+    bool push(const RealtimeSignalTelemetryEvent& event) noexcept
+    {
+        uint32_t write = writeSequence.load(std::memory_order_relaxed);
+
+        for (;;)
+        {
+            const uint32_t read = readSequence.load(std::memory_order_acquire);
+            if (write - read >= (uint32_t) slots.size())
+            {
+                droppedEvents.fetch_add(1, std::memory_order_relaxed);
+                return false;
+            }
+
+            if (writeSequence.compare_exchange_weak(write,
+                    write + 1,
+                    std::memory_order_acq_rel,
+                    std::memory_order_relaxed))
+                break;
+        }
+
+        auto& slot = slots[(size_t) (write % (uint32_t) slots.size())];
+        slot.event = event;
+        slot.sequence.store(write + 1, std::memory_order_release);
+        return true;
+    }
+
+    bool pop(RealtimeSignalTelemetryEvent& event) noexcept
+    {
+        const uint32_t read = readSequence.load(std::memory_order_relaxed);
+        auto& slot = slots[(size_t) (read % (uint32_t) slots.size())];
+
+        if (slot.sequence.load(std::memory_order_acquire) != read + 1)
+            return false;
+
+        event = slot.event;
+        readSequence.store(read + 1, std::memory_order_release);
+        return true;
+    }
+
+    int consumeDroppedEvents() noexcept
+    {
+        return droppedEvents.exchange(0, std::memory_order_acq_rel);
+    }
+
+private:
+    struct Slot
+    {
+        std::atomic<uint32_t> sequence{ 0 };
+        RealtimeSignalTelemetryEvent event;
+    };
+
+    RealtimeSignalTelemetryQueue() = default;
+
+    std::array<Slot, 256> slots{};
+    std::atomic<uint32_t> writeSequence{ 0 };
+    std::atomic<uint32_t> readSequence{ 0 };
+    std::atomic<int> droppedEvents{ 0 };
+};
+
 class PedalSignalTelemetry
 {
 public:
     explicit PedalSignalTelemetry(juce::String tag) noexcept
-        : pedalTag(std::move(tag))
     {
+        setTag(tag);
         reset();
     }
 
     void setTag(const juce::String& tag) noexcept
     {
-        pedalTag = tag;
+        fixedTag.fill(0);
+
+        const auto* source = tag.isNotEmpty() ? tag.toRawUTF8() : "unknown";
+        for (size_t i = 0; i + 1 < fixedTag.size() && source[i] != '\0'; ++i)
+            fixedTag[i] = source[i];
+    }
+
+    void prepare(double newSampleRate) noexcept
+    {
+        sampleRate = juce::jmax(1.0, newSampleRate);
+        intervalSamples = samplesFromMilliseconds(Nova::Config::SIGNAL_TELEMETRY_INTERVAL_MS);
+        alertCooldownSamples = samplesFromMilliseconds(Nova::Config::SIGNAL_ALERT_COOLDOWN_MS);
+        reset();
     }
 
     void reset() noexcept
     {
         window.reset();
-        windowStartMs = juce::Time::getMillisecondCounter();
-        lastAlertMs = 0;
+        samplesSinceLastAlert = alertCooldownSamples;
         previousInputSamples = { { 0.0f, 0.0f } };
         previousOutputSamples = { { 0.0f, 0.0f } };
         hasPreviousInputSamples = false;
@@ -205,10 +296,7 @@ public:
         hasPendingInputMetrics = true;
     }
 
-    template <typename BuildExtra, typename ResetExtra>
-    void captureOutputAndEmitIfNeeded(const juce::AudioBuffer<float>& outputBuffer,
-        BuildExtra&& buildExtra,
-        ResetExtra&& resetExtra) noexcept
+    bool captureOutputAndPublishIfNeeded(const juce::AudioBuffer<float>& outputBuffer) noexcept
     {
         if (!hasPendingInputMetrics)
             captureInput(outputBuffer);
@@ -217,10 +305,20 @@ public:
             analyzeBuffer(outputBuffer, previousOutputSamples, hasPreviousOutputSamples));
         hasPendingInputMetrics = false;
 
-        emitIfNeeded(std::forward<BuildExtra>(buildExtra), std::forward<ResetExtra>(resetExtra));
+        return publishIfNeeded();
     }
 
 private:
+    int samplesFromMilliseconds(int milliseconds) const noexcept
+    {
+        return juce::jmax(1, juce::roundToInt(sampleRate * (double) milliseconds * 0.001));
+    }
+
+    uint32_t millisecondsFromSamples(int samples) const noexcept
+    {
+        return (uint32_t) juce::jmax(1, juce::roundToInt((double) samples * 1000.0 / sampleRate));
+    }
+
     static PedalSignalBlockMetrics analyzeBuffer(const juce::AudioBuffer<float>& buffer,
         std::array<float, 2>& previousSamples,
         bool& hasPreviousSamples) noexcept
@@ -300,6 +398,8 @@ private:
     {
         ++window.blocks;
         window.totalSamples += juce::jmax(0, outputMetrics.numSamples);
+        samplesSinceLastAlert = juce::jmin(samplesSinceLastAlert + juce::jmax(0, outputMetrics.numSamples),
+            alertCooldownSamples);
         window.nearClipSamples += outputMetrics.nearClipSamples;
         window.invalidSamples += outputMetrics.invalidSamples;
         window.clippedSamples += outputMetrics.clippedSamples;
@@ -329,99 +429,43 @@ private:
         }
     }
 
-    juce::String buildReport(const PedalSignalWindowAccumulator& snapshot, uint32_t elapsedMs) const
-    {
-        const double divisor = (double) juce::jmax(1, snapshot.blocks);
-        juce::String report;
-        report << "windowMs=" << (int) elapsedMs
-               << ", blocks=" << snapshot.blocks
-               << ", avgSamplesPerBlock=" << formatTelemetryScalar((float) snapshot.totalSamples / (float) juce::jmax(1, snapshot.blocks))
-               << juce::newLine
-               << "input.signal: peakLMax=" << formatTelemetryScalar(snapshot.inputPeakMax[0])
-               << ", peakRMax=" << formatTelemetryScalar(snapshot.inputPeakMax[1])
-               << ", rmsLAvg=" << formatTelemetryScalar((float) (snapshot.inputRmsSum[0] / divisor))
-               << ", rmsRAvg=" << formatTelemetryScalar((float) (snapshot.inputRmsSum[1] / divisor))
-               << ", rmsLMax=" << formatTelemetryScalar(snapshot.inputRmsMax[0])
-               << ", rmsRMax=" << formatTelemetryScalar(snapshot.inputRmsMax[1])
-               << ", dcLMax=" << formatTelemetryScalar(snapshot.inputDcMax[0])
-               << ", dcRMax=" << formatTelemetryScalar(snapshot.inputDcMax[1])
-               << ", deltaLMax=" << formatTelemetryScalar(snapshot.inputDeltaMax[0])
-               << ", deltaRMax=" << formatTelemetryScalar(snapshot.inputDeltaMax[1])
-               << juce::newLine
-               << "output.signal: peakLMax=" << formatTelemetryScalar(snapshot.outputPeakMax[0])
-               << ", peakRMax=" << formatTelemetryScalar(snapshot.outputPeakMax[1])
-               << ", rmsLAvg=" << formatTelemetryScalar((float) (snapshot.outputRmsSum[0] / divisor))
-               << ", rmsRAvg=" << formatTelemetryScalar((float) (snapshot.outputRmsSum[1] / divisor))
-               << ", rmsLMax=" << formatTelemetryScalar(snapshot.outputRmsMax[0])
-               << ", rmsRMax=" << formatTelemetryScalar(snapshot.outputRmsMax[1])
-               << ", dcLMax=" << formatTelemetryScalar(snapshot.outputDcMax[0])
-               << ", dcRMax=" << formatTelemetryScalar(snapshot.outputDcMax[1])
-               << ", deltaLMax=" << formatTelemetryScalar(snapshot.outputDeltaMax[0])
-               << ", deltaRMax=" << formatTelemetryScalar(snapshot.outputDeltaMax[1])
-               << juce::newLine
-               << "anomalies: inputActiveBlocks=" << snapshot.inputActiveBlocks
-               << ", spikeBlocks=" << snapshot.spikeBlocks
-               << ", dcAlertBlocks=" << snapshot.dcAlertBlocks
-               << ", nearClipSamples=" << snapshot.nearClipSamples
-               << ", invalidSamples=" << snapshot.invalidSamples
-               << ", clippedSamples=" << snapshot.clippedSamples;
-        return report;
-    }
-
-    template <typename BuildExtra, typename ResetExtra>
-    void emitIfNeeded(BuildExtra&& buildExtra, ResetExtra&& resetExtra) noexcept
+    bool publishIfNeeded() noexcept
     {
         if (!window.hasData())
-            return;
+            return false;
 
-        const uint32_t now = juce::Time::getMillisecondCounter();
-        if (windowStartMs == 0)
-            windowStartMs = now;
-
-        const uint32_t elapsedMs = now - windowStartMs;
         const bool hasAlertCondition = (window.invalidSamples > 0
             || window.clippedSamples > 0
             || window.nearClipSamples > 0
             || window.dcAlertBlocks > 0
             || window.spikeBlocks >= 8);
-        const bool intervalElapsed = elapsedMs >= (uint32_t) Nova::Config::SIGNAL_TELEMETRY_INTERVAL_MS;
-        const bool alertCooldownElapsed = (lastAlertMs == 0
-            || (now - lastAlertMs) >= (uint32_t) Nova::Config::SIGNAL_ALERT_COOLDOWN_MS);
+        const bool intervalElapsed = window.totalSamples >= intervalSamples;
+        const bool alertCooldownElapsed = samplesSinceLastAlert >= alertCooldownSamples;
 
         if (!intervalElapsed && !(hasAlertCondition && alertCooldownElapsed))
-            return;
+            return false;
 
-        const auto snapshot = window;
+        RealtimeSignalTelemetryEvent event;
+        event.tag = fixedTag;
+        event.window = window;
+        event.elapsedMs = millisecondsFromSamples(window.totalSamples);
+        event.alert = hasAlertCondition && alertCooldownElapsed;
+
+        RealtimeSignalTelemetryQueue::instance().push(event);
         window.reset();
-        windowStartMs = now;
 
-        const bool emitAsAlert = hasAlertCondition && alertCooldownElapsed;
-        if (emitAsAlert)
-            lastAlertMs = now;
+        if (event.alert)
+            samplesSinceLastAlert = 0;
 
-        const auto emitBuildStart = juce::Time::getMillisecondCounterHiRes();
-        auto report = buildReport(snapshot, juce::jmax<uint32_t>(1, elapsedMs));
-        const auto extra = buildExtra();
-        if (extra.isNotEmpty())
-            report << juce::newLine << extra;
-
-        const auto loggerStats = SessionLogger::getQueueStats();
-        const auto emitBuildMs = juce::Time::getMillisecondCounterHiRes() - emitBuildStart;
-        report << juce::newLine
-               << "telemetry.emit: buildMs=" << formatTelemetryScalar((float) emitBuildMs)
-               << ", loggerQueued=" << loggerStats.queuedEntries
-               << ", loggerPeak=" << loggerStats.peakQueuedEntries
-               << ", loggerDropped=" << loggerStats.droppedEntries;
-
-        NovaDiagnostics::SessionLogger::logEvent("pedal.private." + juce::String(pedalTag) + (emitAsAlert ? ".alert" : ".window"),
-            report);
-        resetExtra();
+        return true;
     }
 
-    juce::String pedalTag;
+    std::array<char, RealtimeSignalTelemetryEvent::kMaxTagChars> fixedTag{};
     PedalSignalWindowAccumulator window;
-    uint32_t windowStartMs = 0;
-    uint32_t lastAlertMs = 0;
+    double sampleRate = 44100.0;
+    int intervalSamples = juce::roundToInt(44100.0 * (double) Nova::Config::SIGNAL_TELEMETRY_INTERVAL_MS * 0.001);
+    int alertCooldownSamples = juce::roundToInt(44100.0 * (double) Nova::Config::SIGNAL_ALERT_COOLDOWN_MS * 0.001);
+    int samplesSinceLastAlert = alertCooldownSamples;
     std::array<float, 2> previousInputSamples{};
     std::array<float, 2> previousOutputSamples{};
     bool hasPreviousInputSamples = false;

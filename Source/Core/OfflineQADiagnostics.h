@@ -2,11 +2,18 @@
 
 #include <JuceHeader.h>
 #include <cmath>
+#include <functional>
 #include <type_traits>
 #include <vector>
 
 #include "AudioEngine.h"
+#include "DSP/Global/OutputChain.h"
 #include "SessionLogger.h"
+#include "../Effects/Amplifiers/HighGainAmp.h"
+#include "../Effects/Amplifiers/CleanAmp.h"
+#include "../Effects/Cabinets/CabinetPedal.h"
+#include "../Effects/Cabinets/Modern4x12Cabinet.h"
+#include "../Effects/Cabinets/Vintage2x12Cabinet.h"
 #include "../Effects/Pedals/Boost/BoostPedal.h"
 #include "../Effects/Pedals/Chorus/ChorusPedal.h"
 #include "../Effects/Pedals/Compressor/CompressorPedal.h"
@@ -73,12 +80,46 @@ public:
         writeReport(results);
     }
 
+    static void runRtProfileAndWriteReport()
+    {
+        const auto results = runRtProfileScenarios();
+        writeRtProfileReport(results);
+    }
+
 private:
     struct BufferMetrics
     {
         double peak = 0.0;
         double rms = 0.0;
         double meanAbs = 0.0;
+    };
+
+    struct RtProfileResult
+    {
+        juce::String name;
+        juce::String status{ "PASS" };
+        juce::String warnings;
+        double sampleRate = 0.0;
+        int blockSize = 0;
+        int processedBlocks = 0;
+        double avgProcessMs = 0.0;
+        double peakProcessMs = 0.0;
+        double cpuAvgPercent = 0.0;
+        double cpuPeakPercent = 0.0;
+        double maxBudgetRatio = 0.0;
+        int blocksOver50 = 0;
+        int blocksOver75 = 0;
+        int blocksOver90 = 0;
+        int blocksOver100 = 0;
+        int invalidSamples = 0;
+        int clippedSamples = 0;
+        int nearClipSamples = 0;
+        int denormalLikeSamples = 0;
+        int fallbackBlockCount = 0;
+        int limiterTouchedSamples = 0;
+        float limiterMaxReductionDb = 0.0f;
+        float inputPeak = 0.0f;
+        float outputPeak = 0.0f;
     };
 
     static constexpr double sampleRate = 48000.0;
@@ -250,6 +291,41 @@ private:
         return sampleCount > 0 ? std::sqrt(sumSquares / (double)sampleCount) : 0.0;
     }
 
+    static double computeDcAbs(const juce::AudioBuffer<float>& buffer, int startSample = 0, int numSamples = -1)
+    {
+        const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+        const int maxLength = buffer.getNumSamples() - safeStart;
+        const int safeLength = juce::jlimit(0, maxLength, numSamples < 0 ? maxLength : numSamples);
+        if (safeLength <= 0 || buffer.getNumChannels() <= 0)
+            return 0.0;
+
+        double dcSum = 0.0;
+        int dcChannels = 0;
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            double channelSum = 0.0;
+            for (int i = 0; i < safeLength; ++i)
+                channelSum += buffer.getSample(ch, safeStart + i);
+
+            dcSum += std::abs(channelSum / (double)safeLength);
+            ++dcChannels;
+        }
+
+        return dcChannels > 0 ? dcSum / (double)dcChannels : 0.0;
+    }
+
+    static int countNearClipSamples(const juce::AudioBuffer<float>& buffer)
+    {
+        int nearClipSamples = 0;
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (std::abs(buffer.getSample(ch, i)) >= Nova::Config::SIGNAL_NEAR_CLIP_THRESHOLD)
+                    ++nearClipSamples;
+
+        return nearClipSamples;
+    }
+
     static double computeFrequencyMagnitude(const juce::AudioBuffer<float>& buffer,
         double sr,
         float targetFreq,
@@ -316,6 +392,26 @@ private:
         for (int i = 0; i < samples; ++i)
         {
             const float value = amplitude * std::sin(phase);
+            buffer.setSample(0, i, value);
+            buffer.setSample(1, i, value);
+            phase += increment;
+        }
+
+        return buffer;
+    }
+
+    static juce::AudioBuffer<float> generateBiasedSine(int samples,
+        double frequency,
+        float amplitude,
+        float dcOffset)
+    {
+        juce::AudioBuffer<float> buffer(2, samples);
+        float phase = 0.0f;
+        const float increment = (float)(2.0 * juce::MathConstants<double>::pi * frequency / sampleRate);
+
+        for (int i = 0; i < samples; ++i)
+        {
+            const float value = (amplitude * std::sin(phase)) + dcOffset;
             buffer.setSample(0, i, value);
             buffer.setSample(1, i, value);
             phase += increment;
@@ -392,6 +488,199 @@ private:
         }
 
         return concatenateBlocks(blocks);
+    }
+
+    static void fillProfileGuitarBlock(juce::AudioBuffer<float>& buffer,
+        int blockIndex,
+        double sr,
+        float gain)
+    {
+        const int blockSamples = buffer.getNumSamples();
+
+        for (int i = 0; i < blockSamples; ++i)
+        {
+            const double t = ((double)blockIndex * blockSamples + i) / sr;
+            const float envelope = t < 0.02 ? (float)(t / 0.02) : 1.0f;
+            const float sample = gain * envelope * (
+                0.70f * (float)std::sin(juce::MathConstants<double>::twoPi * 146.0 * t)
+                + 0.22f * (float)std::sin(juce::MathConstants<double>::twoPi * 292.0 * t)
+                + 0.08f * (float)std::sin(juce::MathConstants<double>::twoPi * 1170.0 * t));
+
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                buffer.setSample(ch, i, sample);
+        }
+    }
+
+    static void fillQuietNoiseBlock(juce::AudioBuffer<float>& buffer,
+        int blockIndex,
+        float gain)
+    {
+        juce::Random rng(0x2741u + blockIndex * 17);
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                buffer.setSample(ch, i, gain * ((rng.nextFloat() * 2.0f) - 1.0f));
+    }
+
+    static int readFallbackBlockCount(juce::AudioProcessor* processor)
+    {
+        if (auto* p = dynamic_cast<CabinetPedal*>(processor)) return p->getRealtimeFallbackCount();
+        if (auto* p = dynamic_cast<Vintage2x12Cabinet*>(processor)) return p->getRealtimeFallbackCount();
+        if (auto* p = dynamic_cast<Modern4x12Cabinet*>(processor)) return p->getRealtimeFallbackCount();
+        if (auto* p = dynamic_cast<CompressorPedal*>(processor)) return p->getRealtimeFallbackCount();
+        if (auto* p = dynamic_cast<DistortionPedal*>(processor)) return p->getRealtimeFallbackCount();
+        if (auto* p = dynamic_cast<FuzzPedal*>(processor)) return p->getRealtimeFallbackCount();
+        if (auto* p = dynamic_cast<NeuralPedal*>(processor)) return p->getRealtimeFallbackCount();
+        if (auto* p = dynamic_cast<ClassicWahPedal*>(processor)) return p->getRealtimeFallbackCount();
+        if (auto* p = dynamic_cast<PhaserPedal*>(processor)) return p->getRealtimeFallbackCount();
+        return 0;
+    }
+
+    static int collectLineAFallbackBlockCount(AudioEngine& engine)
+    {
+        int total = 0;
+        for (int index = 0; index < 8; ++index)
+        {
+            auto* processor = engine.getProcessorForPedal(Nova::ChainID::LineA, index);
+            if (processor == nullptr)
+                break;
+
+            total += readFallbackBlockCount(processor);
+        }
+
+        return total;
+    }
+
+    using RtProfileSetupFn = std::function<void(AudioEngine&)>;
+    using RtProfileFillFn = std::function<void(juce::AudioBuffer<float>&, int, double)>;
+
+    static RtProfileResult runRtProfileScenario(const juce::String& name,
+        double sr,
+        int scenarioBlockSize,
+        const RtProfileSetupFn& setup,
+        const RtProfileFillFn& fill,
+        bool warnOnLimiterActivity = true)
+    {
+        RtProfileResult result;
+        result.name = name;
+        result.sampleRate = sr;
+        result.blockSize = scenarioBlockSize;
+
+        AudioEngine engine;
+        engine.prepare(sr, scenarioBlockSize, 2, 2);
+        engine.setDiagnosticsMode(AudioEngine::DiagnosticsMode::Full);
+
+        AudioEngine::RuntimeGlobalParams params;
+        params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+        params.outputMixRaw = 100.0f;
+        params.outputLimiterDb = 0.0f;
+        engine.updateGlobalParams(params);
+        engine.setEngineEnabled(true);
+
+        setup(engine);
+        engine.synchronizeProcessingState();
+
+        juce::AudioBuffer<float> buffer(2, scenarioBlockSize);
+        juce::MidiBuffer midi;
+
+        for (int block = 0; block < 32; ++block)
+        {
+            buffer.clear();
+            fill(buffer, block, sr);
+            engine.process(buffer, midi);
+        }
+
+        const int blocks = juce::jmax(96, (int)((sr * 0.45) / (double)scenarioBlockSize));
+        const double blockBudgetMs = ((double)scenarioBlockSize / sr) * 1000.0;
+        double totalMs = 0.0;
+
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            fill(buffer, block + 32, sr);
+
+            const double startMs = juce::Time::getMillisecondCounterHiRes();
+            engine.process(buffer, midi);
+            const double elapsedMs = juce::Time::getMillisecondCounterHiRes() - startMs;
+
+            const double budgetRatio = blockBudgetMs > 0.0 ? elapsedMs / blockBudgetMs : 0.0;
+            totalMs += elapsedMs;
+            result.peakProcessMs = juce::jmax(result.peakProcessMs, elapsedMs);
+            result.maxBudgetRatio = juce::jmax(result.maxBudgetRatio, budgetRatio);
+
+            if (budgetRatio > 0.50) ++result.blocksOver50;
+            if (budgetRatio > 0.75) ++result.blocksOver75;
+            if (budgetRatio > 0.90) ++result.blocksOver90;
+            if (budgetRatio > 1.00) ++result.blocksOver100;
+
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                const auto* data = buffer.getReadPointer(ch);
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    const float v = data[i];
+                    const float absV = std::abs(v);
+
+                    if (!std::isfinite(v))
+                        ++result.invalidSamples;
+                    if (absV >= Nova::Config::HARD_ABS_LIMIT_LINEAR)
+                        ++result.clippedSamples;
+                    if (absV >= Nova::Config::SIGNAL_NEAR_CLIP_THRESHOLD)
+                        ++result.nearClipSamples;
+                    if (absV > 0.0f && absV < 1.0e-30f)
+                        ++result.denormalLikeSamples;
+
+                    result.outputPeak = juce::jmax(result.outputPeak, absV);
+                }
+            }
+
+            result.inputPeak = juce::jmax(result.inputPeak, engine.getLastInputPeak());
+        }
+
+        result.processedBlocks = blocks;
+        result.avgProcessMs = totalMs / (double)blocks;
+        result.cpuAvgPercent = blockBudgetMs > 0.0 ? (result.avgProcessMs / blockBudgetMs) * 100.0 : 0.0;
+        result.cpuPeakPercent = blockBudgetMs > 0.0 ? (result.peakProcessMs / blockBudgetMs) * 100.0 : 0.0;
+        result.fallbackBlockCount = collectLineAFallbackBlockCount(engine);
+
+        const auto limiterSnapshot = engine.getOutputChainDebugSnapshot();
+        result.limiterTouchedSamples = limiterSnapshot.limiterTouchedSamples;
+        result.limiterMaxReductionDb = limiterSnapshot.limiterMaxReductionDb;
+
+        juce::StringArray warnings;
+        bool failed = false;
+       #if JUCE_DEBUG
+        // Debug profiling is intentionally non-blocking for budget overruns because
+        // debugger/scheduler noise can dominate timings.
+        const int sustainedOverrunFailThreshold = juce::jmax(blocks + 1, 256);
+       #else
+        const int sustainedOverrunFailThreshold = juce::jmax(24, blocks / 3);
+       #endif
+
+        if (result.invalidSamples > 0)
+            failed = true;
+        if (result.clippedSamples > 0)
+            failed = true;
+        // Treat >100% block budget as FAIL only when it is clearly sustained.
+        // Debug builds are noisy; isolated spikes are handled as WARN.
+        if (result.blocksOver100 > sustainedOverrunFailThreshold)
+            failed = true;
+
+        if (result.maxBudgetRatio > 0.75)
+            warnings.add("peak budget ratio exceeded 75%");
+        if (result.blocksOver90 > 0)
+            warnings.add("one or more blocks exceeded 90% budget");
+        if (result.blocksOver100 > 0)
+            warnings.add("one or more blocks exceeded 100% budget");
+        if (result.fallbackBlockCount > 0)
+            warnings.add("fallback block count was non-zero");
+        if (result.denormalLikeSamples > 0)
+            warnings.add("denormal-like samples observed");
+        if (warnOnLimiterActivity && result.limiterTouchedSamples > 0)
+            warnings.add("limiter activity appeared in a clean/nominal scenario");
+
+        result.warnings = warnings.joinIntoString("; ");
+        result.status = failed ? "FAIL" : warnings.isEmpty() ? "PASS" : "WARN";
+        return result;
     }
 
     static float normalisedChoiceIndex(const juce::AudioParameterChoice* param, int index)
@@ -839,6 +1128,7 @@ private:
     {
         std::vector<OfflineQAScenarioResult> results;
         results.push_back(runImpulseTransparencyScenario());
+        results.push_back(runOutputChainBiasedDcCleanupScenario());
         results.push_back(runDryOnlyNullScenario());
         results.push_back(runDisabledEngineNullScenario());
         results.push_back(runParallelNoiseUnityScenario());
@@ -860,6 +1150,7 @@ private:
         results.push_back(runNeuralAutomationStressScenario());
         results.push_back(runOverdriveFlagshipRecallScenario());
         results.push_back(runOverdriveVoiceScenario());
+        results.push_back(runOverdriveCleanAmpReverbChainNominalScenario());
         results.push_back(runOverdriveAutomationStressScenario());
         results.push_back(runDistortionFlagshipRecallScenario());
         results.push_back(runDistortionModeDistinctnessScenario());
@@ -913,6 +1204,123 @@ private:
         return results;
     }
 
+    static std::vector<RtProfileResult> runRtProfileScenarios()
+    {
+        std::vector<RtProfileResult> results;
+        results.reserve(16);
+
+        const auto emptyFill = [](juce::AudioBuffer<float>&, int, double) {};
+        const auto guitarFill = [](juce::AudioBuffer<float>& buffer, int block, double sr)
+        {
+            fillProfileGuitarBlock(buffer, block, sr, 0.22f);
+        };
+        const auto quietNoiseFill = [](juce::AudioBuffer<float>& buffer, int block, double)
+        {
+            fillQuietNoiseBlock(buffer, block, 0.16f);
+        };
+
+        const auto defaultSetup = [](AudioEngine&) {};
+        const auto dualSetup = [](AudioEngine& engine)
+        {
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::Dual_Parallel;
+            params.outputMixRaw = 100.0f;
+            engine.updateGlobalParams(params);
+        };
+        const auto overdriveSetup = [](AudioEngine& engine)
+        {
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "profile-overdrive");
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, 4);
+            if (auto* overdrive = dynamic_cast<OverdrivePedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)))
+                configureFlagshipOverdrive(*overdrive);
+        };
+        const auto fullNominalSetup = [](AudioEngine& engine)
+        {
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            params.outputVolumeDb = -1.0f;
+            params.outputLimiterDb = -4.0f;
+            engine.updateGlobalParams(params);
+
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "profile-overdrive");
+            engine.addPedal("Clean Amp", Nova::ChainID::LineA, 1, Nova::ZoneID::Amp, "profile-clean-amp");
+            engine.addPedal("Reverb", Nova::ChainID::LineA, 2, Nova::ZoneID::FX, "profile-reverb");
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, 8);
+
+            if (auto* overdrive = dynamic_cast<OverdrivePedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)))
+                configureFlagshipOverdrive(*overdrive);
+
+            if (auto* reverb = dynamic_cast<ReverbPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 2)))
+            {
+                configureFlagshipCloud(*reverb);
+                reverb->mixParam->setValueNotifyingHost(reverb->mixParam->convertTo0to1(0.52f));
+                reverb->decayParam->setValueNotifyingHost(reverb->decayParam->convertTo0to1(0.72f));
+            }
+        };
+        const auto highGainSetup = [](AudioEngine& engine)
+        {
+            engine.addPedal("High Gain Amp", Nova::ChainID::LineA, 0, Nova::ZoneID::Amp, "profile-high-gain");
+        };
+        const auto cabinetSetup = [](AudioEngine& engine)
+        {
+            engine.addPedal("Cabinet", Nova::ChainID::LineA, 0, Nova::ZoneID::Cabinet, "profile-cabinet");
+        };
+        const auto delaySetup = [](AudioEngine& engine)
+        {
+            engine.addPedal("Delay", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "profile-delay");
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, 4);
+            if (auto* delay = dynamic_cast<DelayPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)))
+            {
+                configureFlagshipDelayAnalog(*delay);
+                delay->mixParam->setValueNotifyingHost(delay->mixParam->convertTo0to1(0.48f));
+                delay->feedbackParam->setValueNotifyingHost(delay->feedbackParam->convertTo0to1(0.58f));
+            }
+        };
+        const auto reverbCloudSetup = [](AudioEngine& engine)
+        {
+            engine.addPedal("Reverb", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "profile-reverb-cloud");
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, 4);
+            if (auto* reverb = dynamic_cast<ReverbPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)))
+                configureFlagshipCloud(*reverb);
+        };
+        const auto reverbReverseSwellSetup = [](AudioEngine& engine)
+        {
+            engine.addPedal("Reverb", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "profile-reverb-reverse-swell");
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, 4);
+            if (auto* reverb = dynamic_cast<ReverbPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)))
+            {
+                configureFlagshipCloud(*reverb);
+                reverb->reverseParam->setValueNotifyingHost(reverb->reverseParam->convertTo0to1(0.82f));
+                reverb->swellParam->setValueNotifyingHost(reverb->swellParam->convertTo0to1(0.84f));
+            }
+        };
+
+        results.push_back(runRtProfileScenario("clean_empty_chain", 48000.0, 128, defaultSetup, emptyFill));
+        results.push_back(runRtProfileScenario("clean_line_a", 48000.0, 128, defaultSetup, guitarFill));
+        results.push_back(runRtProfileScenario("dual_parallel_clean", 48000.0, 128, dualSetup, quietNoiseFill));
+        results.push_back(runRtProfileScenario("overdrive_v2_nominal", 48000.0, 128, overdriveSetup, guitarFill));
+        results.push_back(runRtProfileScenario("overdrive_cleanamp_reverb_chain_nominal", 48000.0, 128, fullNominalSetup, guitarFill, false));
+        results.push_back(runRtProfileScenario("high_gain_amp_nominal", 48000.0, 128, highGainSetup, guitarFill, false));
+        results.push_back(runRtProfileScenario("cabinet_nominal", 48000.0, 128, cabinetSetup, guitarFill));
+        results.push_back(runRtProfileScenario("delay_feedback_nominal", 48000.0, 128, delaySetup, guitarFill, false));
+        results.push_back(runRtProfileScenario("reverb_cloud_tail", 48000.0, 128, reverbCloudSetup, guitarFill, false));
+        results.push_back(runRtProfileScenario("reverb_reverse_swell", 48000.0, 128, reverbReverseSwellSetup, guitarFill, false));
+        results.push_back(runRtProfileScenario("stress_block_32", 48000.0, 32, fullNominalSetup, guitarFill, false));
+        results.push_back(runRtProfileScenario("stress_block_64", 48000.0, 64, fullNominalSetup, guitarFill, false));
+        results.push_back(runRtProfileScenario("stress_block_512", 48000.0, 512, fullNominalSetup, guitarFill, false));
+        results.push_back(runRtProfileScenario("sample_rate_44100", 44100.0, 128, fullNominalSetup, guitarFill, false));
+        results.push_back(runRtProfileScenario("sample_rate_48000", 48000.0, 128, fullNominalSetup, guitarFill, false));
+        results.push_back(runRtProfileScenario("sample_rate_96000", 96000.0, 128, fullNominalSetup, guitarFill, false));
+
+        return results;
+    }
+
     static OfflineQAScenarioResult runImpulseTransparencyScenario()
     {
         OfflineQAScenarioResult result;
@@ -945,6 +1353,79 @@ private:
             && peakIndexL == 0
             && peakIndexR == 0;
         result.notes = result.passed ? "Impulse stayed transparent" : "Impulse response deviated from clean pass-through";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runOutputChainBiasedDcCleanupScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "output_chain_biased_dc_cleanup";
+
+        OutputChainProcessor outputChain;
+        outputChain.prepareToPlay(sampleRate, blockSize);
+        outputChain.setParams(0.0f, -6.0f);
+        outputChain.reset();
+
+        const auto input = generateBiasedSine((int)(sampleRate * 1.20), 997.0, 0.33f, 0.18f);
+        const auto inputMetrics = analyseBuffer(input);
+        const double inputDc = computeDcAbs(input, (int)(sampleRate * 0.10), (int)(sampleRate * 0.95));
+
+        juce::MidiBuffer midi;
+        std::vector<juce::AudioBuffer<float>> blocks;
+
+        for (int offset = 0; offset < input.getNumSamples(); offset += blockSize)
+        {
+            const int numSamples = juce::jmin(blockSize, input.getNumSamples() - offset);
+            juce::AudioBuffer<float> block(2, blockSize);
+            block.clear();
+
+            for (int ch = 0; ch < 2; ++ch)
+                block.copyFrom(ch, 0, input, ch, offset, numSamples);
+
+            outputChain.processBlock(block, midi);
+
+            juce::AudioBuffer<float> trimmed(2, numSamples);
+            trimmed.copyFrom(0, 0, block, 0, 0, numSamples);
+            trimmed.copyFrom(1, 0, block, 1, 0, numSamples);
+            blocks.push_back(std::move(trimmed));
+        }
+
+        const auto output = concatenateBlocks(blocks);
+        const auto outputMetrics = analyseBuffer(output);
+        const double outputDc = computeDcAbs(output, (int)(sampleRate * 0.10), (int)(sampleRate * 0.95));
+        const double dcReductionRatio = outputDc / juce::jmax(1.0e-9, inputDc);
+        const bool finite = bufferHasOnlyFiniteSamples(output);
+        const auto limiterSnapshot = outputChain.getDebugSnapshot();
+
+        const double outputEarlyRms = computeWindowRms(output, (int)(sampleRate * 0.16), (int)(sampleRate * 0.22));
+        const double outputLateRms = computeWindowRms(output, (int)(sampleRate * 0.74), (int)(sampleRate * 0.22));
+        const double rmsStabilityRatio = outputLateRms / juce::jmax(1.0e-9, outputEarlyRms);
+
+        result.metrics.push_back({ "input_peak", inputMetrics.peak });
+        result.metrics.push_back({ "input_dc", inputDc });
+        result.metrics.push_back({ "output_peak", outputMetrics.peak });
+        result.metrics.push_back({ "output_dc", outputDc });
+        result.metrics.push_back({ "dc_reduction_ratio", dcReductionRatio });
+        result.metrics.push_back({ "output_rms", outputMetrics.rms });
+        result.metrics.push_back({ "output_early_rms", outputEarlyRms });
+        result.metrics.push_back({ "output_late_rms", outputLateRms });
+        result.metrics.push_back({ "rms_stability_ratio", rmsStabilityRatio });
+        result.metrics.push_back({ "limiterTouchedSamples", (double) limiterSnapshot.limiterTouchedSamples });
+        result.metrics.push_back({ "limiterMaxReductionDb", limiterSnapshot.limiterMaxReductionDb });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+
+        result.passed = finite
+            && inputDc > 0.08
+            && outputDc < inputDc * 0.35
+            && outputMetrics.peak > 0.15
+            && outputMetrics.peak < 1.02
+            && outputMetrics.rms > 0.08
+            && rmsStabilityRatio > 0.70
+            && rmsStabilityRatio < 1.30;
+
+        result.notes = result.passed
+            ? "OutputChain reduced sustained DC contamination while keeping stable audible output"
+            : "OutputChain DC cleanup or stability check fell outside the expected safety band";
         return result;
     }
 
@@ -1685,6 +2166,93 @@ private:
         result.notes = result.passed
             ? "Tone and texture controls materially reshaped the overdrive voice"
             : "Overdrive tone/texture changes collapsed toward the same response";
+        return result;
+    }
+
+    static OfflineQAScenarioResult runOverdriveCleanAmpReverbChainNominalScenario()
+    {
+        OfflineQAScenarioResult result;
+        result.name = "overdrive_cleanamp_reverb_chain_nominal";
+
+        AudioEngine engine;
+        engine.prepare(sampleRate, blockSize, 2, 2);
+
+        AudioEngine::RuntimeGlobalParams params;
+        params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+        params.outputMixRaw = 100.0f;
+        params.outputVolumeDb = -1.0f;
+        params.outputLimiterDb = -4.0f;
+        engine.updateGlobalParams(params);
+
+        engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "offline-overdrive");
+        engine.addPedal("Clean Amp", Nova::ChainID::LineA, 1, Nova::ZoneID::Amp, "offline-clean-amp");
+        engine.addPedal("Reverb", Nova::ChainID::LineA, 2, Nova::ZoneID::FX, "offline-reverb");
+        engine.setEngineEnabled(true);
+        warmUpEngine(engine, 16);
+
+        if (auto* overdrive = dynamic_cast<OverdrivePedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)))
+            configureFlagshipOverdrive(*overdrive);
+
+        if (auto* reverb = dynamic_cast<ReverbPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 2)))
+        {
+            configureFlagshipCloud(*reverb);
+            reverb->mixParam->setValueNotifyingHost(reverb->mixParam->convertTo0to1(0.52f));
+            reverb->decayParam->setValueNotifyingHost(reverb->decayParam->convertTo0to1(0.72f));
+            reverb->predelayParam->setValueNotifyingHost(reverb->predelayParam->convertTo0to1(18.0f));
+        }
+
+        warmUpEngine(engine, 10);
+
+        juce::AudioBuffer<float> input(2, (int)(sampleRate * 2.0));
+        input.clear();
+        const int activeSamples = (int)(sampleRate * 0.95);
+        for (int i = 0; i < activeSamples; ++i)
+        {
+            const float t = (float)i / (float)sampleRate;
+            const float pick = (i < (int)(sampleRate * 0.06)) ? (0.08f * std::sin(juce::MathConstants<float>::twoPi * 3100.0f * t)) : 0.0f;
+            const float tone = 0.14f * std::sin(juce::MathConstants<float>::twoPi * 146.0f * t)
+                + 0.06f * std::sin(juce::MathConstants<float>::twoPi * 292.0f * t)
+                + 0.03f * std::sin(juce::MathConstants<float>::twoPi * 1180.0f * t);
+            const float sample = tone + pick;
+            input.setSample(0, i, sample);
+            input.setSample(1, i, sample);
+        }
+
+        const auto output = processBuffer(engine, input);
+        const auto inputMetrics = analyseBuffer(input);
+        const auto outputMetrics = analyseBuffer(output);
+        const bool finite = bufferHasOnlyFiniteSamples(output);
+        const int nearClipCount = countNearClipSamples(output);
+        const double outputDc = computeDcAbs(output, (int)(sampleRate * 0.20), (int)(sampleRate * 1.60));
+        const double bodyRms = computeWindowRms(output, (int)(sampleRate * 0.16), (int)(sampleRate * 0.48));
+        const double tailRms = computeWindowRms(output, (int)(sampleRate * 1.20), (int)(sampleRate * 0.45));
+        const double lateTailRms = computeWindowRms(output, (int)(sampleRate * 1.70), (int)(sampleRate * 0.20));
+        const double tailDecayRatio = lateTailRms / juce::jmax(1.0e-9, tailRms);
+
+        result.metrics.push_back({ "input_peak", inputMetrics.peak });
+        result.metrics.push_back({ "output_peak", outputMetrics.peak });
+        result.metrics.push_back({ "output_rms", outputMetrics.rms });
+        result.metrics.push_back({ "output_dc", outputDc });
+        result.metrics.push_back({ "finite", finite ? 1.0 : 0.0 });
+        result.metrics.push_back({ "near_clip_count", (double)nearClipCount });
+        result.metrics.push_back({ "tail_rms", tailRms });
+        result.metrics.push_back({ "body_rms", bodyRms });
+        result.metrics.push_back({ "late_tail_rms", lateTailRms });
+        result.metrics.push_back({ "tail_decay_ratio", tailDecayRatio });
+
+        result.passed = finite
+            && outputMetrics.peak > 0.10
+            && outputMetrics.peak < 1.02
+            && outputMetrics.rms > 0.03
+            && outputDc < 0.03
+            && nearClipCount < 96
+            && tailRms > 1.0e-4
+            && tailRms < bodyRms * 0.90
+            && tailDecayRatio < 0.85;
+
+        result.notes = result.passed
+            ? "Overdrive->CleanAmp->Reverb chain stayed finite, safe and musically stable with a decaying tail"
+            : "Nominal Overdrive->CleanAmp->Reverb chain drifted outside the expected safety/tail envelope";
         return result;
     }
 
@@ -4038,6 +4606,117 @@ private:
         result.passed = hasDelay && hasReverb && hasIDs;
         result.notes = result.passed ? "Diagnostic report reflects graph topology" : "Diagnostic report missed expected topology entries";
         return result;
+    }
+
+    static juce::File getRtProfileReportFile()
+    {
+        if (const auto overridePath = juce::SystemStats::getEnvironmentVariable("NOVA_RT_PROFILE_REPORT_PATH", {});
+            overridePath.isNotEmpty())
+        {
+            auto file = juce::File::getCurrentWorkingDirectory().getChildFile(overridePath);
+            if (juce::File::isAbsolutePath(overridePath))
+                file = juce::File(overridePath);
+
+            auto parent = file.getParentDirectory();
+            if (!parent.exists())
+                parent.createDirectory();
+
+            return file;
+        }
+
+        return getReportFile().getSiblingFile("rt-profile-report.json");
+    }
+
+    static juce::String jsonQuote(const juce::String& value)
+    {
+        juce::String escaped;
+        for (auto c : value)
+        {
+            if (c == '\\') escaped << "\\\\";
+            else if (c == '"') escaped << "\\\"";
+            else if (c == '\n') escaped << "\\n";
+            else if (c == '\r') escaped << "\\r";
+            else if (c == '\t') escaped << "\\t";
+            else escaped << c;
+        }
+
+        return "\"" + escaped + "\"";
+    }
+
+    static void writeRtProfileReport(const std::vector<RtProfileResult>& results)
+    {
+        auto reportFile = getRtProfileReportFile();
+        if (reportFile.existsAsFile())
+            reportFile.deleteFile();
+
+        auto stream = reportFile.createOutputStream();
+        if (stream == nullptr)
+            return;
+
+        int passCount = 0;
+        int warnCount = 0;
+        int failCount = 0;
+        for (const auto& result : results)
+        {
+            if (result.status == "PASS") ++passCount;
+            else if (result.status == "WARN") ++warnCount;
+            else ++failCount;
+        }
+
+        juce::String text;
+        text << "{" << juce::newLine;
+        text << "  \"generatedAt\": " << jsonQuote(juce::Time::getCurrentTime().toISO8601(true)) << "," << juce::newLine;
+        text << "  \"kind\": \"p4b_rt_profile_baseline\"," << juce::newLine;
+        text << "  \"summary\": {" << juce::newLine;
+        text << "    \"total\": " << (int)results.size() << "," << juce::newLine;
+        text << "    \"pass\": " << passCount << "," << juce::newLine;
+        text << "    \"warn\": " << warnCount << "," << juce::newLine;
+        text << "    \"fail\": " << failCount << juce::newLine;
+        text << "  }," << juce::newLine;
+        text << "  \"scenarios\": [" << juce::newLine;
+
+        for (size_t i = 0; i < results.size(); ++i)
+        {
+            const auto& r = results[i];
+            text << "    {" << juce::newLine;
+            text << "      \"name\": " << jsonQuote(r.name) << "," << juce::newLine;
+            text << "      \"status\": " << jsonQuote(r.status) << "," << juce::newLine;
+            text << "      \"sampleRate\": " << juce::String(r.sampleRate, 2) << "," << juce::newLine;
+            text << "      \"blockSize\": " << r.blockSize << "," << juce::newLine;
+            text << "      \"processedBlocks\": " << r.processedBlocks << "," << juce::newLine;
+            text << "      \"avgProcessMs\": " << juce::String(r.avgProcessMs, 8) << "," << juce::newLine;
+            text << "      \"peakProcessMs\": " << juce::String(r.peakProcessMs, 8) << "," << juce::newLine;
+            text << "      \"cpuAvgPercent\": " << juce::String(r.cpuAvgPercent, 8) << "," << juce::newLine;
+            text << "      \"cpuPeakPercent\": " << juce::String(r.cpuPeakPercent, 8) << "," << juce::newLine;
+            text << "      \"maxBudgetRatio\": " << juce::String(r.maxBudgetRatio, 8) << "," << juce::newLine;
+            text << "      \"blocksOver50\": " << r.blocksOver50 << "," << juce::newLine;
+            text << "      \"blocksOver75\": " << r.blocksOver75 << "," << juce::newLine;
+            text << "      \"blocksOver90\": " << r.blocksOver90 << "," << juce::newLine;
+            text << "      \"blocksOver100\": " << r.blocksOver100 << "," << juce::newLine;
+            text << "      \"invalidSamples\": " << r.invalidSamples << "," << juce::newLine;
+            text << "      \"clippedSamples\": " << r.clippedSamples << "," << juce::newLine;
+            text << "      \"nearClipSamples\": " << r.nearClipSamples << "," << juce::newLine;
+            text << "      \"denormalLikeSamples\": " << r.denormalLikeSamples << "," << juce::newLine;
+            text << "      \"fallbackBlockCount\": " << r.fallbackBlockCount << "," << juce::newLine;
+            text << "      \"limiterTouchedSamples\": " << r.limiterTouchedSamples << "," << juce::newLine;
+            text << "      \"limiterMaxReductionDb\": " << juce::String(r.limiterMaxReductionDb, 8) << "," << juce::newLine;
+            text << "      \"inputPeak\": " << juce::String(r.inputPeak, 8) << "," << juce::newLine;
+            text << "      \"outputPeak\": " << juce::String(r.outputPeak, 8) << "," << juce::newLine;
+            text << "      \"warnings\": " << jsonQuote(r.warnings) << juce::newLine;
+            text << "    }" << (i + 1 < results.size() ? "," : "") << juce::newLine;
+        }
+
+        text << "  ]" << juce::newLine;
+        text << "}" << juce::newLine;
+
+        stream->writeText(text, false, false, "\n");
+        stream->flush();
+
+        SessionLogger::logEvent("rt.profile",
+            "RT profile report written to " + reportFile.getFullPathName()
+            + juce::newLine + "pass=" + juce::String(passCount)
+            + ", warn=" + juce::String(warnCount)
+            + ", fail=" + juce::String(failCount));
     }
 
     static void writeReport(const std::vector<OfflineQAScenarioResult>& results)

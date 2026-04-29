@@ -2,9 +2,9 @@
 
 #include <JuceHeader.h>
 #include <juce_dsp/juce_dsp.h>
+#include <array>
 #include <cmath>
 #include <limits>
-#include <vector>
 
 #include "../Pedals/Base/ProcessorBase.h"
 #include "../Pedals/Base/PremiumPedalUI.h"
@@ -134,8 +134,9 @@ public:
         {
             const int channels = (int)upsampled.getNumChannels();
             const int samples  = (int)upsampled.getNumSamples();
-            std::vector<float*> channelData((size_t)channels);
-            for (int ch = 0; ch < channels; ++ch)
+            std::array<float*, kMaxAmpChannels> channelData{};
+            const int channelsToProcess = juce::jmin(channels, kMaxAmpChannels);
+            for (int ch = 0; ch < channelsToProcess; ++ch)
                 channelData[(size_t) ch] = upsampled.getChannelPointer((size_t) ch);
 
             for (int s = 0; s < samples; ++s)
@@ -143,7 +144,7 @@ public:
                 const float drive = driveSmooth.getNextValue();
                 const float preGain = 1.0f + drive * 1.5f;
 
-                for (int ch = 0; ch < channels; ++ch)
+                for (int ch = 0; ch < channelsToProcess; ++ch)
                 {
                     auto* data = channelData[(size_t) ch];
                     float x = data[s];
@@ -222,14 +223,14 @@ private:
         // Brilliance: high shelf boost at 3.5 kHz — the AC30 "Top Boost" channel
         const float brillGain = juce::jmap(brill, -2.0f, 9.0f);
 
-        *inputHP.state      = *juce::dsp::IIR::Coefficients<float>::makeHighPass(innerRate, 28.0f);
-        *brillShelf.state   = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(innerRate,
+        *inputHP.state      = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(innerRate, 28.0f);
+        *brillShelf.state   = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(innerRate,
                                    3500.0f, 0.65f, juce::Decibels::decibelsToGain(brillGain));
-        *toneLowPass.state  = *juce::dsp::IIR::Coefficients<float>::makeLowPass(innerRate, lpFreq, 0.58f);
-        *toneHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(innerRate, hpFreq, 0.58f);
-        *presenceShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(innerRate,
+        *toneLowPass.state  = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass(innerRate, lpFreq, 0.58f);
+        *toneHighPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(innerRate, hpFreq, 0.58f);
+        *presenceShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(innerRate,
                                     5200.0f, 0.72f, juce::Decibels::decibelsToGain(juce::jmap(treble, -1.0f, 3.5f)));
-        *dcBlock.state      = *juce::dsp::IIR::Coefficients<float>::makeHighPass(innerRate, 18.0f);
+        *dcBlock.state      = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(innerRate, 18.0f);
     }
 
     // Cathode bias coefficient: ~5 ms time constant at 4x rate
@@ -247,8 +248,9 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> masterSmooth;
 
-    std::array<float, 2> sagEnv      { 0.0f, 0.0f };
-    std::array<float, 2> cathodeBias { 0.0f, 0.0f };
+    static constexpr int kMaxAmpChannels = 8;
+    std::array<float, kMaxAmpChannels> sagEnv{};
+    std::array<float, kMaxAmpChannels> cathodeBias{};
 
     juce::AudioParameterFloat* driveParam     = nullptr;
     juce::AudioParameterFloat* trebleCutParam = nullptr;

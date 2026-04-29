@@ -127,7 +127,13 @@ void InputChainProcessor::applyForceMonoBlend(juce::AudioBuffer<float>& buffer) 
 
         for (int i = 0; i < samples; ++i)
         {
-            const float mono = (l[i] + r[i]) * 0.5f;
+            const float peakL = std::abs(l[i]);
+            const float peakR = std::abs(r[i]);
+            const bool leftActive = peakL >= 0.0005f;
+            const bool rightActive = peakR >= 0.0005f;
+            const float mono = leftActive && !rightActive ? l[i]
+                : rightActive && !leftActive ? r[i]
+                : (l[i] + r[i]) * 0.5f;
             l[i] = l[i] + ((mono - l[i]) * blend);
             r[i] = r[i] + ((mono - r[i]) * blend);
         }
@@ -138,7 +144,13 @@ void InputChainProcessor::applyForceMonoBlend(juce::AudioBuffer<float>& buffer) 
     for (int i = 0; i < samples; ++i)
     {
         const float blend = monoBlendSmooth.getNextValue();
-        const float mono = (l[i] + r[i]) * 0.5f;
+        const float peakL = std::abs(l[i]);
+        const float peakR = std::abs(r[i]);
+        const bool leftActive = peakL >= 0.0005f;
+        const bool rightActive = peakR >= 0.0005f;
+        const float mono = leftActive && !rightActive ? l[i]
+            : rightActive && !leftActive ? r[i]
+            : (l[i] + r[i]) * 0.5f;
 
         l[i] = l[i] + ((mono - l[i]) * blend);
         r[i] = r[i] + ((mono - r[i]) * blend);

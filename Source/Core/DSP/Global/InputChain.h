@@ -218,6 +218,14 @@ private:
                 return;
             }
 
+            if (currentMode == Mode::Stereo && detected != Mode::Stereo)
+            {
+                currentMode = detected;
+                pendingMode = detected;
+                pendingBlocks = 0;
+                return;
+            }
+
             if (detected != pendingMode)
             {
                 pendingMode = detected;

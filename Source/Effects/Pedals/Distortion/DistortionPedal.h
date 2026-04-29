@@ -4,6 +4,7 @@
 
 #include <juce_dsp/juce_dsp.h>
 #include <array>
+#include <atomic>
 #include <cmath>
 
 namespace Nova { namespace DistortionDSP {
@@ -525,9 +526,11 @@ public:
 
         sr = sampleRate;
         innerSr = sr * 8.0;
+        preparedBlockSize = juce::jmax(1, samplesPerBlock);
+        preparedChannels = juce::jlimit(1, kMaxProcessingChannels, juce::jmax(2, getTotalNumOutputChannels()));
 
         oversampler.reset();
-        oversampler.initProcessing((size_t) juce::jmax(1, samplesPerBlock));
+        oversampler.initProcessing((size_t) preparedBlockSize);
 
         gainSmooth.reset(sr, Nova::Config::SMOOTH_DRIVE_SECONDS);
         mixSmooth.reset(sr, Nova::Config::SMOOTH_DEFAULT_SECONDS);
@@ -539,8 +542,8 @@ public:
         levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelParam->get() : 0.64f);
         tightSmooth.setCurrentAndTargetValue(tightParam != nullptr ? tightParam->get() : 0.42f);
 
-        scratchBuffer.setSize(juce::jmax(2, getTotalNumOutputChannels()),
-            juce::jmax(1, samplesPerBlock),
+        scratchBuffer.setSize(preparedChannels,
+            preparedBlockSize,
             false,
             false,
             true);
@@ -585,10 +588,13 @@ public:
         const int numChannels = juce::jmin(2, buffer.getNumChannels());
         const int numSamples = buffer.getNumSamples();
 
-        if (scratchBuffer.getNumChannels() < numChannels
-            || scratchBuffer.getNumSamples() < numSamples)
+        scrubInvalidSamples(buffer);
+
+        if (!canProcessBlock(buffer))
         {
-            scratchBuffer.setSize(numChannels, numSamples, false, false, true);
+            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
+            endBypassProcess(buffer);
+            return;
         }
 
         for (int ch = 0; ch < numChannels; ++ch)
@@ -973,6 +979,16 @@ public:
     juce::AudioParameterChoice* modeParam = nullptr;
     float currentGateGain = 1.0f;
 
+    int getRealtimeFallbackCount() const noexcept
+    {
+        return fallbackBlockCount.load(std::memory_order_relaxed);
+    }
+
+    void clearRealtimeFallbackCount() noexcept
+    {
+        fallbackBlockCount.store(0, std::memory_order_relaxed);
+    }
+
 private:
     static void writeFloat(juce::XmlElement& xml, const char* key, juce::AudioParameterFloat* param)
     {
@@ -1182,6 +1198,25 @@ private:
 
     double sr = 44100.0;
     double innerSr = 352800.0;
+    static constexpr int kMaxProcessingChannels = 2;
+
+    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
+    {
+        return buffer.getNumSamples() <= preparedBlockSize
+            && buffer.getNumChannels() <= preparedChannels
+            && buffer.getNumChannels() <= kMaxProcessingChannels;
+    }
+
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (!std::isfinite(data[i]))
+                    data[i] = 0.0f;
+        }
+    }
 
     juce::dsp::Oversampling<float> oversampler;
 
@@ -1211,12 +1246,15 @@ private:
     float gateEnvelopeReleaseCoeff = 0.0f;
     float gateOpenCoeff = 0.0f;
     float gateCloseCoeff = 0.0f;
+    int preparedBlockSize = 0;
+    int preparedChannels = 0;
 
     float cachedTone = -999.0f;
     float cachedBody = -999.0f;
     float cachedGain = -999.0f;
     float cachedTight = -999.0f;
     int cachedMode = -1;
+    std::atomic<int> fallbackBlockCount{ 0 };
     bool isPrepared = false;
 };
 

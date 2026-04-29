@@ -677,7 +677,7 @@ namespace Nova {
             0.56f, 0.0f,
             500.0f, 95.0f,
             1700.0f, 6200.0f,
-            0.58f, 0.92f, 0.80f,
+            0.58f, 0.96f, 0.96f,
             6.2f, 0.6f, 1.75f,
             false, false, 0.0f, 2.0f,
             kCloudER, kCloudERCount
@@ -856,10 +856,19 @@ namespace Nova {
             void configure(int mode, float decay01, float size01, float tone01,
                 float damping01, float bassCut01, float diffusion01,
                 float width01, float modAmount01, float predelayMs,
-                float duckAmount01, float swellAmount01, float gateAmount01, float reverseAmount01, bool freezeEnabled)
+                float duckAmount01, float swellAmount01, float gateAmount01, float reverseAmount01,
+                bool freezeEnabled, bool forceSync)
             {
                 const auto& t = tuningForMode(mode);
                 currentMode = mode;
+
+                const auto setSmoothed = [forceSync](auto& smoother, float value)
+                    {
+                        if (forceSync)
+                            smoother.setCurrentAndTargetValue(value);
+                        else
+                            smoother.setTargetValue(value);
+                    };
 
                 // ---- Size scaling ----
                 float sizeMult = t.sizeMin + (t.sizeMax - t.sizeMin) * size01;
@@ -872,7 +881,7 @@ namespace Nova {
                 float diffSizeScale = juce::jlimit(0.7f, 1.3f, sizeMult);
                 const float modeDiffusionTrim =
                     mode == 2 ? 0.72f :
-                    mode == 5 ? 0.66f :
+                    mode == 5 ? 0.72f :
                     mode == 4 ? 0.72f :
                     mode == 0 ? 0.78f :
                     mode == 1 ? 0.82f : 0.84f;
@@ -902,16 +911,17 @@ namespace Nova {
                 float fb = t.feedbackMin + (t.feedbackMax - t.feedbackMin) * decay01;
                 const float feedbackTrim =
                     mode == 2 ? 0.94f :
-                    mode == 5 ? 0.92f :
+                    mode == 5 ? 1.00f :
                     mode == 0 ? 0.94f : 1.0f;
-                feedbackSmooth.setTargetValue(juce::jlimit(0.0f, 0.92f, fb * feedbackTrim));
+                setSmoothed(feedbackSmooth, juce::jlimit(0.0f, 0.92f, fb * feedbackTrim));
 
                 // ---- Two-band damping (independent bass/treble decay) ----
                 // trebleAtten: 1.0 at bright end → 0.40 at dark end
-                float trebAtten = 1.0f - damping01 * 0.60f;
+                float trebAtten = 1.0f - damping01 * (mode == 5 ? 0.32f : 0.60f);
                 // bassAtten: mode baseline, reduced further by bassCut
+                const float bassCutDepth = mode == 5 ? 0.35f : 0.55f;
                 float bassAtten = juce::jlimit(0.35f, 0.96f,
-                    t.bassFeedbackScale * (1.0f - bassCut01 * 0.55f));
+                    t.bassFeedbackScale * (1.0f - bassCut01 * bassCutDepth));
 
                 for (int i = 0; i < NUM_LINES; ++i)
                 {
@@ -923,7 +933,7 @@ namespace Nova {
                 }
 
                 // ---- Modulation depth ----
-                modDepthSmooth.setTargetValue(
+                setSmoothed(modDepthSmooth,
                     t.modDepthRef * (float)ratioToRef * modAmount01);
 
                 // ---- Early reflections ----
@@ -934,18 +944,18 @@ namespace Nova {
                     mode == 2 ? 0.24f :
                     mode == 3 ? 0.32f :
                     mode == 4 ? 0.22f : 0.18f;
-                erLevelSmooth.setTargetValue(erLevel);
-                widthSmooth.setTargetValue(width01);
-                duckAmountSmooth.setTargetValue(duckAmount01);
-                swellAmountSmooth.setTargetValue(swellAmount01);
-                gateAmountSmooth.setTargetValue(gateAmount01);
-                reverseAmountSmooth.setTargetValue(reverseAmount01);
-                freezeSmooth.setTargetValue(freezeEnabled ? 1.0f : 0.0f);
+                setSmoothed(erLevelSmooth, erLevel);
+                setSmoothed(widthSmooth, width01);
+                setSmoothed(duckAmountSmooth, duckAmount01);
+                setSmoothed(swellAmountSmooth, swellAmount01);
+                setSmoothed(gateAmountSmooth, gateAmount01);
+                setSmoothed(reverseAmountSmooth, reverseAmount01);
+                setSmoothed(freezeSmooth, freezeEnabled ? 1.0f : 0.0f);
 
                 // ---- Pre-delay ----
                 float pdSamples = juce::jlimit(0.0f, (float)(predelayMid.length - 4),
                     predelayMs * (float)(sr * 0.001));
-                predelaySmooth.setTargetValue(pdSamples);
+                setSmoothed(predelaySmooth, pdSamples);
 
                 // ---- Shimmer ----
                 useShimmer = t.useShimmer;
@@ -955,7 +965,7 @@ namespace Nova {
                 shimmer.updateGrainSize();
                 // Higher LP cutoff lets the pitch-shifted harmonics through clearly
                 shimmerLP.setCutoff(lerp(5000.0f, 12000.0f, tone01), sr);
-                outToneHzSmooth.setTargetValue(lerp(2800.0f, t.dampLpMin * 1.15f, tone01));
+                setSmoothed(outToneHzSmooth, lerp(2800.0f, t.dampLpMin * 1.15f, tone01));
 
                 modeInputDrive = 1.0f;
                 modeStereoExcite = 0.35f;
@@ -1055,7 +1065,7 @@ namespace Nova {
 
                 case 5:
                 default:
-                    modeInputDrive = 0.78f;
+                    modeInputDrive = 1.05f;
                     modeStereoExcite = 0.24f;
                     modeSideScale = 0.96f;
                     modeCrossfeed = 0.04f;
@@ -1220,14 +1230,14 @@ namespace Nova {
                     const float reverseSeedR = (lateR + erR * 0.16f + attackExcite * 0.22f) * performance.reverseSendScale;
                     const float reverseL = softCeiling(reverseVoiceL.process(reverseSeedL), 0.95f);
                     const float reverseR = softCeiling(reverseVoiceR.process(reverseSeedR), 0.95f);
-                    const float reverseDryBlend = 1.0f - shapedReverseAmount * 0.42f;
-                    const float reverseWetBlend = shapedReverseAmount * (0.82f + modeBloomMix * 0.20f);
+                    const float reverseDryBlend = 1.0f - shapedReverseAmount * (0.72f + swellAmount * 0.18f);
+                    const float reverseWetBlend = shapedReverseAmount * (1.72f + modeBloomMix * 0.42f + swellAmount * 0.32f);
                     lateL = lateL * reverseDryBlend + reverseL * reverseWetBlend;
                     lateR = lateR * reverseDryBlend + reverseR * reverseWetBlend;
                 }
 
                 // ---- Blend ER + late reverb ----
-                const float erMix = erLevel * (1.0f - freeze) * (1.0f - shapedReverseAmount * (0.72f + swellAmount * 0.08f));
+                const float erMix = erLevel * (1.0f - freeze) * (1.0f - shapedReverseAmount * (0.86f + swellAmount * 0.10f));
                 const float wetGain = performance.duckGain * performance.gateGain * performance.wetTrim;
                 const float freezeHoldTrim = 1.0f + freeze * 0.035f;
                 const float rawWetL = (erL * erMix + lateL) * wetGain * freezeHoldTrim;
@@ -1399,14 +1409,14 @@ namespace Nova {
                         const float reverseL = softCeiling(reverseVoiceL.process(reverseSeedL), 0.95f);
                         const float reverseR = softCeiling(reverseVoiceR.process(reverseSeedR), 0.95f);
                         debugTelemetry.reversePeak = juce::jmax(debugTelemetry.reversePeak, juce::jmax(std::abs(reverseL), std::abs(reverseR)));
-                        const float reverseDryBlend = 1.0f - shapedReverseAmount * 0.42f;
-                        const float reverseWetBlend = shapedReverseAmount * (0.82f + modeBloomMix * 0.20f);
+                        const float reverseDryBlend = 1.0f - shapedReverseAmount * (0.72f + swellAmount * 0.18f);
+                        const float reverseWetBlend = shapedReverseAmount * (1.72f + modeBloomMix * 0.42f + swellAmount * 0.32f);
                         lateL = lateL * reverseDryBlend + reverseL * reverseWetBlend;
                         lateR = lateR * reverseDryBlend + reverseR * reverseWetBlend;
                     }
                     debugTelemetry.latePeak = juce::jmax(debugTelemetry.latePeak, juce::jmax(std::abs(lateL), std::abs(lateR)));
 
-                    const float erMix = erLevel * (1.0f - freeze) * (1.0f - shapedReverseAmount * (0.72f + swellAmount * 0.08f));
+                    const float erMix = erLevel * (1.0f - freeze) * (1.0f - shapedReverseAmount * (0.86f + swellAmount * 0.10f));
                     const float wetGain = performance.duckGain * performance.gateGain * performance.wetTrim;
                     const float freezeHoldTrim = 1.0f + freeze * 0.035f;
                     debugTelemetry.duckGainMin = juce::jmin(debugTelemetry.duckGainMin, performance.duckGain);
@@ -1470,6 +1480,11 @@ namespace Nova {
                     << ", safetyTouchedSamples=" << debugTelemetry.safetyTouchedSamples;
                 resetDebugTelemetry();
                 return report;
+            }
+
+            void resetDebugTelemetryWindow() noexcept
+            {
+                resetDebugTelemetry();
             }
 
         private:
@@ -1547,10 +1562,10 @@ namespace Nova {
                 gains.duckGain = lerp(gains.duckGain, 1.0f, freeze);
 
                 const float swellThreshold = 0.004f + swellAmount * 0.010f;
-                float swellOpen = juce::jlimit(0.0f, 1.0f, (swellEnv - swellThreshold) / (0.11f + swellThreshold));
+                float swellOpen = juce::jlimit(0.0f, 1.0f, (swellEnv - swellThreshold) / (0.14f + swellThreshold));
                 swellOpen = swellOpen * swellOpen * (3.0f - 2.0f * swellOpen);
                 const float effectiveSwellAmount = juce::jmin(1.0f, swellAmount + reverseSwellCombo * 0.10f);
-                gains.swellGain = lerp(1.0f, 0.18f + swellOpen * 0.82f, effectiveSwellAmount);
+                gains.swellGain = lerp(1.0f, 0.10f + swellOpen * 0.90f, effectiveSwellAmount);
                 gains.swellGain = lerp(gains.swellGain, 1.0f, freeze);
 
                 // Reverse+swell combo: slow envelope holds direct/early content down for a true bloom delay,
@@ -1575,9 +1590,9 @@ namespace Nova {
                 gains.gateFeedbackScale = lerp(gains.gateFeedbackScale, 1.0f, freeze);
 
                 gains.wetTrim = juce::jlimit(0.55f, 1.0f,
-                    0.92f - reverseBlend * 0.06f - reverseSwellCombo * 0.08f - freeze * 0.02f);
-                gains.reverseSendScale = juce::jlimit(0.92f, 1.35f, 1.0f + reverseBlend * 0.10f + reverseSwellCombo * 0.16f);
-                gains.reverseMixScale = juce::jlimit(0.90f, 1.20f, 1.0f + reverseBlend * 0.04f + reverseSwellCombo * 0.10f - freeze * 0.08f);
+                    0.98f - reverseBlend * 0.04f - reverseSwellCombo * 0.03f - freeze * 0.02f);
+                gains.reverseSendScale = juce::jlimit(0.92f, 2.35f, 1.0f + reverseBlend * 0.45f + reverseSwellCombo * 1.15f);
+                gains.reverseMixScale = juce::jlimit(0.90f, 1.45f, 1.0f + reverseBlend * 0.10f + reverseSwellCombo * 0.32f - freeze * 0.08f);
                 return gains;
             }
 
@@ -1773,7 +1788,7 @@ public:
         lastBass = lastDiff = lastWidth = lastMod = lastPD = lastDuck = lastSwell = lastGate = lastReverse = -1.0f;
         lastFreeze = false;
         reset();
-        signalTelemetry.reset();
+        signalTelemetry.prepare(sampleRate);
         isPrepared = true;
     }
 
@@ -1927,7 +1942,8 @@ public:
             || std::abs(reverse - lastReverse) > 1e-4f
             || freeze != lastFreeze)
         {
-            engine.configure(mode, decay, size, tone, damp, bass, diff, width, mod, pdMs, duck, swell, gate, reverse, freeze);
+            const bool forceSync = lastMode < 0;
+            engine.configure(mode, decay, size, tone, damp, bass, diff, width, mod, pdMs, duck, swell, gate, reverse, freeze, forceSync);
             lastMode = mode;
             lastDecay = decay;
             lastTone = tone;
@@ -2011,32 +2027,8 @@ public:
                 dstR[s] = dryR[s] * dry + dstR[s] * wet;
         }
 
-        signalTelemetry.captureOutputAndEmitIfNeeded(buffer,
-            [this, decay, tone, size, damp, bass, diff, width, mod, pdMs, duck, swell, gate, reverse, freeze]()
-            {
-                juce::String report;
-                report << "params: mode="
-                    << (modeParam != nullptr ? modeParam->getCurrentChoiceName() : "Spring")
-                    << ", decay=" << NovaDiagnostics::formatTelemetryScalar(decay)
-                    << ", tone=" << NovaDiagnostics::formatTelemetryScalar(tone)
-                    << ", size=" << NovaDiagnostics::formatTelemetryScalar(size)
-                    << ", damping=" << NovaDiagnostics::formatTelemetryScalar(damp)
-                    << ", bassCut=" << NovaDiagnostics::formatTelemetryScalar(bass)
-                    << ", diffusion=" << NovaDiagnostics::formatTelemetryScalar(diff)
-                    << ", width=" << NovaDiagnostics::formatTelemetryScalar(width)
-                    << ", mod=" << NovaDiagnostics::formatTelemetryScalar(mod)
-                    << ", predelayMs=" << NovaDiagnostics::formatTelemetryScalar(pdMs)
-                    << ", mix=" << NovaDiagnostics::formatTelemetryScalar(mixParam ? mixParam->get() : 0.28f)
-                    << ", duck=" << NovaDiagnostics::formatTelemetryScalar(duck)
-                    << ", swell=" << NovaDiagnostics::formatTelemetryScalar(swell)
-                    << ", gate=" << NovaDiagnostics::formatTelemetryScalar(gate)
-                    << ", reverse=" << NovaDiagnostics::formatTelemetryScalar(reverse)
-                    << ", freeze=" << (freeze ? "true" : "false")
-                    << juce::newLine
-                    << engine.buildAndResetDebugTelemetryReport();
-                return report;
-            },
-            []() {});
+        if (signalTelemetry.captureOutputAndPublishIfNeeded(buffer))
+            engine.resetDebugTelemetryWindow();
 
         endBypassProcess(buffer);
     }

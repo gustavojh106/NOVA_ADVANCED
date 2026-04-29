@@ -166,7 +166,7 @@ private:
 
     void applyParameterTargets(bool forceSync) noexcept;
     void applyGainOnly(juce::AudioBuffer<float>& buffer, bool expectMuted) noexcept;
-    void emitTelemetry(juce::AudioBuffer<float>& buffer, bool stereoAvailable, bool expectMuted);
+    void emitTelemetry(juce::AudioBuffer<float>& buffer);
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> gainSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> panSmooth;

@@ -5,6 +5,8 @@
 #include "SyntheticIR.h"
 
 #include <juce_dsp/juce_dsp.h>
+#include <array>
+#include <atomic>
 #include <cmath>
 #include <limits>
 
@@ -47,10 +49,13 @@ public:
         if (sampleRate <= 0.0)
             return;
 
+        preparedBlockSize = juce::jmax(1, samplesPerBlock);
+        preparedChannels = juce::jlimit(1, kMaxProcessingChannels, juce::jmax(2, getTotalNumOutputChannels()));
+
         juce::dsp::ProcessSpec spec;
         spec.sampleRate = sampleRate;
-        spec.maximumBlockSize = (juce::uint32)juce::jmax(1, samplesPerBlock);
-        spec.numChannels = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
+        spec.maximumBlockSize = (juce::uint32)preparedBlockSize;
+        spec.numChannels = (juce::uint32)preparedChannels;
 
         convolution.prepare(spec);
         loadSyntheticIR(sampleRate);
@@ -65,8 +70,9 @@ public:
         mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? *mixParam : 1.0f);
         levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
 
-        scratchBuffer.setSize(juce::jmax(2, getTotalNumOutputChannels()),
-            juce::jmax(1, samplesPerBlock), false, false, true);
+        scratchBuffer.setSize(preparedChannels,
+            preparedBlockSize, false, false, true);
+        postCabDcBlock.prepare(sampleRate, preparedChannels, 18.0f);
 
         currentSampleRate = sampleRate;
         cachedLowEnd = std::numeric_limits<float>::quiet_NaN();
@@ -91,6 +97,7 @@ public:
         contourLP.reset();
         contourHP.reset();
         midScoop.reset();
+        postCabDcBlock.reset();
 
         if (mixParam != nullptr)
             mixSmooth.setCurrentAndTargetValue(*mixParam);
@@ -103,10 +110,13 @@ public:
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
-        if (scratchBuffer.getNumChannels() < buffer.getNumChannels()
-            || scratchBuffer.getNumSamples() < buffer.getNumSamples())
+        scrubInvalidSamples(buffer);
+
+        if (!canProcessBlock(buffer))
         {
-            scratchBuffer.setSize(buffer.getNumChannels(), buffer.getNumSamples(), false, false, true);
+            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
+            endBypassProcess(buffer);
+            return;
         }
 
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
@@ -128,6 +138,7 @@ public:
         midScoop.process(context);
         contourLP.process(context);
         contourHP.process(context);
+        postCabDcBlock.processBuffer(buffer);
 
         for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
         {
@@ -146,9 +157,80 @@ public:
         endBypassProcess(buffer);
     }
 
+    int getRealtimeFallbackCount() const noexcept
+    {
+        return fallbackBlockCount.load(std::memory_order_relaxed);
+    }
+
+    void clearRealtimeFallbackCount() noexcept
+    {
+        fallbackBlockCount.store(0, std::memory_order_relaxed);
+    }
+
 private:
+    static constexpr int kMaxProcessingChannels = 2;
+
     using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
         juce::dsp::IIR::Coefficients<float>>;
+
+    struct MultiChannelDcBlocker
+    {
+        void prepare(double newSampleRate, int channels, float cutoffHz) noexcept
+        {
+            sampleRate = juce::jmax(1.0, newSampleRate);
+            numChannels = juce::jlimit(1, kMaxProcessingChannels, channels);
+            const float cutoff = juce::jlimit(5.0f, 45.0f, cutoffHz);
+            pole = (float) std::exp(-juce::MathConstants<double>::twoPi * (double) cutoff / sampleRate);
+            reset();
+        }
+
+        void reset() noexcept
+        {
+            x1.fill(0.0f);
+            y1.fill(0.0f);
+        }
+
+        void processBuffer(juce::AudioBuffer<float>& buffer) noexcept
+        {
+            const int channels = juce::jmin(buffer.getNumChannels(), numChannels);
+            for (int ch = 0; ch < channels; ++ch)
+            {
+                auto* data = buffer.getWritePointer(ch);
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    const float x = data[i];
+                    const float y = x - x1[(size_t) ch] + pole * y1[(size_t) ch];
+                    x1[(size_t) ch] = x;
+                    y1[(size_t) ch] = y;
+                    data[i] = y;
+                }
+            }
+        }
+
+        double sampleRate = 44100.0;
+        int numChannels = 2;
+        float pole = 0.995f;
+        std::array<float, kMaxProcessingChannels> x1 {};
+        std::array<float, kMaxProcessingChannels> y1 {};
+    };
+
+    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
+    {
+        return buffer.getNumSamples() <= preparedBlockSize
+            && buffer.getNumChannels() <= preparedChannels
+            && buffer.getNumChannels() <= kMaxProcessingChannels;
+    }
+
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (!std::isfinite(data[i]))
+                    data[i] = 0.0f;
+        }
+    }
 
     void loadSyntheticIR(double sampleRate)
     {
@@ -177,15 +259,15 @@ private:
         const float lpFreq = juce::jmap(distance, 10000.0f, 4000.0f);
         const float hpFreq = juce::jmap(distance, 65.0f, 150.0f);
 
-        *lowShelf.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentSampleRate,
+        *lowShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(currentSampleRate,
             100.0f, 0.85f, juce::Decibels::decibelsToGain(lowEnd));
-        *highShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(currentSampleRate,
+        *highShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(currentSampleRate,
             3000.0f, 0.78f, juce::Decibels::decibelsToGain(presence));
         // Slight mid-scoop characteristic of modern V30-style cabs
-        *midScoop.state = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(currentSampleRate,
+        *midScoop.state = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(currentSampleRate,
             650.0f, 1.2f, juce::Decibels::decibelsToGain(-2.0f));
-        *contourLP.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(currentSampleRate, lpFreq, 0.72f);
-        *contourHP.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentSampleRate, hpFreq, 0.72f);
+        *contourLP.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass(currentSampleRate, lpFreq, 0.72f);
+        *contourHP.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(currentSampleRate, hpFreq, 0.72f);
     }
 
     juce::dsp::Convolution convolution;
@@ -194,6 +276,7 @@ private:
     Filter contourLP;
     Filter contourHP;
     Filter midScoop;
+    MultiChannelDcBlocker postCabDcBlock;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> levelSmooth;
     juce::AudioBuffer<float> scratchBuffer;
@@ -205,8 +288,11 @@ private:
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentSampleRate = 44100.0;
+    int preparedBlockSize = 0;
+    int preparedChannels = 0;
     float cachedLowEnd = std::numeric_limits<float>::quiet_NaN();
     float cachedPresence = std::numeric_limits<float>::quiet_NaN();
     float cachedDistance = std::numeric_limits<float>::quiet_NaN();
+    std::atomic<int> fallbackBlockCount{ 0 };
     bool isPrepared = false;
 };

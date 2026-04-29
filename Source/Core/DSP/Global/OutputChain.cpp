@@ -16,13 +16,18 @@ float OutputChainProcessor::sanitizeLimiterDb(float value) noexcept
         return 0.0f;
 
     // 0 dB means transparent safety mode.
-    // Negative values enable stronger limiting. -24 is intentionally extreme but safe.
-    return juce::jlimit(-24.0f, 0.0f, value);
+    // Legacy/extreme negative states are clamped to the audible MVP floor.
+    return juce::jlimit(-12.0f, 0.0f, value);
 }
 
 float OutputChainProcessor::limiterDbToLinear(float limiterDb) noexcept
 {
     return juce::Decibels::decibelsToGain(sanitizeLimiterDb(limiterDb), -120.0f);
+}
+
+bool OutputChainProcessor::isLimiterActiveDb(float limiterDb) noexcept
+{
+    return sanitizeLimiterDb(limiterDb) < -0.0001f;
 }
 
 float OutputChainProcessor::applySoftCeiling(float x) noexcept
@@ -75,11 +80,9 @@ void OutputChainProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     outputGainSmooth.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(currentOutputVolDb, -120.0f));
     limiterThresholdLinearSmooth.setCurrentAndTargetValue(limiterDbToLinear(currentLimiterDb));
 
-    // Stable latency: always report and apply the lookahead delay.
-    // Do not change this dynamically when the limiter threshold changes.
-    setLatencySamples(limiter.getLookaheadSamples());
+    updateReportedLatencyForLimiter(currentLimiterDb);
 
-    signalTelemetry.reset();
+    signalTelemetry.prepare(sampleRate);
     debugTelemetry.resetWindow();
 
     parametersPrepared = true;
@@ -104,7 +107,7 @@ void OutputChainProcessor::reset()
     outputGainSmooth.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(currentOutputVolDb, -120.0f));
     limiterThresholdLinearSmooth.setCurrentAndTargetValue(limiterDbToLinear(currentLimiterDb));
 
-    setLatencySamples(limiter.getLookaheadSamples());
+    updateReportedLatencyForLimiter(currentLimiterDb);
 
     signalTelemetry.reset();
     debugTelemetry.resetWindow();
@@ -114,14 +117,33 @@ void OutputChainProcessor::reset()
 
 void OutputChainProcessor::setParams(float volDb, float limitDb)
 {
-    targetOutputVolDb.store(sanitizeOutputVolumeDb(volDb), std::memory_order_release);
-    targetLimiterDb.store(sanitizeLimiterDb(limitDb), std::memory_order_release);
+    const float safeOutputDb = sanitizeOutputVolumeDb(volDb);
+    const float safeLimiterDb = sanitizeLimiterDb(limitDb);
+
+    targetOutputVolDb.store(safeOutputDb, std::memory_order_release);
+    targetLimiterDb.store(safeLimiterDb, std::memory_order_release);
+    updateReportedLatencyForLimiter(safeLimiterDb);
 }
 
 void OutputChainProcessor::setTelemetryTag(const juce::String& newTag)
 {
     telemetryTag = newTag.isNotEmpty() ? newTag : juce::String("output-chain");
     signalTelemetry.setTag(telemetryTag);
+}
+
+OutputChainProcessor::DebugSnapshot OutputChainProcessor::getDebugSnapshot() const noexcept
+{
+    DebugSnapshot snapshot;
+    snapshot.limiterTouchedSamples = debugTelemetry.limiterTouchedSamples;
+    snapshot.limiterActiveBlocks = debugTelemetry.limiterActiveBlocks;
+    snapshot.softCeilingTouchedSamples = debugTelemetry.softCeilingTouchedSamples;
+    snapshot.guardInvalidSamples = debugTelemetry.guardInvalidSamples;
+    snapshot.guardClippedSamples = debugTelemetry.guardClippedSamples;
+    snapshot.guardDenormalSamples = debugTelemetry.guardDenormalSamples;
+    snapshot.limiterMaxReductionDb = debugTelemetry.limiterMaxReductionDb;
+    snapshot.limiterDeltaPeak = debugTelemetry.limiterDeltaPeak;
+    snapshot.softCeilingDeltaPeak = debugTelemetry.softCeilingDeltaPeak;
+    return snapshot;
 }
 
 void OutputChainProcessor::applyParameterTargets(bool forceSync) noexcept
@@ -145,6 +167,11 @@ void OutputChainProcessor::applyParameterTargets(bool forceSync) noexcept
         outputGainSmooth.setTargetValue(outputGain);
         limiterThresholdLinearSmooth.setTargetValue(limiterThreshold);
     }
+}
+
+void OutputChainProcessor::updateReportedLatencyForLimiter(float limiterDb)
+{
+    setLatencySamples(isLimiterActiveDb(limiterDb) ? limiter.getLookaheadSamples() : 0);
 }
 
 void OutputChainProcessor::applyDcBlockers(juce::AudioBuffer<float>& buffer) noexcept
@@ -246,51 +273,24 @@ void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     applyMasterGain(buffer);
     debugTelemetry.postGainStage.capture(buffer);
 
-    // 3) Stable-latency lookahead limiter.
-    const auto limiterResult = limiter.process(buffer, limiterThresholdLinearSmooth);
+    // 3) Lookahead limiter only when the ceiling is active.
+    PeakLimiter::Result limiterResult;
+    if (isLimiterActiveDb(currentLimiterDb))
+        limiterResult = limiter.process(buffer, limiterThresholdLinearSmooth);
+    else
+    {
+        limiterResult.thresholdLinearMin = 1.0f;
+        limiterResult.thresholdLinearMax = 1.0f;
+    }
+
     debugTelemetry.captureControls(currentOutputVolDb, currentLimiterDb, limiterResult);
     debugTelemetry.postLimiterStage.capture(buffer);
 
     // 4) Last-resort ceiling. This should only touch rare overs.
     applyFinalSoftCeiling(buffer);
 
-    signalTelemetry.captureOutputAndEmitIfNeeded(buffer,
-        [this]()
-        {
-            auto safeMin = [](float value)
-                {
-                    return value >= 1.0e8f ? 0.0f : value;
-                };
-
-            juce::String report;
-            report << debugTelemetry.postDcStage.buildSummary("dcBlock.stage") << juce::newLine
-                << debugTelemetry.postGainStage.buildSummary("gain.stage") << juce::newLine
-                << debugTelemetry.postLimiterStage.buildSummary("limiter.stage") << juce::newLine
-                << "stage.deltas: limiterDeltaPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.limiterDeltaPeak)
-                << ", limiterTouchedSamples=" << debugTelemetry.limiterTouchedSamples
-                << ", limiterMaxReductionDb=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.limiterMaxReductionDb)
-                << ", limiterMinGain=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.limiterMinGain)
-                << ", softCeilingDeltaPeak=" << NovaDiagnostics::formatTelemetryScalar(debugTelemetry.softCeilingDeltaPeak)
-                << ", softCeilingTouchedSamples=" << debugTelemetry.softCeilingTouchedSamples
-                << juce::newLine
-                << "params: tag=" << telemetryTag
-                << ", outputVolDbMin=" << NovaDiagnostics::formatTelemetryScalar(safeMin(debugTelemetry.outputVolDbMin))
-                << ", outputVolDbMax=" << NovaDiagnostics::formatTelemetryScalar(juce::jmax(debugTelemetry.outputVolDbMax, safeMin(debugTelemetry.outputVolDbMin)))
-                << ", limiterThresholdDbMin=" << NovaDiagnostics::formatTelemetryScalar(safeMin(debugTelemetry.limiterThresholdDbMin))
-                << ", limiterThresholdDbMax=" << NovaDiagnostics::formatTelemetryScalar(juce::jmax(debugTelemetry.limiterThresholdDbMax, safeMin(debugTelemetry.limiterThresholdDbMin)))
-                << ", limiterActiveBlocks=" << debugTelemetry.limiterActiveBlocks
-                << juce::newLine
-                << "guard: invalid=" << debugTelemetry.guardInvalidSamples
-                << ", clipped=" << debugTelemetry.guardClippedSamples
-                << ", denormals=" << debugTelemetry.guardDenormalSamples
-                << juce::newLine
-                << "params: hardSync=" << (hardSyncParams ? "true" : "false");
-            return report;
-        },
-        [this]()
-        {
-            debugTelemetry.resetWindow();
-        });
+    if (signalTelemetry.captureOutputAndPublishIfNeeded(buffer))
+        debugTelemetry.resetWindow();
 
     hardSyncParams = false;
 }

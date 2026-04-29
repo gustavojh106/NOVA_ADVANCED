@@ -1,0 +1,110 @@
+{
+    "generatedAt":  "2026-04-29T15:19:15.9109382-06:00",
+    "status":  "WARN",
+    "summary":  {
+                    "activeFiles":  29,
+                    "activeRanges":  30,
+                    "failures":  0,
+                    "warnings":  4,
+                    "allowlistedWarnings":  0,
+                    "legacyWarnings":  4,
+                    "allowListEntries":  2
+                },
+    "activeFiles":  [
+                        "Source/Core/AudioEngine.cpp",
+                        "Source/Core/DSP/Global/ChannelStrip.cpp",
+                        "Source/Core/DSP/Global/InputChain.cpp",
+                        "Source/Core/DSP/Global/OutputChain.cpp",
+                        "Source/Core/PluginProcessor.cpp",
+                        "Source/Effects/Amplifiers/BoutiqueAmp.h",
+                        "Source/Effects/Amplifiers/ChimeAmp.h",
+                        "Source/Effects/Amplifiers/ClassicAmp.h",
+                        "Source/Effects/Amplifiers/CleanAmp.h",
+                        "Source/Effects/Amplifiers/HighGainAmp.h",
+                        "Source/Effects/Cabinets/CabinetPedal.h",
+                        "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                        "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                        "Source/Effects/Pedals/Boost/BoostPedal.h",
+                        "Source/Effects/Pedals/Chorus/ChorusPedal.h",
+                        "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                        "Source/Effects/Pedals/Delay/DelayPedal.h",
+                        "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                        "Source/Effects/Pedals/EQ/EQPedal.h",
+                        "Source/Effects/Pedals/Flanger/FlangerPedal.h",
+                        "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                        "Source/Effects/Pedals/Gate/NoiseGatePedal.h",
+                        "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                        "Source/Effects/Pedals/Octave/OctavePedal.h",
+                        "Source/Effects/Pedals/Overdrive/OverdrivePedal.h",
+                        "Source/Effects/Pedals/Phaser/PhaserPedal.h",
+                        "Source/Effects/Pedals/Reverb/ReverbPedal.h",
+                        "Source/Effects/Pedals/Tremolo/TremoloPedal.h",
+                        "Source/Effects/Pedals/Wah/ClassicWahPedal.h"
+                    ],
+    "allowList":  [
+                      {
+                          "file":  "Source/Core/PluginProcessor.cpp",
+                          "patternId":  "dynamic_cast",
+                          "lineRegex":  "if \\(auto\\* ranged = dynamic_cast\u003cjuce::RangedAudioParameter\\*\u003e\\(getParameters\\(\\)\\[parameterIndex\\]\\)\\)",
+                          "reason":  "Parameter listener path, not audio callback."
+                      },
+                      {
+                          "file":  "Source/Core/AudioEngine.cpp",
+                          "patternId":  "graph_rebuild",
+                          "lineRegex":  "audioPlane\\.graphResetRequested\\.store\\(true",
+                          "reason":  "Atomic flag only; rebuild is executed on control thread."
+                      }
+                  ],
+    "failures":  [
+
+                 ],
+    "allowlistedWarnings":  [
+
+                            ],
+    "legacyWarnings":  [
+                           {
+                               "file":  "Source/Effects/Pedals/ChorusPedal.h",
+                               "classification":  "legacy-no-active-reference",
+                               "inJucer":  false,
+                               "inRegistry":  false,
+                               "line":  107,
+                               "patternId":  "buffer_set_size",
+                               "patternLabel":  "AudioBuffer::setSize in process path",
+                               "lineText":  "scratchBuffer.setSize(buffer.getNumChannels(),",
+                               "reason":  "Legacy file is not treated as active audio route by this scanner."
+                           },
+                           {
+                               "file":  "Source/Effects/Pedals/CompressorPedal.h",
+                               "classification":  "legacy-no-active-reference",
+                               "inJucer":  false,
+                               "inRegistry":  false,
+                               "line":  102,
+                               "patternId":  "buffer_set_size",
+                               "patternLabel":  "AudioBuffer::setSize in process path",
+                               "lineText":  "dryBuffer.setSize(buffer.getNumChannels(),",
+                               "reason":  "Legacy file is not treated as active audio route by this scanner."
+                           },
+                           {
+                               "file":  "Source/Effects/Pedals/Wah/AutoWahPedal.h",
+                               "classification":  "legacy-in-jucer",
+                               "inJucer":  true,
+                               "inRegistry":  false,
+                               "line":  108,
+                               "patternId":  "buffer_set_size",
+                               "patternLabel":  "AudioBuffer::setSize in process path",
+                               "lineText":  "scratchBuffer.setSize(numChannels, numSamples, false, false, true);",
+                               "reason":  "Legacy file is not treated as active audio route by this scanner."
+                           },
+                           {
+                               "file":  "Source/Effects/Pedals/Metal/MetalDistortionPedal.h",
+                               "classification":  "legacy-in-jucer",
+                               "inJucer":  true,
+                               "inRegistry":  false,
+                               "line":  118,
+                               "patternId":  "buffer_set_size",
+                               "patternLabel":  "AudioBuffer::setSize in process path",
+                               "lineText":  "scratchBuffer.setSize(numChannels,",
+                               "reason":  "Legacy file is not treated as active audio route by this scanner."
+                           }
+                       ]
+}

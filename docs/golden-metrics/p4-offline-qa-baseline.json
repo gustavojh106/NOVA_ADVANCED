@@ -1,0 +1,151 @@
+﻿{
+    "generatedAt":  "2026-04-29T12:37:50-06:00",
+    "commit":  "da11290f86fcbda228128143b89e2da0f4de97cc",
+    "sourceReport":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\artifacts\\p4-offline-qa-report.txt",
+    "configuration":  "Debug",
+    "platform":  "x64",
+    "cases":  [
+                  {
+                      "case":  "output_chain_clean_path",
+                      "scenario":  "impulse_transparency_line_a",
+                      "status":  "PASS",
+                      "notes":  "Impulse stayed transparent",
+                      "metrics":  {
+                                      "output_peak":  0.99606001,
+                                      "output_rms":  0.04413369,
+                                      "peak_index_left":  0,
+                                      "peak_index_right":  0,
+                                      "first_sample_left":  0.99606001,
+                                      "first_sample_right":  0.99606001
+                                  }
+                  },
+                  {
+                      "case":  "output_chain_biased_input_dc_cleanup",
+                      "scenario":  "output_chain_biased_dc_cleanup",
+                      "status":  "PASS",
+                      "notes":  "OutputChain reduced sustained DC contamination while keeping stable audible output",
+                      "metrics":  {
+                                      "input_peak":  0.50999999,
+                                      "input_dc":  0.18000486,
+                                      "output_peak":  0.49830621,
+                                      "output_dc":  3.44E-05,
+                                      "dc_reduction_ratio":  0.00019112,
+                                      "output_rms":  0.23367227,
+                                      "output_early_rms":  0.23367352,
+                                      "output_late_rms":  0.23357311,
+                                      "rms_stability_ratio":  0.99957031,
+                                      "limiterTouchedSamples":  0,
+                                      "limiterMaxReductionDb":  0,
+                                      "finite":  1
+                                  }
+                  },
+                  {
+                      "case":  "clean_dry_line_a",
+                      "scenario":  "dry_only_null_test",
+                      "status":  "PASS",
+                      "notes":  "Dry-only path ignored wet-path gain staging and stayed transparent",
+                      "metrics":  {
+                                      "null_rms":  0,
+                                      "input_peak":  0.34999999,
+                                      "output_peak":  0.34999999
+                                  }
+                  },
+                  {
+                      "case":  "dual_parallel_clean",
+                      "scenario":  "parallel_noise_unity",
+                      "status":  "PASS",
+                      "notes":  "Parallel clean path stays near unity",
+                      "metrics":  {
+                                      "input_rms":  0.11536644,
+                                      "output_rms":  0.11564481,
+                                      "rms_ratio":  1.00241293
+                                  }
+                  },
+                  {
+                      "case":  "reverb_cloud_tail",
+                      "scenario":  "reverb_tail_quality",
+                      "status":  "PASS",
+                      "notes":  "Cloud tail stayed finite, sustained and decayed cleanly",
+                      "metrics":  {
+                                      "peak":  0.90457606,
+                                      "rms":  0.00173052,
+                                      "late_rms_0p8_1p3s":  0.00018238,
+                                      "tail_end_rms_last_250ms":  0,
+                                      "finite":  1
+                                  }
+                  },
+                  {
+                      "case":  "reverb_swell",
+                      "scenario":  "reverb_swell_bloom",
+                      "status":  "PASS",
+                      "notes":  "Swell softened the wet attack and bloomed afterward",
+                      "metrics":  {
+                                      "baseline_early_rms":  0.01287026,
+                                      "swelled_early_rms":  0.0086604,
+                                      "baseline_bloom_rms":  0.0608719,
+                                      "swelled_bloom_rms":  0.04672007,
+                                      "finite":  1
+                                  }
+                  },
+                  {
+                      "case":  "reverb_reverse",
+                      "scenario":  "reverb_reverse_bloom",
+                      "status":  "PASS",
+                      "notes":  "Reverse ambience delayed the bloom while keeping useful late energy",
+                      "metrics":  {
+                                      "baseline_early_rms":  0.00961877,
+                                      "reverse_early_rms":  0.00601607,
+                                      "baseline_late_rms":  0.04096537,
+                                      "reverse_late_rms":  0.02735706,
+                                      "finite":  1
+                                  }
+                  },
+                  {
+                      "case":  "reverb_reverse_swell",
+                      "scenario":  "reverb_reverse_swell_combo",
+                      "status":  "PASS",
+                      "notes":  "Reverse+swell produced a delayed cinematic bloom without collapsing the body",
+                      "metrics":  {
+                                      "baseline_early_rms":  0.0135367,
+                                      "combo_early_rms":  0.00694453,
+                                      "baseline_late_rms":  0.05002903,
+                                      "combo_late_rms":  0.03042304,
+                                      "finite":  1
+                                  }
+                  },
+                  {
+                      "case":  "overdrive_v2_musicalsafe_nominal",
+                      "scenario":  "overdrive_flagship_recall",
+                      "status":  "PASS",
+                      "notes":  "Modern overdrive state recalled cleanly",
+                      "metrics":  {
+                                      "state_size_bytes":  318,
+                                      "null_rms":  0,
+                                      "baseline_peak":  0.48130989,
+                                      "recalled_peak":  0.48130989,
+                                      "finite":  1
+                                  }
+                  },
+                  {
+                      "case":  "overdrive_cleanamp_reverb_chain_nominal",
+                      "scenario":  "overdrive_cleanamp_reverb_chain_nominal",
+                      "status":  "PASS",
+                      "notes":  "Overdrive-\u003eCleanAmp-\u003eReverb chain stayed finite, safe and musically stable with a decaying tail",
+                      "metrics":  {
+                                      "input_peak":  0.28328192,
+                                      "output_peak":  0.50009149,
+                                      "output_rms":  0.0794829,
+                                      "output_dc":  1.187E-05,
+                                      "finite":  1,
+                                      "near_clip_count":  0,
+                                      "tail_rms":  0.0235291,
+                                      "body_rms":  0.10046377,
+                                      "late_tail_rms":  0.00349086,
+                                      "tail_decay_ratio":  0.14836357
+                                  }
+                  }
+              ],
+    "coverageGaps":  [
+
+                     ]
+}

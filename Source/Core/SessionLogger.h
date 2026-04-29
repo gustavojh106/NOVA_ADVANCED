@@ -4,6 +4,7 @@
 #include <atomic>
 #include <array>
 #include "Constants.h"
+#include "PedalSignalTelemetry.h"
 
 namespace NovaDiagnostics
 {
@@ -281,6 +282,8 @@ private:
         if (outputStream == nullptr)
             return;
 
+        wroteAnything = flushRealtimeTelemetryUnlocked() || wroteAnything;
+
         if (droppedSinceLastFlush > 0)
         {
             writeEntryUnlocked(makeTimestamp(),
@@ -297,6 +300,76 @@ private:
 
         if (wroteAnything)
             outputStream->flush();
+    }
+
+    static juce::String buildRealtimeTelemetryReport(const RealtimeSignalTelemetryEvent& event)
+    {
+        const auto& snapshot = event.window;
+        const double divisor = (double) juce::jmax(1, snapshot.blocks);
+
+        juce::String report;
+        report << "windowMs=" << (int) event.elapsedMs
+            << ", blocks=" << snapshot.blocks
+            << ", avgSamplesPerBlock=" << formatTelemetryScalar((float) snapshot.totalSamples / (float) juce::jmax(1, snapshot.blocks))
+            << juce::newLine
+            << "input.signal: peakLMax=" << formatTelemetryScalar(snapshot.inputPeakMax[0])
+            << ", peakRMax=" << formatTelemetryScalar(snapshot.inputPeakMax[1])
+            << ", rmsLAvg=" << formatTelemetryScalar((float) (snapshot.inputRmsSum[0] / divisor))
+            << ", rmsRAvg=" << formatTelemetryScalar((float) (snapshot.inputRmsSum[1] / divisor))
+            << ", rmsLMax=" << formatTelemetryScalar(snapshot.inputRmsMax[0])
+            << ", rmsRMax=" << formatTelemetryScalar(snapshot.inputRmsMax[1])
+            << ", dcLMax=" << formatTelemetryScalar(snapshot.inputDcMax[0])
+            << ", dcRMax=" << formatTelemetryScalar(snapshot.inputDcMax[1])
+            << ", deltaLMax=" << formatTelemetryScalar(snapshot.inputDeltaMax[0])
+            << ", deltaRMax=" << formatTelemetryScalar(snapshot.inputDeltaMax[1])
+            << juce::newLine
+            << "output.signal: peakLMax=" << formatTelemetryScalar(snapshot.outputPeakMax[0])
+            << ", peakRMax=" << formatTelemetryScalar(snapshot.outputPeakMax[1])
+            << ", rmsLAvg=" << formatTelemetryScalar((float) (snapshot.outputRmsSum[0] / divisor))
+            << ", rmsRAvg=" << formatTelemetryScalar((float) (snapshot.outputRmsSum[1] / divisor))
+            << ", rmsLMax=" << formatTelemetryScalar(snapshot.outputRmsMax[0])
+            << ", rmsRMax=" << formatTelemetryScalar(snapshot.outputRmsMax[1])
+            << ", dcLMax=" << formatTelemetryScalar(snapshot.outputDcMax[0])
+            << ", dcRMax=" << formatTelemetryScalar(snapshot.outputDcMax[1])
+            << ", deltaLMax=" << formatTelemetryScalar(snapshot.outputDeltaMax[0])
+            << ", deltaRMax=" << formatTelemetryScalar(snapshot.outputDeltaMax[1])
+            << juce::newLine
+            << "anomalies: inputActiveBlocks=" << snapshot.inputActiveBlocks
+            << ", spikeBlocks=" << snapshot.spikeBlocks
+            << ", dcAlertBlocks=" << snapshot.dcAlertBlocks
+            << ", nearClipSamples=" << snapshot.nearClipSamples
+            << ", invalidSamples=" << snapshot.invalidSamples
+            << ", clippedSamples=" << snapshot.clippedSamples;
+        return report;
+    }
+
+    bool flushRealtimeTelemetryUnlocked()
+    {
+        bool wroteAnything = false;
+        auto& telemetryQueue = RealtimeSignalTelemetryQueue::instance();
+
+        const int droppedTelemetry = telemetryQueue.consumeDroppedEvents();
+        if (droppedTelemetry > 0)
+        {
+            writeEntryUnlocked(makeTimestamp(),
+                "pedal.private.queue",
+                "Dropped " + juce::String(droppedTelemetry) + " realtime telemetry events because the queue filled");
+            wroteAnything = true;
+        }
+
+        RealtimeSignalTelemetryEvent event;
+        int drained = 0;
+        while (drained < 256 && telemetryQueue.pop(event))
+        {
+            const juce::String tag(event.tag.data());
+            writeEntryUnlocked(makeTimestamp(),
+                "pedal.private." + (tag.isNotEmpty() ? tag : juce::String("unknown")) + (event.alert ? ".alert" : ".window"),
+                buildRealtimeTelemetryReport(event));
+            wroteAnything = true;
+            ++drained;
+        }
+
+        return wroteAnything;
     }
 
     void writeEntryUnlocked(const juce::String& timestamp, const juce::String& category, const juce::String& message)

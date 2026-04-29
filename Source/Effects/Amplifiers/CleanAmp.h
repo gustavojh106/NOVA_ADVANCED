@@ -120,7 +120,7 @@ public:
         setProcessingLatency((int)std::ceil(oversampler.getLatencyInSamples()));
         prepareBypassSmoother(sampleRate, samplesPerBlock);
 
-        signalTelemetry.reset();
+        signalTelemetry.prepare(currentSampleRate);
         debugTelemetry.resetWindow();
 
         reset();
@@ -728,21 +728,21 @@ private:
         const float bassGainDb = juce::jmap(bass, -4.5f, 5.5f);
         const float trebleGainDb = juce::jmap(treble, -5.0f, 5.0f);
 
-        *inputHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentInnerRate,
+        *inputHighPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(currentInnerRate,
             38.0f,
             0.70710678f);
 
-        *bassShelf.state = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(currentInnerRate,
+        *bassShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(currentInnerRate,
             250.0f,
             0.64f,
             juce::Decibels::decibelsToGain(bassGainDb));
 
-        *trebleShelf.state = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(currentInnerRate,
+        *trebleShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(currentInnerRate,
             3100.0f,
             0.58f,
             juce::Decibels::decibelsToGain(trebleGainDb));
 
-        *postSaturationHighPass.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentInnerRate,
+        *postSaturationHighPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(currentInnerRate,
             18.0f,
             0.70710678f);
     }
@@ -874,15 +874,8 @@ private:
 
     void emitTelemetry(juce::AudioBuffer<float>& buffer)
     {
-        signalTelemetry.captureOutputAndEmitIfNeeded(buffer,
-            [this]()
-            {
-                return debugTelemetry.buildReport(*this);
-            },
-            [this]()
-            {
-                debugTelemetry.resetWindow();
-            });
+        if (signalTelemetry.captureOutputAndPublishIfNeeded(buffer))
+            debugTelemetry.resetWindow();
     }
 
     juce::dsp::Oversampling<float> oversampler;
