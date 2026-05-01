@@ -1,0 +1,184 @@
+{
+    "generatedAt":  "2026-04-30T11:52:01.7376724-06:00",
+    "configuration":  "Debug",
+    "platform":  "x64",
+    "runs":  5,
+    "timeoutSeconds":  240,
+    "pauseMilliseconds":  500,
+    "scenarioFilter":  [
+                           "overdrive_cleanamp_reverb_chain_nominal",
+                           "sample_rate_44100",
+                           "sample_rate_96000",
+                           "stress_block_32"
+                       ],
+    "runReports":  [
+                       {
+                           "run":  1,
+                           "path":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\artifacts\\rt-profile-stability-runs-debug-x64\\run-01.json",
+                           "summary":  {
+                                           "total":  16,
+                                           "pass":  14,
+                                           "warn":  2,
+                                           "fail":  0
+                                       }
+                       },
+                       {
+                           "run":  2,
+                           "path":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\artifacts\\rt-profile-stability-runs-debug-x64\\run-02.json",
+                           "summary":  {
+                                           "total":  16,
+                                           "pass":  13,
+                                           "warn":  3,
+                                           "fail":  0
+                                       }
+                       },
+                       {
+                           "run":  3,
+                           "path":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\artifacts\\rt-profile-stability-runs-debug-x64\\run-03.json",
+                           "summary":  {
+                                           "total":  16,
+                                           "pass":  13,
+                                           "warn":  3,
+                                           "fail":  0
+                                       }
+                       },
+                       {
+                           "run":  4,
+                           "path":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\artifacts\\rt-profile-stability-runs-debug-x64\\run-04.json",
+                           "summary":  {
+                                           "total":  16,
+                                           "pass":  14,
+                                           "warn":  2,
+                                           "fail":  0
+                                       }
+                       },
+                       {
+                           "run":  5,
+                           "path":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\artifacts\\rt-profile-stability-runs-debug-x64\\run-05.json",
+                           "summary":  {
+                                           "total":  16,
+                                           "pass":  14,
+                                           "warn":  2,
+                                           "fail":  0
+                                       }
+                       }
+                   ],
+    "scenarioStats":  [
+                          {
+                              "name":  "overdrive_cleanamp_reverb_chain_nominal",
+                              "runCount":  5,
+                              "statusCounts":  {
+                                                   "pass":  5,
+                                                   "warn":  0,
+                                                   "fail":  0
+                                               },
+                              "maxBudgetRatio":  {
+                                                     "min":  0.525975,
+                                                     "median":  0.6602625,
+                                                     "max":  0.6967875
+                                                 },
+                              "cpuAvgPercent":  {
+                                                    "min":  44.06727679,
+                                                    "median":  44.65162946,
+                                                    "max":  45.73761161
+                                                },
+                              "cpuPeakPercent":  {
+                                                     "min":  52.59750006,
+                                                     "median":  66.02625002,
+                                                     "max":  69.67874996
+                                                 },
+                              "peakProcessMs":  {
+                                                    "min":  1.4026,
+                                                    "median":  1.7607,
+                                                    "max":  1.8581
+                                                }
+                          },
+                          {
+                              "name":  "stress_block_32",
+                              "runCount":  5,
+                              "statusCounts":  {
+                                                   "pass":  0,
+                                                   "warn":  5,
+                                                   "fail":  0
+                                               },
+                              "maxBudgetRatio":  {
+                                                     "min":  0.7698,
+                                                     "median":  0.79695,
+                                                     "max":  0.9129
+                                                 },
+                              "cpuAvgPercent":  {
+                                                    "min":  45.60884444,
+                                                    "median":  46.78948889,
+                                                    "max":  47.11311111
+                                                },
+                              "cpuPeakPercent":  {
+                                                     "min":  76.97999999,
+                                                     "median":  79.69500013,
+                                                     "max":  91.28999999
+                                                 },
+                              "peakProcessMs":  {
+                                                    "min":  0.5132,
+                                                    "median":  0.5313,
+                                                    "max":  0.6086
+                                                }
+                          },
+                          {
+                              "name":  "sample_rate_44100",
+                              "runCount":  5,
+                              "statusCounts":  {
+                                                   "pass":  5,
+                                                   "warn":  0,
+                                                   "fail":  0
+                                               },
+                              "maxBudgetRatio":  {
+                                                     "min":  0.45726187,
+                                                     "median":  0.55745156,
+                                                     "max":  0.58887281
+                                                 },
+                              "cpuAvgPercent":  {
+                                                    "min":  40.17336623,
+                                                    "median":  40.42033956,
+                                                    "max":  41.35112964
+                                                },
+                              "cpuPeakPercent":  {
+                                                     "min":  45.72618747,
+                                                     "median":  55.74515627,
+                                                     "max":  58.88728126
+                                                 },
+                              "peakProcessMs":  {
+                                                    "min":  1.3272,
+                                                    "median":  1.618,
+                                                    "max":  1.7092
+                                                }
+                          },
+                          {
+                              "name":  "sample_rate_96000",
+                              "runCount":  5,
+                              "statusCounts":  {
+                                                   "pass":  0,
+                                                   "warn":  5,
+                                                   "fail":  0
+                                               },
+                              "maxBudgetRatio":  {
+                                                     "min":  1.25685,
+                                                     "median":  1.35225,
+                                                     "max":  1.376325
+                                                 },
+                              "cpuAvgPercent":  {
+                                                    "min":  87.47459199,
+                                                    "median":  87.76909496,
+                                                    "max":  89.54323442
+                                                },
+                              "cpuPeakPercent":  {
+                                                     "min":  125.68500009,
+                                                     "median":  135.22500009,
+                                                     "max":  137.63249991
+                                                 },
+                              "peakProcessMs":  {
+                                                    "min":  1.6758,
+                                                    "median":  1.803,
+                                                    "max":  1.8351
+                                                }
+                          }
+                      ]
+}

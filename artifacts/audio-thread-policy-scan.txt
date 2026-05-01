@@ -1,15 +1,20 @@
 NOVA Audio Thread Policy Scan
-Generated: 2026-04-29 15:19:15
+Generated: 2026-05-01 13:26:02
 status=WARN
-summary.activeFiles=29
-summary.activeRanges=30
+summary.activeFiles=32
+summary.activeRanges=38
 summary.failures=0
 summary.warnings=4
 summary.allowlistedWarnings=0
 summary.legacyWarnings=4
+summary.contractChecks=20
+summary.contractFailures=0
 summary.allowListEntries=2
 
 Active files scanned:
+  - Source/Core/Audio/CpuMeter.h
+  - Source/Core/Audio/HealthMonitor.h
+  - Source/Core/Audio/RuntimeParameterSnapshot.h
   - Source/Core/AudioEngine.cpp
   - Source/Core/DSP/Global/ChannelStrip.cpp
   - Source/Core/DSP/Global/InputChain.cpp
@@ -45,6 +50,30 @@ Allowlist entries:
   - file=Source/Core/AudioEngine.cpp pattern=graph_rebuild reason=Atomic flag only; rebuild is executed on control thread.
 
 No FAIL findings in active audio routes.
+
+RuntimeGraphManager contract checks: PASS
+
+RuntimeGraphManager contract checks detail:
+  - [manager_method_exists] target=RuntimeGraphManager::getActiveRaw passed=True detail=found
+  - [manager_method_exists] target=RuntimeGraphManager::publish passed=True detail=found
+  - [manager_method_exists] target=RuntimeGraphManager::getActiveOwnerForControl passed=True detail=found
+  - [manager_method_exists] target=RuntimeGraphManager::cleanupRetired passed=True detail=found
+  - [process_uses_getActiveRaw] target=AudioEngine::process passed=True detail=callCount=1
+  - [process_no_buildGraphFromModelLocked] target=AudioEngine::process passed=True detail=no buildGraphFromModelLocked call in process
+  - [process_no_graphbuilder_build] target=AudioEngine::process passed=True detail=no GraphBuilder::build call in process
+  - [process_no_routingmixer] target=AudioEngine::process passed=True detail=RoutingMixer not referenced
+  - [drywet_no_graphruntime] target=DryWetMixer passed=True detail=not present
+  - [drywet_no_processblock] target=DryWetMixer passed=True detail=not present
+  - [drywet_no_session_logger] target=DryWetMixer passed=True detail=not present
+  - [drywet_no_juce_string] target=DryWetMixer passed=True detail=not present
+  - [routingmixer_no_graphruntime] target=RoutingMixer passed=True detail=not present
+  - [routingmixer_no_processblock] target=RoutingMixer passed=True detail=not present
+  - [routingmixer_no_session_logger] target=RoutingMixer passed=True detail=not present
+  - [routingmixer_no_juce_string] target=RoutingMixer passed=True detail=not present
+  - [drywet_orchestrator_keeps_graph_call] target=AudioEngine::processWithSampleAccurateDryWet passed=True detail=callCount=2
+  - [graphbuilder_no_audioengine_include] target=GraphBuilder.h passed=True detail=AudioEngine.h include not present
+  - [buildGraph_wrapper_uses_graphbuilder] target=AudioEngine::buildGraphFromModelLocked passed=True detail=wrapper request+builder call found
+  - [getActiveRaw_atomic_load] target=RuntimeGraphManager::getActiveRaw passed=True detail=acquire-load return found
 
 Legacy findings (WARN, non-blocking):
   - [AudioBuffer::setSize in process path] Source/Effects/Pedals/ChorusPedal.h:107

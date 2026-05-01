@@ -1,16 +1,21 @@
 {
-    "generatedAt":  "2026-04-29T15:19:15.9109382-06:00",
+    "generatedAt":  "2026-05-01T13:26:02.9529564-06:00",
     "status":  "WARN",
     "summary":  {
-                    "activeFiles":  29,
-                    "activeRanges":  30,
+                    "activeFiles":  32,
+                    "activeRanges":  38,
                     "failures":  0,
                     "warnings":  4,
                     "allowlistedWarnings":  0,
                     "legacyWarnings":  4,
+                    "contractChecks":  20,
+                    "contractFailures":  0,
                     "allowListEntries":  2
                 },
     "activeFiles":  [
+                        "Source/Core/Audio/CpuMeter.h",
+                        "Source/Core/Audio/HealthMonitor.h",
+                        "Source/Core/Audio/RuntimeParameterSnapshot.h",
                         "Source/Core/AudioEngine.cpp",
                         "Source/Core/DSP/Global/ChannelStrip.cpp",
                         "Source/Core/DSP/Global/InputChain.cpp",
@@ -58,6 +63,131 @@
     "failures":  [
 
                  ],
+    "contractChecks":  [
+                           {
+                               "checkId":  "manager_method_exists",
+                               "target":  "RuntimeGraphManager::getActiveRaw",
+                               "passed":  true,
+                               "detail":  "found"
+                           },
+                           {
+                               "checkId":  "manager_method_exists",
+                               "target":  "RuntimeGraphManager::publish",
+                               "passed":  true,
+                               "detail":  "found"
+                           },
+                           {
+                               "checkId":  "manager_method_exists",
+                               "target":  "RuntimeGraphManager::getActiveOwnerForControl",
+                               "passed":  true,
+                               "detail":  "found"
+                           },
+                           {
+                               "checkId":  "manager_method_exists",
+                               "target":  "RuntimeGraphManager::cleanupRetired",
+                               "passed":  true,
+                               "detail":  "found"
+                           },
+                           {
+                               "checkId":  "process_uses_getActiveRaw",
+                               "target":  "AudioEngine::process",
+                               "passed":  true,
+                               "detail":  "callCount=1"
+                           },
+                           {
+                               "checkId":  "process_no_buildGraphFromModelLocked",
+                               "target":  "AudioEngine::process",
+                               "passed":  true,
+                               "detail":  "no buildGraphFromModelLocked call in process"
+                           },
+                           {
+                               "checkId":  "process_no_graphbuilder_build",
+                               "target":  "AudioEngine::process",
+                               "passed":  true,
+                               "detail":  "no GraphBuilder::build call in process"
+                           },
+                           {
+                               "checkId":  "process_no_routingmixer",
+                               "target":  "AudioEngine::process",
+                               "passed":  true,
+                               "detail":  "RoutingMixer not referenced"
+                           },
+                           {
+                               "checkId":  "drywet_no_graphruntime",
+                               "target":  "DryWetMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "drywet_no_processblock",
+                               "target":  "DryWetMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "drywet_no_session_logger",
+                               "target":  "DryWetMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "drywet_no_juce_string",
+                               "target":  "DryWetMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "routingmixer_no_graphruntime",
+                               "target":  "RoutingMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "routingmixer_no_processblock",
+                               "target":  "RoutingMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "routingmixer_no_session_logger",
+                               "target":  "RoutingMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "routingmixer_no_juce_string",
+                               "target":  "RoutingMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "drywet_orchestrator_keeps_graph_call",
+                               "target":  "AudioEngine::processWithSampleAccurateDryWet",
+                               "passed":  true,
+                               "detail":  "callCount=2"
+                           },
+                           {
+                               "checkId":  "graphbuilder_no_audioengine_include",
+                               "target":  "GraphBuilder.h",
+                               "passed":  true,
+                               "detail":  "AudioEngine.h include not present"
+                           },
+                           {
+                               "checkId":  "buildGraph_wrapper_uses_graphbuilder",
+                               "target":  "AudioEngine::buildGraphFromModelLocked",
+                               "passed":  true,
+                               "detail":  "wrapper request+builder call found"
+                           },
+                           {
+                               "checkId":  "getActiveRaw_atomic_load",
+                               "target":  "RuntimeGraphManager::getActiveRaw",
+                               "passed":  true,
+                               "detail":  "acquire-load return found"
+                           }
+                       ],
+    "contractFailures":  [
+
+                         ],
     "allowlistedWarnings":  [
 
                             ],

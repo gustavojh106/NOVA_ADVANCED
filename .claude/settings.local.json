@@ -70,7 +70,13 @@
       "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Rebuild)",
       "Bash(\"C:/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/amd64/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA.sln\" \"/t:Rebuild\" \"/p:Configuration=Debug\" \"/p:Platform=x64\" \"/m\")",
       "Bash(\"C:/Program Files/Microsoft Visual Studio/2022/Professional/MSBuild/Current/Bin/amd64/MSBuild.exe\" \"Builds/VisualStudio2022/NOVA.sln\" -t:Rebuild -p:Configuration=Debug -p:Platform=x64 -m)",
-      "Bash(powershell -ExecutionPolicy Bypass -File scripts/run-base-audio-validation.ps1)"
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/run-base-audio-validation.ps1)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Configuration Release -Target NOVA_StandalonePlugin)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Configuration Debug -Target NOVA_StandalonePlugin)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Configuration Release -Target NOVA_VST3)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/run-golden-audio-metrics.ps1)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/check-audio-thread-policy.ps1)",
+      "Bash(powershell *)"
     ]
   }
 }

@@ -2,9 +2,15 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <vector>
 
 #include "AudioEngine.h"
+#include "Audio/DryWetMixer.h"
+#include "Audio/GraphBuilder.h"
+#include "Audio/GraphRetirementQueue.h"
+#include "Audio/RuntimeGraphManager.h"
+#include "Audio/RoutingMixer.h"
 #include "PluginProcessor.h"
 #include "PluginStateModel.h"
 #include "PedalRegistry.h"
@@ -59,6 +65,20 @@ double computeWindowRms(const juce::AudioBuffer<float>& buffer, int startSample,
     }
 
     return count > 0 ? std::sqrt(sumSquares / (double)count) : 0.0;
+}
+
+double computeBufferPeak(const juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
+{
+    const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+    const int safeLength = juce::jlimit(0, buffer.getNumSamples() - safeStart, numSamples);
+    if (safeLength <= 0)
+        return 0.0;
+
+    double peak = 0.0;
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        peak = juce::jmax(peak, (double)buffer.getMagnitude(ch, safeStart, safeLength));
+
+    return peak;
 }
 
 double computeChannelWindowRms(const juce::AudioBuffer<float>& buffer, int channel, int startSample, int numSamples)
@@ -158,6 +178,29 @@ double computeBufferNullRms(const juce::AudioBuffer<float>& a, const juce::Audio
     }
 
     return count > 0 ? std::sqrt(sumSquares / (double)count) : 0.0;
+}
+
+double computeAdjacentDeltaPeakRange(const juce::AudioBuffer<float>& buffer, int startSample, int numSamples)
+{
+    const int safeStart = juce::jlimit(0, buffer.getNumSamples(), startSample);
+    const int safeLength = juce::jlimit(0, buffer.getNumSamples() - safeStart, numSamples);
+    if (safeLength <= 1)
+        return 0.0;
+
+    double peak = 0.0;
+    const int endSample = safeStart + safeLength;
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        for (int i = safeStart + 1; i < endSample; ++i)
+        {
+            const double delta = std::abs((double)buffer.getSample(ch, i)
+                - (double)buffer.getSample(ch, i - 1));
+            peak = juce::jmax(peak, delta);
+        }
+    }
+
+    return peak;
 }
 
 double computeFrequencyMagnitude(const juce::AudioBuffer<float>& buffer,
@@ -1849,6 +1892,134 @@ public:
                 "Output gain should survive reset on both channels");
         }
 
+        beginTest("GraphRetirementQueue preserves grace period and bounded cleanup");
+        {
+            struct DummyGraphRuntime
+            {
+                int tag = 0;
+            };
+
+            Nova::Audio::GraphRetirementQueue<DummyGraphRuntime> queue;
+
+            {
+                auto graph = std::make_shared<DummyGraphRuntime>();
+                graph->tag = 1;
+                std::weak_ptr<DummyGraphRuntime> weak = graph;
+
+                queue.retire(std::move(graph), 10);
+                expectEquals((int)queue.size(), 1);
+
+                queue.cleanup(9);
+                expectEquals((int)queue.size(), 1);
+                expect(!weak.expired(), "Graph should stay retained before its release block");
+
+                queue.cleanup(10);
+                expectEquals((int)queue.size(), 0);
+                expect(weak.expired(), "Graph should be released at its release block");
+            }
+
+            std::vector<std::weak_ptr<DummyGraphRuntime>> retired;
+            retired.reserve(12);
+
+            for (int i = 0; i < 12; ++i)
+            {
+                auto graph = std::make_shared<DummyGraphRuntime>();
+                graph->tag = i;
+                retired.push_back(graph);
+                queue.retire(std::move(graph), 100);
+            }
+
+            queue.cleanup(0);
+            expectEquals((int)queue.size(), 8);
+
+            for (int i = 0; i < 4; ++i)
+                expect(retired[(size_t)i].expired(), "Bounded cleanup should release oldest retired graph " + juce::String(i));
+
+            for (int i = 4; i < 12; ++i)
+                expect(!retired[(size_t)i].expired(), "Bounded cleanup should keep newest retired graph " + juce::String(i));
+
+            queue.clear();
+            expectEquals((int)queue.size(), 0);
+
+            for (const auto& weak : retired)
+                expect(weak.expired(), "clear() should release all retired graphs");
+        }
+
+        beginTest("RuntimeGraphManager publishes raw pointer before retiring old graph");
+        {
+            struct DummyGraphRuntime
+            {
+                int latencySamples = 0;
+            };
+
+            Nova::Audio::RuntimeGraphManager<DummyGraphRuntime> manager;
+
+            auto first = std::make_shared<DummyGraphRuntime>();
+            first->latencySamples = 7;
+            auto* firstRaw = first.get();
+            std::weak_ptr<DummyGraphRuntime> firstWeak = first;
+
+            bool callbackSawPublishedRaw = false;
+            int callbackLatency = -1;
+            expect(manager.publish(std::move(first), 3,
+                [&](int latencySamples)
+                {
+                    callbackSawPublishedRaw = manager.getActiveRaw() == firstRaw;
+                    callbackLatency = latencySamples;
+                }));
+
+            expect(callbackSawPublishedRaw, "Publish callback should run after raw pointer publication");
+            expectEquals(callbackLatency, 7);
+            expect(manager.getActiveRaw() == firstRaw, "Active raw pointer should point at the published graph");
+            expectEquals(manager.getLatencySamples(), 7);
+            expect(!firstWeak.expired(), "Active owner should retain the first graph");
+
+            auto second = std::make_shared<DummyGraphRuntime>();
+            second->latencySamples = 11;
+            auto* secondRaw = second.get();
+            std::weak_ptr<DummyGraphRuntime> secondWeak = second;
+
+            expect(manager.publish(std::move(second), 4,
+                [&](int latencySamples)
+                {
+                    callbackSawPublishedRaw = manager.getActiveRaw() == secondRaw;
+                    callbackLatency = latencySamples;
+                }));
+
+            expect(callbackSawPublishedRaw, "Second publish callback should see the new raw pointer");
+            expectEquals(callbackLatency, 11);
+            expect(manager.getActiveRaw() == secondRaw, "Active raw pointer should move to the second graph");
+            expectEquals(manager.getLatencySamples(), 11);
+
+            manager.cleanupRetired(11);
+            expect(!firstWeak.expired(), "Retired graph should stay alive before current block reaches publish block plus grace");
+
+            manager.cleanupRetired(12);
+            expect(firstWeak.expired(), "Retired graph should release after exactly 8 grace blocks");
+            expect(!secondWeak.expired(), "Active graph should remain owned after retired cleanup");
+
+            manager.clear();
+            expect(manager.getActiveRaw() == nullptr, "clear() should clear the active raw pointer");
+            expect(secondWeak.expired(), "clear() should release the active graph owner");
+        }
+
+        beginTest("AudioEngine publishes an active graph immediately after prepare");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            auto report = engine.buildDiagnosticReport();
+            expect(report.contains("activeGraph=true"), "prepare() should publish a non-null active graph: " + report);
+            expectEquals((int)engine.getNodes(Nova::ChainID::LineA).size(), 0);
+            expectEquals((int)engine.getNodes(Nova::ChainID::LineB).size(), 0);
+
+            engine.setEngineEnabled(false);
+            engine.synchronizeProcessingState();
+            report = engine.buildDiagnosticReport();
+            expect(report.contains("activeGraph=true"), "Disabled engine should still keep an active graph owner: " + report);
+            expect(report.contains("engineOn=false"), "Disabled engine state should be reflected in diagnostics: " + report);
+        }
+
         beginTest("AudioEngine single-line mode preserves clean input within conditioning tolerance");
         {
             AudioEngine engine;
@@ -2185,6 +2356,1212 @@ public:
             expectStereoSamplesMatch(*this, buffer, left, right, 2.0e-4f);
         }
 
+        beginTest("AudioEngine dry-only path stays exact with latency-relevant wet chain");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, -1, Nova::ZoneID::Pre, "dryonly-overdrive");
+            engine.addPedal("Delay", Nova::ChainID::LineA, -1, Nova::ZoneID::FX, "dryonly-delay");
+            engine.synchronizeProcessingState();
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 0.0f;
+            params.outputLimiterDb = 0.0f;
+            params.outputVolumeDb = 0.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 16);
+
+            const int chainLatency = engine.getLatencyNumSamples();
+            expect(chainLatency > 0, "Latency-relevant wet chain should still report positive graph latency");
+
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            juce::AudioBuffer<float> inputCopy(2, kBlockSize);
+            juce::MidiBuffer midi;
+
+            bool finite = true;
+            double maxNullRms = 0.0;
+            int globalSample = 0;
+
+            for (int blockIndex = 0; blockIndex < 24; ++blockIndex)
+            {
+                for (int i = 0; i < kBlockSize; ++i, ++globalSample)
+                {
+                    const float t = (float)((double)globalSample / kSampleRate);
+                    block.setSample(0, i, 0.18f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t));
+                    block.setSample(1, i, 0.13f * std::sin(juce::MathConstants<float>::twoPi * 277.0f * t + 0.21f));
+                }
+
+                inputCopy.makeCopyOf(block);
+                engine.process(block, midi);
+
+                finite = finite && bufferHasOnlyFiniteSamples(block);
+                maxNullRms = juce::jmax(maxNullRms, computeBufferNullRms(inputCopy, block));
+                expectEquals(engine.getLatencyNumSamples(), chainLatency);
+            }
+
+            expect(finite, "Dry-only render with wet chain present must stay finite");
+            expect(maxNullRms < 2.5e-4,
+                "Dry-only path should remain exact and drift-free, maxNullRms=" + juce::String(maxNullRms, 10));
+        }
+
+        beginTest("AudioEngine wet-only path reflects topology changes and stays audible");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            params.outputLimiterDb = 0.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 16);
+
+            juce::AudioBuffer<float> source(2, kBlockSize);
+            for (int i = 0; i < kBlockSize; ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                source.setSample(0, i, 0.16f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t));
+                source.setSample(1, i, 0.12f * std::sin(juce::MathConstants<float>::twoPi * 330.0f * t + 0.19f));
+            }
+
+            auto renderOneBlock = [&](const juce::AudioBuffer<float>& input)
+            {
+                juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+                output.makeCopyOf(input);
+                juce::MidiBuffer midi;
+                engine.process(output, midi);
+                return output;
+            };
+
+            const auto baseline = renderOneBlock(source);
+            expect(bufferHasOnlyFiniteSamples(baseline), "Baseline wet-only render must be finite");
+            expect(computeWindowRms(baseline, 0, baseline.getNumSamples()) > 1.0e-4,
+                "Baseline wet-only render must stay audible");
+
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "wet-only-overdrive");
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 12);
+
+            const auto withPedal = renderOneBlock(source);
+            expect(bufferHasOnlyFiniteSamples(withPedal), "Wet-only render with pedal must be finite");
+            expect(computeWindowRms(withPedal, 0, withPedal.getNumSamples()) > 1.0e-4,
+                "Wet-only render with pedal must stay audible");
+            expect(computeBufferNullRms(baseline, withPedal) > 3.0e-3,
+                "Topology change should alter wet-only output");
+
+            engine.removePedal(Nova::ChainID::LineA, 0);
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 16);
+
+            const auto restored = renderOneBlock(source);
+            expect(bufferHasOnlyFiniteSamples(restored), "Wet-only restored render must be finite");
+            expect(computeBufferNullRms(baseline, restored) < 4.5e-3,
+                "Removing the pedal should restore the baseline wet-only clean path");
+        }
+
+        beginTest("AudioEngine sample-accurate dry-wet ramp avoids abrupt discontinuities");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, -1, Nova::ZoneID::Pre, "ramp-overdrive");
+            engine.synchronizeProcessingState();
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 0.0f;
+            params.outputLimiterDb = 0.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 16);
+
+            constexpr int totalBlocks = 24;
+            constexpr int mixUpAtBlock = 8;
+            constexpr int mixDownAtBlock = 16;
+            juce::AudioBuffer<float> captured(2, kBlockSize * totalBlocks);
+            juce::MidiBuffer midi;
+
+            int globalSample = 0;
+            for (int blockIndex = 0; blockIndex < totalBlocks; ++blockIndex)
+            {
+                if (blockIndex == mixUpAtBlock)
+                {
+                    params.outputMixRaw = 100.0f;
+                    engine.updateGlobalParams(params);
+                }
+                else if (blockIndex == mixDownAtBlock)
+                {
+                    params.outputMixRaw = 0.0f;
+                    engine.updateGlobalParams(params);
+                }
+
+                juce::AudioBuffer<float> block(2, kBlockSize);
+                for (int i = 0; i < kBlockSize; ++i, ++globalSample)
+                {
+                    const float t = (float)((double)globalSample / kSampleRate);
+                    block.setSample(0, i, 0.17f * std::sin(juce::MathConstants<float>::twoPi * 247.0f * t));
+                    block.setSample(1, i, 0.11f * std::sin(juce::MathConstants<float>::twoPi * 311.0f * t + 0.23f));
+                }
+
+                engine.process(block, midi);
+                expect(bufferHasOnlyFiniteSamples(block), "Ramp block must stay finite");
+
+                for (int ch = 0; ch < 2; ++ch)
+                    captured.copyFrom(ch, blockIndex * kBlockSize, block, ch, 0, kBlockSize);
+            }
+
+            const int preStart = 2 * kBlockSize;
+            const int preLength = 4 * kBlockSize;
+            const int transitionUpStart = (mixUpAtBlock - 1) * kBlockSize;
+            const int transitionUpLength = 3 * kBlockSize;
+            const int transitionDownStart = (mixDownAtBlock - 1) * kBlockSize;
+            const int transitionDownLength = 3 * kBlockSize;
+            const int postStart = (mixDownAtBlock + 2) * kBlockSize;
+            const int postLength = 4 * kBlockSize;
+
+            const double preDelta = computeAdjacentDeltaPeakRange(captured, preStart, preLength);
+            const double transitionUpDelta = computeAdjacentDeltaPeakRange(captured, transitionUpStart, transitionUpLength);
+            const double transitionDownDelta = computeAdjacentDeltaPeakRange(captured, transitionDownStart, transitionDownLength);
+            const double postDelta = computeAdjacentDeltaPeakRange(captured, postStart, postLength);
+            const double steadyReference = juce::jmax(preDelta, postDelta);
+
+            expect(transitionUpDelta < (steadyReference * 30.0 + 0.02) && transitionUpDelta < 0.30,
+                "Dry->wet ramp should avoid abrupt jump, transitionDelta="
+                    + juce::String(transitionUpDelta, 8)
+                    + ", steadyRef="
+                    + juce::String(steadyReference, 8));
+            expect(transitionDownDelta < (steadyReference * 30.0 + 0.02) && transitionDownDelta < 0.30,
+                "Wet->dry ramp should avoid abrupt jump, transitionDelta="
+                    + juce::String(transitionDownDelta, 8)
+                    + ", steadyRef="
+                    + juce::String(steadyReference, 8));
+        }
+
+        beginTest("DryWetMixer scratch preparation and fallback boundaries remain canonical");
+        {
+            Nova::Audio::DryWetMixer mixer;
+            constexpr int kDryWetMinimumScratchBlocks = 8192;
+
+            mixer.prepareScratch(64, 1, kDryWetMinimumScratchBlocks);
+            expectEquals(mixer.getScratchBlockCapacity(), kDryWetMinimumScratchBlocks);
+            expectEquals(mixer.getScratchChannelCapacity(), 2);
+            mixer.prepareDryDelay(128);
+            expectEquals(mixer.getDryDelayBufferSize(), 128 + kDryWetMinimumScratchBlocks + 8);
+            mixer.setLatencySamples(512);
+            expectEquals(mixer.getLatencySamples(), 128);
+            expect(mixer.canUseScratch(kDryWetMinimumScratchBlocks));
+            expect(!mixer.shouldUseOversizedFallback(kDryWetMinimumScratchBlocks));
+            expect(mixer.shouldUseOversizedFallback(kDryWetMinimumScratchBlocks + 1));
+
+            mixer.prepareScratch(4096, 4, kDryWetMinimumScratchBlocks);
+            const int expectedCapacity = juce::jmax(kDryWetMinimumScratchBlocks, 4096 * 4);
+            expectEquals(mixer.getScratchBlockCapacity(), expectedCapacity);
+            expectEquals(mixer.getScratchChannelCapacity(), 4);
+            expect(mixer.canUseScratch(expectedCapacity));
+            expect(!mixer.shouldUseOversizedFallback(expectedCapacity));
+            expect(mixer.shouldUseOversizedFallback(expectedCapacity + 1));
+        }
+
+        beginTest("DryWetMixer capture and mixed output stay deterministic and range-safe");
+        {
+            Nova::Audio::DryWetMixer mixer;
+            constexpr int kDryWetMinimumScratchBlocks = 8192;
+            mixer.prepareScratch(64, 2, kDryWetMinimumScratchBlocks);
+            mixer.prepareDryDelay(64);
+            mixer.resetMix(0.25f);
+
+            constexpr int numSamples = 6;
+            constexpr int totalSamples = 12;
+
+            juce::AudioBuffer<float> input(2, totalSamples);
+            juce::AudioBuffer<float> wetBuffer(2, totalSamples);
+            input.clear();
+            wetBuffer.clear();
+
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                input.setSample(0, i, 0.1f * (float)(i + 1));
+                input.setSample(1, i, -0.05f * (float)(i + 1));
+                wetBuffer.setSample(0, i, 0.02f * (float)(i + 1));
+                wetBuffer.setSample(1, i, 0.03f * (float)(i + 1));
+            }
+
+            juce::AudioBuffer<float> wetBefore(wetBuffer.getNumChannels(), wetBuffer.getNumSamples());
+            wetBefore.makeCopyOf(wetBuffer);
+
+            const int dryDelayWriteIndex = mixer.getDryDelayWriteIndex();
+            mixer.setLatencySamples(0);
+            mixer.captureDry(input, 2, numSamples);
+            mixer.mixCapturedDryWithWet(wetBuffer, 2, numSamples);
+
+            expect(bufferHasOnlyFiniteSamples(wetBuffer), "DryWetMixer mixed output must remain finite");
+            expectEquals(mixer.getDryDelayWriteIndex(), dryDelayWriteIndex);
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const float expectedL = input.getSample(0, i) * 0.75f + wetBefore.getSample(0, i) * 0.25f;
+                const float expectedR = input.getSample(1, i) * 0.75f + wetBefore.getSample(1, i) * 0.25f;
+                expect(approximatelyEqual(wetBuffer.getSample(0, i), expectedL, 1.0e-6f),
+                    "DryWetMixer mixed left sample mismatch at index " + juce::String(i));
+                expect(approximatelyEqual(wetBuffer.getSample(1, i), expectedR, 1.0e-6f),
+                    "DryWetMixer mixed right sample mismatch at index " + juce::String(i));
+            }
+
+            for (int i = numSamples; i < totalSamples; ++i)
+            {
+                expect(approximatelyEqual(wetBuffer.getSample(0, i), wetBefore.getSample(0, i), 1.0e-7f),
+                    "DryWetMixer should not write beyond numSamples on left channel");
+                expect(approximatelyEqual(wetBuffer.getSample(1, i), wetBefore.getSample(1, i), 1.0e-7f),
+                    "DryWetMixer should not write beyond numSamples on right channel");
+            }
+        }
+
+        beginTest("DryWetMixer nonzero latency preserves read-before-write and write-index state");
+        {
+            Nova::Audio::DryWetMixer mixer;
+            constexpr int kDryWetMinimumScratchBlocks = 16;
+            constexpr int latency = 2;
+            constexpr int numSamples = 6;
+            mixer.prepareScratch(numSamples, 2, kDryWetMinimumScratchBlocks);
+            mixer.prepareDryDelay(8);
+            mixer.resetMix(0.0f);
+            mixer.setLatencySamples(latency);
+
+            juce::AudioBuffer<float> dryBlock(2, numSamples);
+            juce::AudioBuffer<float> wetBlock(2, numSamples);
+            dryBlock.clear();
+            wetBlock.clear();
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                dryBlock.setSample(0, i, 1.0f + (float)i);
+                dryBlock.setSample(1, i, -10.0f - (float)i);
+            }
+
+            mixer.captureDry(dryBlock, 2, numSamples);
+            mixer.mixCapturedDryWithWet(wetBlock, 2, numSamples);
+
+            expectEquals(mixer.getDryDelayWriteIndex(), numSamples);
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const float expectedL = i < latency ? 0.0f : dryBlock.getSample(0, i - latency);
+                const float expectedR = i < latency ? 0.0f : dryBlock.getSample(1, i - latency);
+                expect(approximatelyEqual(wetBlock.getSample(0, i), expectedL, 1.0e-7f),
+                    "Nonzero-latency left output mismatch at index " + juce::String(i));
+                expect(approximatelyEqual(wetBlock.getSample(1, i), expectedR, 1.0e-7f),
+                    "Nonzero-latency right output mismatch at index " + juce::String(i));
+            }
+
+            juce::AudioBuffer<float> nextDry(2, numSamples);
+            juce::AudioBuffer<float> nextWet(2, numSamples);
+            nextDry.clear();
+            nextWet.clear();
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                nextDry.setSample(0, i, 101.0f + (float)i);
+                nextDry.setSample(1, i, -101.0f - (float)i);
+            }
+
+            mixer.captureDry(nextDry, 2, numSamples);
+            mixer.mixCapturedDryWithWet(nextWet, 2, numSamples);
+
+            expectEquals(mixer.getDryDelayWriteIndex(), numSamples * 2);
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const float expectedL = i < latency ? dryBlock.getSample(0, numSamples - latency + i)
+                    : nextDry.getSample(0, i - latency);
+                const float expectedR = i < latency ? dryBlock.getSample(1, numSamples - latency + i)
+                    : nextDry.getSample(1, i - latency);
+                expect(approximatelyEqual(nextWet.getSample(0, i), expectedL, 1.0e-7f),
+                    "Second nonzero-latency left output mismatch at index " + juce::String(i));
+                expect(approximatelyEqual(nextWet.getSample(1, i), expectedR, 1.0e-7f),
+                    "Second nonzero-latency right output mismatch at index " + juce::String(i));
+            }
+        }
+
+        beginTest("DryWetMixer delay reset and latency clamps remain stable");
+        {
+            Nova::Audio::DryWetMixer mixer;
+            constexpr int kDryWetMinimumScratchBlocks = 16;
+            constexpr int numSamples = 5;
+            mixer.prepareScratch(numSamples, 2, kDryWetMinimumScratchBlocks);
+            mixer.prepareDryDelay(4);
+            mixer.resetMix(0.0f);
+
+            expectEquals(mixer.getDryDelayBufferSize(), 4 + mixer.getScratchBlockCapacity() + 8);
+            mixer.setLatencySamples(99);
+            expectEquals(mixer.getLatencySamples(), 4);
+            mixer.setLatencySamples(-5);
+            expectEquals(mixer.getLatencySamples(), 0);
+
+            const int blockClamp = Nova::Audio::DryWetMixer::clampLatencyForDelay(99,
+                mixer.getDryDelayBufferSize(),
+                numSamples);
+            expectEquals(blockClamp, mixer.getDryDelayBufferSize() - numSamples - 1);
+
+            juce::AudioBuffer<float> dryBlock(2, numSamples);
+            juce::AudioBuffer<float> wetBlock(2, numSamples);
+            dryBlock.clear();
+            wetBlock.clear();
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                dryBlock.setSample(0, i, 0.25f * (float)(i + 1));
+                dryBlock.setSample(1, i, -0.125f * (float)(i + 1));
+            }
+
+            const int writeIndexBeforeZeroLatency = mixer.getDryDelayWriteIndex();
+            mixer.captureDry(dryBlock, 2, numSamples);
+            mixer.mixCapturedDryWithWet(wetBlock, 2, numSamples);
+            expectEquals(mixer.getDryDelayWriteIndex(), writeIndexBeforeZeroLatency);
+
+            for (int i = 0; i < numSamples; ++i)
+            {
+                expect(approximatelyEqual(wetBlock.getSample(0, i), dryBlock.getSample(0, i), 1.0e-7f),
+                    "Zero-latency reset test left output mismatch at index " + juce::String(i));
+                expect(approximatelyEqual(wetBlock.getSample(1, i), dryBlock.getSample(1, i), 1.0e-7f),
+                    "Zero-latency reset test right output mismatch at index " + juce::String(i));
+            }
+
+            mixer.setLatencySamples(3);
+            wetBlock.clear();
+            mixer.captureDry(dryBlock, 2, numSamples);
+            mixer.mixCapturedDryWithWet(wetBlock, 2, numSamples);
+            expectEquals(mixer.getDryDelayWriteIndex(), numSamples);
+
+            mixer.resetDryDelayLine();
+            expectEquals(mixer.getDryDelayWriteIndex(), 0);
+
+            wetBlock.clear();
+            mixer.captureDry(dryBlock, 2, numSamples);
+            mixer.mixCapturedDryWithWet(wetBlock, 2, numSamples);
+            expectEquals(mixer.getDryDelayWriteIndex(), numSamples);
+
+            for (int i = 0; i < 3; ++i)
+            {
+                expect(approximatelyEqual(wetBlock.getSample(0, i), 0.0f, 1.0e-7f),
+                    "Reset delay line should clear left delayed sample at index " + juce::String(i));
+                expect(approximatelyEqual(wetBlock.getSample(1, i), 0.0f, 1.0e-7f),
+                    "Reset delay line should clear right delayed sample at index " + juce::String(i));
+            }
+        }
+
+        beginTest("DryWetMixer ramp state and endpoint classification remain stable");
+        {
+            Nova::Audio::DryWetMixer mixer;
+            constexpr double kMixRampSeconds = 0.008;
+            const int rampSamples = juce::jmax(1, juce::roundToInt(kSampleRate * kMixRampSeconds));
+            mixer.prepareMix(kSampleRate, kMixRampSeconds);
+
+            mixer.resetMix(0.0f);
+            expect(approximatelyEqual(mixer.getCurrentMix(), 0.0f, 1.0e-7f));
+            expectEquals((int)mixer.classifyEndpoint(), (int)Nova::Audio::DryWetMixer::EndpointPath::Dry);
+
+            mixer.setTargetMix(2.0f);
+            expectEquals((int)mixer.classifyEndpoint(), (int)Nova::Audio::DryWetMixer::EndpointPath::Mixed);
+            mixer.consumeRamp(rampSamples - 1);
+            expectEquals((int)mixer.classifyEndpoint(), (int)Nova::Audio::DryWetMixer::EndpointPath::Mixed);
+            mixer.consumeRamp(1);
+            expect(approximatelyEqual(mixer.getCurrentMix(), 1.0f, 1.0e-5f));
+            expectEquals((int)mixer.classifyEndpoint(), (int)Nova::Audio::DryWetMixer::EndpointPath::Wet);
+
+            mixer.resetMix(1.0f);
+            expectEquals((int)mixer.classifyEndpoint(), (int)Nova::Audio::DryWetMixer::EndpointPath::Wet);
+            mixer.setTargetMix(-1.0f);
+            expectEquals((int)mixer.classifyEndpoint(), (int)Nova::Audio::DryWetMixer::EndpointPath::Mixed);
+            mixer.processWetEndpoint(rampSamples - 1);
+            expectEquals((int)mixer.classifyEndpoint(), (int)Nova::Audio::DryWetMixer::EndpointPath::Mixed);
+            mixer.processWetEndpoint(1);
+            expect(approximatelyEqual(mixer.getCurrentMix(), 0.0f, 1.0e-5f));
+            expectEquals((int)mixer.classifyEndpoint(), (int)Nova::Audio::DryWetMixer::EndpointPath::Dry);
+
+            mixer.resetMix(0.0f);
+            mixer.processDryEndpoint(64);
+            expect(approximatelyEqual(mixer.getCurrentMix(), 0.0f, 1.0e-7f));
+
+            mixer.resetMix(1.0f);
+            mixer.processWetEndpoint(64);
+            expect(approximatelyEqual(mixer.getCurrentMix(), 1.0f, 1.0e-7f));
+        }
+
+        beginTest("RoutingMixer LineA_Only targets preserve current GraphBuilder policy");
+        {
+            using Mixer = Nova::Audio::RoutingMixer;
+
+            const auto targets = Mixer::makeTargets(Nova::SwitcherMode::LineA_Only,
+                { 0.0005f, -0.25f, 0.75f },
+                { 0.0005f, 0.50f, 0.25f });
+
+            expect(!targets.lineA.muted, "LineA_Only should keep line A active");
+            expect(targets.lineB.muted, "LineA_Only should mute line B");
+            expect(approximatelyEqual(targets.lineA.gain, 1.0f),
+                "LineA_Only should apply low-gain fallback to active line A");
+            expect(approximatelyEqual(targets.lineA.pan, -0.25f), "LineA_Only should pass line A pan");
+            expect(approximatelyEqual(targets.lineA.width, 0.75f), "LineA_Only should pass line A width");
+            expect(approximatelyEqual(targets.lineB.gain, 0.0f),
+                "LineA_Only should force muted line B gain to zero");
+            expect(approximatelyEqual(targets.lineB.pan, 0.50f), "LineA_Only should pass line B pan target");
+            expect(approximatelyEqual(targets.lineB.width, 0.25f), "LineA_Only should pass line B width target");
+
+            const auto mutedFallbackProbe = Mixer::makeTargets(Nova::SwitcherMode::LineA_Only,
+                { 0.80f, 0.0f, 1.0f },
+                { -0.50f, 0.0f, 1.0f });
+            expect(approximatelyEqual(mutedFallbackProbe.lineB.gain, 0.0f),
+                "LineA_Only should not apply low-gain fallback to muted line B");
+        }
+
+        beginTest("RoutingMixer LineB_Only targets preserve current GraphBuilder policy");
+        {
+            using Mixer = Nova::Audio::RoutingMixer;
+
+            const auto targets = Mixer::makeTargets(Nova::SwitcherMode::LineB_Only,
+                { 0.0005f, -0.50f, 0.25f },
+                { 0.0f, 0.25f, 0.80f });
+
+            expect(targets.lineA.muted, "LineB_Only should mute line A");
+            expect(!targets.lineB.muted, "LineB_Only should keep line B active");
+            expect(approximatelyEqual(targets.lineA.gain, 0.0f),
+                "LineB_Only should force muted line A gain to zero");
+            expect(approximatelyEqual(targets.lineA.pan, -0.50f), "LineB_Only should pass line A pan target");
+            expect(approximatelyEqual(targets.lineA.width, 0.25f), "LineB_Only should pass line A width target");
+            expect(approximatelyEqual(targets.lineB.gain, 1.0f),
+                "LineB_Only should apply low-gain fallback to active line B");
+            expect(approximatelyEqual(targets.lineB.pan, 0.25f), "LineB_Only should pass line B pan");
+            expect(approximatelyEqual(targets.lineB.width, 0.80f), "LineB_Only should pass line B width");
+
+            const auto mutedFallbackProbe = Mixer::makeTargets(Nova::SwitcherMode::LineB_Only,
+                { -0.50f, 0.0f, 1.0f },
+                { 0.80f, 0.0f, 1.0f });
+            expect(approximatelyEqual(mutedFallbackProbe.lineA.gain, 0.0f),
+                "LineB_Only should not apply low-gain fallback to muted line A");
+        }
+
+        beginTest("RoutingMixer Dual_Parallel targets preserve fallback then compensation policy");
+        {
+            using Mixer = Nova::Audio::RoutingMixer;
+            const float comp = Mixer::dualParallelCompensation();
+
+            const auto targets = Mixer::makeTargets(Nova::SwitcherMode::Dual_Parallel,
+                { 0.0005f, -0.40f, 0.60f },
+                { 2.0f, 0.35f, 0.90f });
+
+            expect(approximatelyEqual(comp, 0.5f), "Dual compensation should remain 0.5");
+            expect(!targets.lineA.muted, "Dual_Parallel should keep line A active");
+            expect(!targets.lineB.muted, "Dual_Parallel should keep line B active");
+            expect(approximatelyEqual(targets.lineA.gain, 1.0f * comp),
+                "Dual_Parallel should apply line A fallback before compensation");
+            expect(approximatelyEqual(targets.lineB.gain, 2.0f * comp),
+                "Dual_Parallel should apply line B compensation after preserving gain");
+            expect(approximatelyEqual(targets.lineA.pan, -0.40f), "Dual_Parallel should pass line A pan");
+            expect(approximatelyEqual(targets.lineA.width, 0.60f), "Dual_Parallel should pass line A width");
+            expect(approximatelyEqual(targets.lineB.pan, 0.35f), "Dual_Parallel should pass line B pan");
+            expect(approximatelyEqual(targets.lineB.width, 0.90f), "Dual_Parallel should pass line B width");
+        }
+
+        beginTest("AudioEngine routing modes and strip controls remain finite and mode-correct");
+        {
+            constexpr int kRoutingRenderBlocks = 24;
+            constexpr int kRoutingSettleBlocks = 16;
+            constexpr int kRoutingMeasureStartBlocks = 8;
+            constexpr int kRoutingMeasureBlocks = 12;
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.outputMixRaw = 100.0f;
+            params.outputLimiterDb = 0.0f;
+            params.outputVolumeDb = 0.0f;
+            params.gainA = 1.0f;
+            params.gainB = 1.0f;
+            params.panA = 0.0f;
+            params.panB = 0.0f;
+            params.widthA = 1.0f;
+            params.widthB = 1.0f;
+
+            auto makeConfiguredEngine = [&]()
+            {
+                auto engine = std::make_unique<AudioEngine>();
+                engine->prepare(kSampleRate, kBlockSize, 2, 2);
+                engine->addPedal("High Gain Amp", Nova::ChainID::LineA, -1, Nova::ZoneID::Amp, "route-a-highgain");
+                engine->addPedal("Clean Amp", Nova::ChainID::LineB, -1, Nova::ZoneID::Amp, "route-b-clean");
+                engine->synchronizeProcessingState();
+                engine->updateGlobalParams(params);
+                engine->setEngineEnabled(true);
+                warmUpEngine(*engine, kBlockSize, 20);
+                return engine;
+            };
+
+            juce::AudioBuffer<float> source(2, kBlockSize * kRoutingRenderBlocks);
+            for (int i = 0; i < source.getNumSamples(); ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                source.setSample(0, i, 0.20f * std::sin(juce::MathConstants<float>::twoPi * 146.0f * t));
+                source.setSample(1, i, 0.15f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t + 0.29f));
+            }
+
+            const int routingMeasureStartSample = kBlockSize * kRoutingMeasureStartBlocks;
+            const int routingMeasureLengthSamples = kBlockSize * kRoutingMeasureBlocks;
+            const int sourceBlockCount = source.getNumSamples() / kBlockSize;
+
+            struct RoutingRender
+            {
+                juce::AudioBuffer<float> output;
+                OutputChainProcessor::DebugSnapshot snapshot;
+            };
+
+            auto renderWithParams = [&](const AudioEngine::RuntimeGlobalParams& modeParams)
+            {
+                auto engine = makeConfiguredEngine();
+                engine->updateGlobalParams(modeParams);
+                engine->synchronizeProcessingState();
+                warmUpEngine(*engine, kBlockSize, 6);
+
+                juce::MidiBuffer settleMidi;
+                for (int settleBlock = 0; settleBlock < kRoutingSettleBlocks; ++settleBlock)
+                {
+                    const int sourceBlock = settleBlock % juce::jmax(1, sourceBlockCount);
+                    const int sourceOffset = sourceBlock * kBlockSize;
+                    juce::AudioBuffer<float> block(2, kBlockSize);
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.copyFrom(ch, 0, source, ch, sourceOffset, kBlockSize);
+                    engine->process(block, settleMidi);
+                }
+
+                juce::AudioBuffer<float> output(source.getNumChannels(), source.getNumSamples());
+                output.clear();
+                juce::MidiBuffer midi;
+
+                for (int offset = 0; offset < source.getNumSamples(); offset += kBlockSize)
+                {
+                    juce::AudioBuffer<float> block(2, kBlockSize);
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.copyFrom(ch, 0, source, ch, offset, kBlockSize);
+
+                    engine->process(block, midi);
+                    for (int ch = 0; ch < 2; ++ch)
+                        output.copyFrom(ch, offset, block, ch, 0, kBlockSize);
+                }
+
+                RoutingRender result{ std::move(output), engine->getOutputChainDebugSnapshot() };
+                return result;
+            };
+
+            auto modeA = params;
+            modeA.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            const auto renderA = renderWithParams(modeA);
+            const auto& outA = renderA.output;
+
+            auto modeB = params;
+            modeB.switchMode = (int)Nova::SwitcherMode::LineB_Only;
+            const auto renderB = renderWithParams(modeB);
+            const auto& outB = renderB.output;
+
+            auto modeDual = params;
+            modeDual.switchMode = (int)Nova::SwitcherMode::Dual_Parallel;
+            const auto renderDual = renderWithParams(modeDual);
+            const auto& outDual = renderDual.output;
+
+            expect(bufferHasOnlyFiniteSamples(outA), "LineA-only output must remain finite");
+            expect(bufferHasOnlyFiniteSamples(outB), "LineB-only output must remain finite");
+            expect(bufferHasOnlyFiniteSamples(outDual), "Dual-parallel output must remain finite");
+
+            const double rmsA = computeWindowRms(outA, routingMeasureStartSample, routingMeasureLengthSamples);
+            const double rmsB = computeWindowRms(outB, routingMeasureStartSample, routingMeasureLengthSamples);
+            const double rmsDual = computeWindowRms(outDual, routingMeasureStartSample, routingMeasureLengthSamples);
+            const double maxSingleRms = juce::jmax(rmsA, rmsB);
+            const double dualToSingleRatio = rmsDual / juce::jmax(1.0e-9, maxSingleRms);
+            const double dualPeak = computeBufferPeak(outDual, routingMeasureStartSample, routingMeasureLengthSamples);
+            const auto dualSnapshot = renderDual.snapshot;
+
+            const juce::String routingMetrics = " metrics: rmsA="
+                + juce::String(rmsA, 8)
+                + ", rmsB="
+                + juce::String(rmsB, 8)
+                + ", rmsDual="
+                + juce::String(rmsDual, 8)
+                + ", dualToMax="
+                + juce::String(dualToSingleRatio, 8)
+                + ", outputMixRaw="
+                + juce::String(modeDual.outputMixRaw, 3)
+                + ", switchMode="
+                + juce::String(modeDual.switchMode)
+                + ", gainA="
+                + juce::String(modeDual.gainA, 6)
+                + ", gainB="
+                + juce::String(modeDual.gainB, 6)
+                + ", peakDual="
+                + juce::String(dualPeak, 8)
+                + ", limiterActiveBlocks="
+                + juce::String(dualSnapshot.limiterActiveBlocks);
+
+            expect(rmsA > 1.0e-4 && rmsB > 1.0e-4 && rmsDual > 1.0e-4,
+                "Routing modes should remain audible in nominal conditions." + routingMetrics);
+            expect(computeBufferNullRms(outA, outB) > 8.0e-4,
+                "LineA-only and LineB-only should remain mode-distinct with different chains");
+            expect(dualToSingleRatio > 0.40,
+                "Dual-parallel should not collapse to near-silence." + routingMetrics);
+            expect(dualToSingleRatio < 1.65,
+                "Dual-parallel should stay gain-bounded." + routingMetrics);
+
+            auto gainAHigh = modeDual;
+            gainAHigh.gainA = 1.0f;
+            gainAHigh.gainB = 1.0f;
+            const auto outGainAHigh = renderWithParams(gainAHigh).output;
+
+            auto gainALow = modeDual;
+            gainALow.gainA = 0.2f;
+            gainALow.gainB = 1.0f;
+            const auto outGainALow = renderWithParams(gainALow).output;
+
+            auto gainBLow = modeDual;
+            gainBLow.gainA = 1.0f;
+            gainBLow.gainB = 0.2f;
+            const auto outGainBLow = renderWithParams(gainBLow).output;
+
+            expect(computeBufferNullRms(outGainAHigh, outGainALow) > 1.0e-3,
+                "GainA changes should alter the dual output when LineA is active");
+            expect(computeBufferNullRms(outGainAHigh, outGainBLow) > 1.0e-3,
+                "GainB changes should alter the dual output when LineB is active");
+
+            auto panLeft = modeA;
+            panLeft.panA = -1.0f;
+            const auto outPanLeft = renderWithParams(panLeft).output;
+
+            auto panRight = modeA;
+            panRight.panA = 1.0f;
+            const auto outPanRight = renderWithParams(panRight).output;
+
+            const double panLeftL = computeChannelWindowRms(outPanLeft, 0, routingMeasureStartSample, routingMeasureLengthSamples);
+            const double panLeftR = computeChannelWindowRms(outPanLeft, 1, routingMeasureStartSample, routingMeasureLengthSamples);
+            const double panRightL = computeChannelWindowRms(outPanRight, 0, routingMeasureStartSample, routingMeasureLengthSamples);
+            const double panRightR = computeChannelWindowRms(outPanRight, 1, routingMeasureStartSample, routingMeasureLengthSamples);
+            expect(panLeftL > 1.0e-4 && panLeftR > 1.0e-4 && panRightL > 1.0e-4 && panRightR > 1.0e-4,
+                "Pan variants should remain audible and finite");
+            expect(computeBufferNullRms(outPanLeft, outPanRight) > 5.0e-4,
+                "PanA=-1 and PanA=+1 should produce an observable output difference");
+
+            auto widthMono = modeA;
+            widthMono.widthA = 0.0f;
+            const auto outWidthMono = renderWithParams(widthMono).output;
+
+            auto widthWide = modeA;
+            widthWide.widthA = 1.0f;
+            const auto outWidthWide = renderWithParams(widthWide).output;
+
+            expect(bufferHasOnlyFiniteSamples(outWidthMono), "WidthA=0 output must stay finite");
+            expect(bufferHasOnlyFiniteSamples(outWidthWide), "WidthA=1 output must stay finite");
+
+            expect(computeBufferNullRms(outWidthMono, outWidthWide) > 5.0e-4,
+                "WidthA changes should produce an observable but finite output difference");
+
+            AudioEngine cleanEngine;
+            cleanEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+            AudioEngine::RuntimeGlobalParams cleanParams;
+            cleanParams.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            cleanParams.outputMixRaw = 100.0f;
+            cleanParams.outputLimiterDb = 0.0f;
+            cleanParams.outputVolumeDb = 0.0f;
+            cleanParams.gainA = 1.0f;
+            cleanParams.gainB = 1.0f;
+            cleanParams.panA = 0.0f;
+            cleanParams.panB = 0.0f;
+            cleanParams.widthA = 1.0f;
+            cleanParams.widthB = 1.0f;
+            cleanEngine.updateGlobalParams(cleanParams);
+            cleanEngine.setEngineEnabled(true);
+            warmUpEngine(cleanEngine, kBlockSize, 16);
+
+            juce::AudioBuffer<float> cleanSource(2, kBlockSize * 20);
+            for (int i = 0; i < cleanSource.getNumSamples(); ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                cleanSource.setSample(0, i, 0.07f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t));
+                cleanSource.setSample(1, i, 0.06f * std::sin(juce::MathConstants<float>::twoPi * 262.0f * t + 0.17f));
+            }
+
+            auto renderCleanMode = [&](int switchModeValue)
+            {
+                cleanParams.switchMode = switchModeValue;
+                cleanEngine.updateGlobalParams(cleanParams);
+                cleanEngine.synchronizeProcessingState();
+                warmUpEngine(cleanEngine, kBlockSize, 8);
+
+                juce::AudioBuffer<float> output(cleanSource.getNumChannels(), cleanSource.getNumSamples());
+                output.clear();
+                juce::MidiBuffer cleanMidi;
+                for (int offset = 0; offset < cleanSource.getNumSamples(); offset += kBlockSize)
+                {
+                    juce::AudioBuffer<float> block(2, kBlockSize);
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.copyFrom(ch, 0, cleanSource, ch, offset, kBlockSize);
+                    cleanEngine.process(block, cleanMidi);
+                    for (int ch = 0; ch < 2; ++ch)
+                        output.copyFrom(ch, offset, block, ch, 0, kBlockSize);
+                }
+
+                return output;
+            };
+
+            const auto cleanLineA = renderCleanMode((int)Nova::SwitcherMode::LineA_Only);
+            const auto cleanDual = renderCleanMode((int)Nova::SwitcherMode::Dual_Parallel);
+            const double cleanLineARms = computeWindowRms(cleanLineA, kBlockSize * 2, kBlockSize * 14);
+            const double cleanDualRms = computeWindowRms(cleanDual, kBlockSize * 2, kBlockSize * 14);
+            const double cleanDualRatio = cleanDualRms / juce::jmax(1.0e-9, cleanLineARms);
+
+            const auto snapshot = cleanEngine.getOutputChainDebugSnapshot();
+            expect(snapshot.limiterActiveBlocks == 0,
+                "Dual-parallel nominal clean routing should not drive limiter activity");
+            expect(cleanDualRatio > 0.90 && cleanDualRatio < 1.12,
+                "Dual-parallel clean compensation should stay near unity, ratio=" + juce::String(cleanDualRatio, 6));
+        }
+
+        beginTest("AudioEngine dual-parallel nominal does not collapse after settled routing update");
+        {
+            constexpr int kRoutingRenderBlocks = 24;
+            constexpr int kRoutingSettleBlocks = 16;
+            constexpr int kRoutingMeasureStartBlocks = 8;
+            constexpr int kRoutingMeasureBlocks = 12;
+
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.addPedal("High Gain Amp", Nova::ChainID::LineA, -1, Nova::ZoneID::Amp, "dual-stability-a");
+            engine.addPedal("Clean Amp", Nova::ChainID::LineB, -1, Nova::ZoneID::Amp, "dual-stability-b");
+            engine.synchronizeProcessingState();
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.outputMixRaw = 100.0f;
+            params.outputLimiterDb = 0.0f;
+            params.outputVolumeDb = 0.0f;
+            params.gainA = 1.0f;
+            params.gainB = 1.0f;
+            params.panA = 0.0f;
+            params.panB = 0.0f;
+            params.widthA = 1.0f;
+            params.widthB = 1.0f;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 20);
+
+            juce::AudioBuffer<float> source(2, kBlockSize * kRoutingRenderBlocks);
+            for (int i = 0; i < source.getNumSamples(); ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                source.setSample(0, i, 0.20f * std::sin(juce::MathConstants<float>::twoPi * 146.0f * t));
+                source.setSample(1, i, 0.15f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t + 0.29f));
+            }
+
+            const int routingMeasureStartSample = kBlockSize * kRoutingMeasureStartBlocks;
+            const int routingMeasureLengthSamples = kBlockSize * kRoutingMeasureBlocks;
+            const int sourceBlockCount = source.getNumSamples() / kBlockSize;
+
+            auto renderMode = [&](int switchModeValue)
+            {
+                auto modeParams = params;
+                modeParams.switchMode = switchModeValue;
+                engine.updateGlobalParams(modeParams);
+                engine.synchronizeProcessingState();
+                warmUpEngine(engine, kBlockSize, 6);
+
+                juce::MidiBuffer settleMidi;
+                for (int settleBlock = 0; settleBlock < kRoutingSettleBlocks; ++settleBlock)
+                {
+                    const int sourceBlock = settleBlock % juce::jmax(1, sourceBlockCount);
+                    const int sourceOffset = sourceBlock * kBlockSize;
+                    juce::AudioBuffer<float> block(2, kBlockSize);
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.copyFrom(ch, 0, source, ch, sourceOffset, kBlockSize);
+                    engine.process(block, settleMidi);
+                }
+
+                juce::AudioBuffer<float> output(2, source.getNumSamples());
+                output.clear();
+                juce::MidiBuffer midi;
+                for (int offset = 0; offset < source.getNumSamples(); offset += kBlockSize)
+                {
+                    juce::AudioBuffer<float> block(2, kBlockSize);
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.copyFrom(ch, 0, source, ch, offset, kBlockSize);
+
+                    engine.process(block, midi);
+                    for (int ch = 0; ch < 2; ++ch)
+                        output.copyFrom(ch, offset, block, ch, 0, kBlockSize);
+                }
+
+                return output;
+            };
+
+            const auto outA = renderMode((int)Nova::SwitcherMode::LineA_Only);
+            const auto outDual = renderMode((int)Nova::SwitcherMode::Dual_Parallel);
+
+            const double rmsA = computeWindowRms(outA, routingMeasureStartSample, routingMeasureLengthSamples);
+            const double rmsDual = computeWindowRms(outDual, routingMeasureStartSample, routingMeasureLengthSamples);
+            const double dualRatio = rmsDual / juce::jmax(1.0e-9, rmsA);
+            const double dualPeak = computeBufferPeak(outDual, routingMeasureStartSample, routingMeasureLengthSamples);
+            const auto snapshot = engine.getOutputChainDebugSnapshot();
+
+            const juce::String dualMetrics = " dual metrics: rmsA="
+                + juce::String(rmsA, 8)
+                + ", rmsDual="
+                + juce::String(rmsDual, 8)
+                + ", ratio="
+                + juce::String(dualRatio, 8)
+                + ", outputMixRaw="
+                + juce::String(params.outputMixRaw, 3)
+                + ", gainA="
+                + juce::String(params.gainA, 6)
+                + ", gainB="
+                + juce::String(params.gainB, 6)
+                + ", peakDual="
+                + juce::String(dualPeak, 8)
+                + ", limiterActiveBlocks="
+                + juce::String(snapshot.limiterActiveBlocks);
+
+            expect(bufferHasOnlyFiniteSamples(outA), "LineA nominal output should stay finite.");
+            expect(bufferHasOnlyFiniteSamples(outDual), "Dual nominal output should stay finite.");
+            expect(rmsA > 1.0e-4 && rmsDual > 1.0e-4,
+                "Nominal routing should stay audible." + dualMetrics);
+            expect(dualRatio > 0.40,
+                "Dual-parallel nominal path should not collapse after settled routing update." + dualMetrics);
+        }
+
+        beginTest("AudioEngine routing policy low-gain fallback and inactive-line isolation remain stable");
+        {
+            constexpr int kRoutingRenderBlocks = 18;
+            constexpr int kRoutingMeasureStartBlocks = 4;
+            constexpr int kRoutingMeasureBlocks = 10;
+
+            juce::AudioBuffer<float> source(2, kBlockSize * kRoutingRenderBlocks);
+            for (int i = 0; i < source.getNumSamples(); ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                source.setSample(0, i, 0.09f * std::sin(juce::MathConstants<float>::twoPi * 173.0f * t));
+                source.setSample(1, i, 0.07f * std::sin(juce::MathConstants<float>::twoPi * 251.0f * t + 0.31f));
+            }
+
+            auto renderPolicy = [&](const AudioEngine::RuntimeGlobalParams& routingParams)
+            {
+                AudioEngine engine;
+                engine.prepare(kSampleRate, kBlockSize, 2, 2);
+                engine.updateGlobalParams(routingParams);
+                engine.setEngineEnabled(true);
+                warmUpEngine(engine, kBlockSize, 16);
+
+                juce::AudioBuffer<float> output(2, source.getNumSamples());
+                output.clear();
+                juce::MidiBuffer midi;
+                for (int offset = 0; offset < source.getNumSamples(); offset += kBlockSize)
+                {
+                    juce::AudioBuffer<float> block(2, kBlockSize);
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.copyFrom(ch, 0, source, ch, offset, kBlockSize);
+
+                    engine.process(block, midi);
+                    for (int ch = 0; ch < 2; ++ch)
+                        output.copyFrom(ch, offset, block, ch, 0, kBlockSize);
+                }
+
+                return output;
+            };
+
+            AudioEngine::RuntimeGlobalParams base;
+            base.outputMixRaw = 100.0f;
+            base.outputLimiterDb = 0.0f;
+            base.outputVolumeDb = 0.0f;
+            base.gainA = 1.0f;
+            base.gainB = 1.0f;
+            base.panA = 0.0f;
+            base.panB = 0.0f;
+            base.widthA = 1.0f;
+            base.widthB = 1.0f;
+
+            auto lineABaseline = base;
+            lineABaseline.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            const auto outLineABaseline = renderPolicy(lineABaseline);
+
+            auto lineALowGain = lineABaseline;
+            lineALowGain.gainA = 0.0f;
+            const auto outLineALowGain = renderPolicy(lineALowGain);
+
+            auto lineAInactiveBChanged = lineABaseline;
+            lineAInactiveBChanged.gainB = 2.0f;
+            lineAInactiveBChanged.panB = 1.0f;
+            lineAInactiveBChanged.widthB = 0.0f;
+            const auto outLineAInactiveBChanged = renderPolicy(lineAInactiveBChanged);
+
+            auto lineBBaseline = base;
+            lineBBaseline.switchMode = (int)Nova::SwitcherMode::LineB_Only;
+            const auto outLineBBaseline = renderPolicy(lineBBaseline);
+
+            auto lineBLowGain = lineBBaseline;
+            lineBLowGain.gainB = 0.0005f;
+            const auto outLineBLowGain = renderPolicy(lineBLowGain);
+
+            auto lineBInactiveAChanged = lineBBaseline;
+            lineBInactiveAChanged.gainA = 2.0f;
+            lineBInactiveAChanged.panA = -1.0f;
+            lineBInactiveAChanged.widthA = 0.0f;
+            const auto outLineBInactiveAChanged = renderPolicy(lineBInactiveAChanged);
+
+            auto dualLowGain = base;
+            dualLowGain.switchMode = (int)Nova::SwitcherMode::Dual_Parallel;
+            dualLowGain.gainA = 0.0f;
+            dualLowGain.gainB = 0.0005f;
+            const auto outDualLowGain = renderPolicy(dualLowGain);
+
+            const int measureStart = kBlockSize * kRoutingMeasureStartBlocks;
+            const int measureLength = kBlockSize * kRoutingMeasureBlocks;
+            const double baselineRms = computeWindowRms(outLineABaseline, measureStart, measureLength);
+            const double dualLowRms = computeWindowRms(outDualLowGain, measureStart, measureLength);
+            const double dualLowRatio = dualLowRms / juce::jmax(1.0e-9, baselineRms);
+
+            expect(bufferHasOnlyFiniteSamples(outLineALowGain), "LineA low-gain fallback output must stay finite");
+            expect(bufferHasOnlyFiniteSamples(outLineBLowGain), "LineB low-gain fallback output must stay finite");
+            expect(bufferHasOnlyFiniteSamples(outDualLowGain), "Dual low-gain fallback output must stay finite");
+            expect(computeBufferNullRms(outLineABaseline, outLineALowGain) < 2.0e-5,
+                "Active LineA gain <= 0.001 should normalize to unity");
+            expect(computeBufferNullRms(outLineBBaseline, outLineBLowGain) < 2.0e-5,
+                "Active LineB gain <= 0.001 should normalize to unity");
+            expect(computeBufferNullRms(outLineABaseline, outLineAInactiveBChanged) < 2.0e-5,
+                "LineA_Only must ignore inactive LineB gain/pan/width changes");
+            expect(computeBufferNullRms(outLineBBaseline, outLineBInactiveAChanged) < 2.0e-5,
+                "LineB_Only must ignore inactive LineA gain/pan/width changes");
+            expect(dualLowRatio > 0.90 && dualLowRatio < 1.12,
+                "Dual low-gain fallback should stay near unity, ratio=" + juce::String(dualLowRatio, 6));
+        }
+
+        beginTest("AudioEngine routing policy LineB pan and width targets remain isolated");
+        {
+            constexpr int kRoutingRenderBlocks = 18;
+            constexpr int kRoutingMeasureStartBlocks = 4;
+            constexpr int kRoutingMeasureBlocks = 10;
+
+            juce::AudioBuffer<float> source(2, kBlockSize * kRoutingRenderBlocks);
+            for (int i = 0; i < source.getNumSamples(); ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                source.setSample(0, i, 0.08f * std::sin(juce::MathConstants<float>::twoPi * 211.0f * t));
+                source.setSample(1, i, 0.05f * std::sin(juce::MathConstants<float>::twoPi * 307.0f * t + 0.43f));
+            }
+
+            auto renderPolicy = [&](const AudioEngine::RuntimeGlobalParams& routingParams)
+            {
+                AudioEngine engine;
+                engine.prepare(kSampleRate, kBlockSize, 2, 2);
+                engine.updateGlobalParams(routingParams);
+                engine.setEngineEnabled(true);
+                warmUpEngine(engine, kBlockSize, 16);
+
+                juce::AudioBuffer<float> output(2, source.getNumSamples());
+                output.clear();
+                juce::MidiBuffer midi;
+                for (int offset = 0; offset < source.getNumSamples(); offset += kBlockSize)
+                {
+                    juce::AudioBuffer<float> block(2, kBlockSize);
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.copyFrom(ch, 0, source, ch, offset, kBlockSize);
+
+                    engine.process(block, midi);
+                    for (int ch = 0; ch < 2; ++ch)
+                        output.copyFrom(ch, offset, block, ch, 0, kBlockSize);
+                }
+
+                return output;
+            };
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.outputMixRaw = 100.0f;
+            params.outputLimiterDb = 0.0f;
+            params.outputVolumeDb = 0.0f;
+            params.switchMode = (int)Nova::SwitcherMode::LineB_Only;
+            params.gainA = 1.0f;
+            params.gainB = 1.0f;
+            params.panA = 0.0f;
+            params.panB = 0.0f;
+            params.widthA = 1.0f;
+            params.widthB = 1.0f;
+
+            auto panLeft = params;
+            panLeft.panB = -1.0f;
+            const auto outPanLeft = renderPolicy(panLeft);
+
+            auto panRight = params;
+            panRight.panB = 1.0f;
+            const auto outPanRight = renderPolicy(panRight);
+
+            auto inactivePanA = params;
+            inactivePanA.panA = 1.0f;
+            const auto outInactivePanA = renderPolicy(inactivePanA);
+
+            auto widthMono = params;
+            widthMono.widthB = 0.0f;
+            const auto outWidthMono = renderPolicy(widthMono);
+
+            auto widthNormal = params;
+            widthNormal.widthB = 1.0f;
+            const auto outWidthNormal = renderPolicy(widthNormal);
+
+            const int measureStart = kBlockSize * kRoutingMeasureStartBlocks;
+            const int measureLength = kBlockSize * kRoutingMeasureBlocks;
+            const double panLeftL = computeChannelWindowRms(outPanLeft, 0, measureStart, measureLength);
+            const double panLeftR = computeChannelWindowRms(outPanLeft, 1, measureStart, measureLength);
+            const double panRightL = computeChannelWindowRms(outPanRight, 0, measureStart, measureLength);
+            const double panRightR = computeChannelWindowRms(outPanRight, 1, measureStart, measureLength);
+
+            expect(bufferHasOnlyFiniteSamples(outPanLeft), "LineB pan-left output must stay finite");
+            expect(bufferHasOnlyFiniteSamples(outPanRight), "LineB pan-right output must stay finite");
+            expect(bufferHasOnlyFiniteSamples(outWidthMono), "LineB width=0 output must stay finite");
+            expect(bufferHasOnlyFiniteSamples(outWidthNormal), "LineB width=1 output must stay finite");
+            expect(panLeftL > panLeftR && panRightR > panRightL,
+                "LineB pan targets should affect the active LineB balance");
+            expect(computeBufferNullRms(outPanLeft, outPanRight) > 5.0e-4,
+                "LineB pan target changes should be observable");
+            expect(computeBufferNullRms(outWidthMono, outWidthNormal) > 5.0e-4,
+                "LineB width target changes should be observable");
+            expect(computeBufferNullRms(outWidthNormal, outInactivePanA) < 2.0e-5,
+                "LineB_Only must ignore inactive LineA pan target changes");
+        }
+
+        beginTest("AudioEngine oversized process blocks stay safe and finite");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "oversized-overdrive");
+            engine.synchronizeProcessingState();
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 50.0f;
+            params.outputLimiterDb = 0.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 12);
+
+            juce::AudioBuffer<float> oversized(2, kBlockSize + 32);
+            juce::MidiBuffer midi;
+            for (int i = 0; i < oversized.getNumSamples(); ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                oversized.setSample(0, i, 0.14f * std::sin(juce::MathConstants<float>::twoPi * 183.0f * t));
+                oversized.setSample(1, i, 0.10f * std::sin(juce::MathConstants<float>::twoPi * 271.0f * t + 0.22f));
+            }
+
+            engine.process(oversized, midi);
+            expect(bufferHasOnlyFiniteSamples(oversized),
+                "Oversized process buffer should remain finite through fallback path");
+            expect(computeWindowRms(oversized, 0, oversized.getNumSamples()) > 1.0e-4,
+                "Oversized process buffer should remain audible");
+        }
+
+        beginTest("AudioEngine clean path remains stable after topology swaps");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 16);
+
+            juce::AudioBuffer<float> source(2, kBlockSize);
+            for (int i = 0; i < kBlockSize; ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                source.setSample(0, i, 0.18f * std::sin(juce::MathConstants<float>::twoPi * 330.0f * t));
+                source.setSample(1, i, 0.14f * std::sin(juce::MathConstants<float>::twoPi * 510.0f * t + 0.25f));
+            }
+
+            auto renderOneBlock = [&](const juce::AudioBuffer<float>& input)
+            {
+                juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+                output.makeCopyOf(input);
+                juce::MidiBuffer midi;
+                engine.process(output, midi);
+                return output;
+            };
+
+            const auto baseline = renderOneBlock(source);
+            expect(bufferHasOnlyFiniteSamples(baseline), "Baseline clean path render must be finite");
+
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "swap-overdrive");
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 8);
+
+            engine.removePedal(Nova::ChainID::LineA, 0);
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 16);
+
+            const auto afterSwap = renderOneBlock(source);
+            expect(bufferHasOnlyFiniteSamples(afterSwap), "Clean path after graph swap must be finite");
+            expectEquals((int)engine.getNodes(Nova::ChainID::LineA).size(), 0);
+            expect(computeBufferNullRms(baseline, afterSwap) < 3.5e-3,
+                "Clean path should remain stable after add/remove graph swap");
+        }
+
+        beginTest("AudioEngine add and remove during deterministic processing stays finite");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 8);
+
+            juce::AudioBuffer<float> buffer(2, kBlockSize);
+            juce::MidiBuffer midi;
+            bool finite = true;
+            float peak = 0.0f;
+            int globalSample = 0;
+
+            for (int block = 0; block < 48; ++block)
+            {
+                if (block == 6)
+                {
+                    engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "live-overdrive");
+                    engine.synchronizeProcessingState();
+                }
+                else if (block == 18)
+                {
+                    engine.removePedal(Nova::ChainID::LineA, 0);
+                    engine.synchronizeProcessingState();
+                }
+                else if (block == 30)
+                {
+                    engine.addPedal("Delay", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "live-delay");
+                    engine.synchronizeProcessingState();
+                }
+                else if (block == 40)
+                {
+                    engine.clearAll();
+                    engine.synchronizeProcessingState();
+                }
+
+                for (int i = 0; i < kBlockSize; ++i, ++globalSample)
+                {
+                    const float t = (float)((double)globalSample / kSampleRate);
+                    buffer.setSample(0, i, 0.16f * std::sin(juce::MathConstants<float>::twoPi * 110.0f * t));
+                    buffer.setSample(1, i, 0.12f * std::sin(juce::MathConstants<float>::twoPi * 147.0f * t + 0.3f));
+                }
+
+                engine.process(buffer, midi);
+                finite = finite && bufferHasOnlyFiniteSamples(buffer);
+                peak = juce::jmax(peak, buffer.getMagnitude(0, 0, buffer.getNumSamples()));
+                peak = juce::jmax(peak, buffer.getMagnitude(1, 0, buffer.getNumSamples()));
+            }
+
+            expect(finite, "Processing across add/remove graph swaps must remain finite");
+            expect(peak < 4.0f, "Processing across graph swaps should stay bounded");
+            expectEquals((int)engine.getNodes(Nova::ChainID::LineA).size(), 0);
+        }
+
         beginTest("AudioEngine recovers cleanly across engine disable and re-enable within conditioning tolerance");
         {
             AudioEngine engine;
@@ -2314,14 +3691,77 @@ public:
 
             const int activeLatency = engine.getLatencyNumSamples();
             expect(activeLatency > 0, "Overdrive should contribute graph latency when active");
+            auto* activeProcessor = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
+            expect(activeProcessor != nullptr, "Expected an active Overdrive processor before bypass");
 
             engine.setPedalBypassed(Nova::ChainID::LineA, 0, true);
             engine.synchronizeProcessingState();
             expectEquals(engine.getLatencyNumSamples(), 0);
+            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
+                "Bypass latency rebuild should update the active graph in place, not publish a replacement graph");
 
             engine.setPedalBypassed(Nova::ChainID::LineA, 0, false);
             engine.synchronizeProcessingState();
             expectEquals(engine.getLatencyNumSamples(), activeLatency);
+            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
+                "Unbypass latency rebuild should keep the same active processor instance");
+        }
+
+        beginTest("AudioEngine ClearAll followed by add rebuilds to the new topology");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "clear-overdrive");
+            engine.addPedal("Delay", Nova::ChainID::LineA, 1, Nova::ZoneID::FX, "clear-delay");
+            engine.synchronizeProcessingState();
+            expectEquals((int)engine.getNodes(Nova::ChainID::LineA).size(), 2);
+
+            engine.clearAll();
+            engine.synchronizeProcessingState();
+            expectEquals((int)engine.getNodes(Nova::ChainID::LineA).size(), 0);
+
+            engine.addPedal("Reverb", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "clear-reverb");
+            engine.synchronizeProcessingState();
+
+            const auto nodes = engine.getNodes(Nova::ChainID::LineA);
+            expectEquals((int)nodes.size(), 1);
+            if (!nodes.empty())
+                expectEquals(nodes.front().pedalID, juce::String("clear-reverb"));
+
+            expect(dynamic_cast<ReverbPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)) != nullptr,
+                "ClearAll followed by add should publish a Reverb processor");
+
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 8);
+
+            juce::AudioBuffer<float> buffer(2, kBlockSize);
+            buffer.clear();
+            buffer.setSample(0, 0, 0.2f);
+            buffer.setSample(1, 0, 0.2f);
+            juce::MidiBuffer midi;
+            engine.process(buffer, midi);
+            expect(bufferHasOnlyFiniteSamples(buffer), "Graph rebuilt after ClearAll/add should process finite output");
+        }
+
+        beginTest("AudioEngine preserves command order across batched topology edits");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, -1, Nova::ZoneID::Pre, "order-overdrive");
+            engine.addPedal("Delay", Nova::ChainID::LineA, -1, Nova::ZoneID::FX, "order-delay");
+            engine.addPedal("Reverb", Nova::ChainID::LineA, 1, Nova::ZoneID::FX, "order-reverb");
+            engine.movePedal(Nova::ChainID::LineA, 0, 2);
+            engine.synchronizeProcessingState();
+
+            const auto nodes = engine.getNodes(Nova::ChainID::LineA);
+            expectEquals((int)nodes.size(), 3);
+            if (nodes.size() == 3)
+            {
+                expectEquals(nodes[0].pedalID, juce::String("order-reverb"));
+                expectEquals(nodes[1].pedalID, juce::String("order-overdrive"));
+                expectEquals(nodes[2].pedalID, juce::String("order-delay"));
+            }
         }
 
         beginTest("AudioEngine diagnostic report reflects queued topology");
@@ -2336,6 +3776,618 @@ public:
             expect(report.contains("processor=Delay"), "Diagnostic report should list the Delay pedal");
             expect(report.contains("pedalID=qa-delay"), "Diagnostic report should list the queued pedal ID");
             expect(report.contains("chainA:"), "Diagnostic report should include Line A topology");
+        }
+
+        beginTest("AudioEngine mixed-zone insertion keeps zone-canonical effective routing");
+        {
+            const auto unknownZone = static_cast<Nova::ZoneID>(999);
+
+            auto configureEngine = [&](AudioEngine& engine, bool mixedOrder)
+            {
+                engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+                AudioEngine::RuntimeGlobalParams params;
+                params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+                params.outputMixRaw = 100.0f;
+                params.outputLimiterDb = 0.0f;
+                engine.updateGlobalParams(params);
+                engine.setEngineEnabled(true);
+
+                if (mixedOrder)
+                {
+                    engine.addPedal("Reverb", Nova::ChainID::LineA, -1, Nova::ZoneID::FX, "mixed-fx");
+                    engine.addPedal("Cabinet", Nova::ChainID::LineA, -1, Nova::ZoneID::Cabinet, "mixed-cab");
+                    engine.addPedal("Overdrive", Nova::ChainID::LineA, -1, unknownZone, "mixed-unknown");
+                    engine.addPedal("Overdrive", Nova::ChainID::LineA, -1, Nova::ZoneID::Pre, "mixed-pre");
+                    engine.addPedal("Clean Amp", Nova::ChainID::LineA, -1, Nova::ZoneID::Amp, "mixed-amp");
+                }
+                else
+                {
+                    engine.addPedal("Overdrive", Nova::ChainID::LineA, -1, Nova::ZoneID::Pre, "sorted-pre");
+                    engine.addPedal("Clean Amp", Nova::ChainID::LineA, -1, Nova::ZoneID::Amp, "sorted-amp");
+                    engine.addPedal("Reverb", Nova::ChainID::LineA, -1, Nova::ZoneID::FX, "sorted-fx");
+                    engine.addPedal("Cabinet", Nova::ChainID::LineA, -1, Nova::ZoneID::Cabinet, "sorted-cab");
+                    engine.addPedal("Overdrive", Nova::ChainID::LineA, -1, unknownZone, "sorted-unknown");
+                }
+
+                engine.synchronizeProcessingState();
+                warmUpEngine(engine, kBlockSize, 24);
+            };
+
+            auto renderEngineOutput = [&](AudioEngine& engine, const juce::AudioBuffer<float>& source)
+            {
+                juce::AudioBuffer<float> output(source.getNumChannels(), source.getNumSamples());
+                output.clear();
+                juce::MidiBuffer midi;
+
+                for (int offset = 0; offset < source.getNumSamples(); offset += kBlockSize)
+                {
+                    const int numSamples = juce::jmin(kBlockSize, source.getNumSamples() - offset);
+                    juce::AudioBuffer<float> block(source.getNumChannels(), kBlockSize);
+                    block.clear();
+
+                    for (int ch = 0; ch < source.getNumChannels(); ++ch)
+                        block.copyFrom(ch, 0, source, ch, offset, numSamples);
+
+                    engine.process(block, midi);
+
+                    for (int ch = 0; ch < output.getNumChannels(); ++ch)
+                        output.copyFrom(ch, offset, block, ch, 0, numSamples);
+                }
+
+                return output;
+            };
+
+            AudioEngine mixedEngine;
+            AudioEngine sortedEngine;
+            configureEngine(mixedEngine, true);
+            configureEngine(sortedEngine, false);
+
+            const auto mixedNodes = mixedEngine.getNodes(Nova::ChainID::LineA);
+            expectEquals((int)mixedNodes.size(), 5);
+            if (mixedNodes.size() == 5)
+            {
+                expectEquals(mixedNodes[0].pedalID, juce::String("mixed-fx"));
+                expectEquals(mixedNodes[1].pedalID, juce::String("mixed-cab"));
+                expectEquals(mixedNodes[2].pedalID, juce::String("mixed-unknown"));
+                expectEquals(mixedNodes[3].pedalID, juce::String("mixed-pre"));
+                expectEquals(mixedNodes[4].pedalID, juce::String("mixed-amp"));
+            }
+
+            juce::AudioBuffer<float> source(2, kBlockSize * 96);
+            for (int i = 0; i < source.getNumSamples(); ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                source.setSample(0, i, 0.12f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t));
+                source.setSample(1, i, 0.10f * std::sin(juce::MathConstants<float>::twoPi * 293.0f * t + 0.27f));
+            }
+
+            const auto mixedOutput = renderEngineOutput(mixedEngine, source);
+            const auto sortedOutput = renderEngineOutput(sortedEngine, source);
+
+            expect(bufferHasOnlyFiniteSamples(mixedOutput), "Mixed-zone render must stay finite");
+            expect(bufferHasOnlyFiniteSamples(sortedOutput), "Sorted-zone render must stay finite");
+            expectEquals(mixedEngine.getLatencyNumSamples(), sortedEngine.getLatencyNumSamples());
+
+            const double nullRms = computeBufferNullRms(mixedOutput, sortedOutput);
+            expect(nullRms < 4.5e-3,
+                "Mixed insertion should keep zone-canonical effective routing, nullRms=" + juce::String(nullRms, 8));
+        }
+
+        beginTest("AudioEngine mixed-chain latency stays stable across equivalent rebuilds");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            auto addMixedChain = [&](const juce::String& tag)
+            {
+                engine.addPedal("Overdrive", Nova::ChainID::LineA, -1, Nova::ZoneID::Pre, tag + "-pre");
+                engine.addPedal("Clean Amp", Nova::ChainID::LineA, -1, Nova::ZoneID::Amp, tag + "-amp");
+                engine.addPedal("Delay", Nova::ChainID::LineA, -1, Nova::ZoneID::FX, tag + "-fx");
+                engine.addPedal("Cabinet", Nova::ChainID::LineA, -1, Nova::ZoneID::Cabinet, tag + "-cab");
+            };
+
+            auto renderOneBlock = [&](float phaseOffset)
+            {
+                juce::AudioBuffer<float> buffer(2, kBlockSize);
+                juce::MidiBuffer midi;
+                for (int i = 0; i < kBlockSize; ++i)
+                {
+                    const float t = ((float)i + phaseOffset) / (float)kSampleRate;
+                    buffer.setSample(0, i, 0.14f * std::sin(juce::MathConstants<float>::twoPi * 247.0f * t));
+                    buffer.setSample(1, i, 0.11f * std::sin(juce::MathConstants<float>::twoPi * 329.0f * t + 0.19f));
+                }
+                engine.process(buffer, midi);
+                return buffer;
+            };
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            params.outputLimiterDb = 0.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+
+            addMixedChain("latmix-a");
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 24);
+
+            const int baselineLatency = engine.getLatencyNumSamples();
+            expect(baselineLatency > 0, "Mixed chain should expose positive graph latency");
+            expect(bufferHasOnlyFiniteSamples(renderOneBlock(0.0f)), "Baseline mixed-chain block must stay finite");
+
+            engine.setEngineEnabled(false);
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 6);
+
+            engine.setEngineEnabled(true);
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 16);
+            expectEquals(engine.getLatencyNumSamples(), baselineLatency);
+
+            engine.clearAll();
+            engine.synchronizeProcessingState();
+            addMixedChain("latmix-b");
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 24);
+
+            const int rebuiltLatency = engine.getLatencyNumSamples();
+            expectEquals(rebuiltLatency, baselineLatency);
+            expect(bufferHasOnlyFiniteSamples(renderOneBlock(31.0f)),
+                "Rebuilt mixed-chain block must stay finite");
+
+            auto* activeProcessor = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
+            expect(activeProcessor != nullptr, "Expected an active pre-zone processor for bypass latency test");
+
+            engine.setPedalBypassed(Nova::ChainID::LineA, 0, true);
+            engine.synchronizeProcessingState();
+            const int bypassLatency = engine.getLatencyNumSamples();
+            expect(bypassLatency <= baselineLatency,
+                "Bypass should not increase latency unexpectedly, baseline="
+                    + juce::String(baselineLatency)
+                    + ", bypass="
+                    + juce::String(bypassLatency));
+            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
+                "Bypass latency rebuild should keep active processor instance");
+
+            engine.setPedalBypassed(Nova::ChainID::LineA, 0, false);
+            engine.synchronizeProcessingState();
+            expectEquals(engine.getLatencyNumSamples(), baselineLatency);
+            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
+                "Unbypass latency rebuild should keep active processor instance");
+        }
+
+        beginTest("AudioEngine global processor path responds after prepare with no pedals");
+        {
+            struct NoPedalRenderMetrics
+            {
+                double rms = 0.0;
+                bool finite = false;
+                int lineANodeCount = -1;
+                int lineBNodeCount = -1;
+                OutputChainProcessor::DebugSnapshot outputSnapshot;
+                juce::String report;
+            };
+
+            auto runNoPedalScenario = [&](float inputGainDb, float limiterDb, float amplitude)
+            {
+                NoPedalRenderMetrics metrics;
+
+                AudioEngine engine;
+                engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+                AudioEngine::RuntimeGlobalParams params;
+                params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+                params.outputMixRaw = 100.0f;
+                params.inputGainDb = inputGainDb;
+                params.outputLimiterDb = limiterDb;
+                params.outputVolumeDb = 0.0f;
+                engine.updateGlobalParams(params);
+                engine.setEngineEnabled(true);
+                engine.synchronizeProcessingState();
+                warmUpEngine(engine, kBlockSize, 18);
+
+                juce::AudioBuffer<float> buffer(2, kBlockSize * 12);
+                juce::MidiBuffer midi;
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    const float t = (float)i / (float)kSampleRate;
+                    buffer.setSample(0, i, amplitude * std::sin(juce::MathConstants<float>::twoPi * 440.0f * t));
+                    buffer.setSample(1, i, 0.86f * amplitude * std::sin(juce::MathConstants<float>::twoPi * 660.0f * t));
+                }
+
+                for (int offset = 0; offset < buffer.getNumSamples(); offset += kBlockSize)
+                {
+                    juce::AudioBuffer<float> block(2, kBlockSize);
+                    for (int ch = 0; ch < 2; ++ch)
+                        block.copyFrom(ch, 0, buffer, ch, offset, kBlockSize);
+                    engine.process(block, midi);
+                    for (int ch = 0; ch < 2; ++ch)
+                        buffer.copyFrom(ch, offset, block, ch, 0, kBlockSize);
+                }
+
+                metrics.finite = bufferHasOnlyFiniteSamples(buffer);
+                metrics.rms = computeWindowRms(buffer, kBlockSize * 2, kBlockSize * 8);
+                metrics.lineANodeCount = (int)engine.getNodes(Nova::ChainID::LineA).size();
+                metrics.lineBNodeCount = (int)engine.getNodes(Nova::ChainID::LineB).size();
+                metrics.outputSnapshot = engine.getOutputChainDebugSnapshot();
+                metrics.report = engine.buildDiagnosticReport();
+                return metrics;
+            };
+
+            const auto baseline = runNoPedalScenario(0.0f, 0.0f, 0.028f);
+            const auto boosted = runNoPedalScenario(12.0f, 0.0f, 0.028f);
+            const auto limited = runNoPedalScenario(0.0f, -6.0f, 0.42f);
+
+            expect(baseline.finite, "Baseline global processor render must stay finite");
+            expect(boosted.finite, "Boosted global processor render must stay finite");
+            expect(limited.finite, "Limited global processor render must stay finite");
+
+            expectEquals(baseline.lineANodeCount, 0);
+            expectEquals(baseline.lineBNodeCount, 0);
+
+            expect(boosted.rms > baseline.rms * 2.2,
+                "Input-chain gain path should be active on empty graph, baseline="
+                    + juce::String(baseline.rms, 8)
+                    + ", boosted="
+                    + juce::String(boosted.rms, 8));
+
+            expect(limited.rms > 0.0, "Output-chain limited render should stay audible");
+            expect(limited.outputSnapshot.limiterActiveBlocks > 0,
+                "Output-chain limiter telemetry should show active limiting blocks");
+
+            expect(baseline.report.contains("activeGraph=true"),
+                "Prepared no-pedal graph should stay active: " + baseline.report);
+        }
+
+        beginTest("AudioEngine known ProcessorBase and TempoSyncable pedals remain stable");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, -1, Nova::ZoneID::Pre, "cache-overdrive");
+            engine.addPedal("Delay", Nova::ChainID::LineA, -1, Nova::ZoneID::FX, "cache-delay");
+            engine.synchronizeProcessingState();
+
+            auto* activeProcessor = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
+            engine.setPedalBypassed(Nova::ChainID::LineA, 0, true);
+            engine.synchronizeProcessingState();
+            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
+                "Known ProcessorBase pedal should keep active processor instance across bypass");
+
+            engine.setPedalBypassed(Nova::ChainID::LineA, 0, false);
+            engine.synchronizeProcessingState();
+            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
+                "Known ProcessorBase pedal should keep active processor instance across unbypass");
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            params.hostTempoBpm = 173.0f;
+            params.hostTempoValid = true;
+            params.hostTransportPlaying = true;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, kBlockSize, 16);
+
+            auto* overdrive = dynamic_cast<OverdrivePedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0));
+            auto* delay = dynamic_cast<DelayPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 1));
+            expect(overdrive != nullptr, "Expected Overdrive pedal to resolve from active graph");
+            expect(delay != nullptr, "Expected Delay pedal to resolve from active graph");
+
+            if (delay != nullptr)
+            {
+                expect(std::abs(delay->getDisplayTempoBpm() - 173.0f) < 0.5f,
+                    "Tempo-sync context should reach Delay pedal");
+                expect(delay->isHostTempoValid(), "Delay pedal should reflect host tempo valid=true");
+                expect(delay->isHostTransportPlaying(), "Delay pedal should reflect host transport playing=true");
+            }
+
+            juce::AudioBuffer<float> buffer(2, kBlockSize);
+            juce::MidiBuffer midi;
+            for (int i = 0; i < kBlockSize; ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                buffer.setSample(0, i, 0.16f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t));
+                buffer.setSample(1, i, 0.11f * std::sin(juce::MathConstants<float>::twoPi * 330.0f * t));
+            }
+            engine.process(buffer, midi);
+            expect(bufferHasOnlyFiniteSamples(buffer), "Known ProcessorBase/TempoSyncable chain must process finite output");
+        }
+
+        beginTest("AudioEngine tempo-sync context variants remain stable on Delay");
+        {
+            auto verifyTempoContext = [&](float bpm, bool valid, bool transportPlaying, const juce::String& tag)
+            {
+                AudioEngine engine;
+                engine.prepare(kSampleRate, kBlockSize, 2, 2);
+                engine.addPedal("Delay", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "tempo-delay-" + tag);
+                engine.synchronizeProcessingState();
+
+                AudioEngine::RuntimeGlobalParams params;
+                params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+                params.outputMixRaw = 100.0f;
+                params.hostTempoBpm = bpm;
+                params.hostTempoValid = valid;
+                params.hostTransportPlaying = transportPlaying;
+                engine.updateGlobalParams(params);
+                engine.setEngineEnabled(true);
+                engine.synchronizeProcessingState();
+                warmUpEngine(engine, kBlockSize, 12);
+
+                auto* delay = dynamic_cast<DelayPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0));
+                expect(delay != nullptr, "Expected Delay pedal to resolve for tempo-sync check (" + tag + ")");
+
+                if (delay != nullptr)
+                {
+                    expect(std::abs(delay->getDisplayTempoBpm() - bpm) < 0.5f,
+                        "Delay tempo should match host context (" + tag + ")");
+                    expect(delay->isHostTempoValid() == valid,
+                        "Delay host tempo validity should match context (" + tag + ")");
+                    expect(delay->isHostTransportPlaying() == transportPlaying,
+                        "Delay host transport state should match context (" + tag + ")");
+                }
+            };
+
+            verifyTempoContext(173.0f, true, true, "valid");
+            verifyTempoContext(91.0f, false, false, "invalid");
+        }
+
+        beginTest("GraphBuilder builds runtime with global processors and captured latency");
+        {
+            Nova::Audio::GraphBuildRequest request;
+            request.sampleRate = kSampleRate;
+            request.blockSize = kBlockSize;
+            request.numInputs = 2;
+            request.numOutputs = 2;
+            request.generation = 42;
+            request.runtimeParamRevision = 1;
+            request.runtimeParams.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            request.runtimeParams.outputMixRaw = 100.0f;
+            request.runtimeParams.outputLimiterDb = 0.0f;
+
+            Nova::Audio::GraphBuilder builder;
+            const auto result = builder.build(request);
+
+            expect(result.runtime != nullptr, "GraphBuilder should return a runtime instance");
+            expectEquals((int)result.warnings.size(), 0);
+
+            if (result.runtime != nullptr)
+            {
+                const auto& runtime = *result.runtime;
+                expect(runtime.graph != nullptr, "GraphBuilder should create an AudioProcessorGraph");
+                expect(runtime.inputNode != nullptr, "GraphBuilder should create input IO node");
+                expect(runtime.outputNode != nullptr, "GraphBuilder should create output IO node");
+                expect(runtime.inputChainNode != nullptr, "GraphBuilder should create input-chain node");
+                expect(runtime.stripNodeA != nullptr, "GraphBuilder should create strip A node");
+                expect(runtime.stripNodeB != nullptr, "GraphBuilder should create strip B node");
+                expect(runtime.outputChainNode != nullptr, "GraphBuilder should create output-chain node");
+                expect(runtime.inputChain != nullptr, "GraphBuilder should cache InputChain processor pointer");
+                expect(runtime.stripA != nullptr, "GraphBuilder should cache strip A processor pointer");
+                expect(runtime.stripB != nullptr, "GraphBuilder should cache strip B processor pointer");
+                expect(runtime.outputChain != nullptr, "GraphBuilder should cache OutputChain processor pointer");
+                expectEquals(runtime.appliedParamRevision, request.runtimeParamRevision);
+
+                juce::AudioBuffer<float> buffer(2, kBlockSize);
+                juce::MidiBuffer midi;
+                for (int i = 0; i < kBlockSize; ++i)
+                {
+                    const float t = (float)i / (float)kSampleRate;
+                    buffer.setSample(0, i, 0.10f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t));
+                    buffer.setSample(1, i, 0.08f * std::sin(juce::MathConstants<float>::twoPi * 330.0f * t + 0.2f));
+                }
+
+                runtime.graph->processBlock(buffer, midi);
+                expect(bufferHasOnlyFiniteSamples(buffer), "GraphBuilder runtime should process finite output");
+
+                const int expectedLatency = juce::jlimit(0,
+                    Nova::Config::MAX_GRAPH_LATENCY_SAMPLES,
+                    runtime.graph->getLatencySamples());
+                expectEquals(runtime.latencySamples, expectedLatency);
+            }
+        }
+
+        beginTest("GraphBuilder preserves canonical zone order for mixed insertion");
+        {
+            const auto unknownZone = static_cast<Nova::ZoneID>(999);
+
+            Nova::Audio::GraphBuildRequest request;
+            request.sampleRate = kSampleRate;
+            request.blockSize = kBlockSize;
+            request.numInputs = 2;
+            request.numOutputs = 2;
+            request.generation = 43;
+            request.runtimeParamRevision = 1;
+            request.runtimeParams.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            request.runtimeParams.outputMixRaw = 100.0f;
+            request.runtimeParams.outputLimiterDb = 0.0f;
+
+            request.modelChainA.push_back({ "Reverb", "gb-fx", Nova::ZoneID::FX, false });
+            request.modelChainA.push_back({ "Cabinet", "gb-cab", Nova::ZoneID::Cabinet, false });
+            request.modelChainA.push_back({ "Overdrive", "gb-unknown", unknownZone, false });
+            request.modelChainA.push_back({ "Overdrive", "gb-pre", Nova::ZoneID::Pre, false });
+            request.modelChainA.push_back({ "Clean Amp", "gb-amp", Nova::ZoneID::Amp, false });
+
+            Nova::Audio::GraphBuilder builder;
+            const auto result = builder.build(request);
+            expect(result.runtime != nullptr, "GraphBuilder should build mixed-zone runtime");
+
+            if (result.runtime != nullptr)
+            {
+                const auto& runtime = *result.runtime;
+                expect(runtime.graph != nullptr, "Mixed-zone runtime should own a graph");
+                expect(runtime.inputChainNode != nullptr, "Mixed-zone runtime should own input chain node");
+                expect(runtime.stripNodeA != nullptr, "Mixed-zone runtime should own strip A node");
+                expectEquals((int)runtime.chainA.size(), 5);
+
+                const auto findNodeId = [&runtime](const juce::String& pedalID,
+                    juce::AudioProcessorGraph::NodeID& outNodeID)
+                {
+                    for (const auto& slot : runtime.chainA)
+                    {
+                        if (slot.pedalID == pedalID && slot.node != nullptr)
+                        {
+                            outNodeID = slot.node->nodeID;
+                            return true;
+                        }
+                    }
+
+                    return false;
+                };
+
+                juce::AudioProcessorGraph::NodeID preNode;
+                juce::AudioProcessorGraph::NodeID ampNode;
+                juce::AudioProcessorGraph::NodeID fxNode;
+                juce::AudioProcessorGraph::NodeID cabNode;
+                juce::AudioProcessorGraph::NodeID unknownNode;
+                const bool hasPre = findNodeId("gb-pre", preNode);
+                const bool hasAmp = findNodeId("gb-amp", ampNode);
+                const bool hasFx = findNodeId("gb-fx", fxNode);
+                const bool hasCab = findNodeId("gb-cab", cabNode);
+                const bool hasUnknown = findNodeId("gb-unknown", unknownNode);
+
+                if (runtime.graph != nullptr
+                    && runtime.inputChainNode != nullptr
+                    && runtime.stripNodeA != nullptr
+                    && hasPre
+                    && hasAmp
+                    && hasFx
+                    && hasCab
+                    && hasUnknown)
+                {
+                    expect(runtime.graph->isConnected(runtime.inputChainNode->nodeID, preNode),
+                        "Input chain should feed the pre-zone pedal first");
+                    expect(runtime.graph->isConnected(preNode, ampNode),
+                        "Pre-zone pedal should feed amp-zone pedal");
+                    expect(runtime.graph->isConnected(ampNode, fxNode),
+                        "Amp-zone pedal should feed FX-zone pedal");
+                    expect(runtime.graph->isConnected(fxNode, cabNode),
+                        "FX-zone pedal should feed cabinet-zone pedal");
+                    expect(runtime.graph->isConnected(cabNode, unknownNode),
+                        "Cabinet-zone pedal should feed unknown-zone pedal");
+                    expect(runtime.graph->isConnected(unknownNode, runtime.stripNodeA->nodeID),
+                        "Unknown-zone pedal should feed strip A");
+                    expect(!runtime.graph->isConnected(runtime.inputChainNode->nodeID, fxNode),
+                        "Input chain should not bypass canonical ordering to feed FX directly");
+                }
+                else
+                {
+                    expect(false, "Mixed-zone runtime should include all expected pedal nodes");
+                }
+            }
+        }
+
+        beginTest("GraphBuilder captures latency from rebuilt graph on latency-relevant chain");
+        {
+            Nova::Audio::GraphBuildRequest request;
+            request.sampleRate = kSampleRate;
+            request.blockSize = kBlockSize;
+            request.numInputs = 2;
+            request.numOutputs = 2;
+            request.generation = 44;
+            request.runtimeParamRevision = 1;
+            request.runtimeParams.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            request.runtimeParams.outputMixRaw = 100.0f;
+            request.runtimeParams.outputLimiterDb = 0.0f;
+            request.modelChainA.push_back({ "Overdrive", "gb-latency-overdrive", Nova::ZoneID::Pre, false });
+
+            Nova::Audio::GraphBuilder builder;
+            const auto first = builder.build(request);
+            expect(first.runtime != nullptr, "Latency chain build should return runtime");
+
+            request.generation = 45;
+            const auto second = builder.build(request);
+            expect(second.runtime != nullptr, "Equivalent latency chain rebuild should return runtime");
+
+            if (first.runtime != nullptr && second.runtime != nullptr)
+            {
+                const int expectedFirst = juce::jlimit(0,
+                    Nova::Config::MAX_GRAPH_LATENCY_SAMPLES,
+                    first.runtime->graph->getLatencySamples());
+                const int expectedSecond = juce::jlimit(0,
+                    Nova::Config::MAX_GRAPH_LATENCY_SAMPLES,
+                    second.runtime->graph->getLatencySamples());
+
+                expectEquals(first.runtime->latencySamples, expectedFirst);
+                expectEquals(second.runtime->latencySamples, expectedSecond);
+                expect(first.runtime->latencySamples > 0,
+                    "Latency-relevant chain should report positive latency after rebuild capture");
+                expectEquals(first.runtime->latencySamples, second.runtime->latencySamples);
+            }
+        }
+
+        beginTest("GraphBuilder skips invalid pedal without fatal build failure");
+        {
+            Nova::Audio::GraphBuildRequest request;
+            request.sampleRate = kSampleRate;
+            request.blockSize = kBlockSize;
+            request.numInputs = 2;
+            request.numOutputs = 2;
+            request.generation = 46;
+            request.runtimeParamRevision = 1;
+            request.runtimeParams.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            request.runtimeParams.outputMixRaw = 100.0f;
+            request.runtimeParams.outputLimiterDb = 0.0f;
+            request.modelChainA.push_back({ "NotARealPedalType", "gb-invalid", Nova::ZoneID::Pre, false });
+            request.modelChainA.push_back({ "Delay", "gb-valid-delay", Nova::ZoneID::FX, false });
+
+            Nova::Audio::GraphBuilder builder;
+            const auto result = builder.build(request);
+
+            expect(result.runtime != nullptr, "Invalid pedal should not fail the whole graph build");
+            expect(result.warnings.size() >= 1, "Invalid pedal should produce a non-fatal build warning");
+
+            if (result.runtime != nullptr)
+            {
+                expectEquals((int)result.runtime->chainA.size(), 1);
+                if (!result.runtime->chainA.empty())
+                    expectEquals(result.runtime->chainA.front().pedalID, juce::String("gb-valid-delay"));
+            }
+
+            const bool hasCreatePedalWarning = std::any_of(result.warnings.begin(),
+                result.warnings.end(),
+                [](const Nova::Audio::GraphBuildWarning& warning)
+                {
+                    return warning.code == "createPedal.null";
+                });
+            expect(hasCreatePedalWarning, "Invalid pedal should emit createPedal.null warning");
+        }
+
+        beginTest("GraphBuilder preserves ProcessorBase and TempoSyncable caches");
+        {
+            Nova::Audio::GraphBuildRequest request;
+            request.sampleRate = kSampleRate;
+            request.blockSize = kBlockSize;
+            request.numInputs = 2;
+            request.numOutputs = 2;
+            request.generation = 47;
+            request.runtimeParamRevision = 2;
+            request.runtimeParams.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            request.runtimeParams.outputMixRaw = 100.0f;
+            request.runtimeParams.hostTempoBpm = 167.0f;
+            request.runtimeParams.hostTempoValid = true;
+            request.runtimeParams.hostTransportPlaying = true;
+            request.modelChainA.push_back({ "Overdrive", "gb-cache-overdrive", Nova::ZoneID::Pre, false });
+            request.modelChainA.push_back({ "Delay", "gb-cache-delay", Nova::ZoneID::FX, false });
+
+            Nova::Audio::GraphBuilder builder;
+            const auto result = builder.build(request);
+            expect(result.runtime != nullptr, "Cache coverage chain should build");
+
+            if (result.runtime != nullptr)
+            {
+                const auto& chain = result.runtime->chainA;
+                expectEquals((int)chain.size(), 2);
+                if (chain.size() == 2)
+                {
+                    const auto& overdrive = chain[0];
+                    const auto& delay = chain[1];
+                    expect(overdrive.baseProcessor != nullptr, "ProcessorBase cache should be populated for Overdrive");
+                    expect(overdrive.tempoSyncProcessor == nullptr, "Overdrive should not expose TempoSyncable cache");
+                    expect(delay.baseProcessor != nullptr, "ProcessorBase cache should be populated for Delay");
+                    expect(delay.tempoSyncProcessor != nullptr, "TempoSyncable cache should be populated for Delay");
+                }
+            }
         }
 
         beginTest("AudioEngine preserves synchronized topology created before prepare");
