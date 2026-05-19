@@ -11,6 +11,7 @@
 namespace NovaDiagnostics
 {
 void ensureAudioEngineValidationTestsLinked();
+bool runP9DDraftPresetBuilderFromEnvironment();
 }
 
 namespace
@@ -362,6 +363,12 @@ NOVAAudioProcessor::NOVAAudioProcessor()
         .withOutput("Out", juce::AudioChannelSet::stereo()))
     , pluginState(sessionCoordinator.state())
 {
+    if (NovaDiagnostics::runP9DDraftPresetBuilderFromEnvironment())
+    {
+        juce::JUCEApplicationBase::quit();
+        return;
+    }
+
     NovaDiagnostics::SessionLogger::attachOwner("NOVAAudioProcessor");
 #if JUCE_DEBUG
     maybeRunAudioValidationTestsOnce();

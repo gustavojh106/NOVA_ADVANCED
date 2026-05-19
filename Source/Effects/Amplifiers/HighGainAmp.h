@@ -64,6 +64,7 @@ public:
         preBoost.prepare(innerSpec);
         contourLowPass.prepare(innerSpec);
         presenceShelf.prepare(innerSpec);
+        postPresenceLowPass.prepare(innerSpec);
         dcBlock.prepare(innerSpec);
 
         driveSmooth.reset(currentInnerRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
@@ -95,9 +96,12 @@ public:
         preBoost.reset();
         contourLowPass.reset();
         presenceShelf.reset();
+        postPresenceLowPass.reset();
         dcBlock.reset();
 
         for (auto& env : sagEnvelope)
+            env = 0.0f;
+        for (auto& env : inputNoiseEnvelope)
             env = 0.0f;
 
         driveSmooth.setCurrentAndTargetValue(driveParam != nullptr ? *driveParam : 5.5f);
@@ -140,9 +144,12 @@ public:
                     auto* data = channelData[(size_t) ch];
                     float x = data[sample];
 
+                    x *= computeInputNoiseRejectGain(x, ch, drive);
+                    x = conditionPreampInput(x);
+
                     // Power supply sag
                     sagEnvelope[(size_t)ch] = juce::jmax(std::abs(x), sagEnvelope[(size_t)ch] * Nova::Config::AMP_SAG_DECAY);
-                    const float sag = 1.0f / (1.0f + sagEnvelope[(size_t)ch] * 0.4f);
+                    const float sag = 1.0f / (1.0f + sagEnvelope[(size_t)ch] * 0.22f);
 
                     // Stage 1: Preamp tube
                     x = std::tanh((x * pushGain * sag) + 0.05f);
@@ -163,12 +170,13 @@ public:
 
         contourLowPass.process(context);
         presenceShelf.process(context);
+        postPresenceLowPass.process(context);
         dcBlock.process(context);
         oversampler.processSamplesDown(block);
 
         for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
         {
-            const float master = masterSmooth.getNextValue();
+            const float master = masterSmooth.getNextValue() * kProfessionalOutputTrim;
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
                 buffer.setSample(ch, sample, buffer.getSample(ch, sample) * master);
         }
@@ -179,6 +187,37 @@ public:
 private:
     using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
         juce::dsp::IIR::Coefficients<float>>;
+
+    static float conditionPreampInput(float x) noexcept
+    {
+        if (!std::isfinite(x))
+            return 0.0f;
+
+        const float ax = std::abs(x);
+        if (ax <= 0.72f)
+            return x;
+
+        const float sign = x < 0.0f ? -1.0f : 1.0f;
+        const float extra = ax - 0.72f;
+        return sign * (0.72f + std::atan(extra * 0.82f) * 0.54f);
+    }
+
+    float computeInputNoiseRejectGain(float input, int channel, float drive) noexcept
+    {
+        const size_t index = (size_t) juce::jlimit(0, kMaxAmpChannels - 1, channel);
+        const float absolute = std::abs(input);
+        auto& env = inputNoiseEnvelope[index];
+        const float coeff = absolute > env ? 0.08f : 0.0022f;
+        env += (absolute - env) * coeff;
+
+        const float driveNorm = juce::jlimit(0.0f, 1.0f, (drive - 1.0f) / 9.0f);
+        const float openThreshold = 0.00012f + driveNorm * 0.00042f;
+        const float closeThreshold = openThreshold * 0.30f;
+        const float zone = juce::jlimit(0.0f, 1.0f, (env - closeThreshold) / juce::jmax(1.0e-7f, openThreshold - closeThreshold));
+        const float smoothZone = zone * zone * (3.0f - 2.0f * zone);
+        const float floor = juce::jmap(driveNorm, 0.18f, 0.07f);
+        return floor + smoothZone * (1.0f - floor);
+    }
 
     void updateVoicingIfNeeded()
     {
@@ -197,9 +236,12 @@ private:
         cachedTight = tight;
 
         const float hpFreq = juce::jmap(tight, 45.0f, 180.0f);
-        const float cutoff = juce::jmap(tone, 2500.0f, 9000.0f);
-        const float presenceGain = juce::jmap(presence, -2.0f, 8.0f);
-        const float boostGain = juce::jmap(tight, 0.0f, 4.5f);
+        const float cutoff = juce::jmap(tone, 2400.0f, 7800.0f);
+        const float presenceGain = juce::jmap(presence, -2.0f, 4.7f);
+        const float boostGain = juce::jmap(tight, 0.0f, 3.0f);
+        const float postPresenceCutoff = juce::jlimit(4700.0f,
+            8200.0f,
+            juce::jmap(tone, 5200.0f, 7600.0f) - presence * 900.0f);
 
         *inputHighPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(currentInnerRate, hpFreq);
         *tightFilter.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(currentInnerRate,
@@ -209,6 +251,8 @@ private:
         *contourLowPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass(currentInnerRate, cutoff, 0.62f);
         *presenceShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(currentInnerRate,
             2800.0f, 0.68f, juce::Decibels::decibelsToGain(presenceGain));
+        *postPresenceLowPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass(currentInnerRate,
+            postPresenceCutoff, 0.70f);
         *dcBlock.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(currentInnerRate, 18.0f);
     }
 
@@ -218,13 +262,16 @@ private:
     Filter preBoost;
     Filter contourLowPass;
     Filter presenceShelf;
+    Filter postPresenceLowPass;
     Filter dcBlock;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> masterSmooth;
 
     static constexpr int kMaxAmpChannels = 8;
+    static constexpr float kProfessionalOutputTrim = 0.32f;
     std::array<float, kMaxAmpChannels> sagEnvelope{};
+    std::array<float, kMaxAmpChannels> inputNoiseEnvelope{};
 
     juce::AudioParameterFloat* driveParam = nullptr;
     juce::AudioParameterFloat* toneParam = nullptr;

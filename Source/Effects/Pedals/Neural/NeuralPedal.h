@@ -3,13 +3,18 @@
 #include "../Base/ProcessorBase.h"
 
 #include <juce_dsp/juce_dsp.h>
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cmath>
-#include <vector>
 
 namespace Nova::NeuralDSP
 {
+// P7C: max channels preallocated for OnePoleFilterBank/EnvelopeFollower so the
+// realtime path never has to resize. Matches NeuralPedal::kMaxProcessingChannels
+// (stereo) plus the 2 channels the oversampler can publish at most.
+static constexpr size_t kMaxHelperChannels = 2;
+
 inline float blend(float a, float b, float t) noexcept
 {
     return a + (b - a) * t;
@@ -34,18 +39,19 @@ public:
     void prepare(double newSampleRate, size_t numChannels)
     {
         sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
-        states.assign(numChannels, 0.0f);
+        preparedChannels = juce::jmin(numChannels, kMaxHelperChannels);
+        states.fill(0.0f);
         setCutoff(1000.0f);
     }
 
     bool hasChannels(size_t numChannels) const noexcept
     {
-        return states.size() >= numChannels;
+        return numChannels <= preparedChannels;
     }
 
     void reset()
     {
-        std::fill(states.begin(), states.end(), 0.0f);
+        states.fill(0.0f);
     }
 
     void setCutoff(float cutoffHz)
@@ -70,7 +76,8 @@ public:
 private:
     double sampleRate = 44100.0;
     float coefficient = 0.1f;
-    std::vector<float> states;
+    size_t preparedChannels = 0;
+    std::array<float, kMaxHelperChannels> states {};
 };
 
 class EnvelopeFollower
@@ -79,17 +86,18 @@ public:
     void prepare(double newSampleRate, size_t numChannels)
     {
         sampleRate = newSampleRate > 0.0 ? newSampleRate : 44100.0;
-        states.assign(numChannels, 0.0f);
+        preparedChannels = juce::jmin(numChannels, kMaxHelperChannels);
+        states.fill(0.0f);
     }
 
     bool hasChannels(size_t numChannels) const noexcept
     {
-        return states.size() >= numChannels;
+        return numChannels <= preparedChannels;
     }
 
     void reset()
     {
-        std::fill(states.begin(), states.end(), 0.0f);
+        states.fill(0.0f);
     }
 
     float process(int channel, float input, float attackMs, float releaseMs) noexcept
@@ -111,7 +119,8 @@ private:
     }
 
     double sampleRate = 44100.0;
-    std::vector<float> states;
+    size_t preparedChannels = 0;
+    std::array<float, kMaxHelperChannels> states {};
 };
 
 } // namespace Nova::NeuralDSP

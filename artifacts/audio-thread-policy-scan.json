@@ -1,14 +1,15 @@
 {
-    "generatedAt":  "2026-05-01T13:26:02.9529564-06:00",
-    "status":  "WARN",
+    "generatedAt":  "2026-05-19T13:23:32.3017124-06:00",
+    "status":  "PASS",
     "summary":  {
                     "activeFiles":  32,
                     "activeRanges":  38,
                     "failures":  0,
-                    "warnings":  4,
+                    "warnings":  0,
                     "allowlistedWarnings":  0,
-                    "legacyWarnings":  4,
-                    "contractChecks":  20,
+                    "legacyWarnings":  0,
+                    "legacyQuarantined":  4,
+                    "contractChecks":  532,
                     "contractFailures":  0,
                     "allowListEntries":  2
                 },
@@ -183,6 +184,3078 @@
                                "target":  "RuntimeGraphManager::getActiveRaw",
                                "passed":  true,
                                "detail":  "acquire-load return found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Core/DSP/Global/ChannelStrip.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Core/DSP/Global/ChannelStrip.cpp",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Core/DSP/Global/OutputChain.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Core/DSP/Global/OutputChain.cpp",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Effects/Pedals/Overdrive/OverdrivePedal.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Effects/Amplifiers/CleanAmp.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Effects/Pedals/Delay/DelayPedal.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Effects/Pedals/Flanger/FlangerPedal.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Effects/Pedals/Reverb/ReverbPedal.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Core/DSP/Global/ChannelStrip.cpp",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Core/DSP/Global/OutputChain.cpp",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Effects/Pedals/Overdrive/OverdrivePedal.h",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Effects/Amplifiers/CleanAmp.h",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Effects/Pedals/Delay/DelayPedal.h",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Effects/Pedals/Flanger/FlangerPedal.h",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Effects/Pedals/Reverb/ReverbPedal.h",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_pedal_telemetry_lock_free_queue_present",
+                               "target":  "PedalSignalTelemetry.h",
+                               "passed":  true,
+                               "detail":  "RealtimeSignalTelemetryQueue declared"
+                           },
+                           {
+                               "checkId":  "p7b_pedal_telemetry_no_session_logger",
+                               "target":  "PedalSignalTelemetry.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_vector_channel_alloc",
+                               "target":  "Source/Effects/Amplifiers/ClassicAmp.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat*\u003e in amp"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_juce_iir_factory",
+                               "target":  "Source/Effects/Amplifiers/ClassicAmp.h",
+                               "passed":  true,
+                               "detail":  "amp uses ArrayCoefficients only"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_vector_channel_alloc",
+                               "target":  "Source/Effects/Amplifiers/HighGainAmp.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat*\u003e in amp"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_juce_iir_factory",
+                               "target":  "Source/Effects/Amplifiers/HighGainAmp.h",
+                               "passed":  true,
+                               "detail":  "amp uses ArrayCoefficients only"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_vector_channel_alloc",
+                               "target":  "Source/Effects/Amplifiers/ChimeAmp.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat*\u003e in amp"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_juce_iir_factory",
+                               "target":  "Source/Effects/Amplifiers/ChimeAmp.h",
+                               "passed":  true,
+                               "detail":  "amp uses ArrayCoefficients only"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_vector_channel_alloc",
+                               "target":  "Source/Effects/Amplifiers/BoutiqueAmp.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat*\u003e in amp"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_juce_iir_factory",
+                               "target":  "Source/Effects/Amplifiers/BoutiqueAmp.h",
+                               "passed":  true,
+                               "detail":  "amp uses ArrayCoefficients only"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_vector_channel_alloc",
+                               "target":  "Source/Effects/Amplifiers/CleanAmp.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat*\u003e in amp"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_juce_iir_factory",
+                               "target":  "Source/Effects/Amplifiers/CleanAmp.h",
+                               "passed":  true,
+                               "detail":  "amp uses ArrayCoefficients only"
+                           },
+                           {
+                               "checkId":  "p7b_plugin_processor_processblock_no_session_logger",
+                               "target":  "NOVAAudioProcessor::processBlock",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7b_plugin_processor_processblock_no_juce_string",
+                               "target":  "NOVAAudioProcessor::processBlock",
+                               "passed":  true,
+                               "detail":  "no juce::String in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7b_plugin_processor_processblock_no_lock",
+                               "target":  "NOVAAudioProcessor::processBlock",
+                               "passed":  true,
+                               "detail":  "no lock primitive in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7b_session_store_atomic_runtime_cache",
+                               "target":  "SessionStore",
+                               "passed":  true,
+                               "detail":  "atomic runtime cache + engine flag present"
+                           },
+                           {
+                               "checkId":  "p7b_session_store_no_lock_on_hot_path",
+                               "target":  "SessionStore",
+                               "passed":  true,
+                               "detail":  "no lock primitive present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_uses_array_coefficients",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "IIR::ArrayCoefficients in use"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_no_juce_iir_factory",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "no allocating IIR factory"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_uses_array_coefficients",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "IIR::ArrayCoefficients in use"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_no_juce_iir_factory",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no allocating IIR factory"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_uses_array_coefficients",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "IIR::ArrayCoefficients in use"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_no_juce_iir_factory",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no allocating IIR factory"
+                           },
+                           {
+                               "checkId":  "p7c_neural_helpers_array_states",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "OnePoleFilterBank/EnvelopeFollower use std::array states"
+                           },
+                           {
+                               "checkId":  "p7c_neural_helpers_no_vector_states",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat\u003e in Neural file"
+                           },
+                           {
+                               "checkId":  "p7c_neural_helpers_no_resize_assign",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no states.resize or states.assign call"
+                           },
+                           {
+                               "checkId":  "p7c_neural_helpers_no_ensurechannels_resize",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no ensureChannels helper"
+                           },
+                           {
+                               "checkId":  "p7c_phaser_feedback_dc_blocker",
+                               "target":  "Source/Effects/Pedals/Phaser/PhaserPedal.h",
+                               "passed":  true,
+                               "detail":  "feedbackDcBlock present"
+                           },
+                           {
+                               "checkId":  "p7c_phaser_output_dc_blocker",
+                               "target":  "Source/Effects/Pedals/Phaser/PhaserPedal.h",
+                               "passed":  true,
+                               "detail":  "outputDcBlock present"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "DelayPedal feedback loop rejects DC accumulation under sustained bias",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "DelayPedal max feedback under sustained input stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "DelayPedal sanitizes NaN/Inf input under aggressive feedback",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "DelayPedal high peak input under feedback stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "FlangerPedal feedback loop rejects DC accumulation under sustained bias",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "FlangerPedal max feedback under sustained input stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "FlangerPedal sanitizes NaN/Inf input under aggressive feedback",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "FlangerPedal high peak input under feedback stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "ReverbPedal max decay under sustained input stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "ReverbPedal sanitizes NaN/Inf input under aggressive feedback",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "ReverbPedal high peak input under max decay stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "PhaserPedal sanitizes NaN/Inf input under aggressive feedback",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "PhaserPedal feedback loop rejects DC accumulation under sustained bias",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "ReverbPedal loop rejects DC accumulation under sustained biased playing",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D preset save-load-save remains canonical",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D catalog presets round-trip every registered pedal",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D chain/global preset round-trips routing modes and bypass state",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D schema canonicalization rejects unknowns and clamps topology",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D parameter boundary restore clamps unsafe values",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D pedal state payload restore rejects corrupt payloads safely",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D corrupt session recovery leaves engine processable",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_schema_version_unchanged",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p7d_results_doc_present",
+                               "target":  "docs/p7d-preset-session-parameter-validation-results.md",
+                               "passed":  true,
+                               "detail":  "P7D results doc found"
+                           },
+                           {
+                               "checkId":  "p7e_smoke_matrix_doc_present",
+                               "target":  "docs/p7e-daw-standalone-smoke-matrix.md",
+                               "passed":  true,
+                               "detail":  "P7E smoke matrix found"
+                           },
+                           {
+                               "checkId":  "p7e_manual_checklist_doc_present",
+                               "target":  "docs/p7e-manual-host-smoke-checklist.md",
+                               "passed":  true,
+                               "detail":  "P7E manual host smoke checklist found"
+                           },
+                           {
+                               "checkId":  "p7e_report_template_doc_present",
+                               "target":  "docs/p7e-host-smoke-report-template.md",
+                               "passed":  true,
+                               "detail":  "P7E host smoke report template found"
+                           },
+                           {
+                               "checkId":  "p7e_readiness_results_doc_present",
+                               "target":  "docs/p7e-daw-standalone-smoke-readiness-results.md",
+                               "passed":  true,
+                               "detail":  "P7E readiness results found"
+                           },
+                           {
+                               "checkId":  "p7e_host_smoke_preflight_script_present",
+                               "target":  "scripts/run-host-smoke-preflight.ps1",
+                               "passed":  true,
+                               "detail":  "P7E host smoke preflight script found"
+                           },
+                           {
+                               "checkId":  "p7e_host_state_test_present",
+                               "target":  "P7E host state get/set survives corrupt and repeated engine toggles",
+                               "passed":  true,
+                               "detail":  "P7E host-state test found"
+                           },
+                           {
+                               "checkId":  "p7h_reverb_audit_doc_present",
+                               "target":  "docs/p7h-reverb-configure-automation-perf-audit-results.md",
+                               "passed":  true,
+                               "detail":  "P7H Reverb configure audit doc found"
+                           },
+                           {
+                               "checkId":  "p7h_reverb_configure_diagnostics_present",
+                               "target":  "Source/Effects/Pedals/Reverb/ReverbPedal.h",
+                               "passed":  true,
+                               "detail":  "configure diagnostics accessors found"
+                           },
+                           {
+                               "checkId":  "p7h_reverb_processblock_no_logging_or_string",
+                               "target":  "ReverbPedal::processBlock",
+                               "passed":  true,
+                               "detail":  "no logging/String pattern in processBlock"
+                           },
+                           {
+                               "checkId":  "p7h_reverb_configure_section_present",
+                               "target":  "Nova::Reverb::Engine::configure",
+                               "passed":  true,
+                               "detail":  "configure section found"
+                           },
+                           {
+                               "checkId":  "p7h_reverb_configure_no_obvious_allocation",
+                               "target":  "Nova::Reverb::Engine::configure",
+                               "passed":  true,
+                               "detail":  "no obvious allocation pattern in configure"
+                           },
+                           {
+                               "checkId":  "p7h_reverb_automation_test_present",
+                               "target":  "P7H ReverbPedal configure is not called every block under stable params",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7h_reverb_automation_test_present",
+                               "target":  "P7H ReverbPedal aggressive automation sweep remains finite and bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7h_reverb_automation_test_present",
+                               "target":  "P7H ReverbPedal mode changes remain bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7h_reverb_automation_test_present",
+                               "target":  "P7H ReverbPedal freeze gate reverse swell automation remains bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8a_distortion_containment_doc_present",
+                               "target":  "docs/p8a-distortionpedal-surgery-containment-results.md",
+                               "passed":  true,
+                               "detail":  "P8A Distortion containment doc found"
+                           },
+                           {
+                               "checkId":  "p8a_distortion_internal_containment_present",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "post-level soft ceiling and final DC blocker present"
+                           },
+                           {
+                               "checkId":  "p8a_distortion_processblock_no_logging_or_string",
+                               "target":  "DistortionPedal::processBlock",
+                               "passed":  true,
+                               "detail":  "no logging/String pattern in processBlock"
+                           },
+                           {
+                               "checkId":  "p8a_distortion_processblock_no_obvious_allocation",
+                               "target":  "DistortionPedal::processBlock",
+                               "passed":  true,
+                               "detail":  "no obvious allocation pattern in processBlock"
+                           },
+                           {
+                               "checkId":  "p8a_distortion_test_present",
+                               "target":  "P8A DistortionPedal metal high-gain output stays bounded before downstream ambience",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8a_distortion_test_present",
+                               "target":  "P8A DistortionPedal rejects DC accumulation under biased high-gain input",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8a_distortion_test_present",
+                               "target":  "P8A Distortion Reverb Chorus bypass recovery stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8a_distortion_test_present",
+                               "target":  "DistortionPedal mix zero keeps the dry path transparent",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8a_distortion_test_present",
+                               "target":  "DistortionPedal modes produce distinct drive signatures",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8a_distortion_test_present",
+                               "target":  "DistortionPedal automation stress remains finite under aggressive changes",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8a_distortion_test_present",
+                               "target":  "DistortionPedal round-trips its commercial state",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8a_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p8a_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p8b_distortion_focused_qa_doc_present",
+                               "target":  "docs/p8b-distortion-focused-qa-results.md",
+                               "passed":  true,
+                               "detail":  "P8B Distortion focused QA doc found"
+                           },
+                           {
+                               "checkId":  "p8b_distortion_manual_qa_checklist_present",
+                               "target":  "docs/p8b-distortion-focused-manual-qa-checklist.md",
+                               "passed":  true,
+                               "detail":  "P8B manual QA checklist found"
+                           },
+                           {
+                               "checkId":  "p8b_distortion_real_use_test_present",
+                               "target":  "P8B Distortion nominal modes remain expressive below containment knee",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8b_distortion_real_use_test_present",
+                               "target":  "P8B Distortion level mix gain sweep remains bounded and audible",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8b_distortion_real_use_test_present",
+                               "target":  "P8B Distortion into amp and cabinet remains bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8b_distortion_real_use_test_present",
+                               "target":  "P8B Distortion bypass unbypass stays click bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8b_distortion_real_use_test_present",
+                               "target":  "P8A Distortion Reverb Chorus bypass recovery stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8b_distortion_processblock_no_logging_or_string",
+                               "target":  "DistortionPedal::processBlock",
+                               "passed":  true,
+                               "detail":  "no logging/String pattern in processBlock"
+                           },
+                           {
+                               "checkId":  "p8b_distortion_processblock_no_obvious_allocation",
+                               "target":  "DistortionPedal::processBlock",
+                               "passed":  true,
+                               "detail":  "no obvious allocation pattern in processBlock"
+                           },
+                           {
+                               "checkId":  "p8b_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p8b_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p8c_pedal_technical_matrix_present",
+                               "target":  "docs/p8c-pedal-by-pedal-technical-qa-matrix.md",
+                               "passed":  true,
+                               "detail":  "P8C pedal technical matrix found"
+                           },
+                           {
+                               "checkId":  "p8c_pedal_technical_results_present",
+                               "target":  "docs/p8c-pedal-by-pedal-technical-qa-results.md",
+                               "passed":  true,
+                               "detail":  "P8C pedal technical results found"
+                           },
+                           {
+                               "checkId":  "p8c_pedal_matrix_test_present",
+                               "target":  "P8C active pedal catalog processors remain finite under strong input",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8c_pedal_matrix_test_present",
+                               "target":  "P8C active pedal catalog automation extremes remain finite",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8c_pedal_matrix_test_present",
+                               "target":  "P8C active pedal catalog bypass transitions remain bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8c_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p8c_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p8c_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p8c_legacy_quarantine_contract_present",
+                               "target":  "P7G legacy quarantine",
+                               "passed":  true,
+                               "detail":  "legacy quarantine markers remain present"
+                           },
+                           {
+                               "checkId":  "p8c_distortion_manual_listening_not_auto_passed",
+                               "target":  "P8C docs",
+                               "passed":  true,
+                               "detail":  "Distortion manual listening QA remains pending"
+                           },
+                           {
+                               "checkId":  "p8d_targeted_gap_matrix_present",
+                               "target":  "docs/p8d-targeted-pedal-gap-closure-matrix.md",
+                               "passed":  true,
+                               "detail":  "P8D targeted gap matrix found"
+                           },
+                           {
+                               "checkId":  "p8d_targeted_gap_results_present",
+                               "target":  "docs/p8d-targeted-pedal-gap-closure-results.md",
+                               "passed":  true,
+                               "detail":  "P8D targeted gap results found"
+                           },
+                           {
+                               "checkId":  "p8d_targeted_gap_test_present",
+                               "target":  "P8D Wah sweep resonance bias and bypass remain bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8d_targeted_gap_test_present",
+                               "target":  "P8D amp variants targeted strong input automation and bypass remain bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8d_targeted_gap_test_present",
+                               "target":  "P8D cabinet variants and high-gain chains remain bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p8d_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p8d_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p8d_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p8d_legacy_quarantine_contract_present",
+                               "target":  "P7G legacy quarantine",
+                               "passed":  true,
+                               "detail":  "legacy quarantine markers remain present"
+                           },
+                           {
+                               "checkId":  "p8d_distortion_manual_listening_not_auto_passed",
+                               "target":  "P8D docs",
+                               "passed":  true,
+                               "detail":  "Distortion manual listening QA remains pending"
+                           },
+                           {
+                               "checkId":  "p8d_p7f_reaper_not_marked_pass",
+                               "target":  "P8D docs",
+                               "passed":  true,
+                               "detail":  "P7F/Reaper remains pending"
+                           },
+                           {
+                               "checkId":  "p8e_manual_listening_matrix_present",
+                               "target":  "docs/p8e-manual-listening-qa-matrix.md",
+                               "passed":  true,
+                               "detail":  "P8E manual listening matrix found"
+                           },
+                           {
+                               "checkId":  "p8e_manual_listening_session_checklist_present",
+                               "target":  "docs/p8e-manual-listening-session-checklist.md",
+                               "passed":  true,
+                               "detail":  "P8E manual listening session checklist found"
+                           },
+                           {
+                               "checkId":  "p8e_listening_qa_issue_template_present",
+                               "target":  "docs/p8e-listening-qa-issue-template.md",
+                               "passed":  true,
+                               "detail":  "P8E listening QA issue template found"
+                           },
+                           {
+                               "checkId":  "p8e_manual_listening_readiness_results_present",
+                               "target":  "docs/p8e-manual-listening-qa-readiness-results.md",
+                               "passed":  true,
+                               "detail":  "P8E readiness results found"
+                           },
+                           {
+                               "checkId":  "p8e_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p8e_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p8e_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p8e_distortion_manual_listening_not_marked_pass",
+                               "target":  "P8E docs",
+                               "passed":  true,
+                               "detail":  "Distortion manual listening QA remains pending"
+                           },
+                           {
+                               "checkId":  "p8e_p7f_reaper_not_marked_pass",
+                               "target":  "P8E docs",
+                               "passed":  true,
+                               "detail":  "P7F/Reaper remains pending"
+                           },
+                           {
+                               "checkId":  "p9_factory_preset_framework_doc_present",
+                               "target":  "docs/p9-factory-presets-gain-staging-framework.md",
+                               "passed":  true,
+                               "detail":  "P9 factory presets framework found"
+                           },
+                           {
+                               "checkId":  "p9_factory_preset_qa_checklist_present",
+                               "target":  "docs/p9-factory-preset-qa-checklist.md",
+                               "passed":  true,
+                               "detail":  "P9 factory preset QA checklist found"
+                           },
+                           {
+                               "checkId":  "p9_preset_gain_staging_issue_template_present",
+                               "target":  "docs/p9-preset-gain-staging-issue-template.md",
+                               "passed":  true,
+                               "detail":  "P9 preset/gain staging issue template found"
+                           },
+                           {
+                               "checkId":  "p9_draft_factory_preset_catalog_present",
+                               "target":  "docs/p9-draft-factory-preset-catalog.md",
+                               "passed":  true,
+                               "detail":  "P9 draft factory preset catalog found"
+                           },
+                           {
+                               "checkId":  "p9_factory_preset_framework_results_present",
+                               "target":  "docs/p9-factory-presets-gain-staging-framework-results.md",
+                               "passed":  true,
+                               "detail":  "P9 framework results found"
+                           },
+                           {
+                               "checkId":  "p9_draft_catalog_no_factory_approved",
+                               "target":  "docs/p9-draft-factory-preset-catalog.md",
+                               "passed":  true,
+                               "detail":  "draft catalog has no FACTORY_APPROVED marker"
+                           },
+                           {
+                               "checkId":  "p9_draft_catalog_names_unique",
+                               "target":  "docs/p9-draft-factory-preset-catalog.md",
+                               "passed":  true,
+                               "detail":  "names=17; no duplicates"
+                           },
+                           {
+                               "checkId":  "p9_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p9_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p9_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p9_manual_listening_general_not_marked_pass",
+                               "target":  "P9 docs",
+                               "passed":  true,
+                               "detail":  "manual listening QA remains pending"
+                           },
+                           {
+                               "checkId":  "p9_distortion_manual_listening_not_marked_pass",
+                               "target":  "P9 docs",
+                               "passed":  true,
+                               "detail":  "Distortion manual listening QA remains pending"
+                           },
+                           {
+                               "checkId":  "p9_p7f_reaper_not_marked_pass",
+                               "target":  "P9 docs",
+                               "passed":  true,
+                               "detail":  "P7F/Reaper remains pending"
+                           },
+                           {
+                               "checkId":  "p9b_draft_manifest_doc_present",
+                               "target":  "docs/p9b-draft-factory-bank-manifest.md",
+                               "passed":  true,
+                               "detail":  "P9B draft manifest doc found"
+                           },
+                           {
+                               "checkId":  "p9b_results_doc_present",
+                               "target":  "docs/p9b-draft-factory-preset-serialization-results.md",
+                               "passed":  true,
+                               "detail":  "P9B serialization results doc found"
+                           },
+                           {
+                               "checkId":  "p9b_draft_manifest_json_present",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "P9B draft manifest JSON found"
+                           },
+                           {
+                               "checkId":  "p9b_draft_manifest_json_parses",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manifest JSON parsed"
+                           },
+                           {
+                               "checkId":  "p9b_draft_preset_names_unique",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "names=6; no duplicates"
+                           },
+                           {
+                               "checkId":  "p9b_readiness_limited_to_draft_or_candidate",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "all preset readiness values are allowed"
+                           },
+                           {
+                               "checkId":  "p9b_manifest_no_factory_approved",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "no forbidden readiness marker in manifest"
+                           },
+                           {
+                               "checkId":  "p9b_manual_listening_pending",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manual listening remains pending for all drafts"
+                           },
+                           {
+                               "checkId":  "p9b_distortion_listening_pending_or_na",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "Distortion listening remains pending or not_applicable"
+                           },
+                           {
+                               "checkId":  "p9b_reaper_smoke_pending",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "Reaper smoke remains pending for all drafts"
+                           },
+                           {
+                               "checkId":  "p9b_manifest_uses_registered_pedal_ids",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "all manifest type IDs are registered by current catalog/registry review"
+                           },
+                           {
+                               "checkId":  "p9b_manifest_generated_paths_stay_in_draft_folder",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "all generated paths stay in draft folder"
+                           },
+                           {
+                               "checkId":  "p9b_docs_no_factory_approved",
+                               "target":  "P9B docs",
+                               "passed":  true,
+                               "detail":  "P9B docs avoid forbidden readiness marker"
+                           },
+                           {
+                               "checkId":  "p9b_docs_keep_pending_statuses",
+                               "target":  "P9B docs",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending"
+                           },
+                           {
+                               "checkId":  "p9b_generated_presets_only_in_draft_folder",
+                               "target":  "repo .nova-preset files",
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under draft folder"
+                           },
+                           {
+                               "checkId":  "p9b_no_startup_preset_pointer_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "startup-preset.txt not changed"
+                           },
+                           {
+                               "checkId":  "p9b_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p9b_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p9c_results_doc_present",
+                               "target":  "docs/p9c-draft-preset-generator-roundtrip-results.md",
+                               "passed":  true,
+                               "detail":  "P9C results doc found"
+                           },
+                           {
+                               "checkId":  "p9c_generator_script_present",
+                               "target":  "scripts/generate-draft-factory-presets.ps1",
+                               "passed":  true,
+                               "detail":  "P9C generator/auditor script found"
+                           },
+                           {
+                               "checkId":  "p9c_generator_report_present",
+                               "target":  "artifacts/p9c-draft-preset-generator-report.json",
+                               "passed":  true,
+                               "detail":  "P9C generator report found"
+                           },
+                           {
+                               "checkId":  "p9c_generator_report_json_parses",
+                               "target":  "artifacts/p9c-draft-preset-generator-report.json",
+                               "passed":  true,
+                               "detail":  "P9C generator report parsed"
+                           },
+                           {
+                               "checkId":  "p9c_generator_status_allowed",
+                               "target":  "artifacts/p9c-draft-preset-generator-report.json",
+                               "passed":  true,
+                               "detail":  "status=PASS"
+                           },
+                           {
+                               "checkId":  "p9c_no_user_preset_dir_writes",
+                               "target":  "artifacts/p9c-draft-preset-generator-report.json",
+                               "passed":  true,
+                               "detail":  "report says no user preset directory writes"
+                           },
+                           {
+                               "checkId":  "p9c_no_startup_preset_pointer_write",
+                               "target":  "artifacts/p9c-draft-preset-generator-report.json",
+                               "passed":  true,
+                               "detail":  "report says startup preset pointer was not written"
+                           },
+                           {
+                               "checkId":  "p9c_blocked_mode_generates_no_presets",
+                               "target":  "artifacts/p9c-draft-preset-generator-report.json",
+                               "passed":  true,
+                               "detail":  "status=PASS; generatedPresetCount=6"
+                           },
+                           {
+                               "checkId":  "p9c_generator_does_not_target_appdata",
+                               "target":  "scripts/generate-draft-factory-presets.ps1",
+                               "passed":  true,
+                               "detail":  "no AppData target marker"
+                           },
+                           {
+                               "checkId":  "p9c_generator_no_startup_preset_update_logic",
+                               "target":  "scripts/generate-draft-factory-presets.ps1",
+                               "passed":  true,
+                               "detail":  "no startup preset write logic"
+                           },
+                           {
+                               "checkId":  "p9c_manifest_no_factory_approved",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "no forbidden readiness marker in manifest"
+                           },
+                           {
+                               "checkId":  "p9c_manifest_references_only_generated_draft_folder",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manifest paths are under generated draft folder"
+                           },
+                           {
+                               "checkId":  "p9c_generated_presets_only_in_generated_draft_folder",
+                               "target":  "repo .nova-preset files",
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
+                           },
+                           {
+                               "checkId":  "p9c_docs_no_factory_approved",
+                               "target":  "docs/p9c-draft-preset-generator-roundtrip-results.md",
+                               "passed":  true,
+                               "detail":  "P9C docs avoid forbidden readiness marker"
+                           },
+                           {
+                               "checkId":  "p9c_docs_keep_pending_statuses",
+                               "target":  "docs/p9c-draft-preset-generator-roundtrip-results.md",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending"
+                           },
+                           {
+                               "checkId":  "p9c_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p9c_no_startup_preset_pointer_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "startup-preset.txt not changed"
+                           },
+                           {
+                               "checkId":  "p9c_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p9d_results_doc_present",
+                               "target":  "docs/p9d-side-effect-free-draft-preset-builder-results.md",
+                               "passed":  true,
+                               "detail":  "P9D results doc found"
+                           },
+                           {
+                               "checkId":  "p9d_builder_report_present",
+                               "target":  "artifacts/p9d-draft-preset-builder-report.json",
+                               "passed":  true,
+                               "detail":  "P9D builder report found"
+                           },
+                           {
+                               "checkId":  "p9d_builder_report_json_parses",
+                               "target":  "artifacts/p9d-draft-preset-builder-report.json",
+                               "passed":  true,
+                               "detail":  "P9D builder report parsed"
+                           },
+                           {
+                               "checkId":  "p9d_builder_status_pass",
+                               "target":  "artifacts/p9d-draft-preset-builder-report.json",
+                               "passed":  true,
+                               "detail":  "status=PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_generated_draft",
+                               "target":  "Clean Studio",
+                               "passed":  true,
+                               "detail":  "generationStatus=GENERATED_DRAFT"
+                           },
+                           {
+                               "checkId":  "p9d_preset_round_trip_pass",
+                               "target":  "Clean Studio",
+                               "passed":  true,
+                               "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_process_finite_pass",
+                               "target":  "Clean Studio",
+                               "passed":  true,
+                               "detail":  "processStatus=PROCESS_FINITE_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_generated_draft",
+                               "target":  "Classic Crunch",
+                               "passed":  true,
+                               "detail":  "generationStatus=GENERATED_DRAFT"
+                           },
+                           {
+                               "checkId":  "p9d_preset_round_trip_pass",
+                               "target":  "Classic Crunch",
+                               "passed":  true,
+                               "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_process_finite_pass",
+                               "target":  "Classic Crunch",
+                               "passed":  true,
+                               "detail":  "processStatus=PROCESS_FINITE_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_generated_draft",
+                               "target":  "Tight Modern Rhythm",
+                               "passed":  true,
+                               "detail":  "generationStatus=GENERATED_DRAFT"
+                           },
+                           {
+                               "checkId":  "p9d_preset_round_trip_pass",
+                               "target":  "Tight Modern Rhythm",
+                               "passed":  true,
+                               "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_process_finite_pass",
+                               "target":  "Tight Modern Rhythm",
+                               "passed":  true,
+                               "detail":  "processStatus=PROCESS_FINITE_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_generated_draft",
+                               "target":  "Wide Ambient Clean",
+                               "passed":  true,
+                               "detail":  "generationStatus=GENERATED_DRAFT"
+                           },
+                           {
+                               "checkId":  "p9d_preset_round_trip_pass",
+                               "target":  "Wide Ambient Clean",
+                               "passed":  true,
+                               "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_process_finite_pass",
+                               "target":  "Wide Ambient Clean",
+                               "passed":  true,
+                               "detail":  "processStatus=PROCESS_FINITE_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_generated_draft",
+                               "target":  "Funk Comp Clean",
+                               "passed":  true,
+                               "detail":  "generationStatus=GENERATED_DRAFT"
+                           },
+                           {
+                               "checkId":  "p9d_preset_round_trip_pass",
+                               "target":  "Funk Comp Clean",
+                               "passed":  true,
+                               "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_process_finite_pass",
+                               "target":  "Funk Comp Clean",
+                               "passed":  true,
+                               "detail":  "processStatus=PROCESS_FINITE_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_generated_draft",
+                               "target":  "Dry Reference",
+                               "passed":  true,
+                               "detail":  "generationStatus=GENERATED_DRAFT"
+                           },
+                           {
+                               "checkId":  "p9d_preset_round_trip_pass",
+                               "target":  "Dry Reference",
+                               "passed":  true,
+                               "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_preset_process_finite_pass",
+                               "target":  "Dry Reference",
+                               "passed":  true,
+                               "detail":  "processStatus=PROCESS_FINITE_PASS"
+                           },
+                           {
+                               "checkId":  "p9d_no_user_preset_dir_writes",
+                               "target":  "artifacts/p9d-draft-preset-builder-report.json",
+                               "passed":  true,
+                               "detail":  "report says no user preset directory writes"
+                           },
+                           {
+                               "checkId":  "p9d_no_startup_preset_pointer_write",
+                               "target":  "artifacts/p9d-draft-preset-builder-report.json",
+                               "passed":  true,
+                               "detail":  "report says startup preset pointer was not written"
+                           },
+                           {
+                               "checkId":  "p9d_generated_folder_present",
+                               "target":  "Resources/Presets/DraftFactory/generated",
+                               "passed":  true,
+                               "detail":  "generated folder found"
+                           },
+                           {
+                               "checkId":  "p9d_generated_preset_count",
+                               "target":  "Resources/Presets/DraftFactory/generated",
+                               "passed":  true,
+                               "detail":  "count=6"
+                           },
+                           {
+                               "checkId":  "p9d_generated_presets_only_in_generated_draft_folder",
+                               "target":  "repo .nova-preset files",
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
+                           },
+                           {
+                               "checkId":  "p9d_manifest_no_factory_approved",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "no forbidden readiness marker in manifest"
+                           },
+                           {
+                               "checkId":  "p9d_manifest_references_only_generated_draft_folder",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "paths=6; outside=0"
+                           },
+                           {
+                               "checkId":  "p9d_manifest_generated_files_list_valid",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "generatedPresetFiles=6; outside=0"
+                           },
+                           {
+                               "checkId":  "p9d_manifest_keeps_pending_statuses",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending/not_applicable"
+                           },
+                           {
+                               "checkId":  "p9d_generator_no_session_persistence_save_load",
+                               "target":  "scripts/generate-draft-factory-presets.ps1",
+                               "passed":  true,
+                               "detail":  "no SessionPersistence save/load call"
+                           },
+                           {
+                               "checkId":  "p9d_generator_no_startup_preset_update_logic",
+                               "target":  "scripts/generate-draft-factory-presets.ps1",
+                               "passed":  true,
+                               "detail":  "no startup preset write logic"
+                           },
+                           {
+                               "checkId":  "p9d_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p9d_no_startup_preset_pointer_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "startup-preset.txt not changed"
+                           },
+                           {
+                               "checkId":  "p9d_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p9d_docs_no_factory_approved",
+                               "target":  "docs/p9d-side-effect-free-draft-preset-builder-results.md",
+                               "passed":  true,
+                               "detail":  "P9D docs avoid forbidden readiness marker"
+                           },
+                           {
+                               "checkId":  "p9d_docs_keep_pending_statuses",
+                               "target":  "docs/p9d-side-effect-free-draft-preset-builder-results.md",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending"
+                           },
+                           {
+                               "checkId":  "p9e_results_doc_present",
+                               "target":  "docs/p9e-draft-preset-technical-gain-staging-results.md",
+                               "passed":  true,
+                               "detail":  "P9E results doc found"
+                           },
+                           {
+                               "checkId":  "p9e_validator_script_present",
+                               "target":  "scripts/validate-draft-factory-presets.ps1",
+                               "passed":  true,
+                               "detail":  "P9E validator script found"
+                           },
+                           {
+                               "checkId":  "p9e_json_report_present",
+                               "target":  "artifacts/p9e-draft-preset-gain-staging-report.json",
+                               "passed":  true,
+                               "detail":  "P9E JSON report found"
+                           },
+                           {
+                               "checkId":  "p9e_text_report_present",
+                               "target":  "artifacts/p9e-draft-preset-gain-staging-report.txt",
+                               "passed":  true,
+                               "detail":  "P9E text report found"
+                           },
+                           {
+                               "checkId":  "p9e_json_report_parses",
+                               "target":  "artifacts/p9e-draft-preset-gain-staging-report.json",
+                               "passed":  true,
+                               "detail":  "P9E JSON report parsed"
+                           },
+                           {
+                               "checkId":  "p9e_report_status_pass_or_warn",
+                               "target":  "artifacts/p9e-draft-preset-gain-staging-report.json",
+                               "passed":  true,
+                               "detail":  "status=PASS; failures=0"
+                           },
+                           {
+                               "checkId":  "p9e_per_preset_statuses_allowed",
+                               "target":  "artifacts/p9e-draft-preset-gain-staging-report.json",
+                               "passed":  true,
+                               "detail":  "presetCount=6; statusesAllowed=True"
+                           },
+                           {
+                               "checkId":  "p9e_no_user_preset_dir_writes",
+                               "target":  "artifacts/p9e-draft-preset-gain-staging-report.json",
+                               "passed":  true,
+                               "detail":  "report confirms no user preset directory writes"
+                           },
+                           {
+                               "checkId":  "p9e_no_startup_preset_pointer_writes",
+                               "target":  "artifacts/p9e-draft-preset-gain-staging-report.json",
+                               "passed":  true,
+                               "detail":  "report confirms no startup preset pointer writes"
+                           },
+                           {
+                               "checkId":  "p9e_report_no_factory_approved",
+                               "target":  "artifacts/p9e-draft-preset-gain-staging-report.json",
+                               "passed":  true,
+                               "detail":  "report confirms no shipping approval marker"
+                           },
+                           {
+                               "checkId":  "p9e_validator_no_user_preset_dir_target",
+                               "target":  "scripts/validate-draft-factory-presets.ps1",
+                               "passed":  true,
+                               "detail":  "validator does not target user preset directory"
+                           },
+                           {
+                               "checkId":  "p9e_validator_no_startup_preset_update_logic",
+                               "target":  "scripts/validate-draft-factory-presets.ps1",
+                               "passed":  true,
+                               "detail":  "no startup preset write logic"
+                           },
+                           {
+                               "checkId":  "p9e_manifest_no_factory_approved",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manifest has no shipping approval marker"
+                           },
+                           {
+                               "checkId":  "p9e_manifest_references_only_generated_draft_folder",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "paths=6; outside=0"
+                           },
+                           {
+                               "checkId":  "p9e_manifest_keeps_pending_statuses",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending/not_applicable"
+                           },
+                           {
+                               "checkId":  "p9e_generated_presets_only_in_generated_draft_folder",
+                               "target":  "repo .nova-preset files",
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
+                           },
+                           {
+                               "checkId":  "p9e_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p9e_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p9e_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p9e_docs_no_factory_approved",
+                               "target":  "docs/p9e-draft-preset-technical-gain-staging-results.md",
+                               "passed":  true,
+                               "detail":  "P9E docs avoid shipping approval marker"
+                           },
+                           {
+                               "checkId":  "p9e_docs_keep_pending_statuses",
+                               "target":  "docs/p9e-draft-preset-technical-gain-staging-results.md",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending"
+                           },
+                           {
+                               "checkId":  "p9f_results_doc_present",
+                               "target":  "docs/p9f-draft-preset-direct-limiter-telemetry-results.md",
+                               "passed":  true,
+                               "detail":  "P9F results doc found"
+                           },
+                           {
+                               "checkId":  "p9f_json_report_present",
+                               "target":  "artifacts/p9f-draft-preset-limiter-telemetry-report.json",
+                               "passed":  true,
+                               "detail":  "P9F JSON report found"
+                           },
+                           {
+                               "checkId":  "p9f_text_report_present",
+                               "target":  "artifacts/p9f-draft-preset-limiter-telemetry-report.txt",
+                               "passed":  true,
+                               "detail":  "P9F text report found"
+                           },
+                           {
+                               "checkId":  "p9f_json_report_parses",
+                               "target":  "artifacts/p9f-draft-preset-limiter-telemetry-report.json",
+                               "passed":  true,
+                               "detail":  "P9F JSON report parsed"
+                           },
+                           {
+                               "checkId":  "p9f_report_status_pass",
+                               "target":  "artifacts/p9f-draft-preset-limiter-telemetry-report.json",
+                               "passed":  true,
+                               "detail":  "status=PASS; failures=0"
+                           },
+                           {
+                               "checkId":  "p9f_direct_limiter_telemetry_zero_for_drafts",
+                               "target":  "artifacts/p9f-draft-preset-limiter-telemetry-report.json",
+                               "passed":  true,
+                               "detail":  "presetCount=6; limiterTelemetryZero=True"
+                           },
+                           {
+                               "checkId":  "p9f_readiness_values_allowed",
+                               "target":  "artifacts/p9f-draft-preset-limiter-telemetry-report.json",
+                               "passed":  true,
+                               "detail":  "readiness values are P9F-allowed"
+                           },
+                           {
+                               "checkId":  "p9f_no_user_preset_dir_writes",
+                               "target":  "artifacts/p9f-draft-preset-limiter-telemetry-report.json",
+                               "passed":  true,
+                               "detail":  "report confirms no user preset directory writes"
+                           },
+                           {
+                               "checkId":  "p9f_no_startup_preset_pointer_writes",
+                               "target":  "artifacts/p9f-draft-preset-limiter-telemetry-report.json",
+                               "passed":  true,
+                               "detail":  "report confirms no startup preset pointer writes"
+                           },
+                           {
+                               "checkId":  "p9f_validator_uses_direct_limiter_telemetry",
+                               "target":  "scripts/validate-draft-factory-presets.ps1",
+                               "passed":  true,
+                               "detail":  "validator reads direct limiter telemetry"
+                           },
+                           {
+                               "checkId":  "p9f_manifest_no_factory_approved",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manifest has no shipping approval marker"
+                           },
+                           {
+                               "checkId":  "p9f_manifest_references_only_generated_draft_folder",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "paths=6; outside=0"
+                           },
+                           {
+                               "checkId":  "p9f_manifest_keeps_pending_statuses",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending/not_applicable"
+                           },
+                           {
+                               "checkId":  "p9f_generated_presets_only_in_generated_draft_folder",
+                               "target":  "repo .nova-preset files",
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
+                           },
+                           {
+                               "checkId":  "p9f_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p9f_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p9f_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p9f_no_audio_path_behavior_files_changed",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no OutputChain/AudioEngine/DryWet/Routing/GraphBuilder file changes"
+                           },
+                           {
+                               "checkId":  "p9f_docs_no_factory_approved",
+                               "target":  "docs/p9f-draft-preset-direct-limiter-telemetry-results.md",
+                               "passed":  true,
+                               "detail":  "P9F docs avoid shipping approval marker"
+                           },
+                           {
+                               "checkId":  "p9f_docs_keep_pending_statuses",
+                               "target":  "docs/p9f-draft-preset-direct-limiter-telemetry-results.md",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending"
+                           },
+                           {
+                               "checkId":  "p9g_p9g_technical_readiness_snapshot_md_present",
+                               "target":  "docs/p9g-technical-readiness-snapshot.md",
+                               "passed":  true,
+                               "detail":  "P9G document found"
+                           },
+                           {
+                               "checkId":  "p9g_p9g_manual_qa_handoff_md_present",
+                               "target":  "docs/p9g-manual-qa-handoff.md",
+                               "passed":  true,
+                               "detail":  "P9G document found"
+                           },
+                           {
+                               "checkId":  "p9g_p9g_release_readiness_checklist_md_present",
+                               "target":  "docs/p9g-release-readiness-checklist.md",
+                               "passed":  true,
+                               "detail":  "P9G document found"
+                           },
+                           {
+                               "checkId":  "p9g_p9g_technical_readiness_snapshot_results_md_present",
+                               "target":  "docs/p9g-technical-readiness-snapshot-results.md",
+                               "passed":  true,
+                               "detail":  "P9G document found"
+                           },
+                           {
+                               "checkId":  "p9g_docs_no_factory_approved",
+                               "target":  "docs/p9g-*",
+                               "passed":  true,
+                               "detail":  "P9G docs avoid shipping approval marker"
+                           },
+                           {
+                               "checkId":  "p9g_docs_keep_pending_statuses",
+                               "target":  "docs/p9g-*",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending"
+                           },
+                           {
+                               "checkId":  "p9g_manifest_no_factory_approved",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manifest has no shipping approval marker"
+                           },
+                           {
+                               "checkId":  "p9g_manifest_keeps_pending_statuses",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending/not_applicable"
+                           },
+                           {
+                               "checkId":  "p9g_generated_presets_only_in_generated_draft_folder",
+                               "target":  "repo .nova-preset files",
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
+                           },
+                           {
+                               "checkId":  "p9g_generated_preset_count",
+                               "target":  "Resources/Presets/DraftFactory/generated",
+                               "passed":  true,
+                               "detail":  "generatedPresetCount=6"
+                           },
+                           {
+                               "checkId":  "p9g_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p9g_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p9g_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p9g_no_audio_path_behavior_files_changed",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no OutputChain/AudioEngine/DryWet/Routing/GraphBuilder file changes"
+                           },
+                           {
+                               "checkId":  "p9g_p9f_limiter_report_still_pass",
+                               "target":  "artifacts/p9f-draft-preset-limiter-telemetry-report.json",
+                               "passed":  true,
+                               "detail":  "status=PASS; limiterTelemetryZero=True"
+                           },
+                           {
+                               "checkId":  "p10a_p10a_six_draft_preset_listening_run_pack_md_present",
+                               "target":  "docs/p10a-six-draft-preset-listening-run-pack.md",
+                               "passed":  true,
+                               "detail":  "P10A file found"
+                           },
+                           {
+                               "checkId":  "p10a_p10a_six_draft_preset_listening_checklist_md_present",
+                               "target":  "docs/p10a-six-draft-preset-listening-checklist.md",
+                               "passed":  true,
+                               "detail":  "P10A file found"
+                           },
+                           {
+                               "checkId":  "p10a_p10a_six_draft_preset_listening_results_template_md_present",
+                               "target":  "docs/p10a-six-draft-preset-listening-results-template.md",
+                               "passed":  true,
+                               "detail":  "P10A file found"
+                           },
+                           {
+                               "checkId":  "p10a_p10a_draft_preset_promotion_rules_md_present",
+                               "target":  "docs/p10a-draft-preset-promotion-rules.md",
+                               "passed":  true,
+                               "detail":  "P10A file found"
+                           },
+                           {
+                               "checkId":  "p10a_p10a_draft_preset_listening_issue_routing_md_present",
+                               "target":  "docs/p10a-draft-preset-listening-issue-routing.md",
+                               "passed":  true,
+                               "detail":  "P10A file found"
+                           },
+                           {
+                               "checkId":  "p10a_p10a_six_draft_preset_listening_run_pack_results_md_present",
+                               "target":  "docs/p10a-six-draft-preset-listening-run-pack-results.md",
+                               "passed":  true,
+                               "detail":  "P10A file found"
+                           },
+                           {
+                               "checkId":  "p10a_manual_listening_p10a_six_draft_presets_readme_md_present",
+                               "target":  "artifacts/manual-listening/p10a-six-draft-presets/README.md",
+                               "passed":  true,
+                               "detail":  "P10A file found"
+                           },
+                           {
+                               "checkId":  "p10a_manual_listening_p10a_six_draft_presets_session_checklist_md_present",
+                               "target":  "artifacts/manual-listening/p10a-six-draft-presets/session-checklist.md",
+                               "passed":  true,
+                               "detail":  "P10A file found"
+                           },
+                           {
+                               "checkId":  "p10a_manual_listening_p10a_six_draft_presets_results_template_csv_present",
+                               "target":  "artifacts/manual-listening/p10a-six-draft-presets/results-template.csv",
+                               "passed":  true,
+                               "detail":  "P10A file found"
+                           },
+                           {
+                               "checkId":  "p10a_all_six_presets_in_checklist",
+                               "target":  "docs/p10a-six-draft-preset-listening-checklist.md",
+                               "passed":  true,
+                               "detail":  "all six presets appear in checklist"
+                           },
+                           {
+                               "checkId":  "p10a_results_template_starts_not_run",
+                               "target":  "docs/p10a-six-draft-preset-listening-results-template.md",
+                               "passed":  true,
+                               "detail":  "results template starts all six presets as NOT_RUN"
+                           },
+                           {
+                               "checkId":  "p10a_csv_template_starts_not_run",
+                               "target":  "artifacts/manual-listening/p10a-six-draft-presets/results-template.csv",
+                               "passed":  true,
+                               "detail":  "CSV template starts all six presets as NOT_RUN"
+                           },
+                           {
+                               "checkId":  "p10a_docs_no_factory_approved_result",
+                               "target":  "docs/p10a-* and artifacts/manual-listening/p10a-*",
+                               "passed":  true,
+                               "detail":  "P10A docs do not mark any preset factory-approved"
+                           },
+                           {
+                               "checkId":  "p10a_docs_keep_pending_statuses",
+                               "target":  "docs/p10a-* and artifacts/manual-listening/p10a-*",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending/NOT_RUN"
+                           },
+                           {
+                               "checkId":  "p10a_manifest_no_factory_approved",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manifest has no shipping approval marker"
+                           },
+                           {
+                               "checkId":  "p10a_manifest_keeps_pending_statuses",
+                               "target":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+                               "passed":  true,
+                               "detail":  "manual, Distortion, and Reaper statuses remain pending/not_applicable"
+                           },
+                           {
+                               "checkId":  "p10a_generated_presets_only_in_generated_draft_folder",
+                               "target":  "repo .nova-preset files",
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
+                           },
+                           {
+                               "checkId":  "p10a_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p10a_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p10a_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p10c_doc_present",
+                               "target":  "docs/p10c-high-gain-professionalization-audit-results.md",
+                               "passed":  true,
+                               "detail":  "P10C doc found"
+                           },
+                           {
+                               "checkId":  "p10c_doc_present",
+                               "target":  "docs/p10c-high-gain-professionalization-results.md",
+                               "passed":  true,
+                               "detail":  "P10C doc found"
+                           },
+                           {
+                               "checkId":  "p10c_high_gain_scenario_present",
+                               "target":  "p10c_high_gain_amp_nominal_palm_mute",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10c_high_gain_scenario_present",
+                               "target":  "p10c_high_gain_amp_extreme_gain_bounded",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10c_high_gain_scenario_present",
+                               "target":  "p10c_distortion_highgainamp_modern4x12_nominal",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10c_high_gain_scenario_present",
+                               "target":  "p10c_boost_highgainamp_modern4x12_nominal",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10c_high_gain_scenario_present",
+                               "target":  "p10c_fuzz_classicamp_cabinet_nominal",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10c_high_gain_scenario_present",
+                               "target":  "p10c_distortion_cleanamp_cabinet_nominal",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10c_high_gain_scenario_present",
+                               "target":  "p10c_high_gain_chain_bypass_recovery",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10c_high_gain_scenario_present",
+                               "target":  "p10c_high_gain_chain_outputchain_limiter_independence",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10c_metric_marker_present",
+                               "target":  "nearClipSamples",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10c_metric_marker_present",
+                               "target":  "clippedSamples",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10c_metric_marker_present",
+                               "target":  "invalidSamples",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10c_metric_marker_present",
+                               "target":  "brightnessProxy",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10c_metric_marker_present",
+                               "target":  "rumbleProxy",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10c_metric_marker_present",
+                               "target":  "adjacentDeltaPeak",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10c_metric_marker_present",
+                               "target":  "limiterTouchedSamples",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10c_metric_marker_present",
+                               "target":  "limiterActiveBlocks",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10c_metric_marker_present",
+                               "target":  "sustainedClampBlocks",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10c_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p10c_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p10c_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p10c_no_outputchain_only_masking",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "OutputChain unchanged"
+                           },
+                           {
+                               "checkId":  "p10c_no_factory_approved",
+                               "target":  "P10C docs",
+                               "passed":  true,
+                               "detail":  "no factory approval marker"
+                           },
+                           {
+                               "checkId":  "p10c_pending_statuses_preserved",
+                               "target":  "P10C docs",
+                               "passed":  true,
+                               "detail":  "manual listening, high-gain listening, and Reaper remain pending"
+                           },
+                           {
+                               "checkId":  "p10d_doc_present",
+                               "target":  "docs/p10d-high-gain-artifact-fizz-helicopter-investigation.md",
+                               "passed":  true,
+                               "detail":  "P10D doc found"
+                           },
+                           {
+                               "checkId":  "p10d_doc_present",
+                               "target":  "docs/p10d-high-gain-professionalization-results.md",
+                               "passed":  true,
+                               "detail":  "P10D doc found"
+                           },
+                           {
+                               "checkId":  "p10d_high_gain_scenario_present",
+                               "target":  "high_gain_helicopter_modulation_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10d_high_gain_scenario_present",
+                               "target":  "high_gain_fizz_brightness_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10d_high_gain_scenario_present",
+                               "target":  "high_gain_strong_input_no_clipping",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10d_high_gain_scenario_present",
+                               "target":  "tight_modern_rhythm_high_gain_artifact_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10d_high_gain_scenario_present",
+                               "target":  "distortion_highgain_modern4x12_professional_bounds",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10d_high_gain_scenario_present",
+                               "target":  "high_gain_noise_gate_chatter_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10d_high_gain_scenario_present",
+                               "target":  "modern4x12_high_gain_fizz_control",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10d_metric_marker_present",
+                               "target":  "modulationDepth3To20",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10d_metric_marker_present",
+                               "target":  "blockRmsVariance",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10d_metric_marker_present",
+                               "target":  "peakVariance",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10d_metric_marker_present",
+                               "target":  "highFrequencyEnergyProxy",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10d_metric_marker_present",
+                               "target":  "gateTransitions",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10d_metric_marker_present",
+                               "target":  "gateDeltaPeak",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10d_metric_marker_present",
+                               "target":  "nearClipSamples",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10d_metric_marker_present",
+                               "target":  "clippedSamples",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10d_metric_marker_present",
+                               "target":  "limiterTouchedSamples",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10d_metric_marker_present",
+                               "target":  "sustainedClampBlocks",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10d_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p10d_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p10d_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p10d_no_outputchain_only_masking",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "OutputChain unchanged"
+                           },
+                           {
+                               "checkId":  "p10d_no_factory_approved",
+                               "target":  "P10D docs",
+                               "passed":  true,
+                               "detail":  "no factory approval marker"
+                           },
+                           {
+                               "checkId":  "p10d_pending_statuses_preserved",
+                               "target":  "P10D docs",
+                               "passed":  true,
+                               "detail":  "manual listening, high-gain listening, and Reaper remain pending"
+                           },
+                           {
+                               "checkId":  "p10d_clean_preservation_noted",
+                               "target":  "P10D docs",
+                               "passed":  true,
+                               "detail":  "clean preservation documented"
+                           },
+                           {
+                               "checkId":  "p10e_doc_present",
+                               "target":  "docs/p10e-high-gain-mute-helicopter-reverb-investigation.md",
+                               "passed":  true,
+                               "detail":  "P10E doc found"
+                           },
+                           {
+                               "checkId":  "p10e_doc_present",
+                               "target":  "docs/p10e-high-gain-manual-warn-followup-results.md",
+                               "passed":  true,
+                               "detail":  "P10E doc found"
+                           },
+                           {
+                               "checkId":  "p10e_high_gain_scenario_present",
+                               "target":  "p10e_distortion_highgain_mute_repro",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10e_high_gain_scenario_present",
+                               "target":  "p10e_distortion_cleanamp_helicopter_repro",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10e_high_gain_scenario_present",
+                               "target":  "p10e_distortion_reverb_helicopter_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10e_high_gain_scenario_present",
+                               "target":  "p10e_distortion_reverb_chorus_recovery_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10e_high_gain_scenario_present",
+                               "target":  "p10e_boost_highgain_noise_clipping_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10e_high_gain_scenario_present",
+                               "target":  "p10e_fuzz_classicamp_stuck_silence_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10e_high_gain_scenario_present",
+                               "target":  "p10e_sample_rate_reset_recovers_stuck_chain",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10e_high_gain_scenario_present",
+                               "target":  "p10e_tight_modern_rhythm_availability_doc_check",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10e_metric_marker_present",
+                               "target":  "P10ELongStageMetrics",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10e_metric_marker_present",
+                               "target":  "silentWhileInputBlocks",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10e_metric_marker_present",
+                               "target":  "maxConsecutiveSilentBlocks",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10e_metric_marker_present",
+                               "target":  "tailRms",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10e_metric_marker_present",
+                               "target":  "modulationDepth3To20",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10e_metric_marker_present",
+                               "target":  "blockRmsVariance",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10e_metric_marker_present",
+                               "target":  "highFrequencyEnergyProxy",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10e_metric_marker_present",
+                               "target":  "nearClipSamples",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10e_metric_marker_present",
+                               "target":  "clippedSamples",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10e_metric_marker_present",
+                               "target":  "invalidSamples",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10e_metric_marker_present",
+                               "target":  "sample-rate-reset",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10e_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p10e_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p10e_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p10e_no_outputchain_only_masking",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "OutputChain unchanged"
+                           },
+                           {
+                               "checkId":  "p10e_no_factory_approved",
+                               "target":  "P10E docs",
+                               "passed":  true,
+                               "detail":  "no factory approval marker"
+                           },
+                           {
+                               "checkId":  "p10e_no_ui_deploy_reaper_closure",
+                               "target":  "P10E docs",
+                               "passed":  true,
+                               "detail":  "no UI/deploy/Reaper closure marker"
+                           },
+                           {
+                               "checkId":  "p10e_pending_statuses_preserved",
+                               "target":  "P10E docs",
+                               "passed":  true,
+                               "detail":  "manual listening, high-gain listening, and Reaper remain pending"
+                           },
+                           {
+                               "checkId":  "p10e_clean_preservation_noted",
+                               "target":  "P10E docs",
+                               "passed":  true,
+                               "detail":  "clean preservation documented"
+                           },
+                           {
+                               "checkId":  "p10f_doc_present",
+                               "target":  "docs/p10f-high-gain-root-cause-fuzz-reference-audit.md",
+                               "passed":  true,
+                               "detail":  "P10F doc found"
+                           },
+                           {
+                               "checkId":  "p10f_doc_present",
+                               "target":  "docs/p10f-high-gain-architecture-root-fix-results.md",
+                               "passed":  true,
+                               "detail":  "P10F doc found"
+                           },
+                           {
+                               "checkId":  "p10f_high_gain_scenario_present",
+                               "target":  "p10f_fuzz_reference_gain_behavior",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10f_high_gain_scenario_present",
+                               "target":  "p10f_distortion_gain_ducking_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10f_high_gain_scenario_present",
+                               "target":  "p10f_distortion_highgain_ducking_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10f_high_gain_scenario_present",
+                               "target":  "p10f_boost_highgain_ducking_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10f_high_gain_scenario_present",
+                               "target":  "p10f_highgainamp_internal_ducking_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10f_high_gain_scenario_present",
+                               "target":  "p10f_noise_gate_low_setting_reference",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10f_high_gain_scenario_present",
+                               "target":  "p10f_highgain_noise_floor_after_silence",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10f_high_gain_scenario_present",
+                               "target":  "p10f_highgain_no_perceptible_volume_collapse",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10f_metric_marker_present",
+                               "target":  "P10FDuckingMetrics",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10f_metric_marker_present",
+                               "target":  "gainDropDuringActiveInput",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10f_metric_marker_present",
+                               "target":  "blockRmsDropRatio",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10f_metric_marker_present",
+                               "target":  "envelopeDuckDepth",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10f_metric_marker_present",
+                               "target":  "recoveryTimeAfterDuck",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10f_metric_marker_present",
+                               "target":  "activeInputToOutputRmsRatio",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10f_metric_marker_present",
+                               "target":  "consecutiveGainReductionBlocks",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10f_metric_marker_present",
+                               "target":  "outputRmsWhileInputActive",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10f_metric_marker_present",
+                               "target":  "gateGainProxy",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10f_metric_marker_present",
+                               "target":  "ceilingTouchedSamples",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10f_no_golden_baseline_update",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p10f_no_schema_bump",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p10f_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure ignore marker"
+                           },
+                           {
+                               "checkId":  "p10f_no_outputchain_only_masking",
+                               "target":  "git diff",
+                               "passed":  true,
+                               "detail":  "OutputChain unchanged"
+                           },
+                           {
+                               "checkId":  "p10f_fuzz_reference_guard_present",
+                               "target":  "P10F docs",
+                               "passed":  true,
+                               "detail":  "Fuzz reference documented"
+                           },
+                           {
+                               "checkId":  "p10f_ducking_guard_present",
+                               "target":  "P10F docs",
+                               "passed":  true,
+                               "detail":  "ducking guard documented"
+                           },
+                           {
+                               "checkId":  "p10f_no_factory_approved",
+                               "target":  "P10F docs",
+                               "passed":  true,
+                               "detail":  "no factory approval marker"
+                           },
+                           {
+                               "checkId":  "p10f_no_ui_deploy_reaper_closure",
+                               "target":  "P10F docs",
+                               "passed":  true,
+                               "detail":  "no UI/deploy/Reaper closure marker"
+                           },
+                           {
+                               "checkId":  "p10f_pending_statuses_preserved",
+                               "target":  "P10F docs",
+                               "passed":  true,
+                               "detail":  "manual listening, high-gain listening, and Reaper remain pending"
+                           },
+                           {
+                               "checkId":  "p10f_clean_preservation_noted",
+                               "target":  "P10F docs",
+                               "passed":  true,
+                               "detail":  "clean preservation documented"
+                           },
+                           {
+                               "checkId":  "p10g_doc_present",
+                               "target":  "docs/p10g-high-gain-noise-gate-root-investigation.md",
+                               "passed":  true,
+                               "detail":  "P10G doc found"
+                           },
+                           {
+                               "checkId":  "p10g_doc_present",
+                               "target":  "docs/p10g-high-gain-noise-floor-collapse-results.md",
+                               "passed":  true,
+                               "detail":  "P10G doc found"
+                           },
+                           {
+                               "checkId":  "p10g_high_gain_scenario_present",
+                               "target":  "p10g_fuzz_low_gate_reference",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10g_high_gain_scenario_present",
+                               "target":  "p10g_distortion_low_gate_noise_floor",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10g_high_gain_scenario_present",
+                               "target":  "p10g_highgain_low_gate_noise_floor",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10g_high_gain_scenario_present",
+                               "target":  "p10g_boost_highgain_ground_noise_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10g_high_gain_scenario_present",
+                               "target":  "p10g_distortion_highgain_ground_noise_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10g_high_gain_scenario_present",
+                               "target":  "p10g_distortion_active_volume_collapse_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10g_high_gain_scenario_present",
+                               "target":  "p10g_noise_gate_sustain_preservation_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10g_high_gain_scenario_present",
+                               "target":  "p10g_highgain_fizz_proxy_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10g_high_gain_scenario_present",
+                               "target":  "p10g_highgain_baseline_preservation",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "P10GNoiseFloorMetrics",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "idleNoiseRms",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "postPhraseNoiseRms",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "noiseToSignalRatio",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "outputRmsWhileInputActive",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "outputRmsDuringSilence",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "gateReductionNeededForSilence",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "sustainRmsAfterGate",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "gateTransitions",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "gateDeltaPeak",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "volumeCollapseDuringActiveInput",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "highFrequencyEnergyProxy",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_metric_marker_present",
+                               "target":  "rumbleProxy",
+                               "passed":  true,
+                               "detail":  "metric marker present"
+                           },
+                           {
+                               "checkId":  "p10g_no_golden_baseline_update",
+                               "target":  "git diff --name-only",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p10g_no_schema_bump",
+                               "target":  "STATE_SCHEMA_VERSION",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p10g_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure marker in base validation"
+                           },
+                           {
+                               "checkId":  "p10g_no_outputchain_masking",
+                               "target":  "OutputChain",
+                               "passed":  true,
+                               "detail":  "OutputChain unchanged"
+                           },
+                           {
+                               "checkId":  "p10g_fuzz_low_gate_reference_present",
+                               "target":  "P10G docs",
+                               "passed":  true,
+                               "detail":  "Fuzz low-gate reference documented"
+                           },
+                           {
+                               "checkId":  "p10g_active_volume_collapse_guard_present",
+                               "target":  "P10G docs",
+                               "passed":  true,
+                               "detail":  "active volume collapse guard documented"
+                           },
+                           {
+                               "checkId":  "p10g_noise_floor_guard_present",
+                               "target":  "P10G docs",
+                               "passed":  true,
+                               "detail":  "noise floor guards documented"
+                           },
+                           {
+                               "checkId":  "p10g_no_factory_approved",
+                               "target":  "P10G docs",
+                               "passed":  true,
+                               "detail":  "no factory approval marker"
+                           },
+                           {
+                               "checkId":  "p10g_no_ui_deploy_reaper_closure",
+                               "target":  "P10G docs",
+                               "passed":  true,
+                               "detail":  "no UI/deploy/Reaper closure marker"
+                           },
+                           {
+                               "checkId":  "p10g_pending_statuses_preserved",
+                               "target":  "P10G docs",
+                               "passed":  true,
+                               "detail":  "manual listening, high-gain listening, and Reaper remain pending"
+                           },
+                           {
+                               "checkId":  "p10g_clean_preservation_noted",
+                               "target":  "P10G docs",
+                               "passed":  true,
+                               "detail":  "clean preservation documented"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_polish_doc_present",
+                               "target":  "docs/p7i-diagnostics-visualizer-cpu-profiler-polish-results.md",
+                               "passed":  true,
+                               "detail":  "P7I diagnostics polish doc found"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_bundle_script_present",
+                               "target":  "scripts/run-diagnostics-bundle.ps1",
+                               "passed":  true,
+                               "detail":  "P7I diagnostics bundle script found"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_manager_format_profiling_line_present",
+                               "target":  "Source/Core/Audio/DiagnosticsManager.h",
+                               "passed":  true,
+                               "detail":  "formatProfilingLine present"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_manager_format_profiling_results_present",
+                               "target":  "Source/Core/Audio/DiagnosticsManager.h",
+                               "passed":  true,
+                               "detail":  "formatProfilingResults present"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_manager_build_report_present",
+                               "target":  "Source/Core/Audio/DiagnosticsManager.h",
+                               "passed":  true,
+                               "detail":  "buildDiagnosticReport present"
+                           },
+                           {
+                               "checkId":  "p7i_runtime_profiling_covers_block_32",
+                               "target":  "AudioEngine::runRealtimeProfilingSuite",
+                               "passed":  true,
+                               "detail":  "block 32 present in profiling suite"
+                           },
+                           {
+                               "checkId":  "p7i_runtime_profiling_covers_block_64",
+                               "target":  "AudioEngine::runRealtimeProfilingSuite",
+                               "passed":  true,
+                               "detail":  "block 64 present in profiling suite"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_test_present",
+                               "target":  "P7I CpuMeter reset clears all counters",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_test_present",
+                               "target":  "P7I CpuMeter ignores invalid sample rate / block size without polluting state",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_test_present",
+                               "target":  "P7I CpuMeter peak decays toward floor across many empty blocks",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_test_present",
+                               "target":  "P7I DiagnosticsManager::formatProfilingLine produces deterministic shape",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_test_present",
+                               "target":  "P7I DiagnosticsManager::formatProfilingLine appends notes when present",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_test_present",
+                               "target":  "P7I DiagnosticsManager::formatProfilingResults joins lines and includes header",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_test_present",
+                               "target":  "P7I runRealtimeProfilingSuite covers blocks 32 and 64 explicitly",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7i_diagnostics_test_present",
+                               "target":  "P7I AudioEngine::buildDiagnosticReport is non-empty and contains stable fields",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7g_legacy_file_quarantined",
+                               "target":  "Source/Effects/Pedals/ChorusPedal.h",
+                               "passed":  true,
+                               "detail":  "classification=DUPLICATE_SUPERSEDED; inJucer=False expectedInJucer=False; inRegistry=False; replacement=Source/Effects/Pedals/Chorus/ChorusPedal.h; catalogOk=True"
+                           },
+                           {
+                               "checkId":  "p7g_legacy_file_quarantined",
+                               "target":  "Source/Effects/Pedals/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "classification=DUPLICATE_SUPERSEDED; inJucer=False expectedInJucer=False; inRegistry=False; replacement=Source/Effects/Pedals/Compressor/CompressorPedal.h; catalogOk=True"
+                           },
+                           {
+                               "checkId":  "p7g_legacy_file_quarantined",
+                               "target":  "Source/Effects/Pedals/Wah/AutoWahPedal.h",
+                               "passed":  true,
+                               "detail":  "classification=LEGACY_ALIAS_ONLY; inJucer=True expectedInJucer=True; inRegistry=False; replacement=Source/Effects/Pedals/Wah/ClassicWahPedal.h; catalogOk=True"
+                           },
+                           {
+                               "checkId":  "p7g_legacy_file_quarantined",
+                               "target":  "Source/Effects/Pedals/Metal/MetalDistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "classification=LEGACY_ALIAS_ONLY; inJucer=True expectedInJucer=True; inRegistry=False; replacement=Source/Effects/Pedals/Distortion/DistortionPedal.h; catalogOk=True"
                            }
                        ],
     "contractFailures":  [
@@ -192,49 +3265,56 @@
 
                             ],
     "legacyWarnings":  [
-                           {
-                               "file":  "Source/Effects/Pedals/ChorusPedal.h",
-                               "classification":  "legacy-no-active-reference",
-                               "inJucer":  false,
-                               "inRegistry":  false,
-                               "line":  107,
-                               "patternId":  "buffer_set_size",
-                               "patternLabel":  "AudioBuffer::setSize in process path",
-                               "lineText":  "scratchBuffer.setSize(buffer.getNumChannels(),",
-                               "reason":  "Legacy file is not treated as active audio route by this scanner."
-                           },
-                           {
-                               "file":  "Source/Effects/Pedals/CompressorPedal.h",
-                               "classification":  "legacy-no-active-reference",
-                               "inJucer":  false,
-                               "inRegistry":  false,
-                               "line":  102,
-                               "patternId":  "buffer_set_size",
-                               "patternLabel":  "AudioBuffer::setSize in process path",
-                               "lineText":  "dryBuffer.setSize(buffer.getNumChannels(),",
-                               "reason":  "Legacy file is not treated as active audio route by this scanner."
-                           },
-                           {
-                               "file":  "Source/Effects/Pedals/Wah/AutoWahPedal.h",
-                               "classification":  "legacy-in-jucer",
-                               "inJucer":  true,
-                               "inRegistry":  false,
-                               "line":  108,
-                               "patternId":  "buffer_set_size",
-                               "patternLabel":  "AudioBuffer::setSize in process path",
-                               "lineText":  "scratchBuffer.setSize(numChannels, numSamples, false, false, true);",
-                               "reason":  "Legacy file is not treated as active audio route by this scanner."
-                           },
-                           {
-                               "file":  "Source/Effects/Pedals/Metal/MetalDistortionPedal.h",
-                               "classification":  "legacy-in-jucer",
-                               "inJucer":  true,
-                               "inRegistry":  false,
-                               "line":  118,
-                               "patternId":  "buffer_set_size",
-                               "patternLabel":  "AudioBuffer::setSize in process path",
-                               "lineText":  "scratchBuffer.setSize(numChannels,",
-                               "reason":  "Legacy file is not treated as active audio route by this scanner."
-                           }
-                       ]
+
+                       ],
+    "legacyQuarantine":  [
+                             {
+                                 "file":  "Source/Effects/Pedals/ChorusPedal.h",
+                                 "classification":  "DUPLICATE_SUPERSEDED",
+                                 "inJucer":  false,
+                                 "inRegistry":  false,
+                                 "replacement":  "Source/Effects/Pedals/Chorus/ChorusPedal.h",
+                                 "line":  107,
+                                 "patternId":  "buffer_set_size",
+                                 "patternLabel":  "AudioBuffer::setSize in process path",
+                                 "lineText":  "scratchBuffer.setSize(buffer.getNumChannels(),",
+                                 "reason":  "Root legacy header is superseded by the registered Chorus/ChorusPedal.h processor."
+                             },
+                             {
+                                 "file":  "Source/Effects/Pedals/CompressorPedal.h",
+                                 "classification":  "DUPLICATE_SUPERSEDED",
+                                 "inJucer":  false,
+                                 "inRegistry":  false,
+                                 "replacement":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                                 "line":  102,
+                                 "patternId":  "buffer_set_size",
+                                 "patternLabel":  "AudioBuffer::setSize in process path",
+                                 "lineText":  "dryBuffer.setSize(buffer.getNumChannels(),",
+                                 "reason":  "Root legacy header is superseded by the registered Compressor/CompressorPedal.h processor."
+                             },
+                             {
+                                 "file":  "Source/Effects/Pedals/Wah/AutoWahPedal.h",
+                                 "classification":  "LEGACY_ALIAS_ONLY",
+                                 "inJucer":  true,
+                                 "inRegistry":  false,
+                                 "replacement":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                                 "line":  108,
+                                 "patternId":  "buffer_set_size",
+                                 "patternLabel":  "AudioBuffer::setSize in process path",
+                                 "lineText":  "scratchBuffer.setSize(numChannels, numSamples, false, false, true);",
+                                 "reason":  "Legacy Auto Wah names canonicalize to the registered Wah processor; AutoWahPedal is not registered."
+                             },
+                             {
+                                 "file":  "Source/Effects/Pedals/Metal/MetalDistortionPedal.h",
+                                 "classification":  "LEGACY_ALIAS_ONLY",
+                                 "inJucer":  true,
+                                 "inRegistry":  false,
+                                 "replacement":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                                 "line":  118,
+                                 "patternId":  "buffer_set_size",
+                                 "patternLabel":  "AudioBuffer::setSize in process path",
+                                 "lineText":  "scratchBuffer.setSize(numChannels,",
+                                 "reason":  "Legacy Metal Distortion names canonicalize to the registered Distortion processor; MetalDistortionPedal is not registered."
+                             }
+                         ]
 }

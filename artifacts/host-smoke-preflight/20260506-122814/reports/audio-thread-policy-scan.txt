@@ -1,0 +1,214 @@
+NOVA Audio Thread Policy Scan
+Generated: 2026-05-06 12:28:44
+status=WARN
+summary.activeFiles=32
+summary.activeRanges=38
+summary.failures=0
+summary.warnings=4
+summary.allowlistedWarnings=0
+summary.legacyWarnings=4
+summary.contractChecks=142
+summary.contractFailures=0
+summary.allowListEntries=2
+
+Active files scanned:
+  - Source/Core/Audio/CpuMeter.h
+  - Source/Core/Audio/HealthMonitor.h
+  - Source/Core/Audio/RuntimeParameterSnapshot.h
+  - Source/Core/AudioEngine.cpp
+  - Source/Core/DSP/Global/ChannelStrip.cpp
+  - Source/Core/DSP/Global/InputChain.cpp
+  - Source/Core/DSP/Global/OutputChain.cpp
+  - Source/Core/PluginProcessor.cpp
+  - Source/Effects/Amplifiers/BoutiqueAmp.h
+  - Source/Effects/Amplifiers/ChimeAmp.h
+  - Source/Effects/Amplifiers/ClassicAmp.h
+  - Source/Effects/Amplifiers/CleanAmp.h
+  - Source/Effects/Amplifiers/HighGainAmp.h
+  - Source/Effects/Cabinets/CabinetPedal.h
+  - Source/Effects/Cabinets/Modern4x12Cabinet.h
+  - Source/Effects/Cabinets/Vintage2x12Cabinet.h
+  - Source/Effects/Pedals/Boost/BoostPedal.h
+  - Source/Effects/Pedals/Chorus/ChorusPedal.h
+  - Source/Effects/Pedals/Compressor/CompressorPedal.h
+  - Source/Effects/Pedals/Delay/DelayPedal.h
+  - Source/Effects/Pedals/Distortion/DistortionPedal.h
+  - Source/Effects/Pedals/EQ/EQPedal.h
+  - Source/Effects/Pedals/Flanger/FlangerPedal.h
+  - Source/Effects/Pedals/Fuzz/FuzzPedal.h
+  - Source/Effects/Pedals/Gate/NoiseGatePedal.h
+  - Source/Effects/Pedals/Neural/NeuralPedal.h
+  - Source/Effects/Pedals/Octave/OctavePedal.h
+  - Source/Effects/Pedals/Overdrive/OverdrivePedal.h
+  - Source/Effects/Pedals/Phaser/PhaserPedal.h
+  - Source/Effects/Pedals/Reverb/ReverbPedal.h
+  - Source/Effects/Pedals/Tremolo/TremoloPedal.h
+  - Source/Effects/Pedals/Wah/ClassicWahPedal.h
+
+Allowlist entries:
+  - file=Source/Core/PluginProcessor.cpp pattern=dynamic_cast reason=Parameter listener path, not audio callback.
+  - file=Source/Core/AudioEngine.cpp pattern=graph_rebuild reason=Atomic flag only; rebuild is executed on control thread.
+
+No FAIL findings in active audio routes.
+
+RuntimeGraphManager contract checks: PASS
+
+RuntimeGraphManager contract checks detail:
+  - [manager_method_exists] target=RuntimeGraphManager::getActiveRaw passed=True detail=found
+  - [manager_method_exists] target=RuntimeGraphManager::publish passed=True detail=found
+  - [manager_method_exists] target=RuntimeGraphManager::getActiveOwnerForControl passed=True detail=found
+  - [manager_method_exists] target=RuntimeGraphManager::cleanupRetired passed=True detail=found
+  - [process_uses_getActiveRaw] target=AudioEngine::process passed=True detail=callCount=1
+  - [process_no_buildGraphFromModelLocked] target=AudioEngine::process passed=True detail=no buildGraphFromModelLocked call in process
+  - [process_no_graphbuilder_build] target=AudioEngine::process passed=True detail=no GraphBuilder::build call in process
+  - [process_no_routingmixer] target=AudioEngine::process passed=True detail=RoutingMixer not referenced
+  - [drywet_no_graphruntime] target=DryWetMixer passed=True detail=not present
+  - [drywet_no_processblock] target=DryWetMixer passed=True detail=not present
+  - [drywet_no_session_logger] target=DryWetMixer passed=True detail=not present
+  - [drywet_no_juce_string] target=DryWetMixer passed=True detail=not present
+  - [routingmixer_no_graphruntime] target=RoutingMixer passed=True detail=not present
+  - [routingmixer_no_processblock] target=RoutingMixer passed=True detail=not present
+  - [routingmixer_no_session_logger] target=RoutingMixer passed=True detail=not present
+  - [routingmixer_no_juce_string] target=RoutingMixer passed=True detail=not present
+  - [drywet_orchestrator_keeps_graph_call] target=AudioEngine::processWithSampleAccurateDryWet passed=True detail=callCount=2
+  - [graphbuilder_no_audioengine_include] target=GraphBuilder.h passed=True detail=AudioEngine.h include not present
+  - [buildGraph_wrapper_uses_graphbuilder] target=AudioEngine::buildGraphFromModelLocked passed=True detail=wrapper request+builder call found
+  - [getActiveRaw_atomic_load] target=RuntimeGraphManager::getActiveRaw passed=True detail=acquire-load return found
+  - [p7b_emitter_no_session_logger] target=Source/Core/DSP/Global/ChannelStrip.h passed=True detail=no SessionLogger call
+  - [p7b_emitter_no_session_logger] target=Source/Core/DSP/Global/ChannelStrip.cpp passed=True detail=no SessionLogger call
+  - [p7b_emitter_no_session_logger] target=Source/Core/DSP/Global/OutputChain.h passed=True detail=no SessionLogger call
+  - [p7b_emitter_no_session_logger] target=Source/Core/DSP/Global/OutputChain.cpp passed=True detail=no SessionLogger call
+  - [p7b_emitter_no_session_logger] target=Source/Effects/Pedals/Overdrive/OverdrivePedal.h passed=True detail=no SessionLogger call
+  - [p7b_emitter_no_session_logger] target=Source/Effects/Amplifiers/CleanAmp.h passed=True detail=no SessionLogger call
+  - [p7b_emitter_no_session_logger] target=Source/Effects/Pedals/Delay/DelayPedal.h passed=True detail=no SessionLogger call
+  - [p7b_emitter_no_session_logger] target=Source/Effects/Pedals/Flanger/FlangerPedal.h passed=True detail=no SessionLogger call
+  - [p7b_emitter_no_session_logger] target=Source/Effects/Pedals/Reverb/ReverbPedal.h passed=True detail=no SessionLogger call
+  - [p7b_emitter_uses_lock_free_publish] target=Source/Core/DSP/Global/ChannelStrip.cpp passed=True detail=captureOutputAndPublishIfNeeded call found
+  - [p7b_emitter_uses_lock_free_publish] target=Source/Core/DSP/Global/OutputChain.cpp passed=True detail=captureOutputAndPublishIfNeeded call found
+  - [p7b_emitter_uses_lock_free_publish] target=Source/Effects/Pedals/Overdrive/OverdrivePedal.h passed=True detail=captureOutputAndPublishIfNeeded call found
+  - [p7b_emitter_uses_lock_free_publish] target=Source/Effects/Amplifiers/CleanAmp.h passed=True detail=captureOutputAndPublishIfNeeded call found
+  - [p7b_emitter_uses_lock_free_publish] target=Source/Effects/Pedals/Delay/DelayPedal.h passed=True detail=captureOutputAndPublishIfNeeded call found
+  - [p7b_emitter_uses_lock_free_publish] target=Source/Effects/Pedals/Flanger/FlangerPedal.h passed=True detail=captureOutputAndPublishIfNeeded call found
+  - [p7b_emitter_uses_lock_free_publish] target=Source/Effects/Pedals/Reverb/ReverbPedal.h passed=True detail=captureOutputAndPublishIfNeeded call found
+  - [p7b_pedal_telemetry_lock_free_queue_present] target=PedalSignalTelemetry.h passed=True detail=RealtimeSignalTelemetryQueue declared
+  - [p7b_pedal_telemetry_no_session_logger] target=PedalSignalTelemetry.h passed=True detail=no SessionLogger call
+  - [p7b_amp_no_vector_channel_alloc] target=Source/Effects/Amplifiers/ClassicAmp.h passed=True detail=no std::vector<float*> in amp
+  - [p7b_amp_no_juce_iir_factory] target=Source/Effects/Amplifiers/ClassicAmp.h passed=True detail=amp uses ArrayCoefficients only
+  - [p7b_amp_no_vector_channel_alloc] target=Source/Effects/Amplifiers/HighGainAmp.h passed=True detail=no std::vector<float*> in amp
+  - [p7b_amp_no_juce_iir_factory] target=Source/Effects/Amplifiers/HighGainAmp.h passed=True detail=amp uses ArrayCoefficients only
+  - [p7b_amp_no_vector_channel_alloc] target=Source/Effects/Amplifiers/ChimeAmp.h passed=True detail=no std::vector<float*> in amp
+  - [p7b_amp_no_juce_iir_factory] target=Source/Effects/Amplifiers/ChimeAmp.h passed=True detail=amp uses ArrayCoefficients only
+  - [p7b_amp_no_vector_channel_alloc] target=Source/Effects/Amplifiers/BoutiqueAmp.h passed=True detail=no std::vector<float*> in amp
+  - [p7b_amp_no_juce_iir_factory] target=Source/Effects/Amplifiers/BoutiqueAmp.h passed=True detail=amp uses ArrayCoefficients only
+  - [p7b_amp_no_vector_channel_alloc] target=Source/Effects/Amplifiers/CleanAmp.h passed=True detail=no std::vector<float*> in amp
+  - [p7b_amp_no_juce_iir_factory] target=Source/Effects/Amplifiers/CleanAmp.h passed=True detail=amp uses ArrayCoefficients only
+  - [p7b_plugin_processor_processblock_no_session_logger] target=NOVAAudioProcessor::processBlock passed=True detail=no SessionLogger call in processBlock body
+  - [p7b_plugin_processor_processblock_no_juce_string] target=NOVAAudioProcessor::processBlock passed=True detail=no juce::String in processBlock body
+  - [p7b_plugin_processor_processblock_no_lock] target=NOVAAudioProcessor::processBlock passed=True detail=no lock primitive in processBlock body
+  - [p7b_session_store_atomic_runtime_cache] target=SessionStore passed=True detail=atomic runtime cache + engine flag present
+  - [p7b_session_store_no_lock_on_hot_path] target=SessionStore passed=True detail=no lock primitive present
+  - [p7c_p1_pedal_no_setsize_in_process] target=Source/Effects/Pedals/Compressor/CompressorPedal.h passed=True detail=no setSize call in processBlock body
+  - [p7c_p1_pedal_no_scratchbuffer_setsize_in_process] target=Source/Effects/Pedals/Compressor/CompressorPedal.h passed=True detail=no scratchBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_drybuffer_setsize_in_process] target=Source/Effects/Pedals/Compressor/CompressorPedal.h passed=True detail=no dryBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_vector_resize_in_process] target=Source/Effects/Pedals/Compressor/CompressorPedal.h passed=True detail=no resize/assign/push_back call in processBlock body
+  - [p7c_p1_pedal_canprocessblock_guard] target=Source/Effects/Pedals/Compressor/CompressorPedal.h passed=True detail=canProcessBlock(buffer) guard present
+  - [p7c_p1_pedal_fallback_counter] target=Source/Effects/Pedals/Compressor/CompressorPedal.h passed=True detail=fallbackBlockCount.fetch_add present
+  - [p7c_p1_pedal_no_setsize_in_process] target=Source/Effects/Pedals/Distortion/DistortionPedal.h passed=True detail=no setSize call in processBlock body
+  - [p7c_p1_pedal_no_scratchbuffer_setsize_in_process] target=Source/Effects/Pedals/Distortion/DistortionPedal.h passed=True detail=no scratchBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_drybuffer_setsize_in_process] target=Source/Effects/Pedals/Distortion/DistortionPedal.h passed=True detail=no dryBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_vector_resize_in_process] target=Source/Effects/Pedals/Distortion/DistortionPedal.h passed=True detail=no resize/assign/push_back call in processBlock body
+  - [p7c_p1_pedal_canprocessblock_guard] target=Source/Effects/Pedals/Distortion/DistortionPedal.h passed=True detail=canProcessBlock(buffer) guard present
+  - [p7c_p1_pedal_fallback_counter] target=Source/Effects/Pedals/Distortion/DistortionPedal.h passed=True detail=fallbackBlockCount.fetch_add present
+  - [p7c_p1_pedal_no_setsize_in_process] target=Source/Effects/Pedals/Fuzz/FuzzPedal.h passed=True detail=no setSize call in processBlock body
+  - [p7c_p1_pedal_no_scratchbuffer_setsize_in_process] target=Source/Effects/Pedals/Fuzz/FuzzPedal.h passed=True detail=no scratchBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_drybuffer_setsize_in_process] target=Source/Effects/Pedals/Fuzz/FuzzPedal.h passed=True detail=no dryBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_vector_resize_in_process] target=Source/Effects/Pedals/Fuzz/FuzzPedal.h passed=True detail=no resize/assign/push_back call in processBlock body
+  - [p7c_p1_pedal_canprocessblock_guard] target=Source/Effects/Pedals/Fuzz/FuzzPedal.h passed=True detail=canProcessBlock(buffer) guard present
+  - [p7c_p1_pedal_fallback_counter] target=Source/Effects/Pedals/Fuzz/FuzzPedal.h passed=True detail=fallbackBlockCount.fetch_add present
+  - [p7c_p1_pedal_no_setsize_in_process] target=Source/Effects/Pedals/Neural/NeuralPedal.h passed=True detail=no setSize call in processBlock body
+  - [p7c_p1_pedal_no_scratchbuffer_setsize_in_process] target=Source/Effects/Pedals/Neural/NeuralPedal.h passed=True detail=no scratchBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_drybuffer_setsize_in_process] target=Source/Effects/Pedals/Neural/NeuralPedal.h passed=True detail=no dryBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_vector_resize_in_process] target=Source/Effects/Pedals/Neural/NeuralPedal.h passed=True detail=no resize/assign/push_back call in processBlock body
+  - [p7c_p1_pedal_canprocessblock_guard] target=Source/Effects/Pedals/Neural/NeuralPedal.h passed=True detail=canProcessBlock(buffer) guard present
+  - [p7c_p1_pedal_fallback_counter] target=Source/Effects/Pedals/Neural/NeuralPedal.h passed=True detail=fallbackBlockCount.fetch_add present
+  - [p7c_p1_pedal_no_setsize_in_process] target=Source/Effects/Pedals/Wah/ClassicWahPedal.h passed=True detail=no setSize call in processBlock body
+  - [p7c_p1_pedal_no_scratchbuffer_setsize_in_process] target=Source/Effects/Pedals/Wah/ClassicWahPedal.h passed=True detail=no scratchBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_drybuffer_setsize_in_process] target=Source/Effects/Pedals/Wah/ClassicWahPedal.h passed=True detail=no dryBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_vector_resize_in_process] target=Source/Effects/Pedals/Wah/ClassicWahPedal.h passed=True detail=no resize/assign/push_back call in processBlock body
+  - [p7c_p1_pedal_canprocessblock_guard] target=Source/Effects/Pedals/Wah/ClassicWahPedal.h passed=True detail=canProcessBlock(buffer) guard present
+  - [p7c_p1_pedal_fallback_counter] target=Source/Effects/Pedals/Wah/ClassicWahPedal.h passed=True detail=fallbackBlockCount.fetch_add present
+  - [p7c_p1_pedal_no_setsize_in_process] target=Source/Effects/Cabinets/CabinetPedal.h passed=True detail=no setSize call in processBlock body
+  - [p7c_p1_pedal_no_scratchbuffer_setsize_in_process] target=Source/Effects/Cabinets/CabinetPedal.h passed=True detail=no scratchBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_drybuffer_setsize_in_process] target=Source/Effects/Cabinets/CabinetPedal.h passed=True detail=no dryBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_vector_resize_in_process] target=Source/Effects/Cabinets/CabinetPedal.h passed=True detail=no resize/assign/push_back call in processBlock body
+  - [p7c_p1_pedal_canprocessblock_guard] target=Source/Effects/Cabinets/CabinetPedal.h passed=True detail=canProcessBlock(buffer) guard present
+  - [p7c_p1_pedal_fallback_counter] target=Source/Effects/Cabinets/CabinetPedal.h passed=True detail=fallbackBlockCount.fetch_add present
+  - [p7c_p1_pedal_no_setsize_in_process] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h passed=True detail=no setSize call in processBlock body
+  - [p7c_p1_pedal_no_scratchbuffer_setsize_in_process] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h passed=True detail=no scratchBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_drybuffer_setsize_in_process] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h passed=True detail=no dryBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_vector_resize_in_process] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h passed=True detail=no resize/assign/push_back call in processBlock body
+  - [p7c_p1_pedal_canprocessblock_guard] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h passed=True detail=canProcessBlock(buffer) guard present
+  - [p7c_p1_pedal_fallback_counter] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h passed=True detail=fallbackBlockCount.fetch_add present
+  - [p7c_p1_pedal_no_setsize_in_process] target=Source/Effects/Cabinets/Modern4x12Cabinet.h passed=True detail=no setSize call in processBlock body
+  - [p7c_p1_pedal_no_scratchbuffer_setsize_in_process] target=Source/Effects/Cabinets/Modern4x12Cabinet.h passed=True detail=no scratchBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_drybuffer_setsize_in_process] target=Source/Effects/Cabinets/Modern4x12Cabinet.h passed=True detail=no dryBuffer.setSize in processBlock body
+  - [p7c_p1_pedal_no_vector_resize_in_process] target=Source/Effects/Cabinets/Modern4x12Cabinet.h passed=True detail=no resize/assign/push_back call in processBlock body
+  - [p7c_p1_pedal_canprocessblock_guard] target=Source/Effects/Cabinets/Modern4x12Cabinet.h passed=True detail=canProcessBlock(buffer) guard present
+  - [p7c_p1_pedal_fallback_counter] target=Source/Effects/Cabinets/Modern4x12Cabinet.h passed=True detail=fallbackBlockCount.fetch_add present
+  - [p7c_cabinet_uses_array_coefficients] target=Source/Effects/Cabinets/CabinetPedal.h passed=True detail=IIR::ArrayCoefficients in use
+  - [p7c_cabinet_no_juce_iir_factory] target=Source/Effects/Cabinets/CabinetPedal.h passed=True detail=no allocating IIR factory
+  - [p7c_cabinet_uses_array_coefficients] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h passed=True detail=IIR::ArrayCoefficients in use
+  - [p7c_cabinet_no_juce_iir_factory] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h passed=True detail=no allocating IIR factory
+  - [p7c_cabinet_uses_array_coefficients] target=Source/Effects/Cabinets/Modern4x12Cabinet.h passed=True detail=IIR::ArrayCoefficients in use
+  - [p7c_cabinet_no_juce_iir_factory] target=Source/Effects/Cabinets/Modern4x12Cabinet.h passed=True detail=no allocating IIR factory
+  - [p7c_neural_helpers_array_states] target=Source/Effects/Pedals/Neural/NeuralPedal.h passed=True detail=OnePoleFilterBank/EnvelopeFollower use std::array states
+  - [p7c_neural_helpers_no_vector_states] target=Source/Effects/Pedals/Neural/NeuralPedal.h passed=True detail=no std::vector<float> in Neural file
+  - [p7c_neural_helpers_no_resize_assign] target=Source/Effects/Pedals/Neural/NeuralPedal.h passed=True detail=no states.resize or states.assign call
+  - [p7c_neural_helpers_no_ensurechannels_resize] target=Source/Effects/Pedals/Neural/NeuralPedal.h passed=True detail=no ensureChannels helper
+  - [p7c_phaser_feedback_dc_blocker] target=Source/Effects/Pedals/Phaser/PhaserPedal.h passed=True detail=feedbackDcBlock present
+  - [p7c_phaser_output_dc_blocker] target=Source/Effects/Pedals/Phaser/PhaserPedal.h passed=True detail=outputDcBlock present
+  - [p7c_audio_test_present] target=DelayPedal feedback loop rejects DC accumulation under sustained bias passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=DelayPedal max feedback under sustained input stays bounded passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=DelayPedal sanitizes NaN/Inf input under aggressive feedback passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=DelayPedal high peak input under feedback stays bounded passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=FlangerPedal feedback loop rejects DC accumulation under sustained bias passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=FlangerPedal max feedback under sustained input stays bounded passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=FlangerPedal sanitizes NaN/Inf input under aggressive feedback passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=FlangerPedal high peak input under feedback stays bounded passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=ReverbPedal max decay under sustained input stays bounded passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=ReverbPedal sanitizes NaN/Inf input under aggressive feedback passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=ReverbPedal high peak input under max decay stays bounded passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=PhaserPedal sanitizes NaN/Inf input under aggressive feedback passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=PhaserPedal feedback loop rejects DC accumulation under sustained bias passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7c_audio_test_present] target=ReverbPedal loop rejects DC accumulation under sustained biased playing passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7d_audio_test_present] target=P7D preset save-load-save remains canonical passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7d_audio_test_present] target=P7D catalog presets round-trip every registered pedal passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7d_audio_test_present] target=P7D chain/global preset round-trips routing modes and bypass state passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7d_audio_test_present] target=P7D schema canonicalization rejects unknowns and clamps topology passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7d_audio_test_present] target=P7D parameter boundary restore clamps unsafe values passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7d_audio_test_present] target=P7D pedal state payload restore rejects corrupt payloads safely passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7d_audio_test_present] target=P7D corrupt session recovery leaves engine processable passed=True detail=test name found in AudioEngineTests.cpp
+  - [p7d_schema_version_unchanged] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
+  - [p7d_results_doc_present] target=docs/p7d-preset-session-parameter-validation-results.md passed=True detail=P7D results doc found
+  - [p7e_smoke_matrix_doc_present] target=docs/p7e-daw-standalone-smoke-matrix.md passed=True detail=P7E smoke matrix found
+  - [p7e_manual_checklist_doc_present] target=docs/p7e-manual-host-smoke-checklist.md passed=True detail=P7E manual host smoke checklist found
+  - [p7e_report_template_doc_present] target=docs/p7e-host-smoke-report-template.md passed=True detail=P7E host smoke report template found
+  - [p7e_readiness_results_doc_present] target=docs/p7e-daw-standalone-smoke-readiness-results.md passed=True detail=P7E readiness results found
+  - [p7e_host_smoke_preflight_script_present] target=scripts/run-host-smoke-preflight.ps1 passed=True detail=P7E host smoke preflight script found
+  - [p7e_host_state_test_present] target=P7E host state get/set survives corrupt and repeated engine toggles passed=True detail=P7E host-state test found
+
+Legacy findings (WARN, non-blocking):
+  - [AudioBuffer::setSize in process path] Source/Effects/Pedals/ChorusPedal.h:107
+    classification=legacy-no-active-reference inJucer=False inRegistry=False
+    line=scratchBuffer.setSize(buffer.getNumChannels(),
+  - [AudioBuffer::setSize in process path] Source/Effects/Pedals/CompressorPedal.h:102
+    classification=legacy-no-active-reference inJucer=False inRegistry=False
+    line=dryBuffer.setSize(buffer.getNumChannels(),
+  - [AudioBuffer::setSize in process path] Source/Effects/Pedals/Metal/MetalDistortionPedal.h:118
+    classification=legacy-in-jucer inJucer=True inRegistry=False
+    line=scratchBuffer.setSize(numChannels,
+  - [AudioBuffer::setSize in process path] Source/Effects/Pedals/Wah/AutoWahPedal.h:108
+    classification=legacy-in-jucer inJucer=True inRegistry=False
+    line=scratchBuffer.setSize(numChannels, numSamples, false, false, true);
+
+Policy result: WARN

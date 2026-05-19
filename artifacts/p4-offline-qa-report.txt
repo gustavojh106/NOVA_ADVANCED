@@ -1,5 +1,5 @@
 NOVA Offline QA Report
-Generated: 2026-05-01 13:19:59
+Generated: 2026-05-19 13:22:03
 Scenarios: 74
 
 [PASS] impulse_transparency_line_a
@@ -116,19 +116,19 @@ iterations=2100.00000000
 notes=Boost flagship state recalled cleanly
 state_size_bytes=377.00000000
 null_rms=0.00000000
-baseline_peak=0.80266964
-recalled_peak=0.80266964
+baseline_peak=0.62488264
+recalled_peak=0.62488264
 finite=1.00000000
 
 [PASS] boost_tightening
 notes=Boost tight control materially trimmed low-end energy
-loose_rms=0.48649611
-tight_rms=0.10176852
+loose_rms=0.40133319
+tight_rms=0.08395357
 tight_ratio=0.20918671
 
 [PASS] boost_automation_stress
 notes=Boost remained finite under aggressive preamp automation
-peak=1.22639525
+peak=0.84161204
 finite=1.00000000
 iterations=120.00000000
 
@@ -190,23 +190,23 @@ iterations=120.00000000
 notes=Unified distortion flagship state recalled cleanly
 state_size_bytes=259.00000000
 null_rms=0.00000000
-baseline_peak=1.41467452
-recalled_peak=1.41467452
+baseline_peak=0.94000000
+recalled_peak=0.94000000
 finite=1.00000000
 
 [PASS] distortion_mode_distinctness
 notes=Distortion modes stayed distinct and metal tightness closed the integrated gate harder
-vintage_turbo_null=0.49681428
-vintage_amp_null=1.07355487
-turbo_amp_null=1.44199288
-amp_metal_null=0.41824402
-metal_studio_null=0.43713174
-vintage_studio_null=0.97325365
-metal_gate_ratio=0.06609388
+vintage_turbo_null=0.04394107
+vintage_amp_null=0.91121991
+turbo_amp_null=0.93175851
+amp_metal_null=0.35768850
+metal_studio_null=0.26428488
+vintage_studio_null=0.73799276
+metal_gate_ratio=0.52744727
 
 [PASS] distortion_automation_stress
 notes=Distortion remained finite under aggressive multi-mode automation
-peak=1.48522329
+peak=0.93999851
 finite=1.00000000
 iterations=2250.00000000
 
@@ -214,20 +214,20 @@ iterations=2250.00000000
 notes=Commercial fuzz state recalled cleanly
 state_size_bytes=419.00000000
 null_rms=0.00000000
-baseline_peak=1.56051970
-recalled_peak=1.56051970
+baseline_peak=0.91998494
+recalled_peak=0.91998494
 finite=1.00000000
 
 [PASS] fuzz_mode_distinctness
 notes=Fuzz modes stayed distinct and velcro settings clamped the late tail harder
-vintage_muff_null=0.54416609
-vintage_velcro_null=0.28655622
-muff_velcro_null=0.79046105
-velcro_tail_ratio=0.00000024
+vintage_muff_null=0.49919359
+vintage_velcro_null=0.19508410
+muff_velcro_null=0.58395606
+velcro_tail_ratio=0.53619802
 
 [PASS] fuzz_automation_stress
 notes=Fuzz remained finite under aggressive mode, gate and bias automation
-peak=1.12540162
+peak=0.91668296
 finite=1.00000000
 iterations=2250.00000000
 
@@ -367,7 +367,7 @@ iterations=2250.00000000
 
 [PASS] reverb_tail_quality
 notes=Cloud tail stayed finite, sustained and decayed cleanly
-render_ms=717.80570000
+render_ms=742.13820000
 peak=0.90457606
 rms=0.00173052
 late_rms_0p8_1p3s=0.00018238
@@ -534,7 +534,7 @@ blocks=2400.00000000
 
 [PASS] graph_diagnostic_report
 notes=Diagnostic report reflects graph topology
-report_length_chars=1012.00000000
+report_length_chars=1010.00000000
 contains_delay=1.00000000
 contains_reverb=1.00000000
 contains_ids=1.00000000

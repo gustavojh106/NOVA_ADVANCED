@@ -1,0 +1,64 @@
+{
+    "generatedAt":  "2026-05-19T19:23:36.8993329Z",
+    "kind":  "p7i_diagnostics_bundle",
+    "sources":  {
+                    "rtProfileReport":  {
+                                            "path":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\artifacts\\rt-profile-release-x64-report.json",
+                                            "exists":  true,
+                                            "sizeBytes":  12050,
+                                            "lastWriteUtc":  "2026-05-19T19:22:09.2210098Z"
+                                        },
+                    "rtStabilityReport":  {
+                                              "path":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\artifacts\\rt-profile-stability-release-x64.json",
+                                              "exists":  true,
+                                              "sizeBytes":  32039,
+                                              "lastWriteUtc":  "2026-05-19T19:22:18.2849004Z"
+                                          },
+                    "policyScanJson":  {
+                                           "path":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\artifacts\\audio-thread-policy-scan.json",
+                                           "exists":  true,
+                                           "sizeBytes":  195468,
+                                           "lastWriteUtc":  "2026-05-19T19:23:32.3207136Z"
+                                       },
+                    "baseValidationReport":  {
+                                                 "path":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\audio-base-test-report.txt",
+                                                 "exists":  true,
+                                                 "sizeBytes":  66,
+                                                 "lastWriteUtc":  "2026-05-19T19:23:29.6711966Z"
+                                             }
+                },
+    "rtProfile":  {
+                      "total":  16,
+                      "pass":  16,
+                      "warn":  0,
+                      "fail":  0
+                  },
+    "rtStability":  {
+                        "runs":  3,
+                        "passRuns":  3,
+                        "warnRuns":  0,
+                        "failRuns":  0,
+                        "totalScenariosPass":  48,
+                        "totalScenariosWarn":  0,
+                        "totalScenariosFail":  0,
+                        "blockingEvents":  0
+                    },
+    "policyScan":  {
+                       "status":  "PASS",
+                       "failures":  0,
+                       "warnings":  0,
+                       "legacyWarnings":  0,
+                       "legacyQuarantined":  4,
+                       "contractFailures":  0,
+                       "contractChecks":  532
+                   },
+    "baseValidation":  {
+                           "results":  254,
+                           "passes":  7342,
+                           "failures":  0,
+                           "failingResults":  0
+                       },
+    "missing":  [
+
+                ]
+}

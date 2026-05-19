@@ -361,6 +361,7 @@ public:
             return;
 
         signalTelemetry.captureInput(buffer);
+        scrubInvalidSamples(buffer);
 
         rateSmooth.setTargetValue(rateParam != nullptr ? rateParam->get() : 0.32f);
         depthSmooth.setTargetValue(depthParam != nullptr ? depthParam->get() : 0.72f);
@@ -529,6 +530,17 @@ public:
     std::array<float, 2> lastDelayMs {};
 
 private:
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (!std::isfinite(data[i]))
+                    data[i] = 0.0f;
+        }
+    }
+
     struct DebugTelemetry
     {
         std::array<float, 2> delayMsMin{};

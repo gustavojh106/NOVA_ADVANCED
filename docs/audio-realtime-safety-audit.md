@@ -5,6 +5,32 @@ Baseline auditada: `baseline-audio-v2`
 Commit auditado: `da11290f86fcbda228128143b89e2da0f4de97cc`
 Alcance: busqueda estatica de riesgos en audio thread. No se aplicaron fixes en esta fase.
 
+## P7B closure summary (2026-05-01)
+
+Los items P0 listados originalmente como `pendiente` fueron verificados y cerrados en P7B (`docs/p7b-audio-thread-rt-safety-closure-results.md`). El estado real en codigo, antes de P7B, ya cumplia las recomendaciones; P7B agrego los contract checks que impiden la regresion de estas reglas y dejo evidencia documental de la verificacion.
+
+Items cerrados (ver detalle en P7B):
+
+- `PluginProcessor::processBlock` runtime globals: lock-free atomic snapshot via `SessionStore::RuntimeGlobalParamAtomics`. `processBlock` llama `refreshEngineEnabledIfNeeded(false)` y `refreshEngineGlobalParamsIfNeeded(false, false)`; el logging quedo deferido y nunca corre en audio.
+- `SessionStore::getRuntimeGlobalParams` / `isEngineEnabled`: lecturas atomicas, sin `juce::SpinLock` en audio path.
+- Telemetry desde `processBlock` en `ChannelStripProcessor`, `OutputChainProcessor`, `OverdrivePedal`, `CleanAmp`, `DelayPedal`, `FlangerPedal`, `ReverbPedal`: ahora publican via `RealtimeSignalTelemetryQueue` (lock-free SPMC). El formateo y `SessionLogger::logEvent` corren solo en el thread de logger.
+- Allocations por bloque en `ClassicAmp`, `HighGainAmp`, `ChimeAmp`, `BoutiqueAmp`: reemplazadas por `std::array<float*, kMaxAmpChannels>` preasignado.
+- Recalculo de coeficientes JUCE IIR desde process en amps/CleanAmp: migrado a `juce::dsp::IIR::ArrayCoefficients` (value-type, sin allocation/refcount churn). `CleanAmp` usa filtros custom internos.
+
+Las reglas anteriores quedan codificadas en `scripts/check-audio-thread-policy.ps1` con prefijo `p7b_*`. La tabla original se mantiene como evidencia historica.
+
+## P7C closure summary (2026-05-06)
+
+Los P1 de allocation fallback y coefficient hygiene quedaron cerrados en P7C (`docs/p7c-allocation-fallback-and-feedback-stress-results.md`) sin cambios tonales intencionales:
+
+- `CompressorPedal`, `DistortionPedal`, `FuzzPedal`, `NeuralPedal`, `ClassicWahPedal`, `CabinetPedal`, `Vintage2x12Cabinet`, `Modern4x12Cabinet`: buffers preasignados en `prepareToPlay`, guard `canProcessBlock(buffer)` y fallback dry/no-op sin allocation cuando el host excede el contrato.
+- `NeuralPedal` helpers: `OnePoleFilterBank` y `EnvelopeFollower` usan `std::array<float, kMaxHelperChannels>`; no queda `std::vector<float>`/`ensureChannels` con resize en el path auditado.
+- Cabinets: no quedan `juce::dsp::IIR::Coefficients<float>::make*` en el path auditado; la voicing usa `juce::dsp::IIR::ArrayCoefficients<float>::make*` con las mismas frecuencias/Q/gains.
+- `PhaserPedal`: DC accumulation queda protegido por `feedbackDcBlock`/`outputDcBlock` y regression tests.
+- `DelayPedal`, `FlangerPedal`, `ReverbPedal`: stress tests deterministas para DC, NaN/Inf, feedback alto/runaway y picos altos.
+
+Policy final P7C: `failures=0`, `contractFailures=0`, `contractChecks=127`. P7G reclasifica los 4 hallazgos legacy restantes como cuarentena contractual no activa; el scanner queda en `PASS` cuando esas suposiciones siguen vigentes.
+
 Leyenda de severidad:
 
 - Critica: puede bloquear, asignar memoria o hacer trabajo claramente no RT-safe desde audio thread.
@@ -56,11 +82,11 @@ Leyenda de severidad:
 | `Source/Effects/Pedals/Neural/NeuralPedal.h` | `NeuralPedal` | `processBlock` | `scratchBuffer.setSize(...)` si excede preparado. | Allocation en audio path. | Alta | Fallback no-allocation. | pendiente |
 | `Source/Effects/Pedals/Neural/NeuralPedal.h` | `OnePoleFilterBank` / `EnvelopeFollower` | `ensureChannels` | `resize` de vectores si canales exceden preparado. | Allocation en process bajo layout mismatch. | Alta | Preasignar max channels o fallback no-allocation. | pendiente |
 | `Source/Effects/Pedals/Wah/ClassicWahPedal.h` | `ClassicWahPedal` | `processBlock` | `scratchBuffer.setSize(...)` si excede preparado. | Allocation en audio path. | Alta | Fallback no-allocation. | pendiente |
-| `Source/Effects/Pedals/AutoWahPedal.h` | `AutoWahPedal` | `processBlock` | `scratchBuffer.setSize(...)`; archivo legacy/no registrado directamente. | Riesgo si se reactiva o se usa por alias futuro. | Media | Unificar con Classic Wah o actualizar antes de registrar. | pendiente |
-| `Source/Effects/Pedals/Metal/MetalDistortionPedal.h` | `MetalDistortionPedal` | `processBlock` | `scratchBuffer.setSize(...)`; archivo legacy/no registrado directamente. | Riesgo si se reactiva o se registra. | Media | Eliminar del build si no se usa o modernizar fallback. | pendiente |
-| `Source/Effects/Pedals/CompressorPedal.h` | legacy `CompressorPedal` | `processBlock` | `AudioBuffer::setSize` en process; no parece registrado. | Riesgo de deuda tecnica/uso accidental. | Media | Marcar legacy, remover de proyecto o actualizar. | pendiente |
-| `Source/Effects/Pedals/ChorusPedal.h` | legacy `ChorusPedal` | `processBlock` | `AudioBuffer::setSize` en process; no parece registrado. | Riesgo de deuda tecnica/uso accidental. | Media | Marcar legacy, remover de proyecto o actualizar. | pendiente |
-| `Source/Effects/Pedals/Reverb/ReverbPedal.h` | `ReverbPedal` | `processBlock` / `engine.configure` | Configuracion de engine por bloque cuando cambian parametros. No se confirmo allocation, pero es trabajo pesado. | CPU spikes/zipper bajo automatizacion intensa. | Media | Auditar internals, decimar updates, suavizar targets y medir. | requiere revision humana |
+| `Source/Effects/Pedals/Wah/AutoWahPedal.h` | legacy `AutoWahPedal` | `processBlock` | `scratchBuffer.setSize(...)`; archivo legacy alias-only, no registrado en `PedalRegistry`. | Riesgo solo si se reactiva o registra. | Media | Mantener intacto; P7G lo pone en cuarentena contractual y exige alias `Auto Wah -> Wah`. | P7G quarantined |
+| `Source/Effects/Pedals/Metal/MetalDistortionPedal.h` | legacy `MetalDistortionPedal` | `processBlock` | `scratchBuffer.setSize(...)`; archivo legacy alias-only, no registrado en `PedalRegistry`. | Riesgo solo si se reactiva o registra. | Media | Mantener intacto; P7G lo pone en cuarentena contractual y exige alias `Metal Distortion -> Distortion`. | P7G quarantined |
+| `Source/Effects/Pedals/CompressorPedal.h` | legacy `CompressorPedal` | `processBlock` | `AudioBuffer::setSize` en process; duplicado superseded, no registrado ni en `NOVA.jucer`. | Riesgo de uso accidental futuro. | Media | Mantener intacto; P7G lo pone en cuarentena contractual contra el processor moderno. | P7G quarantined |
+| `Source/Effects/Pedals/ChorusPedal.h` | legacy `ChorusPedal` | `processBlock` | `AudioBuffer::setSize` en process; duplicado superseded, no registrado ni en `NOVA.jucer`. | Riesgo de uso accidental futuro. | Media | Mantener intacto; P7G lo pone en cuarentena contractual contra el processor moderno. | P7G quarantined |
+| `Source/Effects/Pedals/Reverb/ReverbPedal.h` | `ReverbPedal` | `processBlock` / `engine.configure` | `configure` corre en audio thread solo cuando cambia el cache de parametros; no se encontraron allocations obvias en `configure`, pero el trabajo es pesado bajo automation real. | CPU spikes/zipper bajo automatizacion intensa si se automatizan parametros estructurales cada bloque. | Media | P7H agrega contador diagnostico, tests de automation/perf y policy checks; redisenar fuera del audio thread queda para subfase dedicada si se requiere. | P7H audited |
 | `Source/Effects/Pedals/Delay/DelayPedal.h` | `DelayPedal` | filter/feedback updates | Updates frecuentes de filtros/feedback; no allocation visible. | CPU y zipper si automatizacion extrema. | Media | Tests de discontinuidad y profiler por block size 32/64. | requiere revision humana |
 | `Source/Effects/Pedals/EQ/EQPedal.h` | `EQPedal` | processing/filter updates | Coeficientes custom se actualizan con smoothing, potencialmente frecuente. | CPU y diferencias entre block sizes si smoothing no es consistente. | Media | Tests de automation sweep y equivalencia por block size. | requiere revision humana |
 | `Source/Effects/Pedals/Tremolo/TremoloPedal.h` | `TremoloPedal` | crossover/filter updates | Updates periodicos de filtros custom. | Bajo/medio; posible zipper si depth/rate cambian fuerte. | Baja | Tests de discontinuidad al automatizar. | requiere revision humana |
@@ -71,25 +97,25 @@ Leyenda de severidad:
 
 ## Hallazgos prioritarios
 
-P0:
+P0 (cerrados en P7B 2026-05-01, contract-locked en `scripts/check-audio-thread-policy.ps1`):
 
-1. Eliminar logging/strings/locks de telemetry en todos los `processBlock`.
-2. Eliminar locks y logging del camino `PluginProcessor::processBlock`.
-3. Quitar `std::vector` allocation por bloque en Classic/HighGain/Chime/Boutique Amp.
-4. Quitar recalculo de coeficientes JUCE IIR desde process en amps/cabs/CleanAmp.
+1. Eliminar logging/strings/locks de telemetry en todos los `processBlock`. **CORREGIDO** — emisores publican via `RealtimeSignalTelemetryQueue`.
+2. Eliminar locks y logging del camino `PluginProcessor::processBlock`. **CORREGIDO** — atomic snapshot + `allowLogging=false`.
+3. Quitar `std::vector` allocation por bloque en Classic/HighGain/Chime/Boutique Amp. **CORREGIDO** — `std::array<float*, kMaxAmpChannels>`.
+4. Quitar recalculo de coeficientes JUCE IIR desde process en amps/cabs/CleanAmp. **CORREGIDO** en amps via `IIR::ArrayCoefficients`; CleanAmp usa filtros custom. Cabinets siguen fuera de scope (P1).
 
-P1:
+P1 (estado vigente despues de P7C):
 
-1. Reemplazar todos los `AudioBuffer::setSize` condicionales dentro de process por fallback no-allocation.
-2. Preasignar max channels o fallback en `NeuralPedal` helpers.
-3. Auditar `ReverbPedal::engine.configure` bajo automatizacion.
+1. Reemplazar todos los `AudioBuffer::setSize` condicionales dentro de process por fallback no-allocation. **CORREGIDO en P7C** para los pedales P1 auditados.
+2. Preasignar max channels o fallback en `NeuralPedal` helpers. **CORREGIDO en P7C** via `std::array` + `hasChannels`.
+3. Auditar `ReverbPedal::engine.configure` bajo automatizacion. **AUDITADO en P7H**; se agrego instrumentacion/test/policy sin revoicing. Surgery arquitectonica queda fuera de P7H.
 4. Convertir metricas de salud a snapshot estructurado y testable.
 
 P2:
 
 1. Reducir coste de visualizer/profiler en modo produccion.
 2. Anadir tests de discontinuidad para filtros/modulaciones.
-3. Marcar o retirar pedales legacy no registrados para evitar uso accidental.
+3. P7G ya marco los pedales legacy no activos con cuarentena contractual; si se decide reactivarlos en el futuro, modernizarlos antes de registrarlos.
 
 ## Regla de salida para audio thread
 
@@ -106,4 +132,3 @@ Hasta que los P0 esten cerrados, la regla operativa debe ser:
 - Sin `setValueNotifyingHost`.
 - Sin cambios de latencia.
 - Sin coeficientes JUCE IIR creados por factories dentro de process.
-

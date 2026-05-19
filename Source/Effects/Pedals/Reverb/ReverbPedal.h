@@ -859,6 +859,7 @@ namespace Nova {
                 float duckAmount01, float swellAmount01, float gateAmount01, float reverseAmount01,
                 bool freezeEnabled, bool forceSync)
             {
+                ++configureCallCount;
                 const auto& t = tuningForMode(mode);
                 currentMode = mode;
 
@@ -1448,6 +1449,16 @@ namespace Nova {
 
             int currentMode = 0;
 
+            int getConfigureCallCount() const noexcept
+            {
+                return configureCallCount;
+            }
+
+            void resetConfigureDiagnostics() noexcept
+            {
+                configureCallCount = 0;
+            }
+
             juce::String buildAndResetDebugTelemetryReport()
             {
                 juce::String report;
@@ -1710,6 +1721,7 @@ namespace Nova {
 
             DCBlocker dcL, dcR;
             DebugTelemetry debugTelemetry;
+            int configureCallCount = 0;
         };
 
     }
@@ -2034,6 +2046,16 @@ public:
     }
 
     // Public accessors for the editor
+    int getReverbConfigureCallCount() const noexcept
+    {
+        return engine.getConfigureCallCount();
+    }
+
+    void resetReverbConfigureDiagnostics() noexcept
+    {
+        engine.resetConfigureDiagnostics();
+    }
+
     juce::AudioParameterChoice* modeParam = nullptr;
     juce::AudioParameterFloat* decayParam = nullptr;
     juce::AudioParameterFloat* toneParam = nullptr;

@@ -1,0 +1,247 @@
+{
+    "bankName":  "NOVA Draft Factory Bank",
+    "bankVersion":  "p9b-draft-001",
+    "readiness":  "DRAFT_TECHNICAL",
+    "generatedBy":  "P9D side-effect-free draft preset builder",
+    "schemaVersionTarget":  1,
+    "shipping":  false,
+    "automaticSeed":  false,
+    "userPresetDirectoryWrites":  false,
+    "startupPresetPointerUpdate":  false,
+    "notes":  [
+                  "Internal source-controlled draft manifest.",
+                  "P9D generated draft .nova-preset files under Resources/Presets/DraftFactory/generated/ only.",
+                  "Manual listening, Distortion listening, and Reaper smoke remain pending."
+              ],
+    "presets":  [
+                    {
+                        "name":  "Clean Studio",
+                        "category":  "Clean",
+                        "description":  "Neutral clean baseline for DI checks and general playing.",
+                        "tags":  [
+                                     "clean",
+                                     "baseline",
+                                     "studio",
+                                     "cabinet"
+                                 ],
+                        "readiness":  "DRAFT_TECHNICAL",
+                        "intendedInput":  "Guitar DI, humbucker or single-coil, conservative nominal input.",
+                        "outputTarget":  "Unity-ish perceived level, finite output, no expected limiter activity, reserve headroom for pickup variance.",
+                        "chainTemplate":  [
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Amp",
+                                                  "typeID":  "Clean Amp"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Cabinet",
+                                                  "typeID":  "Cabinet"
+                                              }
+                                          ],
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Clean-Studio.nova-preset",
+                        "manualListeningStatus":  "pending",
+                        "distortionListeningStatus":  "not_applicable",
+                        "reaperSmokeStatus":  "pending",
+                        "notes":  "Manifest-only in P9B. Candidate for first round-trip generation once a safe builder exists."
+                    },
+                    {
+                        "name":  "Classic Crunch",
+                        "category":  "Crunch",
+                        "description":  "Mid-gain rhythm crunch with overdrive into a classic amp and cabinet.",
+                        "tags":  [
+                                     "crunch",
+                                     "rhythm",
+                                     "overdrive",
+                                     "classic"
+                                 ],
+                        "readiness":  "DRAFT_TECHNICAL",
+                        "intendedInput":  "Guitar DI, bridge pickup rhythm level.",
+                        "outputTarget":  "Conservative rhythm level; no sustained OutputChain clamp; bypass jump must be checked later.",
+                        "chainTemplate":  [
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Pre",
+                                                  "typeID":  "Overdrive"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Amp",
+                                                  "typeID":  "Classic Amp"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Cabinet",
+                                                  "typeID":  "Cabinet"
+                                              }
+                                          ],
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Classic-Crunch.nova-preset",
+                        "manualListeningStatus":  "pending",
+                        "distortionListeningStatus":  "not_applicable",
+                        "reaperSmokeStatus":  "pending",
+                        "notes":  "Uses only registered processors and one amp/cab on the line."
+                    },
+                    {
+                        "name":  "Tight Modern Rhythm",
+                        "category":  "High Gain",
+                        "description":  "Tight palm-muted rhythm draft with gate, boost, high-gain amp, and modern cabinet.",
+                        "tags":  [
+                                     "high-gain",
+                                     "rhythm",
+                                     "gate",
+                                     "boost",
+                                     "modern"
+                                 ],
+                        "readiness":  "DRAFT_TECHNICAL",
+                        "intendedInput":  "Guitar DI, bridge humbucker expected, palm-muted rhythm.",
+                        "outputTarget":  "Controlled peak level, rare nearClip samples, no sustained limiter/clamp activity.",
+                        "chainTemplate":  [
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Pre",
+                                                  "typeID":  "Noise Gate"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Pre",
+                                                  "typeID":  "Boost"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Amp",
+                                                  "typeID":  "High Gain Amp"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Cabinet",
+                                                  "typeID":  "Modern 4x12"
+                                              }
+                                          ],
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Tight-Modern-Rhythm.nova-preset",
+                        "manualListeningStatus":  "pending",
+                        "distortionListeningStatus":  "pending",
+                        "reaperSmokeStatus":  "pending",
+                        "notes":  "Distortion-focused manual listening remains pending because this is a high-gain draft."
+                    },
+                    {
+                        "name":  "Wide Ambient Clean",
+                        "category":  "Ambient",
+                        "description":  "Wide clean ambience with chorus, delay, and reverb after a clean amp.",
+                        "tags":  [
+                                     "clean",
+                                     "ambient",
+                                     "chorus",
+                                     "delay",
+                                     "reverb",
+                                     "wide"
+                                 ],
+                        "readiness":  "DRAFT_TECHNICAL",
+                        "intendedInput":  "Guitar DI, clean chords and swells.",
+                        "outputTarget":  "Tail buildup must stay finite; wet effects should not drive sustained clamp activity.",
+                        "chainTemplate":  [
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Amp",
+                                                  "typeID":  "Clean Amp"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "FX",
+                                                  "typeID":  "Chorus"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "FX",
+                                                  "typeID":  "Delay"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "FX",
+                                                  "typeID":  "Reverb"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Cabinet",
+                                                  "typeID":  "Cabinet"
+                                              }
+                                          ],
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Wide-Ambient-Clean.nova-preset",
+                        "manualListeningStatus":  "pending",
+                        "distortionListeningStatus":  "not_applicable",
+                        "reaperSmokeStatus":  "pending",
+                        "notes":  "FX zone count is below MAX_PEDALS_PER_FLEX_ZONE. Real tail listening is required before promotion."
+                    },
+                    {
+                        "name":  "Funk Comp Clean",
+                        "category":  "Funk / Compressor Clean",
+                        "description":  "Snappy clean rhythm draft with compressor and EQ before a clean amp and cabinet.",
+                        "tags":  [
+                                     "funk",
+                                     "clean",
+                                     "compressor",
+                                     "eq",
+                                     "rhythm"
+                                 ],
+                        "readiness":  "DRAFT_TECHNICAL",
+                        "intendedInput":  "Guitar DI, single-coil or split-coil muted rhythm.",
+                        "outputTarget":  "Preserve transient attack with conservative compressor makeup; avoid level jump.",
+                        "chainTemplate":  [
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Pre",
+                                                  "typeID":  "Compressor"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Pre",
+                                                  "typeID":  "EQ"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Amp",
+                                                  "typeID":  "Clean Amp"
+                                              },
+                                              {
+                                                  "line":  "A",
+                                                  "zone":  "Cabinet",
+                                                  "typeID":  "Cabinet"
+                                              }
+                                          ],
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Funk-Comp-Clean.nova-preset",
+                        "manualListeningStatus":  "pending",
+                        "distortionListeningStatus":  "not_applicable",
+                        "reaperSmokeStatus":  "pending",
+                        "notes":  "Manifest-only until parameter defaults and canonical preset builder are validated."
+                    },
+                    {
+                        "name":  "Dry Reference",
+                        "category":  "Utility / Calibration",
+                        "description":  "Dry DI comparison and level-reference draft with no pedals.",
+                        "tags":  [
+                                     "utility",
+                                     "dry",
+                                     "reference",
+                                     "calibration"
+                                 ],
+                        "readiness":  "DRAFT_TECHNICAL",
+                        "intendedInput":  "Guitar DI or deterministic validation input.",
+                        "outputTarget":  "Finite unity reference path with no nearClip and no limiter activity expected.",
+                        "chainTemplate":  [
+
+                                          ],
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Dry-Reference.nova-preset",
+                        "manualListeningStatus":  "pending",
+                        "distortionListeningStatus":  "not_applicable",
+                        "reaperSmokeStatus":  "pending",
+                        "notes":  "No generated preset file in P9B; used to define validation expectations for P9C."
+                    }
+                ],
+    "generatedPresetFiles":  [
+                                 "Resources/Presets/DraftFactory/generated/Clean-Studio.nova-preset",
+                                 "Resources/Presets/DraftFactory/generated/Classic-Crunch.nova-preset",
+                                 "Resources/Presets/DraftFactory/generated/Tight-Modern-Rhythm.nova-preset",
+                                 "Resources/Presets/DraftFactory/generated/Wide-Ambient-Clean.nova-preset",
+                                 "Resources/Presets/DraftFactory/generated/Funk-Comp-Clean.nova-preset",
+                                 "Resources/Presets/DraftFactory/generated/Dry-Reference.nova-preset"
+                             ]
+}

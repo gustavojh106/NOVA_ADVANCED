@@ -1,0 +1,972 @@
+{
+    "generatedAt":  "2026-05-06T12:28:44.8256701-06:00",
+    "status":  "WARN",
+    "summary":  {
+                    "activeFiles":  32,
+                    "activeRanges":  38,
+                    "failures":  0,
+                    "warnings":  4,
+                    "allowlistedWarnings":  0,
+                    "legacyWarnings":  4,
+                    "contractChecks":  142,
+                    "contractFailures":  0,
+                    "allowListEntries":  2
+                },
+    "activeFiles":  [
+                        "Source/Core/Audio/CpuMeter.h",
+                        "Source/Core/Audio/HealthMonitor.h",
+                        "Source/Core/Audio/RuntimeParameterSnapshot.h",
+                        "Source/Core/AudioEngine.cpp",
+                        "Source/Core/DSP/Global/ChannelStrip.cpp",
+                        "Source/Core/DSP/Global/InputChain.cpp",
+                        "Source/Core/DSP/Global/OutputChain.cpp",
+                        "Source/Core/PluginProcessor.cpp",
+                        "Source/Effects/Amplifiers/BoutiqueAmp.h",
+                        "Source/Effects/Amplifiers/ChimeAmp.h",
+                        "Source/Effects/Amplifiers/ClassicAmp.h",
+                        "Source/Effects/Amplifiers/CleanAmp.h",
+                        "Source/Effects/Amplifiers/HighGainAmp.h",
+                        "Source/Effects/Cabinets/CabinetPedal.h",
+                        "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                        "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                        "Source/Effects/Pedals/Boost/BoostPedal.h",
+                        "Source/Effects/Pedals/Chorus/ChorusPedal.h",
+                        "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                        "Source/Effects/Pedals/Delay/DelayPedal.h",
+                        "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                        "Source/Effects/Pedals/EQ/EQPedal.h",
+                        "Source/Effects/Pedals/Flanger/FlangerPedal.h",
+                        "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                        "Source/Effects/Pedals/Gate/NoiseGatePedal.h",
+                        "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                        "Source/Effects/Pedals/Octave/OctavePedal.h",
+                        "Source/Effects/Pedals/Overdrive/OverdrivePedal.h",
+                        "Source/Effects/Pedals/Phaser/PhaserPedal.h",
+                        "Source/Effects/Pedals/Reverb/ReverbPedal.h",
+                        "Source/Effects/Pedals/Tremolo/TremoloPedal.h",
+                        "Source/Effects/Pedals/Wah/ClassicWahPedal.h"
+                    ],
+    "allowList":  [
+                      {
+                          "file":  "Source/Core/PluginProcessor.cpp",
+                          "patternId":  "dynamic_cast",
+                          "lineRegex":  "if \\(auto\\* ranged = dynamic_cast\u003cjuce::RangedAudioParameter\\*\u003e\\(getParameters\\(\\)\\[parameterIndex\\]\\)\\)",
+                          "reason":  "Parameter listener path, not audio callback."
+                      },
+                      {
+                          "file":  "Source/Core/AudioEngine.cpp",
+                          "patternId":  "graph_rebuild",
+                          "lineRegex":  "audioPlane\\.graphResetRequested\\.store\\(true",
+                          "reason":  "Atomic flag only; rebuild is executed on control thread."
+                      }
+                  ],
+    "failures":  [
+
+                 ],
+    "contractChecks":  [
+                           {
+                               "checkId":  "manager_method_exists",
+                               "target":  "RuntimeGraphManager::getActiveRaw",
+                               "passed":  true,
+                               "detail":  "found"
+                           },
+                           {
+                               "checkId":  "manager_method_exists",
+                               "target":  "RuntimeGraphManager::publish",
+                               "passed":  true,
+                               "detail":  "found"
+                           },
+                           {
+                               "checkId":  "manager_method_exists",
+                               "target":  "RuntimeGraphManager::getActiveOwnerForControl",
+                               "passed":  true,
+                               "detail":  "found"
+                           },
+                           {
+                               "checkId":  "manager_method_exists",
+                               "target":  "RuntimeGraphManager::cleanupRetired",
+                               "passed":  true,
+                               "detail":  "found"
+                           },
+                           {
+                               "checkId":  "process_uses_getActiveRaw",
+                               "target":  "AudioEngine::process",
+                               "passed":  true,
+                               "detail":  "callCount=1"
+                           },
+                           {
+                               "checkId":  "process_no_buildGraphFromModelLocked",
+                               "target":  "AudioEngine::process",
+                               "passed":  true,
+                               "detail":  "no buildGraphFromModelLocked call in process"
+                           },
+                           {
+                               "checkId":  "process_no_graphbuilder_build",
+                               "target":  "AudioEngine::process",
+                               "passed":  true,
+                               "detail":  "no GraphBuilder::build call in process"
+                           },
+                           {
+                               "checkId":  "process_no_routingmixer",
+                               "target":  "AudioEngine::process",
+                               "passed":  true,
+                               "detail":  "RoutingMixer not referenced"
+                           },
+                           {
+                               "checkId":  "drywet_no_graphruntime",
+                               "target":  "DryWetMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "drywet_no_processblock",
+                               "target":  "DryWetMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "drywet_no_session_logger",
+                               "target":  "DryWetMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "drywet_no_juce_string",
+                               "target":  "DryWetMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "routingmixer_no_graphruntime",
+                               "target":  "RoutingMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "routingmixer_no_processblock",
+                               "target":  "RoutingMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "routingmixer_no_session_logger",
+                               "target":  "RoutingMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "routingmixer_no_juce_string",
+                               "target":  "RoutingMixer",
+                               "passed":  true,
+                               "detail":  "not present"
+                           },
+                           {
+                               "checkId":  "drywet_orchestrator_keeps_graph_call",
+                               "target":  "AudioEngine::processWithSampleAccurateDryWet",
+                               "passed":  true,
+                               "detail":  "callCount=2"
+                           },
+                           {
+                               "checkId":  "graphbuilder_no_audioengine_include",
+                               "target":  "GraphBuilder.h",
+                               "passed":  true,
+                               "detail":  "AudioEngine.h include not present"
+                           },
+                           {
+                               "checkId":  "buildGraph_wrapper_uses_graphbuilder",
+                               "target":  "AudioEngine::buildGraphFromModelLocked",
+                               "passed":  true,
+                               "detail":  "wrapper request+builder call found"
+                           },
+                           {
+                               "checkId":  "getActiveRaw_atomic_load",
+                               "target":  "RuntimeGraphManager::getActiveRaw",
+                               "passed":  true,
+                               "detail":  "acquire-load return found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Core/DSP/Global/ChannelStrip.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Core/DSP/Global/ChannelStrip.cpp",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Core/DSP/Global/OutputChain.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Core/DSP/Global/OutputChain.cpp",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Effects/Pedals/Overdrive/OverdrivePedal.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Effects/Amplifiers/CleanAmp.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Effects/Pedals/Delay/DelayPedal.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Effects/Pedals/Flanger/FlangerPedal.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_no_session_logger",
+                               "target":  "Source/Effects/Pedals/Reverb/ReverbPedal.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Core/DSP/Global/ChannelStrip.cpp",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Core/DSP/Global/OutputChain.cpp",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Effects/Pedals/Overdrive/OverdrivePedal.h",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Effects/Amplifiers/CleanAmp.h",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Effects/Pedals/Delay/DelayPedal.h",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Effects/Pedals/Flanger/FlangerPedal.h",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_emitter_uses_lock_free_publish",
+                               "target":  "Source/Effects/Pedals/Reverb/ReverbPedal.h",
+                               "passed":  true,
+                               "detail":  "captureOutputAndPublishIfNeeded call found"
+                           },
+                           {
+                               "checkId":  "p7b_pedal_telemetry_lock_free_queue_present",
+                               "target":  "PedalSignalTelemetry.h",
+                               "passed":  true,
+                               "detail":  "RealtimeSignalTelemetryQueue declared"
+                           },
+                           {
+                               "checkId":  "p7b_pedal_telemetry_no_session_logger",
+                               "target":  "PedalSignalTelemetry.h",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_vector_channel_alloc",
+                               "target":  "Source/Effects/Amplifiers/ClassicAmp.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat*\u003e in amp"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_juce_iir_factory",
+                               "target":  "Source/Effects/Amplifiers/ClassicAmp.h",
+                               "passed":  true,
+                               "detail":  "amp uses ArrayCoefficients only"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_vector_channel_alloc",
+                               "target":  "Source/Effects/Amplifiers/HighGainAmp.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat*\u003e in amp"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_juce_iir_factory",
+                               "target":  "Source/Effects/Amplifiers/HighGainAmp.h",
+                               "passed":  true,
+                               "detail":  "amp uses ArrayCoefficients only"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_vector_channel_alloc",
+                               "target":  "Source/Effects/Amplifiers/ChimeAmp.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat*\u003e in amp"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_juce_iir_factory",
+                               "target":  "Source/Effects/Amplifiers/ChimeAmp.h",
+                               "passed":  true,
+                               "detail":  "amp uses ArrayCoefficients only"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_vector_channel_alloc",
+                               "target":  "Source/Effects/Amplifiers/BoutiqueAmp.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat*\u003e in amp"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_juce_iir_factory",
+                               "target":  "Source/Effects/Amplifiers/BoutiqueAmp.h",
+                               "passed":  true,
+                               "detail":  "amp uses ArrayCoefficients only"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_vector_channel_alloc",
+                               "target":  "Source/Effects/Amplifiers/CleanAmp.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat*\u003e in amp"
+                           },
+                           {
+                               "checkId":  "p7b_amp_no_juce_iir_factory",
+                               "target":  "Source/Effects/Amplifiers/CleanAmp.h",
+                               "passed":  true,
+                               "detail":  "amp uses ArrayCoefficients only"
+                           },
+                           {
+                               "checkId":  "p7b_plugin_processor_processblock_no_session_logger",
+                               "target":  "NOVAAudioProcessor::processBlock",
+                               "passed":  true,
+                               "detail":  "no SessionLogger call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7b_plugin_processor_processblock_no_juce_string",
+                               "target":  "NOVAAudioProcessor::processBlock",
+                               "passed":  true,
+                               "detail":  "no juce::String in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7b_plugin_processor_processblock_no_lock",
+                               "target":  "NOVAAudioProcessor::processBlock",
+                               "passed":  true,
+                               "detail":  "no lock primitive in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7b_session_store_atomic_runtime_cache",
+                               "target":  "SessionStore",
+                               "passed":  true,
+                               "detail":  "atomic runtime cache + engine flag present"
+                           },
+                           {
+                               "checkId":  "p7b_session_store_no_lock_on_hot_path",
+                               "target":  "SessionStore",
+                               "passed":  true,
+                               "detail":  "no lock primitive present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Pedals/Wah/ClassicWahPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no setSize call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_scratchbuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no scratchBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_drybuffer_setsize_in_process",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no dryBuffer.setSize in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_no_vector_resize_in_process",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no resize/assign/push_back call in processBlock body"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_canprocessblock_guard",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "canProcessBlock(buffer) guard present"
+                           },
+                           {
+                               "checkId":  "p7c_p1_pedal_fallback_counter",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "fallbackBlockCount.fetch_add present"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_uses_array_coefficients",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "IIR::ArrayCoefficients in use"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_no_juce_iir_factory",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h",
+                               "passed":  true,
+                               "detail":  "no allocating IIR factory"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_uses_array_coefficients",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "IIR::ArrayCoefficients in use"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_no_juce_iir_factory",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no allocating IIR factory"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_uses_array_coefficients",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "IIR::ArrayCoefficients in use"
+                           },
+                           {
+                               "checkId":  "p7c_cabinet_no_juce_iir_factory",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+                               "passed":  true,
+                               "detail":  "no allocating IIR factory"
+                           },
+                           {
+                               "checkId":  "p7c_neural_helpers_array_states",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "OnePoleFilterBank/EnvelopeFollower use std::array states"
+                           },
+                           {
+                               "checkId":  "p7c_neural_helpers_no_vector_states",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no std::vector\u003cfloat\u003e in Neural file"
+                           },
+                           {
+                               "checkId":  "p7c_neural_helpers_no_resize_assign",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no states.resize or states.assign call"
+                           },
+                           {
+                               "checkId":  "p7c_neural_helpers_no_ensurechannels_resize",
+                               "target":  "Source/Effects/Pedals/Neural/NeuralPedal.h",
+                               "passed":  true,
+                               "detail":  "no ensureChannels helper"
+                           },
+                           {
+                               "checkId":  "p7c_phaser_feedback_dc_blocker",
+                               "target":  "Source/Effects/Pedals/Phaser/PhaserPedal.h",
+                               "passed":  true,
+                               "detail":  "feedbackDcBlock present"
+                           },
+                           {
+                               "checkId":  "p7c_phaser_output_dc_blocker",
+                               "target":  "Source/Effects/Pedals/Phaser/PhaserPedal.h",
+                               "passed":  true,
+                               "detail":  "outputDcBlock present"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "DelayPedal feedback loop rejects DC accumulation under sustained bias",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "DelayPedal max feedback under sustained input stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "DelayPedal sanitizes NaN/Inf input under aggressive feedback",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "DelayPedal high peak input under feedback stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "FlangerPedal feedback loop rejects DC accumulation under sustained bias",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "FlangerPedal max feedback under sustained input stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "FlangerPedal sanitizes NaN/Inf input under aggressive feedback",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "FlangerPedal high peak input under feedback stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "ReverbPedal max decay under sustained input stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "ReverbPedal sanitizes NaN/Inf input under aggressive feedback",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "ReverbPedal high peak input under max decay stays bounded",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "PhaserPedal sanitizes NaN/Inf input under aggressive feedback",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "PhaserPedal feedback loop rejects DC accumulation under sustained bias",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7c_audio_test_present",
+                               "target":  "ReverbPedal loop rejects DC accumulation under sustained biased playing",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D preset save-load-save remains canonical",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D catalog presets round-trip every registered pedal",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D chain/global preset round-trips routing modes and bypass state",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D schema canonicalization rejects unknowns and clamps topology",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D parameter boundary restore clamps unsafe values",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D pedal state payload restore rejects corrupt payloads safely",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_audio_test_present",
+                               "target":  "P7D corrupt session recovery leaves engine processable",
+                               "passed":  true,
+                               "detail":  "test name found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p7d_schema_version_unchanged",
+                               "target":  "Source/Core/Constants.h",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p7d_results_doc_present",
+                               "target":  "docs/p7d-preset-session-parameter-validation-results.md",
+                               "passed":  true,
+                               "detail":  "P7D results doc found"
+                           },
+                           {
+                               "checkId":  "p7e_smoke_matrix_doc_present",
+                               "target":  "docs/p7e-daw-standalone-smoke-matrix.md",
+                               "passed":  true,
+                               "detail":  "P7E smoke matrix found"
+                           },
+                           {
+                               "checkId":  "p7e_manual_checklist_doc_present",
+                               "target":  "docs/p7e-manual-host-smoke-checklist.md",
+                               "passed":  true,
+                               "detail":  "P7E manual host smoke checklist found"
+                           },
+                           {
+                               "checkId":  "p7e_report_template_doc_present",
+                               "target":  "docs/p7e-host-smoke-report-template.md",
+                               "passed":  true,
+                               "detail":  "P7E host smoke report template found"
+                           },
+                           {
+                               "checkId":  "p7e_readiness_results_doc_present",
+                               "target":  "docs/p7e-daw-standalone-smoke-readiness-results.md",
+                               "passed":  true,
+                               "detail":  "P7E readiness results found"
+                           },
+                           {
+                               "checkId":  "p7e_host_smoke_preflight_script_present",
+                               "target":  "scripts/run-host-smoke-preflight.ps1",
+                               "passed":  true,
+                               "detail":  "P7E host smoke preflight script found"
+                           },
+                           {
+                               "checkId":  "p7e_host_state_test_present",
+                               "target":  "P7E host state get/set survives corrupt and repeated engine toggles",
+                               "passed":  true,
+                               "detail":  "P7E host-state test found"
+                           }
+                       ],
+    "contractFailures":  [
+
+                         ],
+    "allowlistedWarnings":  [
+
+                            ],
+    "legacyWarnings":  [
+                           {
+                               "file":  "Source/Effects/Pedals/ChorusPedal.h",
+                               "classification":  "legacy-no-active-reference",
+                               "inJucer":  false,
+                               "inRegistry":  false,
+                               "line":  107,
+                               "patternId":  "buffer_set_size",
+                               "patternLabel":  "AudioBuffer::setSize in process path",
+                               "lineText":  "scratchBuffer.setSize(buffer.getNumChannels(),",
+                               "reason":  "Legacy file is not treated as active audio route by this scanner."
+                           },
+                           {
+                               "file":  "Source/Effects/Pedals/CompressorPedal.h",
+                               "classification":  "legacy-no-active-reference",
+                               "inJucer":  false,
+                               "inRegistry":  false,
+                               "line":  102,
+                               "patternId":  "buffer_set_size",
+                               "patternLabel":  "AudioBuffer::setSize in process path",
+                               "lineText":  "dryBuffer.setSize(buffer.getNumChannels(),",
+                               "reason":  "Legacy file is not treated as active audio route by this scanner."
+                           },
+                           {
+                               "file":  "Source/Effects/Pedals/Wah/AutoWahPedal.h",
+                               "classification":  "legacy-in-jucer",
+                               "inJucer":  true,
+                               "inRegistry":  false,
+                               "line":  108,
+                               "patternId":  "buffer_set_size",
+                               "patternLabel":  "AudioBuffer::setSize in process path",
+                               "lineText":  "scratchBuffer.setSize(numChannels, numSamples, false, false, true);",
+                               "reason":  "Legacy file is not treated as active audio route by this scanner."
+                           },
+                           {
+                               "file":  "Source/Effects/Pedals/Metal/MetalDistortionPedal.h",
+                               "classification":  "legacy-in-jucer",
+                               "inJucer":  true,
+                               "inRegistry":  false,
+                               "line":  118,
+                               "patternId":  "buffer_set_size",
+                               "patternLabel":  "AudioBuffer::setSize in process path",
+                               "lineText":  "scratchBuffer.setSize(numChannels,",
+                               "reason":  "Legacy file is not treated as active audio route by this scanner."
+                           }
+                       ]
+}

@@ -1,4 +1,5 @@
 #include <JuceHeader.h>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -6,6 +7,8 @@
 #include <vector>
 
 #include "AudioEngine.h"
+#include "Audio/CpuMeter.h"
+#include "Audio/DiagnosticsManager.h"
 #include "Audio/DryWetMixer.h"
 #include "Audio/GraphBuilder.h"
 #include "Audio/GraphRetirementQueue.h"
@@ -117,6 +120,179 @@ double computeChannelMean(const juce::AudioBuffer<float>& buffer, int channel, i
         sum += (double) buffer.getSample(channel, safeStart + i);
 
     return sum / (double) safeLength;
+}
+
+struct P8AWindowMetrics
+{
+    double sumSquares = 0.0;
+    double sum = 0.0;
+    double peak = 0.0;
+    int sampleCount = 0;
+    int nearClipSamples = 0;
+    int clippedSamples = 0;
+    bool finite = true;
+
+    void capture(const juce::AudioBuffer<float>& buffer)
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            const auto* data = buffer.getReadPointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float sample = data[i];
+                if (!std::isfinite(sample))
+                {
+                    finite = false;
+                    continue;
+                }
+
+                const double value = (double) sample;
+                const double absValue = std::abs(value);
+                sumSquares += value * value;
+                sum += value;
+                peak = juce::jmax(peak, absValue);
+                ++sampleCount;
+
+                if (absValue >= (double) Nova::Config::SIGNAL_NEAR_CLIP_THRESHOLD)
+                    ++nearClipSamples;
+                if (absValue > 1.0)
+                    ++clippedSamples;
+            }
+        }
+    }
+
+    double rms() const noexcept
+    {
+        return sampleCount > 0 ? std::sqrt(sumSquares / (double) sampleCount) : 0.0;
+    }
+
+    double dc() const noexcept
+    {
+        return sampleCount > 0 ? std::abs(sum / (double) sampleCount) : 0.0;
+    }
+};
+
+struct P10CWindowMetrics
+{
+    double sumSquares = 0.0;
+    double highDeltaSumSquares = 0.0;
+    double lowSumSquares = 0.0;
+    double sum = 0.0;
+    double peak = 0.0;
+    double adjacentDeltaPeak = 0.0;
+    double previousSample = 0.0;
+    int sampleCount = 0;
+    int invalidSamples = 0;
+    int nearClipSamples = 0;
+    int clippedSamples = 0;
+    bool havePrevious = false;
+    bool finite = true;
+    std::array<double, 2> lowState { 0.0, 0.0 };
+
+    void capture(const juce::AudioBuffer<float>& buffer)
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            const auto* data = buffer.getReadPointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float sample = data[i];
+                if (!std::isfinite(sample))
+                {
+                    finite = false;
+                    ++invalidSamples;
+                    continue;
+                }
+
+                const double value = (double) sample;
+                const double absValue = std::abs(value);
+                sumSquares += value * value;
+                sum += value;
+                peak = juce::jmax(peak, absValue);
+                ++sampleCount;
+
+                if (havePrevious)
+                {
+                    const double delta = value - previousSample;
+                    highDeltaSumSquares += delta * delta;
+                    adjacentDeltaPeak = juce::jmax(adjacentDeltaPeak, std::abs(value - previousSample));
+                }
+                previousSample = value;
+                havePrevious = true;
+
+                const size_t lowIndex = (size_t) juce::jlimit(0, 1, ch);
+                lowState[lowIndex] += 0.015 * (value - lowState[lowIndex]);
+                lowSumSquares += lowState[lowIndex] * lowState[lowIndex];
+
+                if (absValue >= (double) Nova::Config::SIGNAL_NEAR_CLIP_THRESHOLD)
+                    ++nearClipSamples;
+                if (absValue > 1.0)
+                    ++clippedSamples;
+            }
+        }
+    }
+
+    double rms() const noexcept
+    {
+        return sampleCount > 0 ? std::sqrt(sumSquares / (double) sampleCount) : 0.0;
+    }
+
+    double dc() const noexcept
+    {
+        return sampleCount > 0 ? std::abs(sum / (double) sampleCount) : 0.0;
+    }
+
+    double brightnessProxy() const noexcept
+    {
+        const double base = rms();
+        return sampleCount > 0 && base > 1.0e-9
+            ? std::sqrt(highDeltaSumSquares / (double) sampleCount) / base
+            : 0.0;
+    }
+
+    double rumbleProxy() const noexcept
+    {
+        const double base = rms();
+        return sampleCount > 0 && base > 1.0e-9
+            ? std::sqrt(lowSumSquares / (double) sampleCount) / base
+            : 0.0;
+    }
+};
+
+juce::String p10cMetricsSummary(const P10CWindowMetrics& metrics)
+{
+    return "peak="
+        + juce::String(metrics.peak, 4)
+        + ", rms="
+        + juce::String(metrics.rms(), 4)
+        + ", dc="
+        + juce::String(metrics.dc(), 5)
+        + ", nearClipSamples="
+        + juce::String(metrics.nearClipSamples)
+        + ", clippedSamples="
+        + juce::String(metrics.clippedSamples)
+        + ", invalidSamples="
+        + juce::String(metrics.invalidSamples)
+        + ", adjacentDeltaPeak="
+        + juce::String(metrics.adjacentDeltaPeak, 4)
+        + ", brightnessProxy="
+        + juce::String(metrics.brightnessProxy(), 4)
+        + ", rumbleProxy="
+        + juce::String(metrics.rumbleProxy(), 4);
+}
+
+juce::String p8aMetricsSummary(const P8AWindowMetrics& metrics)
+{
+    return "peak="
+        + juce::String(metrics.peak, 4)
+        + ", rms="
+        + juce::String(metrics.rms(), 4)
+        + ", dc="
+        + juce::String(metrics.dc(), 5)
+        + ", nearClipSamples="
+        + juce::String(metrics.nearClipSamples)
+        + ", clippedSamples="
+        + juce::String(metrics.clippedSamples);
 }
 
 double computeStereoCorrelation(const juce::AudioBuffer<float>& buffer, int startSample)
@@ -820,6 +996,830 @@ float normalisedChoiceIndex(const juce::AudioParameterChoice* param, int index)
     return (float) clamped / (float) (param->choices.size() - 1);
 }
 
+bool setRangedParamById(juce::AudioProcessor& processor, const juce::String& paramId, float plainValue)
+{
+    for (auto* param : processor.getParameters())
+    {
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+        {
+            if (ranged->getParameterID() == paramId)
+            {
+                ranged->setValueNotifyingHost(ranged->convertTo0to1(plainValue));
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+void prepareP10CProcessor(juce::AudioProcessor& processor)
+{
+    processor.setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+    processor.prepareToPlay(kSampleRate, kBlockSize);
+}
+
+void fillP10CPalmMuteBlock(juce::AudioBuffer<float>& block, int blockIndex, float inputScale = 1.0f)
+{
+    for (int i = 0; i < block.getNumSamples(); ++i)
+    {
+        const int sampleIndex = blockIndex * block.getNumSamples() + i;
+        const float t = (float) sampleIndex / (float) kSampleRate;
+        const int pickSample = sampleIndex % (int) (kSampleRate * 0.112);
+        const float pick = std::exp(-(float) pickSample / 34.0f);
+        const float gate = (sampleIndex % (int) (kSampleRate * 0.448)) < (int) (kSampleRate * 0.260) ? 1.0f : 0.18f;
+        const float note = 0.060f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+            + 0.030f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t)
+            + 0.014f * std::sin(juce::MathConstants<float>::twoPi * 329.64f * t);
+        const float sample = inputScale * gate * (note + 0.042f * pick);
+        block.setSample(0, i, sample);
+        block.setSample(1, i, sample * 0.96f);
+    }
+}
+
+struct P10CStageMetrics
+{
+    juce::String name;
+    P10CWindowMetrics metrics;
+};
+
+enum class P10DSignalKind
+{
+    PalmMuteRepeated,
+    StaccatoStrong,
+    SustainLong,
+    SilenceRecovery,
+    LowEBurst,
+    StrongChord
+};
+
+struct P10DWindowMetrics
+{
+    P10CWindowMetrics signal;
+    double envelopeMeanSum = 0.0;
+    double envelopeBand3To20SumSquares = 0.0;
+    double highFrequencySumSquares = 0.0;
+    double gateDeltaSum = 0.0;
+    double gateDeltaPeak = 0.0;
+    double previousGateGain = 1.0;
+    double envLow3 = 0.0;
+    double envLow20 = 0.0;
+    std::array<double, 2> highPassReference {};
+    std::vector<double> blockRmsValues;
+    std::vector<double> blockPeakValues;
+    int envelopeSamples = 0;
+    int gateTransitions = 0;
+    bool haveGateGain = false;
+
+    void capture(const juce::AudioBuffer<float>& buffer, double gateGain = -1.0)
+    {
+        signal.capture(buffer);
+
+        const double alpha3 = 1.0 - std::exp(-juce::MathConstants<double>::twoPi * 3.0 / kSampleRate);
+        const double alpha20 = 1.0 - std::exp(-juce::MathConstants<double>::twoPi * 20.0 / kSampleRate);
+        const double alphaHighReference = 1.0 - std::exp(-juce::MathConstants<double>::twoPi * 6500.0 / kSampleRate);
+
+        double blockSumSquares = 0.0;
+        double blockPeak = 0.0;
+        int blockSamples = 0;
+
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            double absMean = 0.0;
+            int finiteChannels = 0;
+
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                const float sample = buffer.getSample(ch, i);
+                if (!std::isfinite(sample))
+                    continue;
+
+                const double value = (double) sample;
+                const double absValue = std::abs(value);
+                const size_t stateIndex = (size_t) juce::jlimit(0, 1, ch);
+
+                highPassReference[stateIndex] += alphaHighReference * (value - highPassReference[stateIndex]);
+                const double high = value - highPassReference[stateIndex];
+                highFrequencySumSquares += high * high;
+
+                absMean += absValue;
+                blockSumSquares += value * value;
+                blockPeak = juce::jmax(blockPeak, absValue);
+                ++blockSamples;
+                ++finiteChannels;
+            }
+
+            if (finiteChannels <= 0)
+                continue;
+
+            absMean /= (double) finiteChannels;
+            envLow3 += alpha3 * (absMean - envLow3);
+            envLow20 += alpha20 * (absMean - envLow20);
+            const double band = envLow20 - envLow3;
+            envelopeBand3To20SumSquares += band * band;
+            envelopeMeanSum += absMean;
+            ++envelopeSamples;
+        }
+
+        if (blockSamples > 0)
+        {
+            blockRmsValues.push_back(std::sqrt(blockSumSquares / (double) blockSamples));
+            blockPeakValues.push_back(blockPeak);
+        }
+
+        if (gateGain >= 0.0)
+        {
+            const double boundedGate = juce::jlimit(0.0, 1.0, gateGain);
+            if (haveGateGain)
+            {
+                const double delta = std::abs(boundedGate - previousGateGain);
+                gateDeltaSum += delta;
+                gateDeltaPeak = juce::jmax(gateDeltaPeak, delta);
+                if (delta > 0.18)
+                    ++gateTransitions;
+            }
+
+            previousGateGain = boundedGate;
+            haveGateGain = true;
+        }
+    }
+
+    double meanEnvelope() const noexcept
+    {
+        return envelopeSamples > 0 ? envelopeMeanSum / (double) envelopeSamples : 0.0;
+    }
+
+    double modulationDepth3To20() const noexcept
+    {
+        const double mean = meanEnvelope();
+        return envelopeSamples > 0 && mean > 1.0e-9
+            ? std::sqrt(envelopeBand3To20SumSquares / (double) envelopeSamples) / mean
+            : 0.0;
+    }
+
+    double highFrequencyEnergyProxy() const noexcept
+    {
+        const double base = signal.rms();
+        return signal.sampleCount > 0 && base > 1.0e-9
+            ? std::sqrt(highFrequencySumSquares / (double) signal.sampleCount) / base
+            : 0.0;
+    }
+
+    double blockRmsVarianceProxy() const
+    {
+        if (blockRmsValues.size() < 2)
+            return 0.0;
+
+        double sum = 0.0;
+        for (double value : blockRmsValues)
+            sum += value;
+
+        const double mean = sum / (double) blockRmsValues.size();
+        if (mean <= 1.0e-9)
+            return 0.0;
+
+        double variance = 0.0;
+        for (double value : blockRmsValues)
+            variance += (value - mean) * (value - mean);
+
+        return std::sqrt(variance / (double) blockRmsValues.size()) / mean;
+    }
+
+    double peakVarianceProxy() const
+    {
+        if (blockPeakValues.size() < 2)
+            return 0.0;
+
+        double sum = 0.0;
+        for (double value : blockPeakValues)
+            sum += value;
+
+        const double mean = sum / (double) blockPeakValues.size();
+        if (mean <= 1.0e-9)
+            return 0.0;
+
+        double variance = 0.0;
+        for (double value : blockPeakValues)
+            variance += (value - mean) * (value - mean);
+
+        return std::sqrt(variance / (double) blockPeakValues.size()) / mean;
+    }
+};
+
+struct P10DStageMetrics
+{
+    juce::String name;
+    P10DWindowMetrics metrics;
+};
+
+juce::String p10dMetricsSummary(const P10DWindowMetrics& metrics)
+{
+    return p10cMetricsSummary(metrics.signal)
+        + ", modulationDepth3To20="
+        + juce::String(metrics.modulationDepth3To20(), 4)
+        + ", blockRmsVariance="
+        + juce::String(metrics.blockRmsVarianceProxy(), 4)
+        + ", peakVariance="
+        + juce::String(metrics.peakVarianceProxy(), 4)
+        + ", highFrequencyEnergyProxy="
+        + juce::String(metrics.highFrequencyEnergyProxy(), 4)
+        + ", gateTransitions="
+        + juce::String(metrics.gateTransitions)
+        + ", gateDeltaPeak="
+        + juce::String(metrics.gateDeltaPeak, 4);
+}
+
+void fillP10DSignalBlock(juce::AudioBuffer<float>& block,
+                         int blockIndex,
+                         P10DSignalKind signalKind,
+                         float inputScale = 1.0f)
+{
+    for (int i = 0; i < block.getNumSamples(); ++i)
+    {
+        const int sampleIndex = blockIndex * block.getNumSamples() + i;
+        const float t = (float) sampleIndex / (float) kSampleRate;
+        float sample = 0.0f;
+
+        if (signalKind == P10DSignalKind::PalmMuteRepeated)
+        {
+            const int pickSample = sampleIndex % (int) (kSampleRate * 0.104);
+            const float pick = std::exp(-(float) pickSample / 28.0f);
+            const float phraseGate = (sampleIndex % (int) (kSampleRate * 0.420)) < (int) (kSampleRate * 0.235) ? 1.0f : 0.08f;
+            sample = phraseGate * (0.064f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                + 0.023f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t)
+                + 0.052f * pick);
+        }
+        else if (signalKind == P10DSignalKind::StaccatoStrong)
+        {
+            const int period = (int) (kSampleRate * 0.180);
+            const int phase = sampleIndex % period;
+            const float active = phase < (int) (kSampleRate * 0.062) ? 1.0f : 0.0f;
+            const float decay = active > 0.0f ? std::exp(-(float) phase / 1550.0f) : 0.0f;
+            sample = active * decay * (0.150f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                + 0.070f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t)
+                + 0.035f * std::sin(juce::MathConstants<float>::twoPi * 246.94f * t));
+        }
+        else if (signalKind == P10DSignalKind::SustainLong)
+        {
+            const float attack = juce::jlimit(0.0f, 1.0f, (float) sampleIndex / (float) (kSampleRate * 0.030));
+            sample = attack * (0.080f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                + 0.040f * std::sin(juce::MathConstants<float>::twoPi * 123.47f * t)
+                + 0.026f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t));
+        }
+        else if (signalKind == P10DSignalKind::SilenceRecovery)
+        {
+            const int phraseSamples = (int) (kSampleRate * 0.36);
+            const int cycle = sampleIndex % phraseSamples;
+            const bool active = cycle < (int) (kSampleRate * 0.105);
+            const bool silence = cycle >= (int) (kSampleRate * 0.105) && cycle < (int) (kSampleRate * 0.235);
+            const float decay = active ? std::exp(-(float) cycle / 2200.0f) : 0.0f;
+            sample = silence ? 0.0f : decay * (0.125f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                + 0.052f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t));
+        }
+        else if (signalKind == P10DSignalKind::LowEBurst)
+        {
+            const int burstSamples = (int) (kSampleRate * 0.280);
+            const int phase = sampleIndex % burstSamples;
+            const float decay = std::exp(-(float) phase / 3600.0f);
+            sample = decay * (0.135f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                + 0.030f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t));
+        }
+        else
+        {
+            const float attack = juce::jlimit(0.0f, 1.0f, (float) sampleIndex / (float) (kSampleRate * 0.020));
+            sample = attack * (0.100f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                + 0.075f * std::sin(juce::MathConstants<float>::twoPi * 123.47f * t)
+                + 0.055f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t)
+                + 0.026f * std::sin(juce::MathConstants<float>::twoPi * 246.94f * t));
+        }
+
+        sample *= inputScale;
+        block.setSample(0, i, sample);
+        block.setSample(1, i, sample * 0.965f);
+    }
+}
+
+std::vector<P10DStageMetrics> renderP10DChain(const std::vector<std::pair<juce::String, juce::AudioProcessor*>>& stages,
+                                              int blocksToRun,
+                                              P10DSignalKind signalKind,
+                                              float inputScale = 1.0f,
+                                              int warmupBlocks = 24,
+                                              OutputChainProcessor* outputChain = nullptr,
+                                              int* limiterTouchedSamples = nullptr,
+                                              int* limiterActiveBlocks = nullptr,
+                                              int* sustainedClampBlocks = nullptr)
+{
+    std::vector<P10DStageMetrics> reports;
+    reports.reserve(stages.size());
+    for (const auto& stage : stages)
+        reports.push_back({ stage.first, {} });
+
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> block(2, kBlockSize);
+    OutputChainProcessor::DebugSnapshot previousSnapshot;
+    if (outputChain != nullptr)
+        previousSnapshot = outputChain->getDebugSnapshot();
+
+    int consecutiveLimiterBlocks = 0;
+    for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+    {
+        fillP10DSignalBlock(block, blockIndex, signalKind, inputScale);
+
+        for (size_t stageIndex = 0; stageIndex < stages.size(); ++stageIndex)
+        {
+            auto* processor = stages[stageIndex].second;
+            if (processor != nullptr)
+                processor->processBlock(block, midi);
+
+            if (blockIndex >= warmupBlocks)
+            {
+                double gateGain = -1.0;
+                if (auto* gate = dynamic_cast<NoiseGatePedal*>(processor))
+                    gateGain = (double) gate->currentGateGainAtomic.load();
+                else if (auto* distortion = dynamic_cast<DistortionPedal*>(processor))
+                    gateGain = (double) distortion->currentGateGain;
+
+                reports[stageIndex].metrics.capture(block, gateGain);
+            }
+        }
+
+        if (outputChain != nullptr)
+        {
+            const auto snapshot = outputChain->getDebugSnapshot();
+            const int touched = snapshot.limiterTouchedSamples >= previousSnapshot.limiterTouchedSamples
+                ? snapshot.limiterTouchedSamples - previousSnapshot.limiterTouchedSamples
+                : snapshot.limiterTouchedSamples;
+            const int active = snapshot.limiterActiveBlocks >= previousSnapshot.limiterActiveBlocks
+                ? snapshot.limiterActiveBlocks - previousSnapshot.limiterActiveBlocks
+                : snapshot.limiterActiveBlocks;
+
+            if (limiterTouchedSamples != nullptr)
+                *limiterTouchedSamples += touched;
+            if (limiterActiveBlocks != nullptr)
+                *limiterActiveBlocks += active;
+
+            consecutiveLimiterBlocks = active > 0 ? consecutiveLimiterBlocks + 1 : 0;
+            if (sustainedClampBlocks != nullptr && consecutiveLimiterBlocks >= 4)
+                ++(*sustainedClampBlocks);
+
+            previousSnapshot = snapshot;
+        }
+    }
+
+    return reports;
+}
+
+struct P10ELongStageMetrics
+{
+    juce::String name;
+    P10DWindowMetrics metrics;
+    double minActiveRms = std::numeric_limits<double>::max();
+    double maxActiveRms = 0.0;
+    double finalActiveRms = 0.0;
+    double tailRms = 0.0;
+    int silentWhileInputBlocks = 0;
+    int maxConsecutiveSilentBlocks = 0;
+};
+
+double p10eBlockRms(const juce::AudioBuffer<float>& buffer)
+{
+    double sumSquares = 0.0;
+    int count = 0;
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        const auto* data = buffer.getReadPointer(ch);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            const float sample = data[i];
+            if (!std::isfinite(sample))
+                continue;
+
+            sumSquares += (double) sample * (double) sample;
+            ++count;
+        }
+    }
+
+    return count > 0 ? std::sqrt(sumSquares / (double) count) : 0.0;
+}
+
+void configureP10EHighGainAmp(HighGainAmp& amp)
+{
+    setRangedParamById(amp, "hgDrive", 7.4f);
+    setRangedParamById(amp, "hgTight", 0.82f);
+    setRangedParamById(amp, "hgPresence", 0.50f);
+    setRangedParamById(amp, "hgTone", 0.48f);
+    setRangedParamById(amp, "hgLevel", 0.58f);
+}
+
+void configureP10EModernCab(Modern4x12Cabinet& cab)
+{
+    setRangedParamById(cab, "m4x12Low", 1.0f);
+    setRangedParamById(cab, "m4x12Presence", 1.4f);
+    setRangedParamById(cab, "m4x12Distance", 0.34f);
+    setRangedParamById(cab, "m4x12Level", 0.78f);
+    setRangedParamById(cab, "m4x12Mix", 1.0f);
+}
+
+void configureP10EBoost(BoostPedal& boost)
+{
+    setRangedParamById(boost, "boostGain", 6.5f);
+    setRangedParamById(boost, "boostTight", 0.78f);
+    setRangedParamById(boost, "boostTone", 0.46f);
+    setRangedParamById(boost, "boostLevel", 0.66f);
+    setRangedParamById(boost, "boostChar", 0.08f);
+}
+
+void configureP10EDistortion(DistortionPedal& distortion, int modeIndex = 4)
+{
+    distortion.modeParam->setValueNotifyingHost(normalisedChoiceIndex(distortion.modeParam, modeIndex));
+    distortion.gainParam->setValueNotifyingHost(distortion.gainParam->convertTo0to1(modeIndex >= 3 ? 34.0f : 30.0f));
+    distortion.toneParam->setValueNotifyingHost(distortion.toneParam->convertTo0to1(0.43f));
+    distortion.bodyParam->setValueNotifyingHost(distortion.bodyParam->convertTo0to1(0.44f));
+    distortion.tightParam->setValueNotifyingHost(distortion.tightParam->convertTo0to1(0.70f));
+    distortion.levelParam->setValueNotifyingHost(distortion.levelParam->convertTo0to1(0.19f));
+    distortion.mixParam->setValueNotifyingHost(distortion.mixParam->convertTo0to1(1.0f));
+}
+
+void configureP10EReverb(ReverbPedal& reverb)
+{
+    reverb.modeParam->setValueNotifyingHost(normalisedChoiceIndex(reverb.modeParam, 1));
+    reverb.decayParam->setValueNotifyingHost(reverb.decayParam->convertTo0to1(0.44f));
+    reverb.toneParam->setValueNotifyingHost(reverb.toneParam->convertTo0to1(0.46f));
+    reverb.sizeParam->setValueNotifyingHost(reverb.sizeParam->convertTo0to1(0.52f));
+    reverb.dampingParam->setValueNotifyingHost(reverb.dampingParam->convertTo0to1(0.58f));
+    reverb.bassCutParam->setValueNotifyingHost(reverb.bassCutParam->convertTo0to1(0.46f));
+    reverb.diffusionParam->setValueNotifyingHost(reverb.diffusionParam->convertTo0to1(0.72f));
+    reverb.widthParam->setValueNotifyingHost(reverb.widthParam->convertTo0to1(0.74f));
+    reverb.modParam->setValueNotifyingHost(reverb.modParam->convertTo0to1(0.18f));
+    reverb.predelayParam->setValueNotifyingHost(reverb.predelayParam->convertTo0to1(14.0f));
+    reverb.mixParam->setValueNotifyingHost(reverb.mixParam->convertTo0to1(0.32f));
+    reverb.duckParam->setValueNotifyingHost(reverb.duckParam->convertTo0to1(0.12f));
+    reverb.swellParam->setValueNotifyingHost(reverb.swellParam->convertTo0to1(0.0f));
+    reverb.gateParam->setValueNotifyingHost(reverb.gateParam->convertTo0to1(0.0f));
+    reverb.reverseParam->setValueNotifyingHost(reverb.reverseParam->convertTo0to1(0.0f));
+    reverb.freezeParam->setValueNotifyingHost(0.0f);
+}
+
+void configureP10EFuzz(FuzzPedal& fuzz)
+{
+    fuzz.modeParam->setValueNotifyingHost(normalisedChoiceIndex(fuzz.modeParam, 1));
+    fuzz.fuzzParam->setValueNotifyingHost(fuzz.fuzzParam->convertTo0to1(52.0f));
+    fuzz.toneParam->setValueNotifyingHost(fuzz.toneParam->convertTo0to1(0.42f));
+    fuzz.gateParam->setValueNotifyingHost(fuzz.gateParam->convertTo0to1(0.12f));
+    fuzz.levelParam->setValueNotifyingHost(fuzz.levelParam->convertTo0to1(0.34f));
+    fuzz.biasParam->setValueNotifyingHost(fuzz.biasParam->convertTo0to1(0.66f));
+    fuzz.mixParam->setValueNotifyingHost(fuzz.mixParam->convertTo0to1(1.0f));
+}
+
+std::vector<P10ELongStageMetrics> renderP10ELongChain(
+    const std::vector<std::pair<juce::String, juce::AudioProcessor*>>& stages,
+    int blocksToRun,
+    P10DSignalKind signalKind,
+    float inputScale,
+    int warmupBlocks = 24,
+    int silenceAfterBlock = -1,
+    double activeInputThreshold = 0.004,
+    double silentOutputThreshold = 0.00020)
+{
+    std::vector<P10ELongStageMetrics> reports;
+    reports.reserve(stages.size());
+    for (const auto& stage : stages)
+        reports.push_back({ stage.first });
+
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> block(2, kBlockSize);
+    std::vector<int> consecutiveSilent(stages.size(), 0);
+
+    for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+    {
+        if (silenceAfterBlock >= 0 && blockIndex >= silenceAfterBlock)
+            block.clear();
+        else
+            fillP10DSignalBlock(block, blockIndex, signalKind, inputScale);
+
+        const double inputRms = p10eBlockRms(block);
+
+        for (size_t stageIndex = 0; stageIndex < stages.size(); ++stageIndex)
+        {
+            auto* processor = stages[stageIndex].second;
+            if (processor != nullptr)
+                processor->processBlock(block, midi);
+
+            if (blockIndex < warmupBlocks)
+                continue;
+
+            const double outputRms = p10eBlockRms(block);
+            auto& report = reports[stageIndex];
+            report.metrics.capture(block);
+
+            if (inputRms > activeInputThreshold)
+            {
+                report.minActiveRms = juce::jmin(report.minActiveRms, outputRms);
+                report.maxActiveRms = juce::jmax(report.maxActiveRms, outputRms);
+                report.finalActiveRms = outputRms;
+
+                if (outputRms < silentOutputThreshold)
+                {
+                    ++report.silentWhileInputBlocks;
+                    consecutiveSilent[stageIndex] += 1;
+                    report.maxConsecutiveSilentBlocks = juce::jmax(report.maxConsecutiveSilentBlocks, consecutiveSilent[stageIndex]);
+                }
+                else
+                {
+                    consecutiveSilent[stageIndex] = 0;
+                }
+            }
+            else if (silenceAfterBlock >= 0 && blockIndex > silenceAfterBlock + 24)
+            {
+                report.tailRms = outputRms;
+            }
+        }
+    }
+
+    for (auto& report : reports)
+        if (report.minActiveRms == std::numeric_limits<double>::max())
+            report.minActiveRms = 0.0;
+
+    return reports;
+}
+
+juce::String p10eLongSummary(const P10ELongStageMetrics& report)
+{
+    return p10dMetricsSummary(report.metrics)
+        + ", minActiveRms="
+        + juce::String(report.minActiveRms, 6)
+        + ", maxActiveRms="
+        + juce::String(report.maxActiveRms, 6)
+        + ", finalActiveRms="
+        + juce::String(report.finalActiveRms, 6)
+        + ", tailRms="
+        + juce::String(report.tailRms, 6)
+        + ", silentWhileInputBlocks="
+        + juce::String(report.silentWhileInputBlocks)
+        + ", maxConsecutiveSilentBlocks="
+        + juce::String(report.maxConsecutiveSilentBlocks);
+}
+
+struct P10FDuckingMetrics
+{
+    juce::String name;
+    P10DWindowMetrics metrics;
+    double minActiveInputRms = std::numeric_limits<double>::max();
+    double maxActiveInputRms = 0.0;
+    double minOutputRmsWhileInputActive = std::numeric_limits<double>::max();
+    double maxOutputRmsWhileInputActive = 0.0;
+    double finalOutputRmsWhileInputActive = 0.0;
+    double inputToOutputRatioSum = 0.0;
+    double previousActiveOutputRms = 0.0;
+    double previousActiveInputRms = 0.0;
+    double previousActiveRatio = 0.0;
+    double minActiveRatio = std::numeric_limits<double>::max();
+    double maxActiveRatio = 0.0;
+    double gainDropDuringActiveInput = 0.0;
+    double blockRmsDropRatio = 0.0;
+    double envelopeDuckDepth = 0.0;
+    double gateGainMin = 1.0;
+    double gateGainMaxDelta = 0.0;
+    int activeBlocks = 0;
+    int consecutiveGainReductionBlocks = 0;
+    int maxConsecutiveGainReductionBlocks = 0;
+    int recoveryTimeAfterDuck = 0;
+    int currentRecoveryBlocks = 0;
+    int ceilingTouchedSamples = 0;
+
+    void capture(const juce::AudioBuffer<float>& buffer, double inputRms, double gateGain = -1.0)
+    {
+        metrics.capture(buffer, gateGain);
+
+        if (gateGain >= 0.0)
+            gateGainMin = juce::jmin(gateGainMin, juce::jlimit(0.0, 1.0, gateGain));
+
+        const double outputRms = p10eBlockRms(buffer);
+        if (inputRms <= 0.006)
+            return;
+
+        ++activeBlocks;
+        minActiveInputRms = juce::jmin(minActiveInputRms, inputRms);
+        maxActiveInputRms = juce::jmax(maxActiveInputRms, inputRms);
+        minOutputRmsWhileInputActive = juce::jmin(minOutputRmsWhileInputActive, outputRms);
+        maxOutputRmsWhileInputActive = juce::jmax(maxOutputRmsWhileInputActive, outputRms);
+        finalOutputRmsWhileInputActive = outputRms;
+        const double activeRatio = outputRms / juce::jmax(1.0e-9, inputRms);
+        inputToOutputRatioSum += activeRatio;
+        minActiveRatio = juce::jmin(minActiveRatio, activeRatio);
+        maxActiveRatio = juce::jmax(maxActiveRatio, activeRatio);
+        ceilingTouchedSamples = metrics.signal.nearClipSamples + metrics.signal.clippedSamples;
+
+        if (previousActiveOutputRms > 1.0e-8 && previousActiveInputRms > 1.0e-8 && previousActiveRatio > 1.0e-8)
+        {
+            const bool inputStillActive = inputRms >= previousActiveInputRms * 0.82;
+            const double ratioDrop = activeRatio / previousActiveRatio;
+            if (inputStillActive && ratioDrop < 1.0)
+            {
+                const double dropDepth = 1.0 - ratioDrop;
+                blockRmsDropRatio = juce::jmax(blockRmsDropRatio, dropDepth);
+                if (dropDepth > 0.50)
+                {
+                    ++consecutiveGainReductionBlocks;
+                    maxConsecutiveGainReductionBlocks = juce::jmax(maxConsecutiveGainReductionBlocks, consecutiveGainReductionBlocks);
+                    if (consecutiveGainReductionBlocks >= 4)
+                        gainDropDuringActiveInput = juce::jmax(gainDropDuringActiveInput, dropDepth);
+                    currentRecoveryBlocks = 0;
+                }
+                else
+                {
+                    consecutiveGainReductionBlocks = 0;
+                    ++currentRecoveryBlocks;
+                }
+            }
+            else
+            {
+                consecutiveGainReductionBlocks = 0;
+                ++currentRecoveryBlocks;
+            }
+        }
+
+        if (maxActiveRatio > 1.0e-8 && minActiveRatio != std::numeric_limits<double>::max())
+            envelopeDuckDepth = 1.0 - (minActiveRatio / maxActiveRatio);
+
+        recoveryTimeAfterDuck = juce::jmax(recoveryTimeAfterDuck, currentRecoveryBlocks);
+        previousActiveOutputRms = outputRms;
+        previousActiveInputRms = inputRms;
+        previousActiveRatio = activeRatio;
+        gateGainMaxDelta = metrics.gateDeltaPeak;
+    }
+
+    double activeInputToOutputRmsRatio() const noexcept
+    {
+        return activeBlocks > 0 ? inputToOutputRatioSum / (double) activeBlocks : 0.0;
+    }
+
+    double outputRmsWhileInputActive() const noexcept
+    {
+        return minOutputRmsWhileInputActive == std::numeric_limits<double>::max() ? 0.0 : minOutputRmsWhileInputActive;
+    }
+};
+
+juce::String p10fDuckingSummary(const P10FDuckingMetrics& report)
+{
+    return p10dMetricsSummary(report.metrics)
+        + ", activeBlocks="
+        + juce::String(report.activeBlocks)
+        + ", gainDropDuringActiveInput="
+        + juce::String(report.gainDropDuringActiveInput, 4)
+        + ", blockRmsDropRatio="
+        + juce::String(report.blockRmsDropRatio, 4)
+        + ", envelopeDuckDepth="
+        + juce::String(report.envelopeDuckDepth, 4)
+        + ", recoveryTimeAfterDuck="
+        + juce::String(report.recoveryTimeAfterDuck)
+        + ", activeInputToOutputRmsRatio="
+        + juce::String(report.activeInputToOutputRmsRatio(), 4)
+        + ", consecutiveGainReductionBlocks="
+        + juce::String(report.maxConsecutiveGainReductionBlocks)
+        + ", outputRmsWhileInputActive="
+        + juce::String(report.outputRmsWhileInputActive(), 6)
+        + ", gateGainProxy="
+        + juce::String(report.gateGainMin, 4)
+        + ", ceilingTouchedSamples="
+        + juce::String(report.ceilingTouchedSamples);
+}
+
+void fillP10FActiveHighGainBlock(juce::AudioBuffer<float>& block, int blockIndex, float inputScale = 1.0f)
+{
+    for (int i = 0; i < block.getNumSamples(); ++i)
+    {
+        const int sampleIndex = blockIndex * block.getNumSamples() + i;
+        const float t = (float) sampleIndex / (float) kSampleRate;
+        const int phraseSample = sampleIndex % (int) (kSampleRate * 0.620);
+        const float phrase = phraseSample < (int) (kSampleRate * 0.420) ? 1.0f : 0.54f;
+        const int pickSample = sampleIndex % (int) (kSampleRate * 0.118);
+        const float pick = std::exp(-(float) pickSample / 42.0f);
+        const float sustain = 0.070f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+            + 0.043f * std::sin(juce::MathConstants<float>::twoPi * 123.47f * t)
+            + 0.030f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t)
+            + 0.016f * std::sin(juce::MathConstants<float>::twoPi * 246.94f * t);
+        const float sample = inputScale * phrase * (sustain + 0.035f * pick);
+        block.setSample(0, i, sample);
+        block.setSample(1, i, sample * 0.965f);
+    }
+}
+
+std::vector<P10FDuckingMetrics> renderP10FChain(
+    const std::vector<std::pair<juce::String, juce::AudioProcessor*>>& stages,
+    int blocksToRun,
+    float inputScale,
+    int warmupBlocks = 32,
+    int silenceAfterBlock = -1)
+{
+    std::vector<P10FDuckingMetrics> reports;
+    reports.reserve(stages.size());
+    for (const auto& stage : stages)
+        reports.push_back({ stage.first });
+
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> block(2, kBlockSize);
+
+    for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+    {
+        if (silenceAfterBlock >= 0 && blockIndex >= silenceAfterBlock)
+            block.clear();
+        else
+            fillP10FActiveHighGainBlock(block, blockIndex, inputScale);
+
+        const double inputRms = p10eBlockRms(block);
+
+        for (size_t stageIndex = 0; stageIndex < stages.size(); ++stageIndex)
+        {
+            auto* processor = stages[stageIndex].second;
+            if (processor != nullptr)
+                processor->processBlock(block, midi);
+
+            if (blockIndex < warmupBlocks)
+                continue;
+
+            double gateGain = -1.0;
+            if (auto* gate = dynamic_cast<NoiseGatePedal*>(processor))
+                gateGain = (double) gate->currentGateGainAtomic.load();
+            else if (auto* distortion = dynamic_cast<DistortionPedal*>(processor))
+                gateGain = (double) distortion->currentGateGain;
+
+            reports[stageIndex].capture(block, inputRms, gateGain);
+        }
+    }
+
+    for (auto& report : reports)
+    {
+        if (report.minActiveInputRms == std::numeric_limits<double>::max())
+            report.minActiveInputRms = 0.0;
+        if (report.minOutputRmsWhileInputActive == std::numeric_limits<double>::max())
+            report.minOutputRmsWhileInputActive = 0.0;
+        if (report.minActiveRatio == std::numeric_limits<double>::max())
+            report.minActiveRatio = 0.0;
+    }
+
+    return reports;
+}
+
+std::vector<P10CStageMetrics> renderP10CChain(const std::vector<std::pair<juce::String, juce::AudioProcessor*>>& stages,
+                                              int blocksToRun,
+                                              float inputScale = 1.0f,
+                                              OutputChainProcessor* outputChain = nullptr,
+                                              int* limiterTouchedSamples = nullptr,
+                                              int* limiterActiveBlocks = nullptr,
+                                              int* sustainedClampBlocks = nullptr)
+{
+    std::vector<P10CStageMetrics> reports;
+    reports.reserve(stages.size());
+    for (const auto& stage : stages)
+        reports.push_back({ stage.first, {} });
+
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> block(2, kBlockSize);
+    OutputChainProcessor::DebugSnapshot previousSnapshot;
+    if (outputChain != nullptr)
+        previousSnapshot = outputChain->getDebugSnapshot();
+
+    int consecutiveLimiterBlocks = 0;
+    for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+    {
+        fillP10CPalmMuteBlock(block, blockIndex, inputScale);
+
+        for (size_t stageIndex = 0; stageIndex < stages.size(); ++stageIndex)
+        {
+            if (auto* processor = stages[stageIndex].second)
+                processor->processBlock(block, midi);
+
+            reports[stageIndex].metrics.capture(block);
+        }
+
+        if (outputChain != nullptr)
+        {
+            const auto snapshot = outputChain->getDebugSnapshot();
+            const int touched = snapshot.limiterTouchedSamples >= previousSnapshot.limiterTouchedSamples
+                ? snapshot.limiterTouchedSamples - previousSnapshot.limiterTouchedSamples
+                : snapshot.limiterTouchedSamples;
+            const int active = snapshot.limiterActiveBlocks >= previousSnapshot.limiterActiveBlocks
+                ? snapshot.limiterActiveBlocks - previousSnapshot.limiterActiveBlocks
+                : snapshot.limiterActiveBlocks;
+
+            if (limiterTouchedSamples != nullptr)
+                *limiterTouchedSamples += touched;
+            if (limiterActiveBlocks != nullptr)
+                *limiterActiveBlocks += active;
+
+            consecutiveLimiterBlocks = active > 0 ? consecutiveLimiterBlocks + 1 : 0;
+            if (sustainedClampBlocks != nullptr && consecutiveLimiterBlocks >= 4)
+                ++(*sustainedClampBlocks);
+
+            previousSnapshot = snapshot;
+        }
+    }
+
+    return reports;
+}
+
 void expectStereoSamplesMatch(juce::UnitTest& test,
     const juce::AudioBuffer<float>& buffer,
     const std::vector<float>& expectedLeft,
@@ -1097,6 +2097,727 @@ void runP1BypassToggleContinuity(juce::UnitTest& test, const juce::String& proce
     test.expect(bufferHasOnlyFiniteSamples(buffer), processorName + " bypass transition must remain finite");
     test.expect(bypassDelta < juce::jmax(2.5, activeDelta + 2.0),
         processorName + " bypass transition should not introduce a large single-sample jump");
+}
+
+juce::File getStartupPresetPointerFileForTest()
+{
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("NOVA")
+        .getChildFile("startup-preset.txt");
+}
+
+struct StartupPresetPointerGuard
+{
+    StartupPresetPointerGuard()
+        : pointerFile(getStartupPresetPointerFileForTest()),
+          existed(pointerFile.existsAsFile()),
+          originalText(existed ? pointerFile.loadFileAsString() : juce::String())
+    {
+    }
+
+    ~StartupPresetPointerGuard()
+    {
+        if (existed)
+        {
+            pointerFile.getParentDirectory().createDirectory();
+            pointerFile.replaceWithText(originalText);
+            return;
+        }
+
+        if (pointerFile.existsAsFile())
+            pointerFile.deleteFile();
+    }
+
+    juce::File pointerFile;
+    bool existed = false;
+    juce::String originalText;
+};
+
+juce::ValueTree makeP7DState()
+{
+    juce::ValueTree state(Nova::IDs::MAIN_STATE);
+    Nova::PluginStateModel::canonicalizeStateTree(state);
+    return state;
+}
+
+juce::ValueTree makeP7DPedal(const juce::String& type,
+                             Nova::ZoneID zone,
+                             const juce::String& id,
+                             bool enabled)
+{
+    juce::ValueTree pedal(Nova::IDs::PEDAL);
+    pedal.setProperty(Nova::IDs::PEDAL_TYPE, type, nullptr);
+    pedal.setProperty(Nova::IDs::PEDAL_ZONE, (int) zone, nullptr);
+    pedal.setProperty(Nova::IDs::PEDAL_ID, id, nullptr);
+    pedal.setProperty(Nova::IDs::PEDAL_ENABLED, enabled, nullptr);
+    return pedal;
+}
+
+void appendP7DPedal(juce::ValueTree state,
+                    Nova::ChainID chain,
+                    const juce::String& type,
+                    Nova::ZoneID requestedZone,
+                    const juce::String& id,
+                    bool enabled)
+{
+    auto line = Nova::PluginStateModel::getLineTree(state, chain);
+    if (line.isValid())
+        line.appendChild(makeP7DPedal(type, requestedZone, id, enabled), nullptr);
+}
+
+juce::String canonicalXmlForP7D(const juce::ValueTree& state)
+{
+    auto copy = Nova::PluginStateModel::makeCanonicalCopy(state);
+    auto xml = copy.createXml();
+    return xml != nullptr ? xml->toString() : juce::String();
+}
+
+bool writeP7DValueTreeFile(const juce::File& file, const juce::ValueTree& state)
+{
+    juce::MemoryBlock block;
+    juce::MemoryOutputStream stream(block, false);
+    state.writeToStream(stream);
+    return file.replaceWithData(block.getData(), block.getSize());
+}
+
+juce::ValueTree readP7DValueTreeFile(const juce::File& file)
+{
+    juce::MemoryBlock block;
+    if (!file.loadFileAsData(block))
+        return {};
+
+    return juce::ValueTree::readFromData(block.getData(), block.getSize());
+}
+
+juce::String base64PayloadWithSize(size_t bytes, uint8_t seed)
+{
+    juce::MemoryBlock payload(bytes);
+    auto* data = static_cast<uint8_t*>(payload.getData());
+
+    for (size_t i = 0; i < bytes; ++i)
+        data[i] = static_cast<uint8_t>(seed + (uint8_t)(i * 17u));
+
+    return juce::Base64::toBase64(payload.getData(), payload.getSize());
+}
+
+juce::String validUnknownParameterPayloadForP7D()
+{
+    struct Codec final : ProcessorBase
+    {
+        static void encode(const juce::XmlElement& xml, juce::MemoryBlock& block)
+        {
+            copyXmlToBinary(xml, block);
+        }
+
+        void prepareToPlay(double, int) override {}
+        void releaseResources() override {}
+        void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override {}
+    };
+
+    juce::XmlElement xml("PLUGIN_STATE");
+    xml.setAttribute("version", 1);
+    auto* unknown = xml.createNewChildElement("PARAM");
+    unknown->setAttribute("id", "p7d_unknown_parameter");
+    unknown->setAttribute("value", 0.5);
+
+    juce::MemoryBlock block;
+    Codec::encode(xml, block);
+    return juce::Base64::toBase64(block.getData(), block.getSize());
+}
+
+bool engineProcessesFiniteAfterP7DRestore(AudioEngine& engine,
+                                          const AudioEngine::RuntimeGlobalParams& params,
+                                          bool engineEnabled)
+{
+    engine.updateGlobalParams(params);
+    engine.setEngineEnabled(engineEnabled);
+
+    juce::AudioBuffer<float> buffer(2, kBlockSize);
+    juce::MidiBuffer midi;
+
+    for (int block = 0; block < 8; ++block)
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                buffer.setSample(ch, i, static_cast<float>(0.08 * std::sin(2.0 * juce::MathConstants<double>::pi
+                    * 220.0 * (double)(block * kBlockSize + i) / kSampleRate)));
+
+        engine.process(buffer, midi);
+
+        if (!bufferHasOnlyFiniteSamples(buffer))
+            return false;
+    }
+
+    return true;
+}
+
+struct P9DDraftStep
+{
+    Nova::ChainID chain = Nova::ChainID::LineA;
+    Nova::ZoneID zone = Nova::ZoneID::Pre;
+    juce::String typeID;
+};
+
+struct P9DProcessMetrics
+{
+    bool finite = true;
+    double peak = 0.0;
+    double rms = 0.0;
+    double dc = 0.0;
+    int samples = 0;
+    int invalidSamples = 0;
+    int nearClipSamples = 0;
+    int clippedSamples = 0;
+    int limiterTouchedSamples = 0;
+    int limiterActiveBlocks = 0;
+    int sustainedClampBlocks = 0;
+    float limiterMaxReductionDb = 0.0f;
+    float limiterDeltaPeak = 0.0f;
+    int softCeilingTouchedSamples = 0;
+};
+
+struct P9DDraftResult
+{
+    juce::String name;
+    juce::String filePath;
+    juce::String status = "NOT_GENERATED";
+    juce::String roundTripStatus = "NOT_RUN";
+    juce::String processStatus = "NOT_RUN";
+    P9DProcessMetrics metrics;
+    juce::StringArray failures;
+};
+
+juce::String p9dJsonEscape(const juce::String& text)
+{
+    juce::String escaped;
+    for (auto c : text)
+    {
+        switch (c)
+        {
+            case '\\': escaped << "\\\\"; break;
+            case '"':  escaped << "\\\""; break;
+            case '\n': escaped << "\\n"; break;
+            case '\r': escaped << "\\r"; break;
+            case '\t': escaped << "\\t"; break;
+            default:   escaped << juce::String::charToString(c); break;
+        }
+    }
+    return escaped;
+}
+
+juce::String p9dZoneName(Nova::ZoneID zone)
+{
+    switch (zone)
+    {
+        case Nova::ZoneID::Pre: return "Pre";
+        case Nova::ZoneID::Amp: return "Amp";
+        case Nova::ZoneID::FX: return "FX";
+        case Nova::ZoneID::Cabinet: return "Cabinet";
+        default: return "Unknown";
+    }
+}
+
+juce::String p9dStemForName(juce::String name)
+{
+    auto safe = name.trim().retainCharacters("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-");
+    safe = safe.replace(" ", "-");
+    while (safe.contains("--"))
+        safe = safe.replace("--", "-");
+    return safe.isNotEmpty() ? safe : "Draft-Preset";
+}
+
+bool p9dParseZone(const juce::String& text, Nova::ZoneID& zone)
+{
+    if (text == "Pre") { zone = Nova::ZoneID::Pre; return true; }
+    if (text == "Amp") { zone = Nova::ZoneID::Amp; return true; }
+    if (text == "FX") { zone = Nova::ZoneID::FX; return true; }
+    if (text == "Cabinet") { zone = Nova::ZoneID::Cabinet; return true; }
+    return false;
+}
+
+bool p9dParseChain(const juce::String& text, Nova::ChainID& chain)
+{
+    if (text == "A" || text == "LineA") { chain = Nova::ChainID::LineA; return true; }
+    if (text == "B" || text == "LineB") { chain = Nova::ChainID::LineB; return true; }
+    return false;
+}
+
+juce::String p9dCanonicalXml(const juce::ValueTree& state)
+{
+    auto canonical = Nova::PluginStateModel::makeCanonicalCopy(state);
+    auto xml = canonical.createXml();
+    return xml != nullptr ? xml->toString() : juce::String();
+}
+
+bool p9dWriteValueTreeFile(const juce::File& file, const juce::ValueTree& state)
+{
+    juce::MemoryOutputStream stream;
+    state.writeToStream(stream);
+    file.getParentDirectory().createDirectory();
+    return file.replaceWithData(stream.getData(), stream.getDataSize());
+}
+
+juce::ValueTree p9dReadValueTreeFile(const juce::File& file)
+{
+    juce::MemoryBlock data;
+    if (!file.loadFileAsData(data))
+        return {};
+
+    return juce::ValueTree::readFromData(data.getData(), (int) data.getSize());
+}
+
+void p9dApplyDraftRuntimeDefaults(juce::ValueTree state, const juce::String& name)
+{
+    Nova::PluginStateModel::canonicalizeStateTree(state);
+
+    if (auto settings = Nova::PluginStateModel::getSettingsTree(state); settings.isValid())
+    {
+        settings.setProperty(Nova::IDs::ENGINE_ON, true, nullptr);
+        settings.setProperty(Nova::IDs::SWITCH_MODE, (int) Nova::SwitcherMode::LineA_Only, nullptr);
+        settings.setProperty(Nova::IDs::INPUT_GAIN, 0.0f, nullptr);
+        settings.setProperty(Nova::IDs::INPUT_GATE, -100.0f, nullptr);
+        settings.setProperty(Nova::IDs::FORCE_MONO, false, nullptr);
+        settings.setProperty(Nova::IDs::OUTPUT_VOL, name == "Tight Modern Rhythm" ? -22.0f : -6.0f, nullptr);
+        settings.setProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f, nullptr);
+        settings.setProperty(Nova::IDs::OUTPUT_MIX, 100.0f, nullptr);
+    }
+
+    Nova::PluginStateModel::canonicalizeStateTree(state);
+}
+
+bool p9dBuildState(const juce::String& name,
+                   const std::vector<P9DDraftStep>& steps,
+                   juce::ValueTree& state,
+                   juce::StringArray& failures)
+{
+    SessionStore store;
+
+    for (int i = 0; i < (int) steps.size(); ++i)
+    {
+        const auto& step = steps[(size_t) i];
+        const auto canonicalType = PedalRegistry::canonicalType(step.typeID);
+
+        if (!PedalRegistry::isTypeSupported(canonicalType))
+        {
+            failures.add("unregistered typeID: " + step.typeID);
+            continue;
+        }
+
+        if (!Nova::PedalCatalog::canLiveInZone(canonicalType, step.zone))
+            failures.add("invalid zone " + p9dZoneName(step.zone) + " for " + canonicalType);
+
+        const auto result = store.applyCommand(SessionStore::Command::makeAddPedal(
+            canonicalType, step.chain, step.zone, -1));
+
+        if (!result.changed || !result.insertResult.inserted)
+        {
+            failures.add("insert failed for " + canonicalType);
+            continue;
+        }
+
+        auto line = Nova::PluginStateModel::getLineTree(store.state(), step.chain);
+        if (line.isValid() && result.insertResult.index >= 0 && result.insertResult.index < line.getNumChildren())
+            line.getChild(result.insertResult.index).setProperty(Nova::IDs::PEDAL_ID,
+                "p9d-" + p9dStemForName(name).toLowerCase() + "-" + juce::String(i), nullptr);
+    }
+
+    state = Nova::PluginStateModel::makeCanonicalCopy(store.state());
+    p9dApplyDraftRuntimeDefaults(state, name);
+    return failures.isEmpty();
+}
+
+bool p9dValidateCanonicalState(const juce::ValueTree& state, juce::StringArray& failures)
+{
+    if (!state.isValid() || !state.hasType(Nova::IDs::MAIN_STATE))
+    {
+        failures.add("state root is not NOVA_STATE");
+        return false;
+    }
+
+    if ((int) state.getProperty(Nova::IDs::STATE_SCHEMA_VERSION, -1) != Nova::Config::STATE_SCHEMA_VERSION)
+        failures.add("schemaVersion is not 1");
+
+    for (auto chain : { Nova::ChainID::LineA, Nova::ChainID::LineB })
+    {
+        auto line = Nova::PluginStateModel::getLineTree(state, chain);
+        if (!line.isValid())
+        {
+            failures.add("missing line");
+            continue;
+        }
+
+        int previousRank = -1;
+        int ampCount = 0;
+        int cabinetCount = 0;
+        int preCount = 0;
+        int fxCount = 0;
+
+        for (int i = 0; i < line.getNumChildren(); ++i)
+        {
+            auto pedal = line.getChild(i);
+            const auto type = pedal.getProperty(Nova::IDs::PEDAL_TYPE).toString();
+            const auto zone = static_cast<Nova::ZoneID>((int) pedal.getProperty(Nova::IDs::PEDAL_ZONE, 0));
+            const int rank = Nova::PluginStateModel::zoneSortRank(zone);
+
+            if (!PedalRegistry::isTypeSupported(type))
+                failures.add("unsupported type after canonicalization: " + type);
+            if (!Nova::PedalCatalog::canLiveInZone(type, zone))
+                failures.add("invalid zone after canonicalization: " + type);
+            if (rank < previousRank)
+                failures.add("non-canonical zone order");
+            previousRank = rank;
+
+            if (Nova::PedalCatalog::kindFromType(type) == Nova::PedalCatalog::Kind::Amplifier)
+                ++ampCount;
+            if (Nova::PedalCatalog::kindFromType(type) == Nova::PedalCatalog::Kind::Cabinet)
+                ++cabinetCount;
+            if (zone == Nova::ZoneID::Pre)
+                ++preCount;
+            if (zone == Nova::ZoneID::FX)
+                ++fxCount;
+        }
+
+        if (ampCount > 1)
+            failures.add("duplicate amp");
+        if (cabinetCount > 1)
+            failures.add("duplicate cabinet");
+        if (preCount > Nova::Config::MAX_PEDALS_PER_FLEX_ZONE)
+            failures.add("Pre zone capacity exceeded");
+        if (fxCount > Nova::Config::MAX_PEDALS_PER_FLEX_ZONE)
+            failures.add("FX zone capacity exceeded");
+    }
+
+    return failures.isEmpty();
+}
+
+void p9dRebuildEngineFromState(AudioEngine& engine, const juce::ValueTree& state)
+{
+    engine.clearAll();
+    engine.synchronizeProcessingState();
+
+    for (auto chain : { Nova::ChainID::LineA, Nova::ChainID::LineB })
+    {
+        auto line = Nova::PluginStateModel::getLineTree(state, chain);
+        if (!line.isValid())
+            continue;
+
+        for (int i = 0; i < line.getNumChildren(); ++i)
+        {
+            auto pedal = line.getChild(i);
+            const auto zone = static_cast<Nova::ZoneID>((int) pedal.getProperty(Nova::IDs::PEDAL_ZONE, 0));
+            engine.addPedal(pedal.getProperty(Nova::IDs::PEDAL_TYPE).toString(),
+                chain, i, zone, pedal.getProperty(Nova::IDs::PEDAL_ID).toString());
+            engine.setPedalBypassed(chain, i, !(bool) pedal.getProperty(Nova::IDs::PEDAL_ENABLED, true));
+        }
+    }
+
+    engine.synchronizeProcessingState();
+}
+
+P9DProcessMetrics p9dProcessDraft(const juce::String& name, const juce::ValueTree& state)
+{
+    AudioEngine engine;
+    engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+    AudioEngine::RuntimeGlobalParams params;
+    if (auto settings = Nova::PluginStateModel::getSettingsTree(state); settings.isValid())
+    {
+        params.outputVolumeDb = (float) settings.getProperty(Nova::IDs::OUTPUT_VOL, -6.0f);
+        params.outputLimiterDb = (float) settings.getProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f);
+        params.outputMixRaw = (float) settings.getProperty(Nova::IDs::OUTPUT_MIX, 100.0f);
+    }
+    engine.updateGlobalParams(params);
+    engine.setEngineEnabled(true);
+    p9dRebuildEngineFromState(engine, state);
+
+    P9DProcessMetrics metrics;
+    juce::AudioBuffer<float> buffer(2, kBlockSize);
+    juce::MidiBuffer midi;
+    double sum = 0.0;
+    double sumSquares = 0.0;
+    OutputChainProcessor::DebugSnapshot previousSnapshot = engine.getOutputChainDebugSnapshot();
+
+    const int totalBlocks = name == "Wide Ambient Clean" ? 220 : 128;
+    for (int block = 0; block < totalBlocks; ++block)
+    {
+        for (int i = 0; i < kBlockSize; ++i)
+        {
+            const double t = (double) (block * kBlockSize + i) / kSampleRate;
+            float sample = (float) (0.08 * std::sin(2.0 * juce::MathConstants<double>::pi * 110.0 * t)
+                + 0.035 * std::sin(2.0 * juce::MathConstants<double>::pi * 220.0 * t));
+
+            if (name == "Tight Modern Rhythm")
+                sample *= ((block / 8) % 2) == 0 ? 1.0f : 0.20f;
+            else if (name == "Funk Comp Clean")
+                sample *= (i < 12) ? 1.4f : 0.65f;
+            else if (name == "Wide Ambient Clean" && block > 120)
+                sample = 0.0f;
+
+            buffer.setSample(0, i, sample);
+            buffer.setSample(1, i, sample * 0.97f);
+        }
+
+        engine.process(buffer, midi);
+
+        const auto snapshot = engine.getOutputChainDebugSnapshot();
+        const int blockLimiterTouchedSamples = snapshot.limiterTouchedSamples >= previousSnapshot.limiterTouchedSamples
+            ? snapshot.limiterTouchedSamples - previousSnapshot.limiterTouchedSamples
+            : snapshot.limiterTouchedSamples;
+        const int blockLimiterActiveBlocks = snapshot.limiterActiveBlocks >= previousSnapshot.limiterActiveBlocks
+            ? snapshot.limiterActiveBlocks - previousSnapshot.limiterActiveBlocks
+            : snapshot.limiterActiveBlocks;
+        const int blockSoftCeilingTouchedSamples = snapshot.softCeilingTouchedSamples >= previousSnapshot.softCeilingTouchedSamples
+            ? snapshot.softCeilingTouchedSamples - previousSnapshot.softCeilingTouchedSamples
+            : snapshot.softCeilingTouchedSamples;
+
+        metrics.limiterTouchedSamples += blockLimiterTouchedSamples;
+        metrics.limiterActiveBlocks += blockLimiterActiveBlocks;
+        metrics.softCeilingTouchedSamples += blockSoftCeilingTouchedSamples;
+        metrics.limiterMaxReductionDb = juce::jmax(metrics.limiterMaxReductionDb, snapshot.limiterMaxReductionDb);
+        metrics.limiterDeltaPeak = juce::jmax(metrics.limiterDeltaPeak, snapshot.limiterDeltaPeak);
+        previousSnapshot = snapshot;
+
+        bool blockClampProxy = blockLimiterTouchedSamples > 0 || blockSoftCeilingTouchedSamples > 0;
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            const auto* data = buffer.getReadPointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+            {
+                const float sample = data[i];
+                if (!std::isfinite(sample))
+                {
+                    metrics.finite = false;
+                    ++metrics.invalidSamples;
+                    blockClampProxy = true;
+                    continue;
+                }
+
+                const double value = (double) sample;
+                const double absValue = std::abs(value);
+                metrics.peak = juce::jmax(metrics.peak, absValue);
+                sum += value;
+                sumSquares += value * value;
+                ++metrics.samples;
+
+                if (absValue >= (double) Nova::Config::SIGNAL_NEAR_CLIP_THRESHOLD)
+                {
+                    ++metrics.nearClipSamples;
+                    blockClampProxy = true;
+                }
+                if (absValue > 1.0)
+                {
+                    ++metrics.clippedSamples;
+                    blockClampProxy = true;
+                }
+            }
+        }
+
+        if (blockClampProxy)
+            ++metrics.sustainedClampBlocks;
+    }
+
+    if (metrics.samples > 0)
+    {
+        metrics.rms = std::sqrt(sumSquares / (double) metrics.samples);
+        metrics.dc = std::abs(sum / (double) metrics.samples);
+    }
+
+    return metrics;
+}
+
+juce::String p9dBuildReportJson(const juce::String& status,
+                                const juce::String& manifestPath,
+                                const juce::String& outputDirectory,
+                                const std::vector<P9DDraftResult>& results,
+                                const juce::StringArray& failures)
+{
+    juce::String json;
+    json << "{" << juce::newLine;
+    json << "  \"status\": \"" << p9dJsonEscape(status) << "\"," << juce::newLine;
+    json << "  \"manifestPath\": \"" << p9dJsonEscape(manifestPath.replace("\\", "/")) << "\"," << juce::newLine;
+    json << "  \"outputDirectory\": \"" << p9dJsonEscape(outputDirectory.replace("\\", "/")) << "\"," << juce::newLine;
+    json << "  \"generatedPresetCount\": " << (int) std::count_if(results.begin(), results.end(), [](const auto& r) { return r.status == "GENERATED_DRAFT"; }) << "," << juce::newLine;
+    json << "  \"wroteUserPresetDirectory\": false," << juce::newLine;
+    json << "  \"wroteStartupPresetPointer\": false," << juce::newLine;
+    json << "  \"changedSchema\": false," << juce::newLine;
+    json << "  \"presets\": [" << juce::newLine;
+
+    for (size_t i = 0; i < results.size(); ++i)
+    {
+        const auto& r = results[i];
+        json << "    {" << juce::newLine;
+        json << "      \"name\": \"" << p9dJsonEscape(r.name) << "\"," << juce::newLine;
+        json << "      \"filePath\": \"" << p9dJsonEscape(r.filePath.replace("\\", "/")) << "\"," << juce::newLine;
+        json << "      \"generationStatus\": \"" << p9dJsonEscape(r.status) << "\"," << juce::newLine;
+        json << "      \"roundTripStatus\": \"" << p9dJsonEscape(r.roundTripStatus) << "\"," << juce::newLine;
+        json << "      \"processStatus\": \"" << p9dJsonEscape(r.processStatus) << "\"," << juce::newLine;
+        json << "      \"metrics\": { \"finite\": " << (r.metrics.finite ? "true" : "false")
+             << ", \"peak\": " << juce::String(r.metrics.peak, 8)
+             << ", \"rms\": " << juce::String(r.metrics.rms, 8)
+             << ", \"dc\": " << juce::String(r.metrics.dc, 8)
+             << ", \"nearClipSamples\": " << r.metrics.nearClipSamples
+             << ", \"clippedSamples\": " << r.metrics.clippedSamples
+             << ", \"invalidSamples\": " << r.metrics.invalidSamples
+             << ", \"limiterTouchedSamples\": " << r.metrics.limiterTouchedSamples
+             << ", \"limiterActiveBlocks\": " << r.metrics.limiterActiveBlocks
+             << ", \"sustainedClampBlocks\": " << r.metrics.sustainedClampBlocks
+             << ", \"limiterMaxReductionDb\": " << juce::String(r.metrics.limiterMaxReductionDb, 8)
+             << ", \"limiterDeltaPeak\": " << juce::String(r.metrics.limiterDeltaPeak, 8)
+             << ", \"softCeilingTouchedSamples\": " << r.metrics.softCeilingTouchedSamples << " }," << juce::newLine;
+        json << "      \"failures\": [";
+        for (int f = 0; f < r.failures.size(); ++f)
+            json << (f == 0 ? "" : ", ") << "\"" << p9dJsonEscape(r.failures[f]) << "\"";
+        json << "]" << juce::newLine;
+        json << "    }" << (i + 1 == results.size() ? "" : ",") << juce::newLine;
+    }
+
+    json << "  ]," << juce::newLine;
+    json << "  \"failures\": [";
+    for (int i = 0; i < failures.size(); ++i)
+        json << (i == 0 ? "" : ", ") << "\"" << p9dJsonEscape(failures[i]) << "\"";
+    json << "]" << juce::newLine;
+    json << "}" << juce::newLine;
+    return json;
+}
+
+bool runP9DDraftPresetBuilderTool()
+{
+    const auto enabled = juce::SystemStats::getEnvironmentVariable("NOVA_RUN_P9D_DRAFT_BUILDER", {});
+    if (enabled != "1")
+        return false;
+
+    const auto manifestPath = juce::SystemStats::getEnvironmentVariable(
+        "NOVA_P9D_MANIFEST_PATH", "Resources/Presets/DraftFactory/factory-bank.draft.json");
+    const auto outputDirectory = juce::SystemStats::getEnvironmentVariable(
+        "NOVA_P9D_OUTPUT_DIR", "Resources/Presets/DraftFactory/generated");
+    const auto reportPath = juce::SystemStats::getEnvironmentVariable(
+        "NOVA_P9D_REPORT_PATH", "artifacts/p9d-draft-preset-builder-report.json");
+
+    juce::StringArray failures;
+    std::vector<P9DDraftResult> results;
+
+    const juce::File manifestFile(manifestPath);
+    const juce::File outputDir(outputDirectory);
+    const juce::File reportFile(reportPath);
+
+    const auto manifestJson = juce::JSON::parse(manifestFile);
+    if (!manifestJson.isObject())
+    {
+        failures.add("manifest parse failed");
+        reportFile.getParentDirectory().createDirectory();
+        reportFile.replaceWithText(p9dBuildReportJson("FAIL", manifestPath, outputDirectory, results, failures));
+        return true;
+    }
+
+    auto* manifest = manifestJson.getDynamicObject();
+    const auto* presets = manifest != nullptr ? manifest->getProperty("presets").getArray() : nullptr;
+    if (presets == nullptr)
+    {
+        failures.add("manifest presets array missing");
+        reportFile.getParentDirectory().createDirectory();
+        reportFile.replaceWithText(p9dBuildReportJson("FAIL", manifestPath, outputDirectory, results, failures));
+        return true;
+    }
+
+    for (const auto& presetVar : *presets)
+    {
+        P9DDraftResult result;
+        auto* preset = presetVar.getDynamicObject();
+        if (preset == nullptr)
+        {
+            result.failures.add("preset entry is not an object");
+            results.push_back(result);
+            continue;
+        }
+
+        result.name = preset->getProperty("name").toString();
+        result.filePath = outputDir.getChildFile(p9dStemForName(result.name) + ".nova-preset").getFullPathName();
+
+        std::vector<P9DDraftStep> steps;
+        if (const auto* chainTemplate = preset->getProperty("chainTemplate").getArray())
+        {
+            for (const auto& stepVar : *chainTemplate)
+            {
+                auto* stepObject = stepVar.getDynamicObject();
+                if (stepObject == nullptr)
+                {
+                    result.failures.add("chainTemplate step is not an object");
+                    continue;
+                }
+
+                P9DDraftStep step;
+                if (!p9dParseChain(stepObject->getProperty("line").toString(), step.chain))
+                    result.failures.add("invalid chain for " + stepObject->getProperty("typeID").toString());
+                if (!p9dParseZone(stepObject->getProperty("zone").toString(), step.zone))
+                    result.failures.add("invalid zone for " + stepObject->getProperty("typeID").toString());
+                step.typeID = stepObject->getProperty("typeID").toString();
+                steps.push_back(step);
+            }
+        }
+
+        juce::ValueTree state;
+        p9dBuildState(result.name, steps, state, result.failures);
+        p9dValidateCanonicalState(state, result.failures);
+
+        const auto presetFile = juce::File(result.filePath);
+        if (result.failures.isEmpty() && p9dWriteValueTreeFile(presetFile, state))
+            result.status = "GENERATED_DRAFT";
+        else if (result.failures.isEmpty())
+            result.failures.add("write failed: " + presetFile.getFullPathName());
+
+        if (result.status == "GENERATED_DRAFT")
+        {
+            const auto loaded = p9dReadValueTreeFile(presetFile);
+            juce::StringArray roundTripFailures;
+            p9dValidateCanonicalState(loaded, roundTripFailures);
+            const bool semanticMatch = p9dCanonicalXml(state) == p9dCanonicalXml(loaded);
+            if (!semanticMatch)
+                roundTripFailures.add("canonical semantic compare failed");
+
+            juce::ValueTree second = Nova::PluginStateModel::makeCanonicalCopy(loaded);
+            const auto secondFile = presetFile.getSiblingFile(presetFile.getFileNameWithoutExtension() + ".roundtrip.tmp");
+            if (!p9dWriteValueTreeFile(secondFile, second))
+                roundTripFailures.add("temporary second write failed");
+            else
+            {
+                const auto secondLoaded = p9dReadValueTreeFile(secondFile);
+                if (p9dCanonicalXml(loaded) != p9dCanonicalXml(secondLoaded))
+                    roundTripFailures.add("save-load-save semantic compare failed");
+                secondFile.deleteFile();
+            }
+
+            if (roundTripFailures.isEmpty())
+                result.roundTripStatus = "ROUND_TRIP_PASS";
+            else
+                result.failures.addArray(roundTripFailures);
+
+            result.metrics = p9dProcessDraft(result.name, loaded);
+            if (result.metrics.finite
+                && result.metrics.invalidSamples == 0
+                && result.metrics.clippedSamples == 0
+                && result.metrics.nearClipSamples == 0
+                && result.metrics.dc < 0.02
+                && result.metrics.peak < 0.98)
+            {
+                result.processStatus = "PROCESS_FINITE_PASS";
+            }
+            else
+            {
+                result.failures.add("process finite/gain check failed");
+            }
+        }
+
+        if (result.failures.size() > 0)
+            failures.add(result.name + ": " + result.failures.joinIntoString("; "));
+
+        results.push_back(result);
+    }
+
+    const bool ok = failures.isEmpty() && !results.empty();
+    reportFile.getParentDirectory().createDirectory();
+    reportFile.replaceWithText(p9dBuildReportJson(ok ? "PASS" : "FAIL",
+        manifestPath, outputDirectory, results, failures));
+    return true;
 }
 
 class AudioEngineValidationTests final : public juce::UnitTest
@@ -5139,7 +6860,7 @@ public:
             expect(approximatelyEqual(restoredLegacy.rangeParam->get(), 0.68f, 1.0e-3f));
             expect(approximatelyEqual(restoredLegacy.resonanceParam->get(), 4.9f, 0.12f));
             expect(approximatelyEqual(restoredLegacy.mixParam->get(), 0.91f, 1.0e-3f));
-            
+
             juce::XmlElement legacyAuto("PLUGIN_STATE");
             auto addLegacyAutoParam = [&legacyAuto](const juce::String& id, float value)
             {
@@ -5660,6 +7381,176 @@ public:
                 " (held=" + juce::String(heldRms, 6)
                 + " baseline=" + juce::String(baselineHeld, 6)
                 + " threshold=" + juce::String(baselineHeld * 2.50, 6) + ")");
+        }
+
+        beginTest("P7H ReverbPedal configure is not called every block under stable params");
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(0.4f); // Hall
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.72f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.64f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.78f));
+            pedal.dampingParam->setValueNotifyingHost(pedal.dampingParam->convertTo0to1(0.35f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.86f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.94f));
+            pedal.modParam->setValueNotifyingHost(pedal.modParam->convertTo0to1(0.32f));
+            pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(18.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.42f));
+            pedal.resetReverbConfigureDiagnostics();
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            auto fillBlock = [&block](int blockIndex)
+            {
+                for (int i = 0; i < block.getNumSamples(); ++i)
+                {
+                    const float t = (float)(blockIndex * block.getNumSamples() + i) / (float)kSampleRate;
+                    const float sample = 0.12f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t);
+                    block.setSample(0, i, sample);
+                    block.setSample(1, i, sample);
+                }
+            };
+
+            fillBlock(0);
+            pedal.processBlock(block, midi);
+            const int countAfterFirstBlock = pedal.getReverbConfigureCallCount();
+
+            bool finite = bufferHasOnlyFiniteSamples(block);
+            for (int blockIndex = 1; blockIndex <= 96; ++blockIndex)
+            {
+                fillBlock(blockIndex);
+                pedal.processBlock(block, midi);
+                finite = finite && bufferHasOnlyFiniteSamples(block);
+            }
+
+            expectEquals(countAfterFirstBlock, 1, "First stable Reverb block should perform exactly one initial configure");
+            expectEquals(pedal.getReverbConfigureCallCount(), countAfterFirstBlock,
+                "Stable Reverb parameters must not reconfigure on every block");
+            expect(finite, "Stable Reverb configure-count render must remain finite");
+        }
+
+        beginTest("P7H ReverbPedal aggressive automation sweep remains finite and bounded");
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.70f));
+
+            const int totalSamples = (int)(kSampleRate * 2.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                const float sample = 0.16f * std::sin(juce::MathConstants<float>::twoPi * 174.0f * t)
+                    + 0.06f * std::sin(juce::MathConstants<float>::twoPi * 431.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample * 0.94f);
+            }
+
+            const auto output = renderReverbOutputWithAutomation(pedal, input, kBlockSize,
+                [&pedal](int blockIndex, int, juce::AudioBuffer<float>&)
+                {
+                    const float p = (float)blockIndex;
+                    pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.18f + 0.78f * std::abs(std::sin(p * 0.173f))));
+                    pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.12f + 0.86f * std::abs(std::sin(p * 0.137f + 0.4f))));
+                    pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.18f + 0.78f * std::abs(std::sin(p * 0.191f + 1.2f))));
+                    pedal.dampingParam->setValueNotifyingHost(pedal.dampingParam->convertTo0to1(0.10f + 0.84f * std::abs(std::sin(p * 0.157f + 0.8f))));
+                    pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.20f + 0.78f * std::abs(std::sin(p * 0.113f + 2.1f))));
+                    pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.18f + 0.80f * std::abs(std::sin(p * 0.149f + 0.6f))));
+                    pedal.modParam->setValueNotifyingHost(pedal.modParam->convertTo0to1(0.04f + 0.86f * std::abs(std::sin(p * 0.181f + 1.7f))));
+                    pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(2.0f + 220.0f * std::abs(std::sin(p * 0.097f + 0.2f))));
+                    pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.20f + 0.72f * std::abs(std::sin(p * 0.071f + 0.9f))));
+                });
+
+            const double peak = computeBufferPeak(output, 0, output.getNumSamples());
+            const double lateDcL = std::abs(computeChannelMean(output, 0, (int)(kSampleRate * 1.2), (int)(kSampleRate * 0.5)));
+            const double lateDcR = std::abs(computeChannelMean(output, 1, (int)(kSampleRate * 1.2), (int)(kSampleRate * 0.5)));
+            const double lateRms = computeWindowRms(output, (int)(kSampleRate * 1.2), (int)(kSampleRate * 0.5));
+
+            expect(bufferHasOnlyFiniteSamples(output), "P7H aggressive Reverb automation must remain finite");
+            expect(peak < 3.0, "P7H aggressive Reverb automation should stay inside a sane peak ceiling");
+            expect(lateRms < 0.80, "P7H aggressive Reverb automation should not produce sustained near-clip energy");
+            expect(lateDcL < 0.02 && lateDcR < 0.02, "P7H aggressive Reverb automation should not accumulate DC");
+        }
+
+        beginTest("P7H ReverbPedal mode changes remain bounded");
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.82f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.88f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.90f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.78f));
+
+            const int totalSamples = (int)(kSampleRate * 2.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                const float env = i < (int)(kSampleRate * 1.2) ? 1.0f : 0.0f;
+                const float sample = env * 0.18f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto output = renderReverbOutputWithAutomation(pedal, input, kBlockSize,
+                [&pedal](int blockIndex, int, juce::AudioBuffer<float>&)
+                {
+                    if ((blockIndex % 7) == 0)
+                    {
+                        const int modeIndex = (blockIndex / 7) % 6;
+                        pedal.modeParam->setValueNotifyingHost(modeIndex / 5.0f);
+                    }
+                });
+
+            const double peak = computeBufferPeak(output, 0, output.getNumSamples());
+            const double tailRms = computeWindowRms(output, (int)(kSampleRate * 1.55), (int)(kSampleRate * 0.35));
+
+            expect(bufferHasOnlyFiniteSamples(output), "P7H Reverb mode-change automation must remain finite");
+            expect(peak < 3.0, "P7H Reverb mode-change automation should stay inside a sane peak ceiling");
+            expect(tailRms < 0.75, "P7H Reverb mode-change automation should not leave runaway tail energy");
+        }
+
+        beginTest("P7H ReverbPedal freeze gate reverse swell automation remains bounded");
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(1.0f); // Cloud
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.88f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.90f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.94f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.82f));
+
+            const int totalSamples = (int)(kSampleRate * 2.4);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float t = (float)i / (float)kSampleRate;
+                const float env = (i % (int)(kSampleRate * 0.42)) < (int)(kSampleRate * 0.20) ? 1.0f : 0.25f;
+                const float sample = env * 0.16f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample * 0.97f);
+            }
+
+            const auto output = renderReverbOutputWithAutomation(pedal, input, kBlockSize,
+                [&pedal](int blockIndex, int, juce::AudioBuffer<float>&)
+                {
+                    const float p = (float)blockIndex;
+                    pedal.duckParam->setValueNotifyingHost(pedal.duckParam->convertTo0to1(0.92f * std::abs(std::sin(p * 0.083f))));
+                    pedal.swellParam->setValueNotifyingHost(pedal.swellParam->convertTo0to1(0.95f * std::abs(std::sin(p * 0.071f + 0.5f))));
+                    pedal.gateParam->setValueNotifyingHost(pedal.gateParam->convertTo0to1(0.90f * std::abs(std::sin(p * 0.061f + 1.1f))));
+                    pedal.reverseParam->setValueNotifyingHost(pedal.reverseParam->convertTo0to1(0.88f * std::abs(std::sin(p * 0.097f + 0.2f))));
+                    pedal.freezeParam->setValueNotifyingHost((blockIndex % 41) > 22 ? 1.0f : 0.0f);
+                });
+
+            const double peak = computeBufferPeak(output, 0, output.getNumSamples());
+            const double lateRms = computeWindowRms(output, (int)(kSampleRate * 1.7), (int)(kSampleRate * 0.5));
+
+            expect(bufferHasOnlyFiniteSamples(output), "P7H Reverb performance automation must remain finite");
+            expect(peak < 3.0, "P7H Reverb performance automation should stay inside a sane peak ceiling");
+            expect(lateRms < 0.95, "P7H Reverb performance automation should not create runaway sustained energy");
         }
 
         beginTest("DelayPedal round-trips its flagship state");
@@ -7724,6 +9615,475 @@ public:
             expect(tightTail < looseTail * 0.82, "Higher Tight should close the integrated gate harder in Metal mode");
         }
 
+        beginTest("P8A DistortionPedal metal high-gain output stays bounded before downstream ambience");
+        {
+            DistortionPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 3));
+            pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(100.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.54f));
+            pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.52f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(0.42f));
+
+            const int totalSamples = (int) (kSampleRate * 1.2);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float t = (float) i / (float) kSampleRate;
+                const int pickSample = i % (int) (kSampleRate * 0.125);
+                const float pick = std::exp(-(float) pickSample / 42.0f);
+                const float note = 0.36f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                    + 0.19f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t)
+                    + 0.11f * std::sin(juce::MathConstants<float>::twoPi * 247.23f * t);
+                const float sample = juce::jlimit(-0.95f, 0.95f, note + pick * 0.58f);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto output = renderDistortionOutput(pedal, input, kBlockSize);
+            P8AWindowMetrics metrics;
+            metrics.capture(output);
+
+            expect(metrics.finite, "P8A high-gain Distortion render must remain finite");
+            expect(metrics.peak <= 1.20, "P8A Distortion output must stay inside the internal containment ceiling: " + p8aMetricsSummary(metrics));
+            expect(metrics.dc() < 0.025, "P8A Distortion post-clipping DC should stay subsonic/low: " + p8aMetricsSummary(metrics));
+        }
+
+        beginTest("P8A DistortionPedal rejects DC accumulation under biased high-gain input");
+        {
+            DistortionPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 3));
+            pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(92.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.57f));
+            pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.68f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.82f));
+            pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(0.35f));
+
+            const int totalSamples = (int) (kSampleRate * 1.4);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float t = (float) i / (float) kSampleRate;
+                const float sample = 0.23f
+                    + 0.27f * std::sin(juce::MathConstants<float>::twoPi * 110.0f * t)
+                    + 0.09f * std::sin(juce::MathConstants<float>::twoPi * 330.0f * t);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample * 0.94f);
+            }
+
+            const auto output = renderDistortionOutput(pedal, input, kBlockSize);
+            P8AWindowMetrics late;
+            const int lateStart = (int) (kSampleRate * 0.80);
+            juce::AudioBuffer<float> lateWindow(2, totalSamples - lateStart);
+            for (int ch = 0; ch < 2; ++ch)
+                lateWindow.copyFrom(ch, 0, output, ch, lateStart, lateWindow.getNumSamples());
+            late.capture(lateWindow);
+
+            expect(late.finite, "P8A biased Distortion render must remain finite");
+            expect(late.peak <= 1.02, "P8A biased Distortion output should remain contained: " + p8aMetricsSummary(late));
+            expect(late.dc() < 0.025, "P8A final DC blocker should drain sustained post-distortion bias: " + p8aMetricsSummary(late));
+        }
+
+        beginTest("P8A Distortion Reverb Chorus bypass recovery stays bounded");
+        {
+            InputChainProcessor input;
+            DistortionPedal distortion;
+            ReverbPedal reverb;
+            ChorusPedal chorus;
+            ChannelStripProcessor channelStrip;
+            OutputChainProcessor outputChain;
+
+            input.prepareToPlay(kSampleRate, kBlockSize);
+            distortion.prepareToPlay(kSampleRate, kBlockSize);
+            reverb.prepareToPlay(kSampleRate, kBlockSize);
+            chorus.prepareToPlay(kSampleRate, kBlockSize);
+            channelStrip.prepareToPlay(kSampleRate, kBlockSize);
+            outputChain.prepareToPlay(kSampleRate, kBlockSize);
+
+            input.setParams(-11.28f, -100.0f, true);
+            channelStrip.setParams(2.0f, 0.0f, 2.0f);
+            outputChain.setParams(-2.81f, -12.0f);
+
+            distortion.setBypassed(true);
+            distortion.modeParam->setValueNotifyingHost(normalisedChoiceIndex(distortion.modeParam, 3));
+            distortion.gainParam->setValueNotifyingHost(distortion.gainParam->convertTo0to1(58.0f));
+            distortion.toneParam->setValueNotifyingHost(distortion.toneParam->convertTo0to1(0.54f));
+            distortion.bodyParam->setValueNotifyingHost(distortion.bodyParam->convertTo0to1(0.52f));
+            distortion.mixParam->setValueNotifyingHost(distortion.mixParam->convertTo0to1(1.0f));
+            distortion.levelParam->setValueNotifyingHost(distortion.levelParam->convertTo0to1(0.64f));
+            distortion.tightParam->setValueNotifyingHost(distortion.tightParam->convertTo0to1(0.42f));
+
+            reverb.modeParam->setValueNotifyingHost(normalisedChoiceIndex(reverb.modeParam, 2));
+            reverb.decayParam->setValueNotifyingHost(reverb.decayParam->convertTo0to1(0.62f));
+            reverb.toneParam->setValueNotifyingHost(reverb.toneParam->convertTo0to1(0.58f));
+            reverb.sizeParam->setValueNotifyingHost(reverb.sizeParam->convertTo0to1(0.55f));
+            reverb.dampingParam->setValueNotifyingHost(reverb.dampingParam->convertTo0to1(0.38f));
+            reverb.widthParam->setValueNotifyingHost(reverb.widthParam->convertTo0to1(0.90f));
+            reverb.mixParam->setValueNotifyingHost(reverb.mixParam->convertTo0to1(0.36f));
+
+            chorus.rateParam->setValueNotifyingHost(chorus.rateParam->convertTo0to1(0.85f));
+            chorus.depthParam->setValueNotifyingHost(chorus.depthParam->convertTo0to1(0.58f));
+            chorus.widthParam->setValueNotifyingHost(chorus.widthParam->convertTo0to1(0.72f));
+            chorus.toneParam->setValueNotifyingHost(chorus.toneParam->convertTo0to1(0.62f));
+            chorus.mixParam->setValueNotifyingHost(chorus.mixParam->convertTo0to1(0.36f));
+
+            constexpr int stableBlocks = 96;
+            constexpr int activeBlocks = 96;
+            constexpr int recoveryBlocks = 192;
+            constexpr int lateRecoveryStart = stableBlocks + activeBlocks + 96;
+            constexpr int totalBlocks = stableBlocks + activeBlocks + recoveryBlocks;
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            P8AWindowMetrics stableOutput;
+            P8AWindowMetrics distortionOutput;
+            P8AWindowMetrics reverbInput;
+            P8AWindowMetrics reverbOutput;
+            P8AWindowMetrics outputInput;
+            P8AWindowMetrics activeOutput;
+            P8AWindowMetrics lateRecoveryOutput;
+
+            int stableLimiterActiveBlocks = 0;
+            int stableLimiterTouchedSamples = 0;
+            int recoveryLimiterActiveBlocks = 0;
+            int recoveryLimiterTouchedSamples = 0;
+            auto previousSnapshot = outputChain.getDebugSnapshot();
+
+            for (int blockIndex = 0; blockIndex < totalBlocks; ++blockIndex)
+            {
+                if (blockIndex == stableBlocks)
+                    distortion.setBypassed(false);
+                if (blockIndex == stableBlocks + activeBlocks)
+                    distortion.setBypassed(true);
+
+                for (int i = 0; i < kBlockSize; ++i)
+                {
+                    const int sampleIndex = blockIndex * kBlockSize + i;
+                    const float t = (float) sampleIndex / (float) kSampleRate;
+                    const int pickSample = sampleIndex % (int) (kSampleRate * 0.125);
+                    const float pick = std::exp(-(float) pickSample / 54.0f);
+                    const float note = 0.55f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                        + 0.23f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t)
+                        + 0.08f * std::sin(juce::MathConstants<float>::twoPi * 246.94f * t);
+                    const float sample = juce::jlimit(-0.98f, 0.98f, note + pick * 0.42f);
+                    block.setSample(0, i, sample);
+                    block.setSample(1, i, sample * 0.96f);
+                }
+
+                input.processBlock(block, midi);
+                distortion.processBlock(block, midi);
+
+                if (blockIndex >= stableBlocks && blockIndex < stableBlocks + activeBlocks)
+                    distortionOutput.capture(block);
+                if (blockIndex >= stableBlocks)
+                    reverbInput.capture(block);
+
+                reverb.processBlock(block, midi);
+                if (blockIndex >= stableBlocks && blockIndex < stableBlocks + activeBlocks)
+                    reverbOutput.capture(block);
+
+                chorus.processBlock(block, midi);
+                channelStrip.processBlock(block, midi);
+                if (blockIndex >= stableBlocks)
+                    outputInput.capture(block);
+
+                outputChain.processBlock(block, midi);
+
+                if (blockIndex < stableBlocks)
+                    stableOutput.capture(block);
+                else if (blockIndex < stableBlocks + activeBlocks)
+                    activeOutput.capture(block);
+                else if (blockIndex >= lateRecoveryStart)
+                    lateRecoveryOutput.capture(block);
+
+                const auto snapshot = outputChain.getDebugSnapshot();
+                if (blockIndex < stableBlocks)
+                {
+                    stableLimiterActiveBlocks += snapshot.limiterActiveBlocks - previousSnapshot.limiterActiveBlocks;
+                    stableLimiterTouchedSamples += snapshot.limiterTouchedSamples - previousSnapshot.limiterTouchedSamples;
+                }
+                else if (blockIndex >= stableBlocks + activeBlocks)
+                {
+                    recoveryLimiterActiveBlocks += snapshot.limiterActiveBlocks - previousSnapshot.limiterActiveBlocks;
+                    recoveryLimiterTouchedSamples += snapshot.limiterTouchedSamples - previousSnapshot.limiterTouchedSamples;
+                }
+                previousSnapshot = snapshot;
+            }
+
+            expect(distortionOutput.finite && reverbOutput.finite && activeOutput.finite && lateRecoveryOutput.finite,
+                "P8A Distortion/Reverb/Chorus chain must remain finite");
+            expect(distortionOutput.peak <= 1.20,
+                "P8A Distortion must not feed destructive peaks into Reverb: " + p8aMetricsSummary(distortionOutput));
+            expect(reverbInput.clippedSamples == 0,
+                "P8A Reverb input should not receive sustained >1.0 samples after Distortion containment: " + p8aMetricsSummary(reverbInput));
+            expect(reverbOutput.peak <= 1.35,
+                "P8A Reverb output should stay bounded during Distortion activation: " + p8aMetricsSummary(reverbOutput));
+            expect(outputInput.peak <= 2.45,
+                "P8A ChannelStrip/Chorus should not present destructive peaks to OutputChain: " + p8aMetricsSummary(outputInput));
+            expect(activeOutput.nearClipSamples == 0 && activeOutput.clippedSamples == 0,
+                "P8A OutputChain should not leave near-clip/clipped final samples while Distortion is active: " + p8aMetricsSummary(activeOutput));
+            expect(lateRecoveryOutput.rms() <= juce::jmax(0.12, stableOutput.rms() * 2.35),
+                "P8A bypass recovery should return near the pre-activation output window; stable="
+                    + p8aMetricsSummary(stableOutput)
+                    + ", lateRecovery="
+                    + p8aMetricsSummary(lateRecoveryOutput));
+            const double stableLimiterBlocksPerBlock = (double) stableLimiterActiveBlocks / (double) stableBlocks;
+            const double recoveryLimiterBlocksPerBlock = (double) recoveryLimiterActiveBlocks / (double) recoveryBlocks;
+            const double stableTouchedPerBlock = (double) stableLimiterTouchedSamples / (double) stableBlocks;
+            const double recoveryTouchedPerBlock = (double) recoveryLimiterTouchedSamples / (double) recoveryBlocks;
+            expect(recoveryLimiterBlocksPerBlock <= stableLimiterBlocksPerBlock + 0.05
+                    && recoveryTouchedPerBlock <= stableTouchedPerBlock * 1.20 + 8.0,
+                "P8A OutputChain limiter recovery activity should return to the stable-chain rate; stableActiveBlocks="
+                    + juce::String(stableLimiterActiveBlocks)
+                    + ", stableTouchedSamples="
+                    + juce::String(stableLimiterTouchedSamples)
+                    + ", recoveryActiveBlocks="
+                    + juce::String(recoveryLimiterActiveBlocks)
+                    + ", recoveryTouchedSamples="
+                    + juce::String(recoveryLimiterTouchedSamples));
+        }
+
+        beginTest("P8B Distortion nominal modes remain expressive below containment knee");
+        {
+            auto renderNominalMode = [&](int modeIndex)
+            {
+                DistortionPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, modeIndex));
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(modeIndex == 3 ? 36.0f : modeIndex == 4 ? 32.0f : 28.0f));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(modeIndex == 3 ? 0.54f : 0.58f));
+                pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(modeIndex == 3 ? 0.52f : 0.56f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.22f));
+                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(modeIndex == 3 ? 0.42f : 0.48f));
+
+                const int totalSamples = (int) (kSampleRate * 1.35);
+                juce::AudioBuffer<float> input(2, totalSamples);
+                input.clear();
+                for (int i = 0; i < totalSamples; ++i)
+                {
+                    const float t = (float) i / (float) kSampleRate;
+                    const int pickSample = i % (int) (kSampleRate * 0.145);
+                    const float pick = std::exp(-(float) pickSample / 68.0f);
+                    const float vibrato = 1.0f + 0.0035f * std::sin(juce::MathConstants<float>::twoPi * 5.1f * t);
+                    const float note = 0.030f * std::sin(juce::MathConstants<float>::twoPi * 110.0f * vibrato * t)
+                        + 0.014f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t)
+                        + 0.007f * std::sin(juce::MathConstants<float>::twoPi * 330.0f * t);
+                    const float sample = note + 0.010f * pick;
+                    input.setSample(0, i, sample);
+                    input.setSample(1, i, sample * 0.97f);
+                }
+
+                return renderDistortionOutput(pedal, input, kBlockSize);
+            };
+
+            const auto classic = renderNominalMode(0);
+            const auto metal = renderNominalMode(3);
+            const auto studio = renderNominalMode(4);
+
+            P8AWindowMetrics classicMetrics;
+            P8AWindowMetrics metalMetrics;
+            P8AWindowMetrics studioMetrics;
+            classicMetrics.capture(classic);
+            metalMetrics.capture(metal);
+            studioMetrics.capture(studio);
+
+            const int classicKneeSamples = classicMetrics.nearClipSamples;
+            const int metalKneeSamples = metalMetrics.nearClipSamples;
+            const int studioKneeSamples = studioMetrics.nearClipSamples;
+
+            expect(classicMetrics.finite && metalMetrics.finite && studioMetrics.finite,
+                "P8B nominal Distortion renders must remain finite");
+            expect(classicMetrics.peak < 0.98 && metalMetrics.peak < 0.98 && studioMetrics.peak < 0.98,
+                "P8B nominal modes should stay below the containment knee; classic="
+                    + p8aMetricsSummary(classicMetrics)
+                    + ", metal="
+                    + p8aMetricsSummary(metalMetrics)
+                    + ", studio="
+                    + p8aMetricsSummary(studioMetrics));
+            expect(classicMetrics.dc() < 0.018 && metalMetrics.dc() < 0.018 && studioMetrics.dc() < 0.018,
+                "P8B nominal modes should not accumulate meaningful DC");
+            expect(classicKneeSamples == 0 && metalKneeSamples == 0 && studioKneeSamples == 0,
+                "P8B nominal modes should not live at near-clip containment levels");
+            expect(computeBufferNullRms(classic, metal) > 1.5e-3
+                    && computeBufferNullRms(classic, studio) > 1.5e-3
+                    && computeBufferNullRms(metal, studio) > 1.2e-3,
+                "P8B Classic/Metal/Studio should retain distinct signatures below containment");
+        }
+
+        beginTest("P8B Distortion level mix gain sweep remains bounded and audible");
+        {
+            DistortionPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 3));
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            P8AWindowMetrics metrics;
+            const int blocksToRun = (int) ((kSampleRate * 2.5) / (double) kBlockSize);
+
+            for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+            {
+                const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
+                pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(18.0f + 82.0f * phase));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.05f + 0.95f * std::abs(std::sin(phase * juce::MathConstants<float>::pi))));
+                pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.16f + 0.84f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi * 0.72f))));
+                pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.22f + 0.56f * phase));
+                pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.32f + 0.38f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(0.18f + 0.74f * phase));
+
+                for (int i = 0; i < kBlockSize; ++i)
+                {
+                    const int sampleIndex = blockIndex * kBlockSize + i;
+                    const float t = (float) sampleIndex / (float) kSampleRate;
+                    const int pickSample = sampleIndex % (int) (kSampleRate * 0.105);
+                    const float pick = std::exp(-(float) pickSample / 48.0f);
+                    const float sample = 0.19f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                        + 0.08f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t)
+                        + 0.12f * pick;
+                    block.setSample(0, i, sample);
+                    block.setSample(1, i, sample * 0.95f);
+                }
+
+                pedal.processBlock(block, midi);
+                metrics.capture(block);
+            }
+
+            expect(metrics.finite, "P8B Distortion level/mix/gain sweep must remain finite");
+            expect(metrics.peak <= 1.02, "P8B sweep should remain inside the containment ceiling: " + p8aMetricsSummary(metrics));
+            expect(metrics.clippedSamples == 0, "P8B sweep should not produce >1.0 samples: " + p8aMetricsSummary(metrics));
+            expect(metrics.dc() < 0.025, "P8B sweep should not accumulate DC: " + p8aMetricsSummary(metrics));
+            expect(metrics.rms() > 0.025, "P8B sweep should not accidentally silence the pedal: " + p8aMetricsSummary(metrics));
+        }
+
+        beginTest("P8B Distortion into amp and cabinet remains bounded");
+        {
+            DistortionPedal distortion;
+            CleanAmp amp;
+            CabinetPedal cabinet;
+            OutputChainProcessor output;
+
+            distortion.prepareToPlay(kSampleRate, kBlockSize);
+            amp.prepareToPlay(kSampleRate, kBlockSize);
+            cabinet.prepareToPlay(kSampleRate, kBlockSize);
+            output.prepareToPlay(kSampleRate, kBlockSize);
+
+            distortion.modeParam->setValueNotifyingHost(normalisedChoiceIndex(distortion.modeParam, 3));
+            distortion.gainParam->setValueNotifyingHost(distortion.gainParam->convertTo0to1(34.0f));
+            distortion.toneParam->setValueNotifyingHost(distortion.toneParam->convertTo0to1(0.54f));
+            distortion.bodyParam->setValueNotifyingHost(distortion.bodyParam->convertTo0to1(0.55f));
+            distortion.mixParam->setValueNotifyingHost(distortion.mixParam->convertTo0to1(1.0f));
+            distortion.levelParam->setValueNotifyingHost(distortion.levelParam->convertTo0to1(0.24f));
+            distortion.tightParam->setValueNotifyingHost(distortion.tightParam->convertTo0to1(0.48f));
+
+            output.setParams(-3.0f, -12.0f);
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            P8AWindowMetrics distortionOut;
+            P8AWindowMetrics ampCabOut;
+            P8AWindowMetrics finalOut;
+
+            const int blocksToRun = (int) ((kSampleRate * 1.6) / (double) kBlockSize);
+            for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+            {
+                for (int i = 0; i < kBlockSize; ++i)
+                {
+                    const int sampleIndex = blockIndex * kBlockSize + i;
+                    const float t = (float) sampleIndex / (float) kSampleRate;
+                    const int pickSample = sampleIndex % (int) (kSampleRate * 0.118);
+                    const float pick = std::exp(-(float) pickSample / 50.0f);
+                    const float sample = 0.026f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                        + 0.012f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t)
+                        + 0.012f * pick;
+                    block.setSample(0, i, sample);
+                    block.setSample(1, i, sample * 0.96f);
+                }
+
+                distortion.processBlock(block, midi);
+                distortionOut.capture(block);
+                amp.processBlock(block, midi);
+                cabinet.processBlock(block, midi);
+                ampCabOut.capture(block);
+                output.processBlock(block, midi);
+                finalOut.capture(block);
+            }
+
+            expect(distortionOut.finite && ampCabOut.finite && finalOut.finite,
+                "P8B Distortion/Amp/Cabinet chain must remain finite");
+            expect(distortionOut.peak <= 1.02 && distortionOut.clippedSamples == 0,
+                "P8B Distortion should feed Amp/Cabinet with contained signal: " + p8aMetricsSummary(distortionOut));
+            expect(ampCabOut.peak <= 1.80 && ampCabOut.dc() < 0.030,
+                "P8B Amp/Cabinet output should remain bounded after Distortion: " + p8aMetricsSummary(ampCabOut));
+            expect(finalOut.nearClipSamples == 0 && finalOut.clippedSamples == 0,
+                "P8B OutputChain after Distortion/Amp/Cabinet should not emit near-clip/clipped samples: " + p8aMetricsSummary(finalOut));
+            expect(finalOut.rms() > 0.015,
+                "P8B Distortion/Amp/Cabinet chain should remain audibly non-silent: " + p8aMetricsSummary(finalOut));
+        }
+
+        beginTest("P8B Distortion bypass unbypass stays click bounded");
+        {
+            DistortionPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 3));
+            pedal.gainParam->setValueNotifyingHost(pedal.gainParam->convertTo0to1(72.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.56f));
+            pedal.bodyParam->setValueNotifyingHost(pedal.bodyParam->convertTo0to1(0.58f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(0.72f));
+            pedal.tightParam->setValueNotifyingHost(pedal.tightParam->convertTo0to1(0.55f));
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            P8AWindowMetrics metrics;
+            double worstDelta = 0.0;
+            std::array<float, 2> previousSample { 0.0f, 0.0f };
+            bool havePrevious = false;
+
+            constexpr int blocksToRun = 240;
+            for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+            {
+                if ((blockIndex % 32) == 0)
+                    pedal.setBypassed((blockIndex / 32) % 2 == 1);
+
+                for (int i = 0; i < kBlockSize; ++i)
+                {
+                    const int sampleIndex = blockIndex * kBlockSize + i;
+                    const float t = (float) sampleIndex / (float) kSampleRate;
+                    const float sample = 0.18f * std::sin(juce::MathConstants<float>::twoPi * 123.47f * t)
+                        + 0.07f * std::sin(juce::MathConstants<float>::twoPi * 246.94f * t);
+                    block.setSample(0, i, sample);
+                    block.setSample(1, i, sample * 0.93f);
+                }
+
+                pedal.processBlock(block, midi);
+                metrics.capture(block);
+
+                for (int i = 0; i < kBlockSize; ++i)
+                {
+                    for (int ch = 0; ch < 2; ++ch)
+                    {
+                        const float sample = block.getSample(ch, i);
+                        if (havePrevious)
+                            worstDelta = juce::jmax(worstDelta, (double) std::abs(sample - previousSample[(size_t) ch]));
+                        previousSample[(size_t) ch] = sample;
+                    }
+                    havePrevious = true;
+                }
+            }
+
+            expect(metrics.finite, "P8B repeated Distortion bypass/unbypass must remain finite");
+            expect(metrics.peak <= 1.02, "P8B repeated bypass/unbypass should remain contained: " + p8aMetricsSummary(metrics));
+            expect(metrics.dc() < 0.025, "P8B repeated bypass/unbypass should not accumulate DC: " + p8aMetricsSummary(metrics));
+            expect(worstDelta < 1.35, "P8B repeated bypass/unbypass should not create extreme click deltas");
+        }
+
         beginTest("DistortionPedal automation stress remains finite under aggressive changes");
         {
             DistortionPedal pedal;
@@ -7761,7 +10121,7 @@ public:
             }
 
             expect(finite, "Aggressive distortion automation must remain finite");
-            expect(peak < 2.3, "Distortion automation stress should stay inside a sane peak ceiling");
+            expect(peak <= 1.02, "Distortion automation stress should stay inside the P8A containment ceiling");
         }
 
         beginTest("FuzzPedal round-trips its commercial state");
@@ -7938,6 +10298,604 @@ public:
             expect(peak < 2.4, "Fuzz automation stress should stay inside a sane peak ceiling");
         }
 
+        beginTest("P8C active pedal catalog processors remain finite under strong input");
+        {
+            juce::MidiBuffer midi;
+            int checkedProcessors = 0;
+
+            for (const auto& entry : Nova::PedalCatalog::entries())
+            {
+                const auto typeName = juce::String(entry.typeID);
+                expect(PedalRegistry::isTypeSupported(entry.typeID), "P8C catalog type must be registered: " + typeName);
+                auto processor = PedalRegistry::createPedal(entry.typeID);
+                expect(processor != nullptr, "P8C registry must instantiate active type: " + typeName);
+                if (processor == nullptr)
+                    continue;
+
+                processor->setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+                processor->prepareToPlay(kSampleRate, kBlockSize);
+
+                juce::AudioBuffer<float> block(2, kBlockSize);
+                P8AWindowMetrics metrics;
+                const int blocksToRun = (int) ((kSampleRate * 0.85) / (double) kBlockSize);
+
+                for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+                {
+                    for (int i = 0; i < kBlockSize; ++i)
+                    {
+                        const int sampleIndex = blockIndex * kBlockSize + i;
+                        const float t = (float) sampleIndex / (float) kSampleRate;
+                        const int pickSample = sampleIndex % (int) (kSampleRate * 0.092);
+                        const float pick = std::exp(-(float) pickSample / 42.0f);
+                        const float transient = (sampleIndex % 4096 == 0) ? 0.32f : 0.0f;
+                        const float sample = 0.070f * std::sin(juce::MathConstants<float>::twoPi * 97.999f * t)
+                            + 0.030f * std::sin(juce::MathConstants<float>::twoPi * 195.998f * t)
+                            + 0.018f * pick
+                            + transient;
+                        block.setSample(0, i, sample);
+                        block.setSample(1, i, sample * 0.91f);
+                    }
+
+                    processor->processBlock(block, midi);
+                    metrics.capture(block);
+                }
+
+                expect(metrics.finite, "P8C " + typeName + " strong-input render must remain finite");
+                expect(metrics.peak <= (double) Nova::Config::HARD_ABS_LIMIT_LINEAR,
+                    "P8C " + typeName + " strong-input render must stay below the hard absolute limit: " + p8aMetricsSummary(metrics));
+                expect(metrics.dc() < 0.50,
+                    "P8C " + typeName + " strong-input render should not accumulate dominant DC: " + p8aMetricsSummary(metrics));
+                expect(metrics.clippedSamples < juce::jmax(1, metrics.sampleCount) * 95 / 100,
+                    "P8C " + typeName + " strong-input render should not become sustained clipped output: " + p8aMetricsSummary(metrics));
+                ++checkedProcessors;
+            }
+
+            expectEquals(checkedProcessors, (int) Nova::PedalCatalog::entries().size(),
+                "P8C should exercise every active catalog processor");
+        }
+
+        beginTest("P8C active pedal catalog automation extremes remain finite");
+        {
+            juce::MidiBuffer midi;
+            int checkedProcessors = 0;
+
+            for (const auto& entry : Nova::PedalCatalog::entries())
+            {
+                const auto typeName = juce::String(entry.typeID);
+                auto processor = PedalRegistry::createPedal(entry.typeID);
+                if (processor == nullptr)
+                    continue;
+
+                processor->setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+                processor->prepareToPlay(kSampleRate, kBlockSize);
+
+                auto params = processor->getParameters();
+                juce::AudioBuffer<float> block(2, kBlockSize);
+                P8AWindowMetrics metrics;
+                const int blocksToRun = (int) ((kSampleRate * 0.90) / (double) kBlockSize);
+
+                for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+                {
+                    const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
+                    for (int p = 0; p < params.size(); ++p)
+                    {
+                        auto* param = params.getUnchecked(p);
+                        if (param == nullptr)
+                            continue;
+
+                        const float lane = std::fmod(phase + 0.173f * (float) (p + 1), 1.0f);
+                        const float value = (blockIndex % 37 == 0) ? 0.0f
+                            : (blockIndex % 41 == 0) ? 1.0f
+                            : 0.5f + 0.5f * std::sin(juce::MathConstants<float>::twoPi * lane);
+                        param->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, value));
+                    }
+
+                    for (int i = 0; i < kBlockSize; ++i)
+                    {
+                        const int sampleIndex = blockIndex * kBlockSize + i;
+                        const float t = (float) sampleIndex / (float) kSampleRate;
+                        const float sample = 0.045f * std::sin(juce::MathConstants<float>::twoPi * 123.47f * t)
+                            + 0.021f * std::sin(juce::MathConstants<float>::twoPi * 246.94f * t);
+                        block.setSample(0, i, sample);
+                        block.setSample(1, i, sample * 0.88f);
+                    }
+
+                    processor->processBlock(block, midi);
+                    metrics.capture(block);
+                }
+
+                expect(metrics.finite, "P8C " + typeName + " generic automation sweep must remain finite");
+                expect(metrics.peak <= (double) Nova::Config::HARD_ABS_LIMIT_LINEAR,
+                    "P8C " + typeName + " generic automation sweep must stay below the hard absolute limit: " + p8aMetricsSummary(metrics));
+                expect(metrics.dc() < 0.50,
+                    "P8C " + typeName + " generic automation sweep should not accumulate dominant DC: " + p8aMetricsSummary(metrics));
+                ++checkedProcessors;
+            }
+
+            expectEquals(checkedProcessors, (int) Nova::PedalCatalog::entries().size(),
+                "P8C automation sweep should exercise every active catalog processor");
+        }
+
+        beginTest("P8C active pedal catalog bypass transitions remain bounded");
+        {
+            juce::MidiBuffer midi;
+            int checkedProcessors = 0;
+
+            for (const auto& entry : Nova::PedalCatalog::entries())
+            {
+                const auto typeName = juce::String(entry.typeID);
+                auto processor = PedalRegistry::createPedal(entry.typeID);
+                auto* processorBase = dynamic_cast<ProcessorBase*>(processor.get());
+                if (processor == nullptr || processorBase == nullptr)
+                    continue;
+
+                processor->setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+                processor->prepareToPlay(kSampleRate, kBlockSize);
+
+                juce::AudioBuffer<float> block(2, kBlockSize);
+                P8AWindowMetrics metrics;
+                double worstDelta = 0.0;
+                std::array<float, 2> previousSample { 0.0f, 0.0f };
+                bool havePrevious = false;
+                const int blocksToRun = (int) ((kSampleRate * 0.65) / (double) kBlockSize);
+
+                for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+                {
+                    if (blockIndex % 24 == 0)
+                        processorBase->setBypassed((blockIndex / 24) % 2 == 1);
+
+                    for (int i = 0; i < kBlockSize; ++i)
+                    {
+                        const int sampleIndex = blockIndex * kBlockSize + i;
+                        const float t = (float) sampleIndex / (float) kSampleRate;
+                        const float sample = 0.055f * std::sin(juce::MathConstants<float>::twoPi * 146.83f * t)
+                            + 0.026f * std::sin(juce::MathConstants<float>::twoPi * 293.66f * t);
+                        block.setSample(0, i, sample);
+                        block.setSample(1, i, sample * 0.93f);
+                    }
+
+                    processor->processBlock(block, midi);
+                    metrics.capture(block);
+
+                    for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                    {
+                        const auto* data = block.getReadPointer(ch);
+                        for (int i = 0; i < block.getNumSamples(); ++i)
+                        {
+                            if (havePrevious)
+                                worstDelta = juce::jmax(worstDelta, (double) std::abs(data[i] - previousSample[(size_t) ch]));
+                            previousSample[(size_t) ch] = data[i];
+                        }
+                    }
+                    havePrevious = true;
+                }
+
+                expect(metrics.finite, "P8C " + typeName + " bypass transitions must remain finite");
+                expect(metrics.peak <= (double) Nova::Config::HARD_ABS_LIMIT_LINEAR,
+                    "P8C " + typeName + " bypass transitions must stay below the hard absolute limit: " + p8aMetricsSummary(metrics));
+                expect(worstDelta < 8.0,
+                    "P8C " + typeName + " bypass transitions should not produce extreme discontinuities");
+                ++checkedProcessors;
+            }
+
+            expectEquals(checkedProcessors, (int) Nova::PedalCatalog::entries().size(),
+                "P8C bypass transition sweep should exercise every active catalog processor");
+        }
+
+        beginTest("P8D Wah sweep resonance bias and bypass remain bounded");
+        {
+            auto renderWah = [&](bool automate, bool bypass)
+            {
+                ClassicWahPedal pedal;
+                pedal.prepareToPlay(kSampleRate, kBlockSize);
+                pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 0));
+                pedal.sweepParam->setValueNotifyingHost(pedal.sweepParam->convertTo0to1(automate ? 0.05f : 0.46f));
+                pedal.sensitivityParam->setValueNotifyingHost(pedal.sensitivityParam->convertTo0to1(automate ? 0.92f : 0.58f));
+                pedal.attackParam->setValueNotifyingHost(pedal.attackParam->convertTo0to1(automate ? 0.5f : 2.0f));
+                pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(automate ? 18.0f : 120.0f));
+                pedal.rangeParam->setValueNotifyingHost(pedal.rangeParam->convertTo0to1(automate ? 1.0f : 0.76f));
+                pedal.resonanceParam->setValueNotifyingHost(pedal.resonanceParam->convertTo0to1(automate ? 9.6f : 4.2f));
+                pedal.voiceParam->setValueNotifyingHost(pedal.voiceParam->convertTo0to1(automate ? 0.84f : 0.36f));
+                pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(automate ? 1.0f : 0.72f));
+
+                juce::MidiBuffer midi;
+                juce::AudioBuffer<float> block(2, kBlockSize);
+                P8AWindowMetrics metrics;
+                double worstDelta = 0.0;
+                std::array<float, 2> previousSample { 0.0f, 0.0f };
+                bool havePrevious = false;
+                const int blocksToRun = (int) ((kSampleRate * 1.0) / (double) kBlockSize);
+
+                for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+                {
+                    const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
+                    if (automate)
+                    {
+                        pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, (blockIndex / 37) % 3));
+                        pedal.sweepParam->setValueNotifyingHost(pedal.sweepParam->convertTo0to1(phase));
+                        pedal.rangeParam->setValueNotifyingHost(pedal.rangeParam->convertTo0to1(0.05f + 0.95f * std::abs(std::sin(phase * juce::MathConstants<float>::twoPi))));
+                        pedal.resonanceParam->setValueNotifyingHost(pedal.resonanceParam->convertTo0to1(0.6f + 9.2f * std::abs(std::cos(phase * juce::MathConstants<float>::pi))));
+                        pedal.voiceParam->setValueNotifyingHost(pedal.voiceParam->convertTo0to1(0.04f + 0.92f * phase));
+                    }
+                    if (bypass && blockIndex % 28 == 0)
+                        pedal.setBypassed((blockIndex / 28) % 2 == 1);
+
+                    for (int i = 0; i < kBlockSize; ++i)
+                    {
+                        const int sampleIndex = blockIndex * kBlockSize + i;
+                        const float t = (float) sampleIndex / (float) kSampleRate;
+                        const float peak = (sampleIndex % 4096 == 0) ? 0.32f : 0.0f;
+                        const float bias = automate ? 0.055f : 0.0f;
+                        const float sample = bias
+                            + 0.055f * std::sin(juce::MathConstants<float>::twoPi * 130.81f * t)
+                            + 0.025f * std::sin(juce::MathConstants<float>::twoPi * 261.63f * t)
+                            + peak;
+                        block.setSample(0, i, sample);
+                        block.setSample(1, i, sample * 0.90f);
+                    }
+
+                    pedal.processBlock(block, midi);
+                    metrics.capture(block);
+
+                    for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                    {
+                        const auto* data = block.getReadPointer(ch);
+                        for (int i = 0; i < block.getNumSamples(); ++i)
+                        {
+                            if (havePrevious)
+                                worstDelta = juce::jmax(worstDelta, (double) std::abs(data[i] - previousSample[(size_t) ch]));
+                            previousSample[(size_t) ch] = data[i];
+                        }
+                    }
+                    havePrevious = true;
+                }
+
+                return std::pair<P8AWindowMetrics, double> { metrics, worstDelta };
+            };
+
+            auto nominal = renderWah(false, false);
+            auto extreme = renderWah(true, false);
+            auto bypass = renderWah(true, true);
+
+            expect(nominal.first.finite && extreme.first.finite && bypass.first.finite,
+                "P8D Wah targeted renders must remain finite");
+            expect(nominal.first.nearClipSamples < juce::jmax(1, nominal.first.sampleCount) / 40,
+                "P8D nominal Wah should not live near clip: " + p8aMetricsSummary(nominal.first));
+            expect(extreme.first.peak <= (double) Nova::Config::HARD_ABS_LIMIT_LINEAR
+                    && extreme.first.dc() < 0.20
+                    && extreme.first.clippedSamples < juce::jmax(1, extreme.first.sampleCount) / 3,
+                "P8D extreme Wah sweep/resonance should stay bounded: " + p8aMetricsSummary(extreme.first));
+            expect(bypass.first.peak <= (double) Nova::Config::HARD_ABS_LIMIT_LINEAR && bypass.second < 8.0,
+                "P8D Wah bypass/unbypass should stay bounded: " + p8aMetricsSummary(bypass.first));
+
+            ClassicWahPedal dryOnly;
+            dryOnly.prepareToPlay(kSampleRate, kBlockSize);
+            dryOnly.mixParam->setValueNotifyingHost(dryOnly.mixParam->convertTo0to1(0.0f));
+            juce::AudioBuffer<float> dryInput(2, (int) (kSampleRate * 0.25));
+            for (int i = 0; i < dryInput.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) kSampleRate;
+                const float sample = 0.035f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t);
+                dryInput.setSample(0, i, sample);
+                dryInput.setSample(1, i, sample * 0.94f);
+            }
+            auto dryReference = dryInput;
+            juce::AudioBuffer<float> dryOutput(2, dryInput.getNumSamples());
+            juce::MidiBuffer dryMidi;
+            for (int start = 0; start < dryInput.getNumSamples(); start += kBlockSize)
+            {
+                const int count = juce::jmin(kBlockSize, dryInput.getNumSamples() - start);
+                juce::AudioBuffer<float> block(dryOutput.getArrayOfWritePointers(), dryOutput.getNumChannels(), start, count);
+                for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                    block.copyFrom(ch, 0, dryInput, ch, start, count);
+                dryOnly.processBlock(block, dryMidi);
+            }
+            juce::AudioBuffer<float> dryReferenceTail(2, dryReference.getNumSamples() / 2);
+            juce::AudioBuffer<float> dryOutputTail(2, dryOutput.getNumSamples() / 2);
+            const int tailStart = dryReference.getNumSamples() / 2;
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                dryReferenceTail.copyFrom(ch, 0, dryReference, ch, tailStart, dryReferenceTail.getNumSamples());
+                dryOutputTail.copyFrom(ch, 0, dryOutput, ch, tailStart, dryOutputTail.getNumSamples());
+            }
+            expect(computeBufferNullRms(dryReferenceTail, dryOutputTail) < 2.0e-4,
+                "P8D Wah mix=0 should remain transparent");
+            expect(PedalRegistry::canonicalType("Auto Wah") == "Wah"
+                    && PedalRegistry::canonicalType("Autowah") == "Wah"
+                    && PedalRegistry::canonicalType("AutoWah") == "Wah",
+                "P8D Wah legacy aliases should remain canonical");
+        }
+
+        beginTest("P8D amp variants targeted strong input automation and bypass remain bounded");
+        {
+            auto setParam = [](juce::AudioProcessor& processor, const juce::String& paramId, float plainValue)
+            {
+                for (auto* param : processor.getParameters())
+                {
+                    if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+                    {
+                        if (ranged->getParameterID() == paramId)
+                        {
+                            ranged->setValueNotifyingHost(ranged->convertTo0to1(plainValue));
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+
+            auto exerciseAmp = [&](const juce::String& typeId, bool highGain, bool bright)
+            {
+                auto processor = PedalRegistry::createPedal(typeId);
+                expect(processor != nullptr, "P8D amp must instantiate: " + typeId);
+                auto* base = dynamic_cast<ProcessorBase*>(processor.get());
+                expect(base != nullptr, "P8D amp must derive ProcessorBase: " + typeId);
+                if (processor == nullptr || base == nullptr)
+                    return std::tuple<P8AWindowMetrics, P8AWindowMetrics, double> {};
+
+                processor->setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+                processor->prepareToPlay(kSampleRate, kBlockSize);
+
+                if (typeId == "Classic Amp")
+                {
+                    setParam(*processor, "ampDrive", 5.6f);
+                    setParam(*processor, "ampTone", 0.78f);
+                    setParam(*processor, "ampPresence", 0.82f);
+                    setParam(*processor, "ampDepth", 0.70f);
+                    setParam(*processor, "ampLevel", 0.86f);
+                }
+                else if (typeId == "High Gain Amp")
+                {
+                    setParam(*processor, "hgDrive", 9.4f);
+                    setParam(*processor, "hgTone", 0.58f);
+                    setParam(*processor, "hgPresence", 0.76f);
+                    setParam(*processor, "hgTight", 0.78f);
+                    setParam(*processor, "hgLevel", 0.70f);
+                }
+                else if (typeId == "Chime Amp")
+                {
+                    setParam(*processor, "chimeDrive", 3.6f);
+                    setParam(*processor, "chimeTrebleCut", 0.92f);
+                    setParam(*processor, "chimeBassCut", 0.26f);
+                    setParam(*processor, "chimeBrill", 0.96f);
+                    setParam(*processor, "chimeLevel", 0.84f);
+                }
+                else if (typeId == "Boutique Amp")
+                {
+                    setParam(*processor, "boutDrive", 3.2f);
+                    setParam(*processor, "boutWarmth", 0.76f);
+                    setParam(*processor, "boutMid", 0.68f);
+                    setParam(*processor, "boutPres", 0.72f);
+                    setParam(*processor, "boutLevel", 0.88f);
+                }
+
+                juce::MidiBuffer midi;
+                juce::AudioBuffer<float> block(2, kBlockSize);
+                P8AWindowMetrics strongMetrics;
+                P8AWindowMetrics nominalMetrics;
+                double worstDelta = 0.0;
+                std::array<float, 2> previousSample { 0.0f, 0.0f };
+                bool havePrevious = false;
+                const int blocksToRun = (int) ((kSampleRate * 1.0) / (double) kBlockSize);
+
+                for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+                {
+                    const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
+                    for (auto* param : processor->getParameters())
+                    {
+                        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+                        {
+                            const float value = 0.5f + 0.5f * std::sin(juce::MathConstants<float>::twoPi * (phase + 0.11f));
+                            ranged->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, (blockIndex % 53 == 0) ? 1.0f : value));
+                        }
+                    }
+                    if (blockIndex % 34 == 0)
+                        base->setBypassed((blockIndex / 34) % 2 == 1);
+
+                    for (int i = 0; i < kBlockSize; ++i)
+                    {
+                        const int sampleIndex = blockIndex * kBlockSize + i;
+                        const float t = (float) sampleIndex / (float) kSampleRate;
+                        const int mute = sampleIndex % (int) (kSampleRate * 0.110);
+                        const float palm = highGain ? std::exp(-(float) mute / 34.0f) : std::exp(-(float) mute / 65.0f);
+                        const float spike = bright && (sampleIndex % 3072 == 0) ? 0.26f : 0.0f;
+                        const float bias = (blockIndex < blocksToRun / 4) ? 0.018f : 0.0f;
+                        const float sample = bias
+                            + (highGain ? 0.060f : 0.070f) * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                            + (bright ? 0.042f : 0.025f) * std::sin(juce::MathConstants<float>::twoPi * 659.25f * t)
+                            + 0.040f * palm
+                            + spike;
+                        block.setSample(0, i, sample);
+                        block.setSample(1, i, sample * 0.92f);
+                    }
+
+                    processor->processBlock(block, midi);
+                    strongMetrics.capture(block);
+                    if (!base->getBypassed())
+                        nominalMetrics.capture(block);
+
+                    for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                    {
+                        const auto* data = block.getReadPointer(ch);
+                        for (int i = 0; i < block.getNumSamples(); ++i)
+                        {
+                            if (havePrevious)
+                                worstDelta = juce::jmax(worstDelta, (double) std::abs(data[i] - previousSample[(size_t) ch]));
+                            previousSample[(size_t) ch] = data[i];
+                        }
+                    }
+                    havePrevious = true;
+                }
+
+                return std::tuple<P8AWindowMetrics, P8AWindowMetrics, double> { strongMetrics, nominalMetrics, worstDelta };
+            };
+
+            const std::array<juce::String, 4> ampTypes { "Classic Amp", "High Gain Amp", "Chime Amp", "Boutique Amp" };
+            for (const auto& ampType : ampTypes)
+            {
+                auto [strong, nominal, worstDelta] = exerciseAmp(ampType, ampType == "High Gain Amp", ampType == "Chime Amp");
+                expect(strong.finite, "P8D " + ampType + " targeted render must remain finite");
+                expect(strong.peak <= (double) Nova::Config::HARD_ABS_LIMIT_LINEAR && strong.dc() < 0.25,
+                    "P8D " + ampType + " targeted render must stay bounded: " + p8aMetricsSummary(strong));
+                expect(strong.clippedSamples < juce::jmax(1, strong.sampleCount) * 90 / 100,
+                    "P8D " + ampType + " should not become sustained clipped output: " + p8aMetricsSummary(strong));
+                expect(nominal.nearClipSamples < juce::jmax(1, nominal.sampleCount) * 75 / 100,
+                    "P8D " + ampType + " nominal active windows should not be dominated by near-clip samples: " + p8aMetricsSummary(nominal));
+                expect(worstDelta < 12.0, "P8D " + ampType + " bypass/bright transitions should remain bounded");
+            }
+        }
+
+        beginTest("P8D cabinet variants and high-gain chains remain bounded");
+        {
+            auto setParam = [](juce::AudioProcessor& processor, const juce::String& paramId, float plainValue)
+            {
+                for (auto* param : processor.getParameters())
+                {
+                    if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+                    {
+                        if (ranged->getParameterID() == paramId)
+                        {
+                            ranged->setValueNotifyingHost(ranged->convertTo0to1(plainValue));
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            };
+
+            auto exerciseCabinet = [&](const juce::String& cabType, bool useHighGainAmp)
+            {
+                auto amp = PedalRegistry::createPedal(useHighGainAmp ? "High Gain Amp" : "Classic Amp");
+                auto cab = PedalRegistry::createPedal(cabType);
+                expect(amp != nullptr && cab != nullptr, "P8D cabinet chain must instantiate: " + cabType);
+                auto* cabBase = dynamic_cast<ProcessorBase*>(cab.get());
+                expect(cabBase != nullptr, "P8D cabinet must derive ProcessorBase: " + cabType);
+                if (amp == nullptr || cab == nullptr || cabBase == nullptr)
+                    return std::pair<P8AWindowMetrics, double> {};
+
+                amp->setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+                cab->setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+                amp->prepareToPlay(kSampleRate, kBlockSize);
+                cab->prepareToPlay(kSampleRate, kBlockSize);
+
+                if (useHighGainAmp)
+                {
+                    setParam(*amp, "hgDrive", 8.4f);
+                    setParam(*amp, "hgTight", 0.82f);
+                    setParam(*amp, "hgPresence", 0.66f);
+                    setParam(*amp, "hgLevel", 0.58f);
+                }
+                else
+                {
+                    setParam(*amp, "ampDrive", 4.8f);
+                    setParam(*amp, "ampPresence", 0.58f);
+                    setParam(*amp, "ampLevel", 0.68f);
+                }
+
+                if (cabType == "Vintage 2x12")
+                {
+                    setParam(*cab, "v2x12Warmth", 6.0f);
+                    setParam(*cab, "v2x12Sparkle", 4.5f);
+                    setParam(*cab, "v2x12Distance", 0.35f);
+                    setParam(*cab, "v2x12Mix", 1.0f);
+                    setParam(*cab, "v2x12Level", 0.82f);
+                }
+                else if (cabType == "Modern 4x12")
+                {
+                    setParam(*cab, "m4x12Low", 5.0f);
+                    setParam(*cab, "m4x12Presence", 6.0f);
+                    setParam(*cab, "m4x12Distance", 0.25f);
+                    setParam(*cab, "m4x12Mix", 1.0f);
+                    setParam(*cab, "m4x12Level", 0.78f);
+                }
+                else
+                {
+                    setParam(*cab, "cabThump", 4.5f);
+                    setParam(*cab, "cabAir", 4.0f);
+                    setParam(*cab, "cabDistance", 0.32f);
+                    setParam(*cab, "cabMix", 1.0f);
+                    setParam(*cab, "cabLevel", 0.82f);
+                }
+
+                juce::MidiBuffer midi;
+                juce::AudioBuffer<float> block(2, kBlockSize);
+                P8AWindowMetrics chainMetrics;
+                double worstDelta = 0.0;
+                std::array<float, 2> previousSample { 0.0f, 0.0f };
+                bool havePrevious = false;
+                const int blocksToRun = (int) ((kSampleRate * 1.0) / (double) kBlockSize);
+
+                for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+                {
+                    const float phase = (float) blockIndex / (float) juce::jmax(1, blocksToRun - 1);
+                    for (auto* param : cab->getParameters())
+                    {
+                        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+                        {
+                            const float value = 0.5f + 0.5f * std::sin(juce::MathConstants<float>::twoPi * (phase + 0.19f));
+                            ranged->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, (blockIndex % 47 == 0) ? 1.0f : value));
+                        }
+                    }
+                    if (blockIndex % 31 == 0)
+                        cabBase->setBypassed((blockIndex / 31) % 2 == 1);
+
+                    for (int i = 0; i < kBlockSize; ++i)
+                    {
+                        const int sampleIndex = blockIndex * kBlockSize + i;
+                        const float t = (float) sampleIndex / (float) kSampleRate;
+                        const int pickSample = sampleIndex % (int) (kSampleRate * 0.118);
+                        const float pick = std::exp(-(float) pickSample / 46.0f);
+                        const float spike = (sampleIndex % 3584 == 0) ? 0.24f : 0.0f;
+                        const float bias = (blockIndex < blocksToRun / 5) ? 0.020f : 0.0f;
+                        const float sample = bias
+                            + (useHighGainAmp ? 0.050f : 0.060f) * std::sin(juce::MathConstants<float>::twoPi * 98.0f * t)
+                            + 0.025f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t)
+                            + 0.035f * pick
+                            + spike;
+                        block.setSample(0, i, sample);
+                        block.setSample(1, i, sample * 0.91f);
+                    }
+
+                    amp->processBlock(block, midi);
+                    cab->processBlock(block, midi);
+                    chainMetrics.capture(block);
+
+                    for (int ch = 0; ch < block.getNumChannels(); ++ch)
+                    {
+                        const auto* data = block.getReadPointer(ch);
+                        for (int i = 0; i < block.getNumSamples(); ++i)
+                        {
+                            if (havePrevious)
+                                worstDelta = juce::jmax(worstDelta, (double) std::abs(data[i] - previousSample[(size_t) ch]));
+                            previousSample[(size_t) ch] = data[i];
+                        }
+                    }
+                    havePrevious = true;
+                }
+
+                return std::pair<P8AWindowMetrics, double> { chainMetrics, worstDelta };
+            };
+
+            const auto vintage = exerciseCabinet("Vintage 2x12", false);
+            const auto modern = exerciseCabinet("Modern 4x12", true);
+            const auto wrapper = exerciseCabinet("Cabinet", false);
+
+            for (const auto& result : { std::pair<juce::String, std::pair<P8AWindowMetrics, double>> { "Vintage 2x12", vintage },
+                                        { "Modern 4x12", modern },
+                                        { "Cabinet", wrapper } })
+            {
+                const auto& cabinetName = result.first;
+                const auto& metrics = result.second.first;
+                expect(metrics.finite, "P8D " + cabinetName + " cabinet chain must remain finite");
+                expect(metrics.peak <= (double) Nova::Config::HARD_ABS_LIMIT_LINEAR && metrics.dc() < 0.25,
+                    "P8D " + cabinetName + " cabinet chain must stay bounded: " + p8aMetricsSummary(metrics));
+                expect(metrics.clippedSamples < juce::jmax(1, metrics.sampleCount) / 2,
+                    "P8D " + cabinetName + " cabinet chain should not become sustained clipped output: " + p8aMetricsSummary(metrics));
+                expect(result.second.second < 12.0,
+                    "P8D " + cabinetName + " cabinet bypass/automation transitions should remain bounded");
+            }
+        }
+
         beginTest("Processor switcher cycles through all three routing modes");
         {
             NOVAAudioProcessor processor;
@@ -8007,6 +10965,7 @@ public:
 
         beginTest("SessionPersistence saves and restores a canonical preset");
         {
+            StartupPresetPointerGuard startupPointerGuard;
             SessionStore store;
             store.applyCommand(SessionStore::Command::makeAddPedal(
                 "Overdrive", Nova::ChainID::LineA, Nova::ZoneID::Pre, -1));
@@ -8041,6 +11000,915 @@ public:
             expectEquals((int)restoredEngine.getNodes(Nova::ChainID::LineB).size(), 1);
 
             presetFile.deleteFile();
+        }
+
+        // ====================================================================
+        // P7D - Preset / Session / Parameter Validation
+        // Persistence and state robustness only; no DSP, routing, schema, preset
+        // curation, or golden-baseline behavior is changed by these tests.
+        // ====================================================================
+
+        beginTest("P7D preset save-load-save remains canonical");
+        {
+            StartupPresetPointerGuard startupPointerGuard;
+
+            auto sourceState = makeP7DState();
+            auto settings = Nova::PluginStateModel::getSettingsTree(sourceState);
+            settings.setProperty(Nova::IDs::ENGINE_ON, true, nullptr);
+            settings.setProperty(Nova::IDs::SWITCH_MODE, (int) Nova::SwitcherMode::Dual_Parallel, nullptr);
+            settings.setProperty(Nova::IDs::INPUT_GAIN, 3.5f, nullptr);
+            settings.setProperty(Nova::IDs::INPUT_GATE, -72.0f, nullptr);
+            settings.setProperty(Nova::IDs::FORCE_MONO, true, nullptr);
+            settings.setProperty(Nova::IDs::OUTPUT_VOL, -1.5f, nullptr);
+            settings.setProperty(Nova::IDs::OUTPUT_LIMITER, -3.0f, nullptr);
+            settings.setProperty(Nova::IDs::OUTPUT_MIX, 73.0f, nullptr);
+
+            auto lineA = Nova::PluginStateModel::getLineTree(sourceState, Nova::ChainID::LineA);
+            auto lineB = Nova::PluginStateModel::getLineTree(sourceState, Nova::ChainID::LineB);
+            lineA.setProperty(Nova::IDs::MIXER_GAIN_A, 0.75f, nullptr);
+            lineA.setProperty(Nova::IDs::MIXER_PAN_A, -0.25f, nullptr);
+            lineA.setProperty(Nova::IDs::MIXER_WIDTH_A, 1.35f, nullptr);
+            lineB.setProperty(Nova::IDs::MIXER_GAIN_B, 1.25f, nullptr);
+            lineB.setProperty(Nova::IDs::MIXER_PAN_B, 0.2f, nullptr);
+            lineB.setProperty(Nova::IDs::MIXER_WIDTH_B, 0.85f, nullptr);
+
+            appendP7DPedal(sourceState, Nova::ChainID::LineA, "Compressor", Nova::ZoneID::Pre, "p7d-a-pre", true);
+            appendP7DPedal(sourceState, Nova::ChainID::LineA, "Classic Amp", Nova::ZoneID::Amp, "p7d-a-amp", true);
+            appendP7DPedal(sourceState, Nova::ChainID::LineA, "Delay", Nova::ZoneID::FX, "p7d-a-fx", false);
+            appendP7DPedal(sourceState, Nova::ChainID::LineA, "Cabinet", Nova::ZoneID::Cabinet, "p7d-a-cab", true);
+            appendP7DPedal(sourceState, Nova::ChainID::LineB, "Wah", Nova::ZoneID::Pre, "p7d-b-pre", false);
+            appendP7DPedal(sourceState, Nova::ChainID::LineB, "Clean Amp", Nova::ZoneID::Amp, "p7d-b-amp", true);
+            appendP7DPedal(sourceState, Nova::ChainID::LineB, "Chorus", Nova::ZoneID::FX, "p7d-b-fx", true);
+            appendP7DPedal(sourceState, Nova::ChainID::LineB, "Modern 4x12", Nova::ZoneID::Cabinet, "p7d-b-cab", false);
+            Nova::PluginStateModel::canonicalizeStateTree(sourceState);
+
+            SessionStore store;
+            expect(store.applyCommand(SessionStore::Command::makeRestoreState(sourceState)).changed,
+                "Canonical source state should restore into SessionStore");
+
+            AudioEngine sourceEngine;
+            sourceEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+            SessionPersistence::rebuildEngineFromState(sourceEngine, store.state());
+            expect(engineProcessesFiniteAfterP7DRestore(sourceEngine, store.getRuntimeGlobalParams(), store.isEngineEnabled()),
+                "Source engine should process finite before save");
+
+            const auto firstPreset = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                .getChildFile("nova-p7d-roundtrip-first.nova-preset");
+            const auto secondPreset = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                .getChildFile("nova-p7d-roundtrip-second.nova-preset");
+            firstPreset.deleteFile();
+            secondPreset.deleteFile();
+
+            expect(SessionPersistence::savePresetToFile(firstPreset, store, sourceEngine),
+                "First preset save should succeed");
+
+            SessionStore restoredStore;
+            AudioEngine restoredEngine;
+            restoredEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+            expect(SessionPersistence::loadPresetFromFile(firstPreset, restoredStore, restoredEngine),
+                "Preset load should succeed");
+            expect(SessionPersistence::savePresetToFile(secondPreset, restoredStore, restoredEngine),
+                "Second preset save should succeed");
+
+            const auto firstState = readP7DValueTreeFile(firstPreset);
+            const auto secondState = readP7DValueTreeFile(secondPreset);
+            expect(firstState.isValid() && secondState.isValid(), "Both saved preset files should decode as ValueTrees");
+            expectEquals(canonicalXmlForP7D(firstState), canonicalXmlForP7D(secondState),
+                "save -> load -> save should be canonically identical");
+
+            const auto restoredLineA = Nova::PluginStateModel::getLineTree(restoredStore.state(), Nova::ChainID::LineA);
+            const auto restoredLineB = Nova::PluginStateModel::getLineTree(restoredStore.state(), Nova::ChainID::LineB);
+            expectEquals(restoredLineA.getNumChildren(), 4);
+            expectEquals(restoredLineB.getNumChildren(), 4);
+            expectEquals(restoredLineA.getChild(2).getProperty(Nova::IDs::PEDAL_ID).toString(), juce::String("p7d-a-fx"));
+            expect(!(bool)restoredLineA.getChild(2).getProperty(Nova::IDs::PEDAL_ENABLED),
+                "Disabled pedal state should survive preset round-trip");
+            expectEquals((int)restoredStore.getRuntimeGlobalParams().switchMode, (int)Nova::SwitcherMode::Dual_Parallel);
+            expect(approximatelyEqual(restoredStore.getRuntimeGlobalParams().outputMixRaw, 73.0f, 1.0e-3f),
+                "Global output mix should survive preset round-trip");
+
+            firstPreset.deleteFile();
+            secondPreset.deleteFile();
+        }
+
+        beginTest("P7D catalog presets round-trip every registered pedal");
+        {
+            StartupPresetPointerGuard startupPointerGuard;
+            int entryIndex = 0;
+
+            for (const auto& entry : Nova::PedalCatalog::entries())
+            {
+                auto state = makeP7DState();
+                const auto requestedZone = entry.kind == Nova::PedalCatalog::Kind::Amplifier
+                    ? Nova::ZoneID::Amp
+                    : (entry.kind == Nova::PedalCatalog::Kind::Cabinet
+                        ? Nova::ZoneID::Cabinet
+                        : ((entryIndex % 2) == 0 ? Nova::ZoneID::Pre : Nova::ZoneID::FX));
+
+                const auto pedalID = "p7d-catalog-" + juce::String(entryIndex);
+                appendP7DPedal(state, Nova::ChainID::LineA, entry.typeID, requestedZone, pedalID, (entryIndex % 3) != 0);
+                Nova::PluginStateModel::canonicalizeStateTree(state);
+
+                SessionStore store;
+                store.applyCommand(SessionStore::Command::makeRestoreState(state));
+
+                AudioEngine sourceEngine;
+                sourceEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+                SessionPersistence::rebuildEngineFromState(sourceEngine, store.state());
+
+                const auto presetFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                    .getChildFile("nova-p7d-catalog-" + juce::String(entryIndex) + ".nova-preset");
+                presetFile.deleteFile();
+
+                expect(SessionPersistence::savePresetToFile(presetFile, store, sourceEngine),
+                    juce::String(entry.typeID) + " catalog preset save should succeed");
+
+                SessionStore restoredStore;
+                AudioEngine restoredEngine;
+                restoredEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+                expect(SessionPersistence::loadPresetFromFile(presetFile, restoredStore, restoredEngine),
+                    juce::String(entry.typeID) + " catalog preset load should succeed");
+
+                const auto line = Nova::PluginStateModel::getLineTree(restoredStore.state(), Nova::ChainID::LineA);
+                expectEquals(line.getNumChildren(), 1);
+                const auto pedal = line.getChild(0);
+                expectEquals(pedal.getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String(entry.typeID));
+                expectEquals(pedal.getProperty(Nova::IDs::PEDAL_ID).toString(), pedalID);
+                expectEquals((int)pedal.getProperty(Nova::IDs::PEDAL_ZONE),
+                    (int)Nova::PedalCatalog::enforceZone(entry.typeID, requestedZone));
+                expect((bool)pedal.getProperty(Nova::IDs::PEDAL_ENABLED) == ((entryIndex % 3) != 0),
+                    juce::String(entry.typeID) + " enabled state should survive preset round-trip");
+
+                presetFile.deleteFile();
+                ++entryIndex;
+            }
+        }
+
+        beginTest("P7D chain/global preset round-trips routing modes and bypass state");
+        {
+            StartupPresetPointerGuard startupPointerGuard;
+
+            for (const auto mode : { Nova::SwitcherMode::LineA_Only, Nova::SwitcherMode::LineB_Only, Nova::SwitcherMode::Dual_Parallel })
+            {
+                auto state = makeP7DState();
+                auto settings = Nova::PluginStateModel::getSettingsTree(state);
+                settings.setProperty(Nova::IDs::ENGINE_ON, true, nullptr);
+                settings.setProperty(Nova::IDs::SWITCH_MODE, (int) mode, nullptr);
+                settings.setProperty(Nova::IDs::INPUT_GAIN, mode == Nova::SwitcherMode::LineB_Only ? 24.0f : -12.0f, nullptr);
+                settings.setProperty(Nova::IDs::INPUT_GATE, mode == Nova::SwitcherMode::Dual_Parallel ? 0.0f : -100.0f, nullptr);
+                settings.setProperty(Nova::IDs::OUTPUT_VOL, mode == Nova::SwitcherMode::LineA_Only ? -60.0f : 12.0f, nullptr);
+                settings.setProperty(Nova::IDs::OUTPUT_LIMITER, mode == Nova::SwitcherMode::LineB_Only ? -12.0f : 0.0f, nullptr);
+                settings.setProperty(Nova::IDs::OUTPUT_MIX, mode == Nova::SwitcherMode::Dual_Parallel ? 50.0f : 100.0f, nullptr);
+
+                auto lineA = Nova::PluginStateModel::getLineTree(state, Nova::ChainID::LineA);
+                auto lineB = Nova::PluginStateModel::getLineTree(state, Nova::ChainID::LineB);
+                lineA.setProperty(Nova::IDs::MIXER_GAIN_A, 0.0f, nullptr);
+                lineA.setProperty(Nova::IDs::MIXER_PAN_A, -1.0f, nullptr);
+                lineA.setProperty(Nova::IDs::MIXER_WIDTH_A, 2.0f, nullptr);
+                lineB.setProperty(Nova::IDs::MIXER_GAIN_B, 2.0f, nullptr);
+                lineB.setProperty(Nova::IDs::MIXER_PAN_B, 1.0f, nullptr);
+                lineB.setProperty(Nova::IDs::MIXER_WIDTH_B, 0.0f, nullptr);
+
+                appendP7DPedal(state, Nova::ChainID::LineA, "Noise Gate", Nova::ZoneID::Pre, "p7d-mode-a-pre", true);
+                appendP7DPedal(state, Nova::ChainID::LineA, "Boutique Amp", Nova::ZoneID::Amp, "p7d-mode-a-amp", false);
+                appendP7DPedal(state, Nova::ChainID::LineA, "Phaser", Nova::ZoneID::FX, "p7d-mode-a-fx", true);
+                appendP7DPedal(state, Nova::ChainID::LineA, "Vintage 2x12", Nova::ZoneID::Cabinet, "p7d-mode-a-cab", false);
+                appendP7DPedal(state, Nova::ChainID::LineB, "EQ", Nova::ZoneID::Pre, "p7d-mode-b-pre", false);
+                appendP7DPedal(state, Nova::ChainID::LineB, "High Gain Amp", Nova::ZoneID::Amp, "p7d-mode-b-amp", true);
+                appendP7DPedal(state, Nova::ChainID::LineB, "Flanger", Nova::ZoneID::FX, "p7d-mode-b-fx", false);
+                appendP7DPedal(state, Nova::ChainID::LineB, "Cabinet", Nova::ZoneID::Cabinet, "p7d-mode-b-cab", true);
+                Nova::PluginStateModel::canonicalizeStateTree(state);
+
+                SessionStore store;
+                store.applyCommand(SessionStore::Command::makeRestoreState(state));
+                AudioEngine engine;
+                engine.prepare(kSampleRate, kBlockSize, 2, 2);
+                SessionPersistence::rebuildEngineFromState(engine, store.state());
+
+                const auto presetFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                    .getChildFile("nova-p7d-mode-" + juce::String((int) mode) + ".nova-preset");
+                presetFile.deleteFile();
+                expect(SessionPersistence::savePresetToFile(presetFile, store, engine),
+                    "Mode preset save should succeed");
+
+                SessionStore restoredStore;
+                AudioEngine restoredEngine;
+                restoredEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+                expect(SessionPersistence::loadPresetFromFile(presetFile, restoredStore, restoredEngine),
+                    "Mode preset load should succeed");
+
+                const auto restoredParams = restoredStore.getRuntimeGlobalParams();
+                expectEquals(restoredParams.switchMode, (int) mode);
+                expect(approximatelyEqual(restoredParams.gainA, 0.0f, 1.0e-3f), "Line A gain minimum should round-trip");
+                expect(approximatelyEqual(restoredParams.panA, -1.0f, 1.0e-3f), "Line A pan minimum should round-trip");
+                expect(approximatelyEqual(restoredParams.widthA, 2.0f, 1.0e-3f), "Line A width maximum should round-trip");
+                expect(approximatelyEqual(restoredParams.gainB, 2.0f, 1.0e-3f), "Line B gain maximum should round-trip");
+                expect(approximatelyEqual(restoredParams.panB, 1.0f, 1.0e-3f), "Line B pan maximum should round-trip");
+                expect(approximatelyEqual(restoredParams.widthB, 0.0f, 1.0e-3f), "Line B width minimum should round-trip");
+
+                const auto restoredLineA = Nova::PluginStateModel::getLineTree(restoredStore.state(), Nova::ChainID::LineA);
+                const auto restoredLineB = Nova::PluginStateModel::getLineTree(restoredStore.state(), Nova::ChainID::LineB);
+                expectEquals(restoredLineA.getChild(0).getProperty(Nova::IDs::PEDAL_ID).toString(), juce::String("p7d-mode-a-pre"));
+                expectEquals(restoredLineA.getChild(1).getProperty(Nova::IDs::PEDAL_ID).toString(), juce::String("p7d-mode-a-amp"));
+                expectEquals(restoredLineA.getChild(2).getProperty(Nova::IDs::PEDAL_ID).toString(), juce::String("p7d-mode-a-fx"));
+                expectEquals(restoredLineA.getChild(3).getProperty(Nova::IDs::PEDAL_ID).toString(), juce::String("p7d-mode-a-cab"));
+                expect(!(bool)restoredLineA.getChild(1).getProperty(Nova::IDs::PEDAL_ENABLED),
+                    "Line A amp bypass state should round-trip");
+                expect(!(bool)restoredLineB.getChild(0).getProperty(Nova::IDs::PEDAL_ENABLED),
+                    "Line B pre bypass state should round-trip");
+                expect(!(bool)restoredLineB.getChild(2).getProperty(Nova::IDs::PEDAL_ENABLED),
+                    "Line B FX bypass state should round-trip");
+                expect(engineProcessesFiniteAfterP7DRestore(restoredEngine, restoredParams, restoredStore.isEngineEnabled()),
+                    "Restored mode engine should process finite");
+
+                presetFile.deleteFile();
+            }
+        }
+
+        beginTest("P7D schema canonicalization rejects unknowns and clamps topology");
+        {
+            juce::ValueTree state(Nova::IDs::MAIN_STATE);
+            state.setProperty(Nova::IDs::STATE_SCHEMA_VERSION, 0, nullptr);
+            auto settings = juce::ValueTree(Nova::IDs::SETTINGS);
+            settings.setProperty("p7dExtraSettingsField", "ignored", nullptr);
+            state.appendChild(settings, nullptr);
+
+            juce::ValueTree lineA(Nova::IDs::LINE_A);
+            lineA.setProperty("p7dExtraLineField", 123, nullptr);
+            lineA.appendChild(juce::ValueTree("P7D_UNKNOWN_CHILD"), nullptr);
+            lineA.appendChild(makeP7DPedal("Future Pedal", Nova::ZoneID::FX, "p7d-unknown", true), nullptr);
+
+            auto legacyWah = makeP7DPedal("Auto Wah", Nova::ZoneID::Cabinet, "", true);
+            legacyWah.removeProperty(Nova::IDs::PEDAL_ID, nullptr);
+            lineA.appendChild(legacyWah, nullptr);
+
+            lineA.appendChild(makeP7DPedal("Classic Amp", Nova::ZoneID::Pre, "p7d-amp-kept", true), nullptr);
+            lineA.appendChild(makeP7DPedal("High Gain Amp", Nova::ZoneID::Amp, "p7d-amp-dropped", true), nullptr);
+            lineA.appendChild(makeP7DPedal("Cabinet", Nova::ZoneID::FX, "p7d-cab-kept", true), nullptr);
+            lineA.appendChild(makeP7DPedal("Modern 4x12", Nova::ZoneID::Cabinet, "p7d-cab-dropped", true), nullptr);
+
+            for (int i = 0; i < Nova::Config::MAX_PEDALS_PER_FLEX_ZONE + 4; ++i)
+                lineA.appendChild(makeP7DPedal("Overdrive", Nova::ZoneID::Pre,
+                    "p7d-pre-" + juce::String(i), true), nullptr);
+
+            state.appendChild(lineA, nullptr);
+            state.appendChild(juce::ValueTree(Nova::IDs::LINE_B), nullptr);
+            Nova::PluginStateModel::canonicalizeStateTree(state);
+
+            expectEquals(Nova::PluginStateModel::getStateSchemaVersion(state), Nova::Config::STATE_SCHEMA_VERSION);
+            expectEquals(Nova::PluginStateModel::countPedalsInZone(state, Nova::ChainID::LineA, Nova::ZoneID::Pre),
+                Nova::Config::MAX_PEDALS_PER_FLEX_ZONE);
+            expectEquals(Nova::PluginStateModel::countPedalsInZone(state, Nova::ChainID::LineA, Nova::ZoneID::Amp), 1);
+            expectEquals(Nova::PluginStateModel::countPedalsInZone(state, Nova::ChainID::LineA, Nova::ZoneID::Cabinet), 1);
+
+            const auto canonicalLineA = Nova::PluginStateModel::getLineTree(state, Nova::ChainID::LineA);
+            expectEquals(canonicalLineA.getChild(0).getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Wah"));
+            expectEquals((int)canonicalLineA.getChild(0).getProperty(Nova::IDs::PEDAL_ZONE), (int)Nova::ZoneID::Pre);
+            expect(canonicalLineA.getChild(0).getProperty(Nova::IDs::PEDAL_ID).toString().isNotEmpty(),
+                "Missing pedal IDs should be generated during canonicalization");
+
+            for (int i = 0; i < canonicalLineA.getNumChildren(); ++i)
+            {
+                const auto pedal = canonicalLineA.getChild(i);
+                expect(pedal.hasType(Nova::IDs::PEDAL), "Unknown child nodes should be removed from lines");
+                expect(pedal.getProperty(Nova::IDs::PEDAL_TYPE).toString() != "Future Pedal",
+                    "Unknown pedal types should be skipped safely");
+                expect(pedal.getProperty(Nova::IDs::PEDAL_ID).toString() != "p7d-amp-dropped",
+                    "Duplicate amps should be skipped safely");
+                expect(pedal.getProperty(Nova::IDs::PEDAL_ID).toString() != "p7d-cab-dropped",
+                    "Duplicate cabinets should be skipped safely");
+            }
+
+            SessionStore emptyStore;
+            expect(emptyStore.applyCommand(SessionStore::Command::makeRestoreState(juce::ValueTree(Nova::IDs::MAIN_STATE))).changed,
+                "Empty root state should restore through defaults");
+            AudioEngine emptyEngine;
+            emptyEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+            SessionPersistence::rebuildEngineFromState(emptyEngine, emptyStore.state());
+            expect(engineProcessesFiniteAfterP7DRestore(emptyEngine, emptyStore.getRuntimeGlobalParams(), emptyStore.isEngineEnabled()),
+                "Engine should remain usable after empty-state restore");
+        }
+
+        beginTest("P7D parameter boundary restore clamps unsafe values");
+        {
+            auto state = makeP7DState();
+            auto settings = Nova::PluginStateModel::getSettingsTree(state);
+            settings.setProperty(Nova::IDs::ENGINE_ON, "bad-bool", nullptr);
+            settings.setProperty(Nova::IDs::SWITCH_MODE, 999, nullptr);
+            settings.setProperty(Nova::IDs::INPUT_GAIN, std::numeric_limits<double>::infinity(), nullptr);
+            settings.setProperty(Nova::IDs::INPUT_GATE, -std::numeric_limits<double>::infinity(), nullptr);
+            settings.setProperty(Nova::IDs::FORCE_MONO, 1, nullptr);
+            settings.setProperty(Nova::IDs::OUTPUT_VOL, 99.0, nullptr);
+            settings.setProperty(Nova::IDs::OUTPUT_LIMITER, -99.0, nullptr);
+            settings.setProperty(Nova::IDs::OUTPUT_MIX, std::numeric_limits<double>::quiet_NaN(), nullptr);
+
+            auto lineA = Nova::PluginStateModel::getLineTree(state, Nova::ChainID::LineA);
+            auto lineB = Nova::PluginStateModel::getLineTree(state, Nova::ChainID::LineB);
+            lineA.setProperty(Nova::IDs::MIXER_GAIN_A, -4.0, nullptr);
+            lineA.setProperty(Nova::IDs::MIXER_PAN_A, 4.0, nullptr);
+            lineA.setProperty(Nova::IDs::MIXER_WIDTH_A, std::numeric_limits<double>::quiet_NaN(), nullptr);
+            lineB.setProperty(Nova::IDs::MIXER_GAIN_B, std::numeric_limits<double>::infinity(), nullptr);
+            lineB.setProperty(Nova::IDs::MIXER_PAN_B, "bad-pan", nullptr);
+            lineB.setProperty(Nova::IDs::MIXER_WIDTH_B, 999.0, nullptr);
+
+            auto badPedal = makeP7DPedal("Delay", Nova::ZoneID::FX, "p7d-bad-enabled", true);
+            badPedal.setProperty(Nova::IDs::PEDAL_ENABLED, "bad-enabled", nullptr);
+            Nova::PluginStateModel::getLineTree(state, Nova::ChainID::LineA).appendChild(badPedal, nullptr);
+
+            SessionStore store;
+            expect(store.applyCommand(SessionStore::Command::makeRestoreState(state)).changed,
+                "Boundary-corrupt state should restore after canonicalization");
+
+            const auto restoredSettings = Nova::PluginStateModel::getSettingsTree(store.state());
+            const auto restoredLineA = Nova::PluginStateModel::getLineTree(store.state(), Nova::ChainID::LineA);
+            const auto restoredLineB = Nova::PluginStateModel::getLineTree(store.state(), Nova::ChainID::LineB);
+            expect(!(bool)restoredSettings.getProperty(Nova::IDs::ENGINE_ON),
+                "Invalid engineOn strings should fall back safely");
+            expectEquals((int)restoredSettings.getProperty(Nova::IDs::SWITCH_MODE), (int)Nova::SwitcherMode::Dual_Parallel);
+            expect(approximatelyEqual((float)restoredSettings.getProperty(Nova::IDs::INPUT_GAIN), 0.0f, 1.0e-3f),
+                "Non-finite input gain should fall back safely");
+            expect(approximatelyEqual((float)restoredSettings.getProperty(Nova::IDs::INPUT_GATE), -100.0f, 1.0e-3f),
+                "Non-finite gate threshold should fall back safely");
+            expect((bool)restoredSettings.getProperty(Nova::IDs::FORCE_MONO),
+                "Numeric forceMono values should sanitize to true");
+            expect(approximatelyEqual((float)restoredSettings.getProperty(Nova::IDs::OUTPUT_VOL), 12.0f, 1.0e-3f),
+                "Output volume should clamp to parameter range");
+            expect(approximatelyEqual((float)restoredSettings.getProperty(Nova::IDs::OUTPUT_LIMITER), -12.0f, 1.0e-3f),
+                "Limiter threshold should clamp to parameter range");
+            expect(approximatelyEqual((float)restoredSettings.getProperty(Nova::IDs::OUTPUT_MIX), 100.0f, 1.0e-3f),
+                "Non-finite output mix should fall back safely");
+            expect(approximatelyEqual((float)restoredLineA.getProperty(Nova::IDs::MIXER_GAIN_A), 0.0f, 1.0e-3f),
+                "Line A gain should clamp low");
+            expect(approximatelyEqual((float)restoredLineA.getProperty(Nova::IDs::MIXER_PAN_A), 1.0f, 1.0e-3f),
+                "Line A pan should clamp high");
+            expect(approximatelyEqual((float)restoredLineA.getProperty(Nova::IDs::MIXER_WIDTH_A), 1.0f, 1.0e-3f),
+                "Line A non-finite width should fall back");
+            expect(approximatelyEqual((float)restoredLineB.getProperty(Nova::IDs::MIXER_GAIN_B), 1.0f, 1.0e-3f),
+                "Line B non-finite gain should fall back");
+            expect(approximatelyEqual((float)restoredLineB.getProperty(Nova::IDs::MIXER_PAN_B), 0.0f, 1.0e-3f),
+                "Line B invalid pan string should fall back");
+            expect(approximatelyEqual((float)restoredLineB.getProperty(Nova::IDs::MIXER_WIDTH_B), 2.0f, 1.0e-3f),
+                "Line B width should clamp high");
+            expect((bool)restoredLineA.getChild(0).getProperty(Nova::IDs::PEDAL_ENABLED),
+                "Invalid pedal enabled strings should fall back safely");
+
+            const auto runtime = store.getRuntimeGlobalParams();
+            expect(std::isfinite(runtime.inputGainDb) && std::isfinite(runtime.outputMixRaw)
+                && std::isfinite(runtime.gainA) && std::isfinite(runtime.widthB),
+                "Runtime cache should contain only finite restored values");
+
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            SessionPersistence::rebuildEngineFromState(engine, store.state());
+            expect(engineProcessesFiniteAfterP7DRestore(engine, runtime, store.isEngineEnabled()),
+                "Boundary-restored engine should process finite audio");
+        }
+
+        beginTest("P7D pedal state payload restore rejects corrupt payloads safely");
+        {
+            struct PayloadCase
+            {
+                const char* name;
+                juce::String payload;
+            };
+
+            const std::array<PayloadCase, 6> payloads{ {
+                { "corrupt base64", "not-valid-base64!!" },
+                { "decoded too small", base64PayloadWithSize(1, 0x11) },
+                { "invalid xml bytes", base64PayloadWithSize(128, 0x33) },
+                { "decoded too large", base64PayloadWithSize(2 * 1024 * 1024 + 8, 0x55) },
+                { "empty payload", juce::String() },
+                { "valid payload with unknown parameter", validUnknownParameterPayloadForP7D() }
+            } };
+
+            for (const auto& payloadCase : payloads)
+            {
+                auto state = makeP7DState();
+                appendP7DPedal(state, Nova::ChainID::LineA, "Overdrive", Nova::ZoneID::Pre,
+                    "p7d-payload-" + juce::String(payloadCase.name), true);
+
+                auto line = Nova::PluginStateModel::getLineTree(state, Nova::ChainID::LineA);
+                line.getChild(0).setProperty(Nova::IDs::PEDAL_STATE, payloadCase.payload, nullptr);
+                Nova::PluginStateModel::canonicalizeStateTree(state);
+
+                SessionStore store;
+                store.applyCommand(SessionStore::Command::makeRestoreState(state));
+
+                AudioEngine engine;
+                engine.prepare(kSampleRate, kBlockSize, 2, 2);
+                SessionPersistence::rebuildEngineFromState(engine, store.state());
+
+                expectEquals((int)engine.getNodes(Nova::ChainID::LineA).size(), 1,
+                    juce::String(payloadCase.name) + " should not invalidate the graph");
+                expect(engineProcessesFiniteAfterP7DRestore(engine, store.getRuntimeGlobalParams(), true),
+                    juce::String(payloadCase.name) + " should leave processing finite");
+            }
+        }
+
+        beginTest("P7D corrupt session recovery leaves engine processable");
+        {
+            StartupPresetPointerGuard startupPointerGuard;
+
+            SessionStore store;
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            juce::ValueTree partialState(Nova::IDs::MAIN_STATE);
+            auto partialSettings = juce::ValueTree(Nova::IDs::SETTINGS);
+            partialSettings.setProperty(Nova::IDs::ENGINE_ON, true, nullptr);
+            partialState.appendChild(partialSettings, nullptr);
+            expect(store.applyCommand(SessionStore::Command::makeRestoreState(partialState)).changed,
+                "Partial state should restore through structural defaults");
+            SessionPersistence::rebuildEngineFromState(engine, store.state());
+            expect(engineProcessesFiniteAfterP7DRestore(engine, store.getRuntimeGlobalParams(), store.isEngineEnabled()),
+                "Partial restore followed by prepare/process should stay finite");
+
+            const auto corruptPreset = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                .getChildFile("nova-p7d-corrupt-session.nova-preset");
+            const uint8_t corruptBytes[] = { 0x4e, 0x4f, 0x56, 0x41, 0x00, 0x13, 0xff };
+            corruptPreset.replaceWithData(corruptBytes, sizeof(corruptBytes));
+            expect(!SessionPersistence::loadPresetFromFile(corruptPreset, store, engine),
+                "Corrupt preset files should be rejected without throwing");
+            expect(engineProcessesFiniteAfterP7DRestore(engine, store.getRuntimeGlobalParams(), store.isEngineEnabled()),
+                "Engine should stay processable after rejected corrupt preset");
+
+            startupPointerGuard.pointerFile.getParentDirectory().createDirectory();
+            startupPointerGuard.pointerFile.replaceWithText(corruptPreset.getFullPathName());
+            expect(!SessionPersistence::restoreStartupPresetIfAvailable(store, engine),
+                "Corrupt startup preset should fail cleanly");
+            expect(!startupPointerGuard.pointerFile.existsAsFile(),
+                "Failed startup restore should clear the bad startup pointer");
+            expect(engineProcessesFiniteAfterP7DRestore(engine, store.getRuntimeGlobalParams(), store.isEngineEnabled()),
+                "Engine should stay processable after corrupt startup recovery");
+
+            NOVAAudioProcessor processor;
+            processor.prepareToPlay(kSampleRate, kBlockSize);
+            const uint8_t hostBytes[] = { 0x01, 0x02, 0x03, 0x04, 0x80, 0x00 };
+            processor.setStateInformation(hostBytes, (int)sizeof(hostBytes));
+            juce::AudioBuffer<float> hostBuffer(2, kBlockSize);
+            juce::MidiBuffer midi;
+            for (int ch = 0; ch < hostBuffer.getNumChannels(); ++ch)
+                for (int i = 0; i < hostBuffer.getNumSamples(); ++i)
+                    hostBuffer.setSample(ch, i, static_cast<float>(0.05 * std::sin(2.0 * juce::MathConstants<double>::pi
+                        * 330.0 * (double)i / kSampleRate)));
+            processor.processBlock(hostBuffer, midi);
+            expect(bufferHasOnlyFiniteSamples(hostBuffer),
+                "Host corrupt state restore should leave plugin processing finite");
+            processor.releaseResources();
+
+            auto offState = makeP7DState();
+            Nova::PluginStateModel::getSettingsTree(offState).setProperty(Nova::IDs::ENGINE_ON, false, nullptr);
+            appendP7DPedal(offState, Nova::ChainID::LineA, "Boost", Nova::ZoneID::Pre, "p7d-off-on", true);
+            store.applyCommand(SessionStore::Command::makeRestoreState(offState));
+            SessionPersistence::rebuildEngineFromState(engine, store.state());
+            expect(engineProcessesFiniteAfterP7DRestore(engine, store.getRuntimeGlobalParams(), false),
+                "Restore while engine is off should stay processable");
+
+            auto onState = offState.createCopy();
+            Nova::PluginStateModel::getSettingsTree(onState).setProperty(Nova::IDs::ENGINE_ON, true, nullptr);
+            store.applyCommand(SessionStore::Command::makeRestoreState(onState));
+            SessionPersistence::rebuildEngineFromState(engine, store.state());
+            expect(engineProcessesFiniteAfterP7DRestore(engine, store.getRuntimeGlobalParams(), true),
+                "Restore after engine re-enable should stay processable");
+
+            corruptPreset.deleteFile();
+        }
+
+        beginTest("P7E host state get/set survives corrupt and repeated engine toggles");
+        {
+            NOVAAudioProcessor processor;
+            processor.prepareToPlay(kSampleRate, kBlockSize);
+
+            const uint8_t corruptHostState[] = { 0x7f, 0x45, 0x00, 0x10, 0xff, 0x01, 0x02 };
+            processor.setStateInformation(corruptHostState, (int)sizeof(corruptHostState));
+
+            juce::MemoryBlock cleanAfterCorrupt;
+            processor.getStateInformation(cleanAfterCorrupt);
+            auto cleanTree = juce::ValueTree::readFromData(cleanAfterCorrupt.getData(), cleanAfterCorrupt.getSize());
+            expect(cleanTree.isValid() && cleanTree.hasType(Nova::IDs::MAIN_STATE),
+                "getStateInformation after corrupt host restore should produce a valid main state");
+            expectEquals(Nova::PluginStateModel::getStateSchemaVersion(cleanTree), Nova::Config::STATE_SCHEMA_VERSION);
+
+            auto makeHostStateBlock = [](bool engineOn)
+            {
+                auto state = makeP7DState();
+                auto settings = Nova::PluginStateModel::getSettingsTree(state);
+                settings.setProperty(Nova::IDs::ENGINE_ON, engineOn, nullptr);
+                settings.setProperty(Nova::IDs::SWITCH_MODE, (int)Nova::SwitcherMode::LineA_Only, nullptr);
+                appendP7DPedal(state, Nova::ChainID::LineA, "Boost", Nova::ZoneID::Pre,
+                    engineOn ? "p7e-host-on" : "p7e-host-off", true);
+                Nova::PluginStateModel::canonicalizeStateTree(state);
+
+                juce::MemoryBlock block;
+                juce::MemoryOutputStream stream(block, false);
+                state.writeToStream(stream);
+                return block;
+            };
+
+            const auto offState = makeHostStateBlock(false);
+            const auto onState = makeHostStateBlock(true);
+
+            for (int i = 0; i < 4; ++i)
+            {
+                const auto& block = (i % 2 == 0) ? offState : onState;
+                processor.setStateInformation(block.getData(), (int)block.getSize());
+
+                juce::AudioBuffer<float> buffer(2, kBlockSize);
+                juce::MidiBuffer midi;
+                for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+                        buffer.setSample(ch, sample, static_cast<float>(0.04 * std::sin(2.0 * juce::MathConstants<double>::pi
+                            * 180.0 * (double)(i * kBlockSize + sample) / kSampleRate)));
+
+                processor.processBlock(buffer, midi);
+                expect(bufferHasOnlyFiniteSamples(buffer),
+                    "Repeated host state restore while toggling engine state should process finite audio");
+
+                juce::MemoryBlock roundTripState;
+                processor.getStateInformation(roundTripState);
+                auto roundTripTree = juce::ValueTree::readFromData(roundTripState.getData(), roundTripState.getSize());
+                expect(roundTripTree.isValid() && roundTripTree.hasType(Nova::IDs::MAIN_STATE),
+                    "Repeated host state restore should remain serializable");
+                expectEquals(Nova::PluginStateModel::getStateSchemaVersion(roundTripTree), Nova::Config::STATE_SCHEMA_VERSION);
+            }
+
+            processor.releaseResources();
+        }
+
+        // ====================================================================
+        // P7C - Allocation Fallback and Feedback Stress Closure
+        // Stress coverage for the audit P1 items: DC accumulation, NaN/Inf
+        // sanitization, high peaks, and max-feedback runaway on Delay / Flanger / Reverb.
+        // Phaser DC is already covered above; Reverb DC is also covered above.
+        // ====================================================================
+
+        beginTest("DelayPedal feedback loop rejects DC accumulation under sustained bias");
+        {
+            DelayPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 1));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.85f));
+            pedal.timeParam->setValueNotifyingHost(pedal.timeParam->convertTo0to1(180.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(7000.0f));
+            pedal.lowCutParam->setValueNotifyingHost(pedal.lowCutParam->convertTo0to1(80.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            const int totalSamples = (int) (kSampleRate * 4.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 220.0f * (float) i / (float) kSampleRate;
+                const float sample = 0.10f * std::sin(phase) + 0.10f;
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto output = renderDelayOutput(pedal, input, kBlockSize);
+            const int lateStart = (int) (kSampleRate * 2.5);
+            const int lateLength = (int) (kSampleRate * 1.0);
+            const double leftDc = std::abs(computeChannelMean(output, 0, lateStart, lateLength));
+            const double rightDc = std::abs(computeChannelMean(output, 1, lateStart, lateLength));
+
+            expect(bufferHasOnlyFiniteSamples(output), "Biased delay render must remain finite");
+            expect(leftDc < 0.02 && rightDc < 0.02,
+                "Delay feedback path should keep the late wet signal centered; leftDc="
+                    + juce::String(leftDc, 8)
+                    + " rightDc=" + juce::String(rightDc, 8));
+        }
+
+        beginTest("DelayPedal max feedback under sustained input stays bounded");
+        {
+            DelayPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 1));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.97f));
+            pedal.timeParam->setValueNotifyingHost(pedal.timeParam->convertTo0to1(135.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.duckParam->setValueNotifyingHost(pedal.duckParam->convertTo0to1(0.0f));
+
+            const int totalSamples = (int) (kSampleRate * 5.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 196.0f * (float) i / (float) kSampleRate;
+                const float sample = 0.30f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto output = renderDelayOutput(pedal, input, kBlockSize);
+            const double peak = computeBufferPeak(output, 0, output.getNumSamples());
+
+            expect(bufferHasOnlyFiniteSamples(output), "Max-feedback delay must remain finite");
+            expect(peak < 8.0, "Max-feedback delay should respect the safety ceiling");
+        }
+
+        beginTest("DelayPedal sanitizes NaN/Inf input under aggressive feedback");
+        {
+            DelayPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.92f));
+            pedal.timeParam->setValueNotifyingHost(pedal.timeParam->convertTo0to1(220.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.6f));
+
+            const int totalSamples = kBlockSize * 24;
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float clean = 0.08f * std::sin(juce::MathConstants<float>::twoPi * 220.0f
+                    * (float) i / (float) kSampleRate);
+                const float v = (i % 17 == 0) ? std::numeric_limits<float>::quiet_NaN()
+                              : (i % 23 == 0) ? std::numeric_limits<float>::infinity()
+                              : (i % 29 == 0) ? -std::numeric_limits<float>::infinity()
+                              : clean;
+                input.setSample(0, i, v);
+                input.setSample(1, i, v);
+            }
+
+            const auto output = renderDelayOutput(pedal, input, kBlockSize);
+            expect(bufferHasOnlyFiniteSamples(output), "Delay must scrub NaN/Inf inputs to a finite output");
+        }
+
+        beginTest("DelayPedal high peak input under feedback stays bounded");
+        {
+            DelayPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 1));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.96f));
+            pedal.timeParam->setValueNotifyingHost(pedal.timeParam->convertTo0to1(95.0f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(6500.0f));
+            pedal.lowCutParam->setValueNotifyingHost(pedal.lowCutParam->convertTo0to1(120.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+            pedal.duckParam->setValueNotifyingHost(pedal.duckParam->convertTo0to1(0.0f));
+
+            const int totalSamples = (int) (kSampleRate * 4.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 329.63f * (float) i / (float) kSampleRate;
+                const float tone = 0.08f * std::sin(phase);
+                const float spike = (i % 397 == 0) ? (i % 794 == 0 ? 3.5f : -3.5f) : 0.0f;
+                const float sample = tone + spike;
+                input.setSample(0, i, sample);
+                input.setSample(1, i, -sample);
+            }
+
+            const auto output = renderDelayOutput(pedal, input, kBlockSize);
+            const double peak = computeBufferPeak(output, 0, output.getNumSamples());
+            const double lateRms = computeWindowRms(output, totalSamples - (int) kSampleRate, (int) kSampleRate);
+
+            expect(bufferHasOnlyFiniteSamples(output), "High-peak delay render must remain finite");
+            expect(peak < 8.0, "High-peak delay should respect the safety ceiling");
+            expect(lateRms < 2.0, "High-peak delay should not sustain near-clip energy");
+        }
+
+        beginTest("FlangerPedal feedback loop rejects DC accumulation under sustained bias");
+        {
+            FlangerPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 0));
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(0.40f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.95f));
+            pedal.manualParam->setValueNotifyingHost(pedal.manualParam->convertTo0to1(0.42f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.85f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.95f));
+
+            const int totalSamples = (int) (kSampleRate * 3.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 220.0f * (float) i / (float) kSampleRate;
+                const float sample = 0.10f * std::sin(phase) + 0.10f;
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto output = renderFlangerOutput(pedal, input, kBlockSize);
+            const int lateStart = (int) (kSampleRate * 1.8);
+            const int lateLength = (int) (kSampleRate * 1.0);
+            const double leftDc = std::abs(computeChannelMean(output, 0, lateStart, lateLength));
+            const double rightDc = std::abs(computeChannelMean(output, 1, lateStart, lateLength));
+
+            expect(bufferHasOnlyFiniteSamples(output), "Biased flanger render must remain finite");
+            expect(leftDc < 0.02 && rightDc < 0.02,
+                "Flanger feedback path should keep the late wet signal centered");
+        }
+
+        beginTest("FlangerPedal max feedback under sustained input stays bounded");
+        {
+            FlangerPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 0));
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(0.32f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.92f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.95f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.95f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            const int totalSamples = (int) (kSampleRate * 4.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 246.94f * (float) i / (float) kSampleRate;
+                const float sample = 0.32f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto output = renderFlangerOutput(pedal, input, kBlockSize);
+            const double peak = computeBufferPeak(output, 0, output.getNumSamples());
+
+            expect(bufferHasOnlyFiniteSamples(output), "Max-feedback flanger must remain finite");
+            expect(peak < 8.0, "Max-feedback flanger should respect the safety ceiling");
+        }
+
+        beginTest("FlangerPedal sanitizes NaN/Inf input under aggressive feedback");
+        {
+            FlangerPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.90f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.85f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.65f));
+
+            const int totalSamples = kBlockSize * 24;
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float clean = 0.08f * std::sin(juce::MathConstants<float>::twoPi * 246.94f
+                    * (float) i / (float) kSampleRate);
+                const float v = (i % 17 == 0) ? std::numeric_limits<float>::quiet_NaN()
+                              : (i % 23 == 0) ? std::numeric_limits<float>::infinity()
+                              : (i % 29 == 0) ? -std::numeric_limits<float>::infinity()
+                              : clean;
+                input.setSample(0, i, v);
+                input.setSample(1, i, v);
+            }
+
+            const auto output = renderFlangerOutput(pedal, input, kBlockSize);
+            expect(bufferHasOnlyFiniteSamples(output), "Flanger must scrub NaN/Inf inputs to a finite output");
+        }
+
+        beginTest("FlangerPedal high peak input under feedback stays bounded");
+        {
+            FlangerPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 0));
+            pedal.rateParam->setValueNotifyingHost(pedal.rateParam->convertTo0to1(0.28f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.96f));
+            pedal.manualParam->setValueNotifyingHost(pedal.manualParam->convertTo0to1(0.36f));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.92f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.90f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            const int totalSamples = (int) (kSampleRate * 3.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 277.18f * (float) i / (float) kSampleRate;
+                const float tone = 0.08f * std::sin(phase);
+                const float spike = (i % 181 == 0) ? (i % 362 == 0 ? 3.0f : -3.0f) : 0.0f;
+                const float sample = tone + spike;
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample * 0.75f);
+            }
+
+            const auto output = renderFlangerOutput(pedal, input, kBlockSize);
+            const double peak = computeBufferPeak(output, 0, output.getNumSamples());
+            const double lateRms = computeWindowRms(output, totalSamples - (int) kSampleRate, (int) kSampleRate);
+
+            expect(bufferHasOnlyFiniteSamples(output), "High-peak flanger render must remain finite");
+            expect(peak < 8.0, "High-peak flanger should respect the safety ceiling");
+            expect(lateRms < 2.0, "High-peak flanger should not sustain near-clip energy");
+        }
+
+        beginTest("ReverbPedal max decay under sustained input stays bounded");
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(0.4f);
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.98f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.96f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.92f));
+            pedal.dampingParam->setValueNotifyingHost(pedal.dampingParam->convertTo0to1(0.18f));
+            pedal.bassCutParam->setValueNotifyingHost(pedal.bassCutParam->convertTo0to1(0.10f));
+            pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(20.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            const int totalSamples = (int) (kSampleRate * 5.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 174.61f * (float) i / (float) kSampleRate;
+                const float sample = 0.30f * std::sin(phase);
+                input.setSample(0, i, sample);
+                input.setSample(1, i, sample);
+            }
+
+            const auto output = renderReverbOutput(pedal, input, kBlockSize);
+            const double peak = computeBufferPeak(output, 0, output.getNumSamples());
+
+            expect(bufferHasOnlyFiniteSamples(output), "Max-decay reverb must remain finite");
+            expect(peak < 8.0, "Max-decay reverb should respect the safety ceiling");
+        }
+
+        beginTest("ReverbPedal sanitizes NaN/Inf input under aggressive feedback");
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(0.4f);
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.92f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.85f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.7f));
+
+            const int totalSamples = kBlockSize * 32;
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float clean = 0.10f * std::sin(juce::MathConstants<float>::twoPi * 174.61f
+                    * (float) i / (float) kSampleRate);
+                const float v = (i % 17 == 0) ? std::numeric_limits<float>::quiet_NaN()
+                              : (i % 23 == 0) ? std::numeric_limits<float>::infinity()
+                              : (i % 29 == 0) ? -std::numeric_limits<float>::infinity()
+                              : clean;
+                input.setSample(0, i, v);
+                input.setSample(1, i, v);
+            }
+
+            const auto output = renderReverbOutput(pedal, input, kBlockSize);
+            expect(bufferHasOnlyFiniteSamples(output), "Reverb must scrub NaN/Inf inputs to a finite output");
+        }
+
+        beginTest("ReverbPedal high peak input under max decay stays bounded");
+        {
+            ReverbPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(0.4f);
+            pedal.decayParam->setValueNotifyingHost(pedal.decayParam->convertTo0to1(0.96f));
+            pedal.sizeParam->setValueNotifyingHost(pedal.sizeParam->convertTo0to1(0.94f));
+            pedal.diffusionParam->setValueNotifyingHost(pedal.diffusionParam->convertTo0to1(0.94f));
+            pedal.dampingParam->setValueNotifyingHost(pedal.dampingParam->convertTo0to1(0.16f));
+            pedal.bassCutParam->setValueNotifyingHost(pedal.bassCutParam->convertTo0to1(0.12f));
+            pedal.predelayParam->setValueNotifyingHost(pedal.predelayParam->convertTo0to1(15.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            const int totalSamples = (int) (kSampleRate * 5.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float phase = juce::MathConstants<float>::twoPi * 164.81f * (float) i / (float) kSampleRate;
+                const float tone = 0.06f * std::sin(phase);
+                const float spike = (i % 997 == 0) ? (i % 1994 == 0 ? 3.5f : -3.5f) : 0.0f;
+                const float sample = tone + spike;
+                input.setSample(0, i, sample);
+                input.setSample(1, i, -sample * 0.85f);
+            }
+
+            const auto output = renderReverbOutput(pedal, input, kBlockSize);
+            const double peak = computeBufferPeak(output, 0, output.getNumSamples());
+            const double lateRms = computeWindowRms(output, totalSamples - (int) kSampleRate, (int) kSampleRate);
+
+            expect(bufferHasOnlyFiniteSamples(output), "High-peak reverb render must remain finite");
+            expect(peak < 8.0, "High-peak reverb should respect the safety ceiling");
+            expect(lateRms < 2.0, "High-peak reverb should not sustain near-clip energy");
+        }
+
+        beginTest("PhaserPedal sanitizes NaN/Inf input under aggressive feedback");
+        {
+            PhaserPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.modeParam->setValueNotifyingHost(normalisedChoiceIndex(pedal.modeParam, 1));
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.78f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.85f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.85f));
+
+            const int totalSamples = kBlockSize * 24;
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            for (int i = 0; i < totalSamples; ++i)
+            {
+                const float clean = 0.10f * std::sin(juce::MathConstants<float>::twoPi * 196.0f
+                    * (float) i / (float) kSampleRate);
+                const float v = (i % 17 == 0) ? std::numeric_limits<float>::quiet_NaN()
+                              : (i % 23 == 0) ? std::numeric_limits<float>::infinity()
+                              : (i % 29 == 0) ? -std::numeric_limits<float>::infinity()
+                              : clean;
+                input.setSample(0, i, v);
+                input.setSample(1, i, v);
+            }
+
+            const auto output = renderPhaserOutput(pedal, input, kBlockSize);
+            expect(bufferHasOnlyFiniteSamples(output), "Phaser must scrub NaN/Inf inputs to a finite output");
         }
     }
 };
@@ -8096,12 +11964,1866 @@ public:
     }
 };
 
+class P10CHighGainProfessionalizationTests final : public juce::UnitTest
+{
+public:
+    P10CHighGainProfessionalizationTests()
+        : juce::UnitTest("P10C High-Gain Professionalization Diagnostics", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        beginTest("p10c_high_gain_amp_nominal_palm_mute");
+        {
+            HighGainAmp amp;
+            prepareP10CProcessor(amp);
+            setRangedParamById(amp, "hgDrive", 7.2f);
+            setRangedParamById(amp, "hgTight", 0.78f);
+            setRangedParamById(amp, "hgPresence", 0.58f);
+            setRangedParamById(amp, "hgTone", 0.52f);
+            setRangedParamById(amp, "hgLevel", 0.68f);
+
+            const auto reports = renderP10CChain({ { "high_gain_amp", &amp } }, 220);
+            expectP10CStageHealthy(reports, "high_gain_amp_nominal_palm_mute");
+            expect(reports.front().metrics.rms() > 0.015,
+                "P10C high-gain amp nominal palm mute should remain audible: " + p10cMetricsSummary(reports.front().metrics));
+        }
+
+        beginTest("p10c_high_gain_amp_extreme_gain_bounded");
+        {
+            HighGainAmp amp;
+            prepareP10CProcessor(amp);
+            setRangedParamById(amp, "hgDrive", 10.0f);
+            setRangedParamById(amp, "hgTight", 0.15f);
+            setRangedParamById(amp, "hgPresence", 1.0f);
+            setRangedParamById(amp, "hgTone", 1.0f);
+            setRangedParamById(amp, "hgLevel", 1.25f);
+
+            const auto reports = renderP10CChain({ { "high_gain_amp_extreme", &amp } }, 220, 1.20f);
+            expectP10CStageHealthy(reports, "high_gain_amp_extreme_gain_bounded", 0.65);
+            expect(reports.front().metrics.clippedSamples < juce::jmax(1, reports.front().metrics.sampleCount) / 2,
+                "P10C high-gain amp extreme case should not collapse into sustained hard clipping: "
+                    + p10cMetricsSummary(reports.front().metrics));
+        }
+
+        beginTest("p10c_distortion_highgainamp_modern4x12_nominal");
+        {
+            DistortionPedal distortion;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+
+            distortion.modeParam->setValueNotifyingHost(normalisedChoiceIndex(distortion.modeParam, 4));
+            distortion.gainParam->setValueNotifyingHost(distortion.gainParam->convertTo0to1(34.0f));
+            distortion.toneParam->setValueNotifyingHost(distortion.toneParam->convertTo0to1(0.48f));
+            distortion.bodyParam->setValueNotifyingHost(distortion.bodyParam->convertTo0to1(0.46f));
+            distortion.tightParam->setValueNotifyingHost(distortion.tightParam->convertTo0to1(0.76f));
+            distortion.levelParam->setValueNotifyingHost(distortion.levelParam->convertTo0to1(0.22f));
+            distortion.mixParam->setValueNotifyingHost(distortion.mixParam->convertTo0to1(1.0f));
+            setRangedParamById(amp, "hgDrive", 6.2f);
+            setRangedParamById(amp, "hgTight", 0.82f);
+            setRangedParamById(amp, "hgPresence", 0.52f);
+            setRangedParamById(amp, "hgLevel", 0.58f);
+            setRangedParamById(cab, "m4x12Low", 1.5f);
+            setRangedParamById(cab, "m4x12Presence", 2.0f);
+            setRangedParamById(cab, "m4x12Level", 0.78f);
+
+            const auto reports = renderP10CChain({ { "distortion", &distortion }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } }, 240);
+            expectP10CStageHealthy(reports, "distortion_highgainamp_modern4x12_nominal", 0.50);
+            expect(reports.back().metrics.nearClipSamples == 0,
+                "P10C nominal Distortion -> HighGain -> Modern4x12 should not need near-clip final cabinet energy: "
+                    + p10cMetricsSummary(reports.back().metrics));
+        }
+
+        beginTest("p10c_boost_highgainamp_modern4x12_nominal");
+        {
+            BoostPedal boost;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(boost);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+
+            setRangedParamById(boost, "boostGain", 8.0f);
+            setRangedParamById(boost, "boostTight", 0.72f);
+            setRangedParamById(boost, "boostTone", 0.54f);
+            setRangedParamById(boost, "boostLevel", 0.74f);
+            setRangedParamById(amp, "hgDrive", 7.4f);
+            setRangedParamById(amp, "hgTight", 0.84f);
+            setRangedParamById(amp, "hgPresence", 0.56f);
+            setRangedParamById(amp, "hgLevel", 0.56f);
+            setRangedParamById(cab, "m4x12Low", 1.0f);
+            setRangedParamById(cab, "m4x12Presence", 2.2f);
+            setRangedParamById(cab, "m4x12Level", 0.76f);
+
+            const auto reports = renderP10CChain({ { "boost", &boost }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } }, 240);
+            expectP10CStageHealthy(reports, "boost_highgainamp_modern4x12_nominal", 0.55);
+            expect(reports[0].metrics.peak < 1.8,
+                "P10C nominal boost should push the amp without destructive pedal output: " + p10cMetricsSummary(reports[0].metrics));
+        }
+
+        beginTest("p10c_fuzz_classicamp_cabinet_nominal");
+        {
+            FuzzPedal fuzz;
+            ClassicAmp amp;
+            CabinetPedal cab;
+            prepareP10CProcessor(fuzz);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+
+            fuzz.fuzzParam->setValueNotifyingHost(fuzz.fuzzParam->convertTo0to1(58.0f));
+            fuzz.toneParam->setValueNotifyingHost(fuzz.toneParam->convertTo0to1(0.44f));
+            fuzz.levelParam->setValueNotifyingHost(fuzz.levelParam->convertTo0to1(0.44f));
+            fuzz.mixParam->setValueNotifyingHost(fuzz.mixParam->convertTo0to1(1.0f));
+            setRangedParamById(amp, "ampDrive", 3.7f);
+            setRangedParamById(amp, "ampPresence", 0.48f);
+            setRangedParamById(amp, "ampLevel", 0.66f);
+            setRangedParamById(cab, "cabThump", 1.0f);
+            setRangedParamById(cab, "cabAir", 0.5f);
+            setRangedParamById(cab, "cabLevel", 0.82f);
+
+            const auto reports = renderP10CChain({ { "fuzz", &fuzz }, { "classic_amp", &amp }, { "cabinet", &cab } }, 240);
+            expectP10CStageHealthy(reports, "fuzz_classicamp_cabinet_nominal", 0.60);
+        }
+
+        beginTest("p10c_distortion_cleanamp_cabinet_nominal");
+        {
+            DistortionPedal distortion;
+            CleanAmp amp;
+            CabinetPedal cab;
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+
+            distortion.modeParam->setValueNotifyingHost(normalisedChoiceIndex(distortion.modeParam, 3));
+            distortion.gainParam->setValueNotifyingHost(distortion.gainParam->convertTo0to1(30.0f));
+            distortion.toneParam->setValueNotifyingHost(distortion.toneParam->convertTo0to1(0.50f));
+            distortion.bodyParam->setValueNotifyingHost(distortion.bodyParam->convertTo0to1(0.50f));
+            distortion.tightParam->setValueNotifyingHost(distortion.tightParam->convertTo0to1(0.64f));
+            distortion.levelParam->setValueNotifyingHost(distortion.levelParam->convertTo0to1(0.24f));
+            distortion.mixParam->setValueNotifyingHost(distortion.mixParam->convertTo0to1(1.0f));
+            setRangedParamById(amp, "cleanDrive", 0.38f);
+            setRangedParamById(amp, "cleanLevel", 0.72f);
+            setRangedParamById(cab, "cabThump", 0.5f);
+            setRangedParamById(cab, "cabAir", 0.0f);
+            setRangedParamById(cab, "cabLevel", 0.84f);
+
+            const auto reports = renderP10CChain({ { "distortion", &distortion }, { "clean_amp", &amp }, { "cabinet", &cab } }, 240);
+            expectP10CStageHealthy(reports, "distortion_cleanamp_cabinet_nominal", 0.50);
+            expect(reports.front().metrics.peak < 1.05,
+                "P10C Distortion into clean amp should be contained before the amp: " + p10cMetricsSummary(reports.front().metrics));
+        }
+
+        beginTest("p10c_high_gain_chain_bypass_recovery");
+        {
+            BoostPedal boost;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            OutputChainProcessor output;
+            prepareP10CProcessor(boost);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            output.prepareToPlay(kSampleRate, kBlockSize);
+            output.setParams(-6.0f, 0.0f);
+
+            setRangedParamById(boost, "boostGain", 7.0f);
+            setRangedParamById(boost, "boostTight", 0.74f);
+            setRangedParamById(boost, "boostLevel", 0.72f);
+            setRangedParamById(amp, "hgDrive", 7.6f);
+            setRangedParamById(amp, "hgTight", 0.82f);
+            setRangedParamById(amp, "hgPresence", 0.54f);
+            setRangedParamById(amp, "hgLevel", 0.56f);
+            setRangedParamById(cab, "m4x12Level", 0.76f);
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            P10CWindowMetrics active;
+            P10CWindowMetrics recovery;
+
+            for (int blockIndex = 0; blockIndex < 260; ++blockIndex)
+            {
+                boost.setBypassed(blockIndex >= 120 && blockIndex < 170);
+                fillP10CPalmMuteBlock(block, blockIndex);
+                boost.processBlock(block, midi);
+                amp.processBlock(block, midi);
+                cab.processBlock(block, midi);
+                output.processBlock(block, midi);
+
+                if (blockIndex >= 60 && blockIndex < 115)
+                    active.capture(block);
+                else if (blockIndex >= 205)
+                    recovery.capture(block);
+            }
+
+            expect(active.finite && recovery.finite,
+                "P10C high-gain bypass recovery must remain finite");
+            expect(recovery.peak <= juce::jmax(0.35, active.peak * 1.35),
+                "P10C high-gain bypass recovery should return near active-chain headroom; active="
+                    + p10cMetricsSummary(active) + ", recovery=" + p10cMetricsSummary(recovery));
+            expect(recovery.adjacentDeltaPeak < 0.75,
+                "P10C high-gain bypass recovery should not produce harsh transition spikes: "
+                    + p10cMetricsSummary(recovery));
+        }
+
+        beginTest("p10c_high_gain_chain_outputchain_limiter_independence");
+        {
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            OutputChainProcessor output;
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            output.prepareToPlay(kSampleRate, kBlockSize);
+            output.setParams(-6.0f, 0.0f);
+
+            setRangedParamById(amp, "hgDrive", 7.2f);
+            setRangedParamById(amp, "hgTight", 0.82f);
+            setRangedParamById(amp, "hgPresence", 0.54f);
+            setRangedParamById(amp, "hgLevel", 0.58f);
+            setRangedParamById(cab, "m4x12Low", 1.0f);
+            setRangedParamById(cab, "m4x12Presence", 2.0f);
+            setRangedParamById(cab, "m4x12Level", 0.78f);
+
+            int limiterTouchedSamples = 0;
+            int limiterActiveBlocks = 0;
+            int sustainedClampBlocks = 0;
+            const auto reports = renderP10CChain({ { "high_gain_amp", &amp }, { "modern_4x12", &cab }, { "output_chain", &output } },
+                240, 1.0f, &output, &limiterTouchedSamples, &limiterActiveBlocks, &sustainedClampBlocks);
+
+            expectP10CStageHealthy(reports, "high_gain_chain_outputchain_limiter_independence", 0.50);
+            expect(limiterTouchedSamples == 0 && limiterActiveBlocks == 0 && sustainedClampBlocks == 0,
+                "P10C high-gain nominal chain should be staged before OutputChain limiting; limiterTouchedSamples="
+                    + juce::String(limiterTouchedSamples)
+                    + ", limiterActiveBlocks="
+                    + juce::String(limiterActiveBlocks)
+                    + ", sustainedClampBlocks="
+                    + juce::String(sustainedClampBlocks)
+                    + ", output="
+                    + p10cMetricsSummary(reports.back().metrics));
+        }
+    }
+
+private:
+    void expectP10CStageHealthy(const std::vector<P10CStageMetrics>& reports,
+                                const juce::String& scenario,
+                                double maxDc = 0.75)
+    {
+        expect(!reports.empty(), "P10C scenario must emit stage reports: " + scenario);
+        for (const auto& report : reports)
+        {
+            const auto& m = report.metrics;
+            expect(m.finite && m.invalidSamples == 0,
+                "P10C " + scenario + " stage " + report.name + " must remain finite: " + p10cMetricsSummary(m));
+            expect(m.peak <= (double) Nova::Config::HARD_ABS_LIMIT_LINEAR,
+                "P10C " + scenario + " stage " + report.name + " must stay inside hard absolute limit: " + p10cMetricsSummary(m));
+            expect(m.dc() < maxDc,
+                "P10C " + scenario + " stage " + report.name + " should not accumulate large DC: " + p10cMetricsSummary(m));
+            expect(m.adjacentDeltaPeak < 12.0,
+                "P10C " + scenario + " stage " + report.name + " should not emit destructive adjacent deltas: " + p10cMetricsSummary(m));
+            expect(m.brightnessProxy() < 8.0,
+                "P10C " + scenario + " stage " + report.name + " brightness proxy should remain bounded: " + p10cMetricsSummary(m));
+            expect(m.rumbleProxy() < 1.25,
+                "P10C " + scenario + " stage " + report.name + " rumble proxy should remain bounded: " + p10cMetricsSummary(m));
+        }
+    }
+};
+
+class P10DHighGainArtifactFizzHelicopterTests final : public juce::UnitTest
+{
+public:
+    P10DHighGainArtifactFizzHelicopterTests()
+        : juce::UnitTest("P10D High-Gain Artifact/Fizz/Helicopter Diagnostics", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        beginTest("high_gain_helicopter_modulation_guard");
+        {
+            HighGainAmp ampOnly;
+            prepareP10CProcessor(ampOnly);
+            configureHighGainAmp(ampOnly);
+            const auto ampOnlyReports = renderP10DChain({ { "high_gain_amp", &ampOnly } },
+                760, P10DSignalKind::SustainLong, 1.0f, 48);
+            expectSustainStable(ampOnlyReports.back(), "HighGainAmp sustain");
+
+            HighGainAmp ampCab;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(ampCab);
+            prepareP10CProcessor(cab);
+            configureHighGainAmp(ampCab);
+            configureModernCab(cab);
+            const auto ampCabReports = renderP10DChain({ { "high_gain_amp", &ampCab }, { "modern_4x12", &cab } },
+                760, P10DSignalKind::SustainLong, 1.0f, 48);
+            expectSustainStable(ampCabReports.back(), "HighGainAmp -> Modern4x12 sustain");
+
+            BoostPedal boost;
+            HighGainAmp boostedAmp;
+            Modern4x12Cabinet boostedCab;
+            prepareP10CProcessor(boost);
+            prepareP10CProcessor(boostedAmp);
+            prepareP10CProcessor(boostedCab);
+            configureBoost(boost);
+            configureHighGainAmp(boostedAmp);
+            configureModernCab(boostedCab);
+            const auto boostReports = renderP10DChain({ { "boost", &boost }, { "high_gain_amp", &boostedAmp }, { "modern_4x12", &boostedCab } },
+                760, P10DSignalKind::SustainLong, 0.92f, 48);
+            expectSustainStable(boostReports.back(), "Boost -> HighGainAmp -> Modern4x12 sustain");
+        }
+
+        beginTest("high_gain_fizz_brightness_guard");
+        {
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureHighGainAmp(amp);
+            configureModernCab(cab);
+
+            const auto reports = renderP10DChain({ { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                360, P10DSignalKind::StrongChord, 1.15f, 36);
+            expectProfessionalFinal(reports.back(), "HighGainAmp -> Modern4x12 brightness");
+            expect(reports.back().metrics.highFrequencyEnergyProxy() < 0.040,
+                "P10D cabinet should keep high-gain fizz proxy inside a bounded post-cab range; amp="
+                    + p10dMetricsSummary(reports.front().metrics)
+                    + ", cab="
+                    + p10dMetricsSummary(reports.back().metrics));
+            expect(reports.back().metrics.signal.brightnessProxy() < 0.85,
+                "P10D post-cab brightness proxy must remain bounded: " + p10dMetricsSummary(reports.back().metrics));
+        }
+
+        beginTest("high_gain_strong_input_no_clipping");
+        {
+            assertStrongInputChain("high_gain_manual_warn_repro_nominal", P10DSignalKind::PalmMuteRepeated, 1.30f);
+            assertStrongInputChain("high_gain_palm_mute_strong_input", P10DSignalKind::LowEBurst, 1.45f);
+            assertStrongInputChain("high_gain_sustain_strong_input", P10DSignalKind::SustainLong, 1.32f);
+            assertStrongInputChain("high_gain_chord_strong_input", P10DSignalKind::StrongChord, 1.18f);
+        }
+
+        beginTest("tight_modern_rhythm_high_gain_artifact_guard");
+        {
+            NoiseGatePedal gate;
+            BoostPedal boost;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(gate);
+            prepareP10CProcessor(boost);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureTightModernGate(gate);
+            configureBoost(boost);
+            configureHighGainAmp(amp);
+            configureModernCab(cab);
+
+            const auto reports = renderP10DChain(
+                { { "noise_gate", &gate }, { "boost", &boost }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                620, P10DSignalKind::SilenceRecovery, 1.05f, 24);
+            expectProfessionalFinal(reports.back(), "Tight Modern Rhythm artifact guard");
+            expect(reports.front().metrics.gateTransitions <= 18 && reports.front().metrics.gateDeltaPeak < 0.82,
+                "P10D Noise Gate should not chatter in the tight-modern recovery pattern: "
+                    + p10dMetricsSummary(reports.front().metrics));
+            expect(reports.back().metrics.signal.nearClipSamples == 0 && reports.back().metrics.signal.clippedSamples == 0,
+                "P10D Tight Modern Rhythm phrase/recovery pattern should stay bounded without clipping: "
+                    + p10dMetricsSummary(reports.back().metrics));
+        }
+
+        beginTest("distortion_highgain_modern4x12_professional_bounds");
+        {
+            DistortionPedal distortion;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureStudioDistortion(distortion);
+            configureHighGainAmp(amp);
+            configureModernCab(cab);
+
+            const auto reports = renderP10DChain(
+                { { "distortion", &distortion }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                620, P10DSignalKind::PalmMuteRepeated, 1.08f, 32);
+            expectProfessionalFinal(reports.back(), "Distortion -> HighGainAmp -> Modern4x12 professional bounds");
+            expect(reports.front().metrics.gateTransitions <= 16 && reports.front().metrics.gateDeltaPeak < 0.55,
+                "P10D integrated distortion gate should not chatter into the amp: "
+                    + p10dMetricsSummary(reports.front().metrics));
+            expect(reports.back().metrics.highFrequencyEnergyProxy() < 0.58,
+                "P10D Distortion -> HighGainAmp -> Modern4x12 should keep fizz proxy bounded: "
+                    + p10dMetricsSummary(reports.back().metrics));
+        }
+
+        beginTest("high_gain_noise_gate_chatter_guard");
+        {
+            NoiseGatePedal gate;
+            prepareP10CProcessor(gate);
+            configureTightModernGate(gate);
+
+            const auto reports = renderP10DChain({ { "noise_gate", &gate } },
+                620, P10DSignalKind::SilenceRecovery, 1.0f, 24);
+            expect(reports.front().metrics.signal.finite && reports.front().metrics.signal.invalidSamples == 0,
+                "P10D noise gate chatter render must remain finite: " + p10dMetricsSummary(reports.front().metrics));
+            expect(reports.front().metrics.gateTransitions <= 18,
+                "P10D noise gate should not repeatedly open/close around phrase tails: "
+                    + p10dMetricsSummary(reports.front().metrics));
+            expect(reports.front().metrics.gateDeltaPeak < 0.82,
+                "P10D noise gate gain should move without hard tremolo steps: " + p10dMetricsSummary(reports.front().metrics));
+        }
+
+        beginTest("modern4x12_high_gain_fizz_control");
+        {
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureHighGainAmp(amp);
+            configureModernCab(cab);
+
+            const auto reports = renderP10DChain({ { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                360, P10DSignalKind::LowEBurst, 1.20f, 36);
+            expect(reports.back().metrics.highFrequencyEnergyProxy() < 0.040,
+                "P10D Modern4x12 must keep high-gain fizz proxy inside a bounded post-cab range; amp="
+                    + p10dMetricsSummary(reports.front().metrics)
+                    + ", cab="
+                    + p10dMetricsSummary(reports.back().metrics));
+            expectProfessionalFinal(reports.back(), "Modern4x12 high-gain fizz control");
+        }
+    }
+
+private:
+    static void configureHighGainAmp(HighGainAmp& amp)
+    {
+        setRangedParamById(amp, "hgDrive", 7.4f);
+        setRangedParamById(amp, "hgTight", 0.82f);
+        setRangedParamById(amp, "hgPresence", 0.52f);
+        setRangedParamById(amp, "hgTone", 0.50f);
+        setRangedParamById(amp, "hgLevel", 0.58f);
+    }
+
+    static void configureModernCab(Modern4x12Cabinet& cab)
+    {
+        setRangedParamById(cab, "m4x12Low", 1.0f);
+        setRangedParamById(cab, "m4x12Presence", 1.6f);
+        setRangedParamById(cab, "m4x12Distance", 0.34f);
+        setRangedParamById(cab, "m4x12Level", 0.78f);
+        setRangedParamById(cab, "m4x12Mix", 1.0f);
+    }
+
+    static void configureBoost(BoostPedal& boost)
+    {
+        setRangedParamById(boost, "boostGain", 7.0f);
+        setRangedParamById(boost, "boostTight", 0.76f);
+        setRangedParamById(boost, "boostTone", 0.50f);
+        setRangedParamById(boost, "boostLevel", 0.70f);
+    }
+
+    static void configureStudioDistortion(DistortionPedal& distortion)
+    {
+        distortion.modeParam->setValueNotifyingHost(normalisedChoiceIndex(distortion.modeParam, 4));
+        distortion.gainParam->setValueNotifyingHost(distortion.gainParam->convertTo0to1(36.0f));
+        distortion.toneParam->setValueNotifyingHost(distortion.toneParam->convertTo0to1(0.45f));
+        distortion.bodyParam->setValueNotifyingHost(distortion.bodyParam->convertTo0to1(0.46f));
+        distortion.tightParam->setValueNotifyingHost(distortion.tightParam->convertTo0to1(0.74f));
+        distortion.levelParam->setValueNotifyingHost(distortion.levelParam->convertTo0to1(0.21f));
+        distortion.mixParam->setValueNotifyingHost(distortion.mixParam->convertTo0to1(1.0f));
+    }
+
+    static void configureTightModernGate(NoiseGatePedal& gate)
+    {
+        gate.thresholdParam->setValueNotifyingHost(gate.thresholdParam->convertTo0to1(-48.0f));
+        gate.attackParam->setValueNotifyingHost(gate.attackParam->convertTo0to1(0.32f));
+        gate.holdParam->setValueNotifyingHost(gate.holdParam->convertTo0to1(92.0f));
+        gate.releaseParam->setValueNotifyingHost(gate.releaseParam->convertTo0to1(155.0f));
+        gate.rangeParam->setValueNotifyingHost(gate.rangeParam->convertTo0to1(-78.0f));
+        gate.hysteresisParam->setValueNotifyingHost(gate.hysteresisParam->convertTo0to1(10.5f));
+        gate.focusParam->setValueNotifyingHost(gate.focusParam->convertTo0to1(0.62f));
+    }
+
+    void assertStrongInputChain(const juce::String& scenario, P10DSignalKind signalKind, float inputScale)
+    {
+        BoostPedal boost;
+        HighGainAmp amp;
+        Modern4x12Cabinet cab;
+        OutputChainProcessor output;
+        prepareP10CProcessor(boost);
+        prepareP10CProcessor(amp);
+        prepareP10CProcessor(cab);
+        output.prepareToPlay(kSampleRate, kBlockSize);
+        output.setParams(-6.0f, 0.0f);
+        configureBoost(boost);
+        configureHighGainAmp(amp);
+        configureModernCab(cab);
+
+        int limiterTouchedSamples = 0;
+        int limiterActiveBlocks = 0;
+        int sustainedClampBlocks = 0;
+        const auto reports = renderP10DChain(
+            { { "boost", &boost }, { "high_gain_amp", &amp }, { "modern_4x12", &cab }, { "output_chain", &output } },
+            430, signalKind, inputScale, 28, &output, &limiterTouchedSamples, &limiterActiveBlocks, &sustainedClampBlocks);
+
+        const auto& final = reports.back().metrics;
+        expect(final.signal.finite && final.signal.invalidSamples == 0,
+            "P10D " + scenario + " must remain finite: " + p10dMetricsSummary(final));
+        expect(final.signal.clippedSamples == 0 && final.signal.nearClipSamples == 0 && final.signal.peak < 0.98,
+            "P10D " + scenario + " should keep strong input below near-clip at final output: " + p10dMetricsSummary(final));
+        expect(limiterTouchedSamples == 0 && limiterActiveBlocks == 0 && sustainedClampBlocks == 0,
+            "P10D " + scenario + " must not depend on OutputChain limiter masking; limiterTouchedSamples="
+                + juce::String(limiterTouchedSamples)
+                + ", limiterActiveBlocks="
+                + juce::String(limiterActiveBlocks)
+                + ", sustainedClampBlocks="
+                + juce::String(sustainedClampBlocks)
+                + ", final="
+                + p10dMetricsSummary(final));
+    }
+
+    void expectSustainStable(const P10DStageMetrics& report, const juce::String& label)
+    {
+        const auto& m = report.metrics;
+        expect(m.signal.finite && m.signal.invalidSamples == 0,
+            "P10D " + label + " must remain finite: " + p10dMetricsSummary(m));
+        expect(m.modulationDepth3To20() < 0.34,
+            "P10D " + label + " should not show helicopter-like 3-20 Hz amplitude modulation: " + p10dMetricsSummary(m));
+        expect(m.blockRmsVarianceProxy() < 0.82,
+            "P10D " + label + " should not have excessive block-to-block RMS variance: " + p10dMetricsSummary(m));
+        expect(m.signal.clippedSamples == 0,
+            "P10D " + label + " should not clip under sustained high-gain input: " + p10dMetricsSummary(m));
+    }
+
+    void expectProfessionalFinal(const P10DStageMetrics& report, const juce::String& label)
+    {
+        const auto& m = report.metrics;
+        expect(m.signal.finite && m.signal.invalidSamples == 0,
+            "P10D " + label + " final output must remain finite: " + p10dMetricsSummary(m));
+        expect(m.signal.clippedSamples == 0,
+            "P10D " + label + " final output must not hard clip: " + p10dMetricsSummary(m));
+        expect(m.signal.nearClipSamples == 0 && m.signal.peak < 0.98,
+            "P10D " + label + " final output should retain strong-input headroom: " + p10dMetricsSummary(m));
+        expect(m.signal.dc() < 0.025,
+            "P10D " + label + " final output should stay low-DC: " + p10dMetricsSummary(m));
+        expect(m.signal.adjacentDeltaPeak < 0.95,
+            "P10D " + label + " final output should avoid harsh adjacent-sample jumps: " + p10dMetricsSummary(m));
+    }
+};
+
+class P10EHighGainMuteHelicopterReverbTests final : public juce::UnitTest
+{
+public:
+    P10EHighGainMuteHelicopterReverbTests()
+        : juce::UnitTest("P10E High-Gain Mute/Helicopter/Reverb Follow-up", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        beginTest("p10e_distortion_highgain_mute_repro");
+        {
+            DistortionPedal distortion;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10EDistortion(distortion);
+            configureP10EHighGainAmp(amp);
+            configureP10EModernCab(cab);
+
+            const auto reports = renderP10ELongChain(
+                { { "distortion", &distortion }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                1700, P10DSignalKind::SilenceRecovery, 1.16f, 36);
+            expectNoUnexpectedMute(reports.back(), "Distortion -> HighGainAmp -> Modern4x12");
+            expectBoundedFinal(reports.back(), "Distortion -> HighGainAmp -> Modern4x12");
+            expect(reports.front().silentWhileInputBlocks <= 8,
+                "P10E Distortion stage should not enter a stuck muted state while receiving input: "
+                    + p10eLongSummary(reports.front()));
+        }
+
+        beginTest("p10e_distortion_cleanamp_helicopter_repro");
+        {
+            DistortionPedal distortion;
+            CleanAmp amp;
+            CabinetPedal cab;
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10EDistortion(distortion);
+            configureP10ECleanAmp(amp);
+            configureP10EClassicCab(cab);
+
+            const auto reports = renderP10ELongChain(
+                { { "distortion", &distortion }, { "clean_amp", &amp }, { "cabinet", &cab } },
+                1500, P10DSignalKind::PalmMuteRepeated, 1.14f, 36);
+            expectNoUnexpectedMute(reports.back(), "Distortion -> CleanAmp -> Cabinet");
+            expectNoHelicopter(reports.back(), "Distortion -> CleanAmp -> Cabinet", 0.74);
+            expectBoundedFinal(reports.back(), "Distortion -> CleanAmp -> Cabinet");
+        }
+
+        beginTest("p10e_distortion_reverb_helicopter_guard");
+        {
+            DistortionPedal distortion;
+            ReverbPedal reverb;
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(reverb);
+            configureP10EDistortion(distortion);
+            configureP10EReverb(reverb);
+
+            const auto reports = renderP10ELongChain(
+                { { "distortion", &distortion }, { "reverb", &reverb } },
+                1350, P10DSignalKind::StrongChord, 1.22f, 36, 760);
+            expectNoUnexpectedMute(reports.back(), "Distortion -> Reverb");
+            expectNoHelicopter(reports.back(), "Distortion -> Reverb", 0.78);
+            expectTailRecovered(reports.back(), "Distortion -> Reverb");
+            expectBoundedFinal(reports.back(), "Distortion -> Reverb");
+
+            ReverbPedal saturatedReverb;
+            prepareP10CProcessor(saturatedReverb);
+            configureP10EReverb(saturatedReverb);
+            const auto soloReports = renderP10ELongChain(
+                { { "reverb_saturated_input", &saturatedReverb } },
+                1220, P10DSignalKind::StrongChord, 1.95f, 36, 640);
+            expectNoHelicopter(soloReports.back(), "Reverb saturated-input recovery", 0.82);
+            expectTailRecovered(soloReports.back(), "Reverb saturated-input recovery");
+            expectBoundedFinal(soloReports.back(), "Reverb saturated-input recovery");
+        }
+
+        beginTest("p10e_distortion_reverb_chorus_recovery_guard");
+        {
+            DistortionPedal distortion;
+            ReverbPedal reverb;
+            ChorusPedal chorus;
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(reverb);
+            prepareP10CProcessor(chorus);
+            configureP10EDistortion(distortion);
+            configureP10EReverb(reverb);
+            configureP10EChorus(chorus);
+
+            const auto reports = renderP10ELongChain(
+                { { "distortion", &distortion }, { "reverb", &reverb }, { "chorus", &chorus } },
+                1400, P10DSignalKind::SilenceRecovery, 1.16f, 36, 760);
+            expectNoUnexpectedMute(reports.back(), "Distortion -> Reverb -> Chorus");
+            expectNoHelicopter(reports.back(), "Distortion -> Reverb -> Chorus", 1.45, 2.65);
+            expectTailRecovered(reports.back(), "Distortion -> Reverb -> Chorus");
+            expectBoundedFinal(reports.back(), "Distortion -> Reverb -> Chorus");
+        }
+
+        beginTest("p10e_boost_highgain_noise_clipping_guard");
+        {
+            BoostPedal boost;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(boost);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10EBoost(boost);
+            configureP10EHighGainAmp(amp);
+            configureP10EModernCab(cab);
+
+            const auto reports = renderP10ELongChain(
+                { { "boost", &boost }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                1500, P10DSignalKind::LowEBurst, 1.32f, 36, 840);
+            expectBoundedFinal(reports.front(), "Boost stage into HighGainAmp");
+            expectNoUnexpectedMute(reports.back(), "Boost -> HighGainAmp -> Modern4x12");
+            expectBoundedFinal(reports.back(), "Boost -> HighGainAmp -> Modern4x12");
+            expect(reports.back().tailRms < 0.012,
+                "P10E Boost -> HighGainAmp should not leave a ground-like noise floor after silence: "
+                    + p10eLongSummary(reports.back()));
+            expect(reports.back().metrics.highFrequencyEnergyProxy() < 0.075,
+                "P10E Boost -> HighGainAmp should keep fizz proxy bounded after the cabinet: "
+                    + p10eLongSummary(reports.back()));
+        }
+
+        beginTest("p10e_fuzz_classicamp_stuck_silence_guard");
+        {
+            FuzzPedal fuzz;
+            ClassicAmp amp;
+            CabinetPedal cab;
+            prepareP10CProcessor(fuzz);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10EFuzz(fuzz);
+            configureP10EClassicAmp(amp);
+            configureP10EClassicCab(cab);
+
+            const auto reports = renderP10ELongChain(
+                { { "fuzz", &fuzz }, { "classic_amp", &amp }, { "cabinet", &cab } },
+                1700, P10DSignalKind::SilenceRecovery, 1.08f, 36);
+            expectNoUnexpectedMute(reports.front(), "Fuzz stage");
+            expectNoUnexpectedMute(reports.back(), "Fuzz -> ClassicAmp -> Cabinet");
+            expectBoundedFinal(reports.back(), "Fuzz -> ClassicAmp -> Cabinet", 1.65);
+        }
+
+        beginTest("p10e_sample_rate_reset_recovers_stuck_chain");
+        {
+            DistortionPedal distortion;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10EDistortion(distortion);
+            configureP10EHighGainAmp(amp);
+            configureP10EModernCab(cab);
+
+            const auto preResetReports = renderP10ELongChain(
+                { { "distortion", &distortion }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                1050, P10DSignalKind::SilenceRecovery, 1.14f, 36);
+            expectNoUnexpectedMute(preResetReports.back(), "Pre-reset Distortion -> HighGainAmp -> Modern4x12");
+
+            prepareProcessorAt(distortion, 44100.0);
+            prepareProcessorAt(amp, 44100.0);
+            prepareProcessorAt(cab, 44100.0);
+
+            const auto postResetReports = renderP10ELongChain(
+                { { "distortion", &distortion }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                760, P10DSignalKind::PalmMuteRepeated, 1.08f, 28);
+            expectNoUnexpectedMute(postResetReports.back(), "Post sample-rate-reset Distortion -> HighGainAmp -> Modern4x12");
+            expect(postResetReports.back().finalActiveRms > preResetReports.back().finalActiveRms * 0.18,
+                "P10E sample-rate reset should recover to an audible chain level, not a silent latch; pre="
+                    + p10eLongSummary(preResetReports.back())
+                    + ", post="
+                    + p10eLongSummary(postResetReports.back()));
+            expectBoundedFinal(postResetReports.back(), "Post sample-rate-reset Distortion -> HighGainAmp -> Modern4x12");
+        }
+
+        beginTest("p10e_tight_modern_rhythm_availability_doc_check");
+        {
+            const auto repoRoot = findRepoRoot();
+            const auto generatedPreset = repoRoot.getChildFile("Resources")
+                                                .getChildFile("Presets")
+                                                .getChildFile("DraftFactory")
+                                                .getChildFile("generated")
+                                                .getChildFile("Tight-Modern-Rhythm.nova-preset");
+            expect(repoRoot.exists() && generatedPreset.existsAsFile(),
+                "P10E Tight Modern Rhythm draft preset should exist as generated draft artifact; repoRoot="
+                    + repoRoot.getFullPathName()
+                    + ", preset="
+                    + generatedPreset.getFullPathName());
+        }
+    }
+
+private:
+    static void prepareProcessorAt(juce::AudioProcessor& processor, double sampleRate)
+    {
+        processor.setPlayConfigDetails(2, 2, sampleRate, kBlockSize);
+        processor.prepareToPlay(sampleRate, kBlockSize);
+    }
+
+    static juce::File findRepoRoot()
+    {
+        auto dir = juce::File::getCurrentWorkingDirectory();
+        for (int i = 0; i < 10; ++i)
+        {
+            if (dir.getChildFile("NOVA.jucer").existsAsFile())
+                return dir;
+
+            const auto parent = dir.getParentDirectory();
+            if (parent == dir)
+                break;
+            dir = parent;
+        }
+
+        return juce::File::getCurrentWorkingDirectory();
+    }
+
+    static void configureP10ECleanAmp(CleanAmp& amp)
+    {
+        setRangedParamById(amp, "cleanDrive", 0.42f);
+        setRangedParamById(amp, "cleanBass", 0.48f);
+        setRangedParamById(amp, "cleanTreble", 0.50f);
+        setRangedParamById(amp, "cleanReverb", 0.0f);
+        setRangedParamById(amp, "cleanLevel", 0.64f);
+    }
+
+    static void configureP10EClassicAmp(ClassicAmp& amp)
+    {
+        setRangedParamById(amp, "ampDrive", 3.4f);
+        setRangedParamById(amp, "ampTone", 0.46f);
+        setRangedParamById(amp, "ampPresence", 0.42f);
+        setRangedParamById(amp, "ampDepth", 0.42f);
+        setRangedParamById(amp, "ampLevel", 0.58f);
+    }
+
+    static void configureP10EClassicCab(CabinetPedal& cab)
+    {
+        setRangedParamById(cab, "cabThump", 0.8f);
+        setRangedParamById(cab, "cabAir", 0.7f);
+        setRangedParamById(cab, "cabDistance", 0.36f);
+        setRangedParamById(cab, "cabLevel", 0.72f);
+        setRangedParamById(cab, "cabMix", 1.0f);
+    }
+
+    static void configureP10EChorus(ChorusPedal& chorus)
+    {
+        chorus.modeParam->setValueNotifyingHost(normalisedChoiceIndex(chorus.modeParam, 0));
+        chorus.rateParam->setValueNotifyingHost(chorus.rateParam->convertTo0to1(0.46f));
+        chorus.depthParam->setValueNotifyingHost(chorus.depthParam->convertTo0to1(0.30f));
+        chorus.widthParam->setValueNotifyingHost(chorus.widthParam->convertTo0to1(0.54f));
+        chorus.toneParam->setValueNotifyingHost(chorus.toneParam->convertTo0to1(0.46f));
+        chorus.mixParam->setValueNotifyingHost(chorus.mixParam->convertTo0to1(0.22f));
+        chorus.lagParam->setValueNotifyingHost(chorus.lagParam->convertTo0to1(6.5f));
+    }
+
+    void expectNoUnexpectedMute(const P10ELongStageMetrics& report, const juce::String& label)
+    {
+        expect(report.metrics.signal.finite && report.metrics.signal.invalidSamples == 0,
+            "P10E " + label + " must remain finite: " + p10eLongSummary(report));
+        expect(report.finalActiveRms > 0.0012,
+            "P10E " + label + " should remain audible while active input is present: " + p10eLongSummary(report));
+        expect(report.silentWhileInputBlocks <= 10 && report.maxConsecutiveSilentBlocks <= 4,
+            "P10E " + label + " should not mute or latch closed while input is active: " + p10eLongSummary(report));
+    }
+
+    void expectNoHelicopter(const P10ELongStageMetrics& report,
+                            const juce::String& label,
+                            double maxModDepth,
+                            double maxBlockVariance = 1.80)
+    {
+        expect(report.metrics.modulationDepth3To20() < maxModDepth,
+            "P10E " + label + " should avoid helicopter-like 3-20 Hz amplitude modulation: "
+                + p10eLongSummary(report));
+        expect(report.metrics.blockRmsVarianceProxy() < maxBlockVariance,
+            "P10E " + label + " should avoid excessive block-to-block RMS variance: "
+                + p10eLongSummary(report));
+    }
+
+    void expectTailRecovered(const P10ELongStageMetrics& report, const juce::String& label)
+    {
+        const double allowedTail = juce::jmax(0.010, report.maxActiveRms * 0.42);
+        expect(report.tailRms < allowedTail,
+            "P10E " + label + " should recover after silence without runaway tail or tremolo floor: "
+                + p10eLongSummary(report));
+    }
+
+    void expectBoundedFinal(const P10ELongStageMetrics& report,
+                            const juce::String& label,
+                            double maxAdjacentDelta = 1.15)
+    {
+        const auto& m = report.metrics;
+        expect(m.signal.finite && m.signal.invalidSamples == 0,
+            "P10E " + label + " output must remain finite: " + p10eLongSummary(report));
+        expect(m.signal.clippedSamples == 0 && m.signal.nearClipSamples == 0 && m.signal.peak < 0.99,
+            "P10E " + label + " should stay below near-clip without OutputChain masking: "
+                + p10eLongSummary(report));
+        expect(m.signal.dc() < 0.035,
+            "P10E " + label + " should not accumulate DC: " + p10eLongSummary(report));
+        expect(m.signal.adjacentDeltaPeak < maxAdjacentDelta,
+            "P10E " + label + " should not emit harsh adjacent-sample jumps: "
+                + p10eLongSummary(report));
+    }
+};
+
+class P10FHighGainRootCauseFuzzReferenceTests final : public juce::UnitTest
+{
+public:
+    P10FHighGainRootCauseFuzzReferenceTests()
+        : juce::UnitTest("P10F High-Gain Architecture Root Fix / Fuzz Reference", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        beginTest("p10f_fuzz_reference_gain_behavior");
+        {
+            FuzzPedal fuzz;
+            ClassicAmp amp;
+            CabinetPedal cab;
+            prepareP10CProcessor(fuzz);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10FFuzzReference(fuzz);
+            configureP10FClassicAmp(amp);
+            configureP10FClassicCab(cab);
+
+            const auto reports = renderP10FChain(
+                { { "fuzz", &fuzz }, { "classic_amp", &amp }, { "cabinet", &cab } },
+                620, 1.0f, 36);
+            expectP10FReference(reports.back(), "Fuzz -> ClassicAmp -> Cabinet");
+        }
+
+        beginTest("p10f_distortion_gain_ducking_guard");
+        {
+            DistortionPedal distortion;
+            CleanAmp amp;
+            CabinetPedal cab;
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10FHighGainDistortion(distortion);
+            configureP10FCleanAmp(amp);
+            configureP10FClassicCab(cab);
+
+            const auto reports = renderP10FChain(
+                { { "distortion", &distortion }, { "clean_amp", &amp }, { "cabinet", &cab } },
+                620, 1.04f, 36);
+            expectP10FNoVolumeCollapse(reports.front(), "Distortion stage into CleanAmp");
+            expectP10FNoVolumeCollapse(reports.back(), "Distortion -> CleanAmp -> Cabinet");
+        }
+
+        beginTest("p10f_distortion_highgain_ducking_guard");
+        {
+            DistortionPedal distortion;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10FHighGainDistortion(distortion);
+            configureP10EHighGainAmp(amp);
+            configureP10EModernCab(cab);
+
+            const auto reports = renderP10FChain(
+                { { "distortion", &distortion }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                620, 0.96f, 36);
+            expectP10FNoVolumeCollapse(reports.front(), "Distortion stage before HighGainAmp");
+            expectP10FNoVolumeCollapse(reports.back(), "Distortion -> HighGainAmp -> Modern4x12");
+            expect(reports.front().gateGainMin > 0.46 && reports.front().gateGainMaxDelta < 0.42,
+                "P10F Distortion integrated gate should not act like active-input ducking: "
+                    + p10fDuckingSummary(reports.front()));
+        }
+
+        beginTest("p10f_boost_highgain_ducking_guard");
+        {
+            BoostPedal boost;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(boost);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10FBoostIntoHighGain(boost);
+            configureP10EHighGainAmp(amp);
+            configureP10EModernCab(cab);
+
+            const auto reports = renderP10FChain(
+                { { "boost", &boost }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                620, 0.98f, 36);
+            expectP10FNoVolumeCollapse(reports.back(), "Boost -> HighGainAmp -> Modern4x12");
+            expect(reports.back().metrics.highFrequencyEnergyProxy() < 0.075,
+                "P10F Boost/HighGain post-cab fizz proxy should stay controlled without OutputChain masking: "
+                    + p10fDuckingSummary(reports.back()));
+        }
+
+        beginTest("p10f_highgainamp_internal_ducking_guard");
+        {
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10EHighGainAmp(amp);
+            configureP10EModernCab(cab);
+
+            const auto reports = renderP10FChain(
+                { { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                620, 1.18f, 36);
+            expectP10FNoVolumeCollapse(reports.front(), "HighGainAmp internal response");
+            expectP10FNoVolumeCollapse(reports.back(), "HighGainAmp -> Modern4x12 baseline");
+        }
+
+        beginTest("p10f_noise_gate_low_setting_reference");
+        {
+            NoiseGatePedal fuzzGate;
+            FuzzPedal fuzz;
+            ClassicAmp fuzzAmp;
+            CabinetPedal fuzzCab;
+            prepareP10CProcessor(fuzzGate);
+            prepareP10CProcessor(fuzz);
+            prepareP10CProcessor(fuzzAmp);
+            prepareP10CProcessor(fuzzCab);
+            configureP10FLowNoiseGate(fuzzGate);
+            configureP10FFuzzReference(fuzz);
+            configureP10FClassicAmp(fuzzAmp);
+            configureP10FClassicCab(fuzzCab);
+
+            const auto fuzzReports = renderP10FChain(
+                { { "noise_gate", &fuzzGate }, { "fuzz", &fuzz }, { "classic_amp", &fuzzAmp }, { "cabinet", &fuzzCab } },
+                560, 1.0f, 32);
+            expectP10FReference(fuzzReports.back(), "Fuzz plus low Noise Gate reference");
+
+            NoiseGatePedal distortionGate;
+            DistortionPedal distortion;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(distortionGate);
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10FLowNoiseGate(distortionGate);
+            configureP10FHighGainDistortion(distortion);
+            configureP10EHighGainAmp(amp);
+            configureP10EModernCab(cab);
+
+            const auto distortionReports = renderP10FChain(
+                { { "noise_gate", &distortionGate }, { "distortion", &distortion }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                560, 0.96f, 32);
+            expectP10FNoVolumeCollapse(distortionReports.back(), "Distortion/HighGain plus low Noise Gate");
+            expect(distortionReports.front().gateGainMin > 0.72,
+                "P10F low external Noise Gate setting should not close hard while input is active: "
+                    + p10fDuckingSummary(distortionReports.front()));
+        }
+
+        beginTest("p10f_highgain_noise_floor_after_silence");
+        {
+            BoostPedal boost;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(boost);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10FBoostIntoHighGain(boost);
+            configureP10EHighGainAmp(amp);
+            configureP10EModernCab(cab);
+
+            const auto reports = renderP10ELongChain(
+                { { "boost", &boost }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                700, P10DSignalKind::SilenceRecovery, 1.0f, 32, 430, 0.004, 0.00020);
+            expect(reports.back().tailRms < juce::jmax(0.010, reports.back().maxActiveRms * 0.30),
+                "P10F high-gain route should recover to a controlled noise floor after silence: "
+                    + p10eLongSummary(reports.back()));
+        }
+
+        beginTest("p10f_highgain_no_perceptible_volume_collapse");
+        {
+            DistortionPedal distortion;
+            BoostPedal boost;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepareP10CProcessor(distortion);
+            prepareP10CProcessor(boost);
+            prepareP10CProcessor(amp);
+            prepareP10CProcessor(cab);
+            configureP10FHighGainDistortion(distortion);
+            configureP10FBoostIntoHighGain(boost);
+            configureP10EHighGainAmp(amp);
+            configureP10EModernCab(cab);
+
+            const auto reports = renderP10FChain(
+                { { "distortion", &distortion }, { "boost", &boost }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } },
+                680, 0.72f, 40);
+            expectP10FNoVolumeCollapse(reports.back(), "Distortion -> Boost -> HighGainAmp -> Modern4x12 stacked route");
+            expect(reports.back().ceilingTouchedSamples == 0,
+                "P10F stacked high-gain route should not depend on final ceiling hits: "
+                    + p10fDuckingSummary(reports.back()));
+        }
+    }
+
+private:
+    static void configureP10FFuzzReference(FuzzPedal& fuzz)
+    {
+        fuzz.modeParam->setValueNotifyingHost(normalisedChoiceIndex(fuzz.modeParam, 1));
+        fuzz.fuzzParam->setValueNotifyingHost(fuzz.fuzzParam->convertTo0to1(58.0f));
+        fuzz.toneParam->setValueNotifyingHost(fuzz.toneParam->convertTo0to1(0.44f));
+        fuzz.gateParam->setValueNotifyingHost(fuzz.gateParam->convertTo0to1(0.12f));
+        fuzz.levelParam->setValueNotifyingHost(fuzz.levelParam->convertTo0to1(0.36f));
+        fuzz.biasParam->setValueNotifyingHost(fuzz.biasParam->convertTo0to1(0.64f));
+        fuzz.mixParam->setValueNotifyingHost(fuzz.mixParam->convertTo0to1(1.0f));
+    }
+
+    static void configureP10FHighGainDistortion(DistortionPedal& distortion)
+    {
+        distortion.modeParam->setValueNotifyingHost(normalisedChoiceIndex(distortion.modeParam, 4));
+        distortion.gainParam->setValueNotifyingHost(distortion.gainParam->convertTo0to1(42.0f));
+        distortion.toneParam->setValueNotifyingHost(distortion.toneParam->convertTo0to1(0.46f));
+        distortion.bodyParam->setValueNotifyingHost(distortion.bodyParam->convertTo0to1(0.46f));
+        distortion.tightParam->setValueNotifyingHost(distortion.tightParam->convertTo0to1(0.68f));
+        distortion.levelParam->setValueNotifyingHost(distortion.levelParam->convertTo0to1(0.22f));
+        distortion.mixParam->setValueNotifyingHost(distortion.mixParam->convertTo0to1(1.0f));
+    }
+
+    static void configureP10FBoostIntoHighGain(BoostPedal& boost)
+    {
+        setRangedParamById(boost, "boostGain", 8.5f);
+        setRangedParamById(boost, "boostTight", 0.78f);
+        setRangedParamById(boost, "boostTone", 0.46f);
+        setRangedParamById(boost, "boostLevel", 0.70f);
+        setRangedParamById(boost, "boostChar", 0.12f);
+    }
+
+    static void configureP10FLowNoiseGate(NoiseGatePedal& gate)
+    {
+        gate.thresholdParam->setValueNotifyingHost(gate.thresholdParam->convertTo0to1(-76.8f));
+        gate.attackParam->setValueNotifyingHost(gate.attackParam->convertTo0to1(0.32f));
+        gate.holdParam->setValueNotifyingHost(gate.holdParam->convertTo0to1(78.0f));
+        gate.releaseParam->setValueNotifyingHost(gate.releaseParam->convertTo0to1(170.0f));
+        gate.rangeParam->setValueNotifyingHost(gate.rangeParam->convertTo0to1(-28.0f));
+        gate.hysteresisParam->setValueNotifyingHost(gate.hysteresisParam->convertTo0to1(9.0f));
+        gate.focusParam->setValueNotifyingHost(gate.focusParam->convertTo0to1(0.54f));
+    }
+
+    static void configureP10FClassicAmp(ClassicAmp& amp)
+    {
+        setRangedParamById(amp, "ampDrive", 3.4f);
+        setRangedParamById(amp, "ampTone", 0.46f);
+        setRangedParamById(amp, "ampPresence", 0.42f);
+        setRangedParamById(amp, "ampDepth", 0.42f);
+        setRangedParamById(amp, "ampLevel", 0.58f);
+    }
+
+    static void configureP10FCleanAmp(CleanAmp& amp)
+    {
+        setRangedParamById(amp, "cleanDrive", 0.42f);
+        setRangedParamById(amp, "cleanBass", 0.48f);
+        setRangedParamById(amp, "cleanTreble", 0.50f);
+        setRangedParamById(amp, "cleanReverb", 0.0f);
+        setRangedParamById(amp, "cleanLevel", 0.64f);
+    }
+
+    static void configureP10FClassicCab(CabinetPedal& cab)
+    {
+        setRangedParamById(cab, "cabThump", 0.8f);
+        setRangedParamById(cab, "cabAir", 0.7f);
+        setRangedParamById(cab, "cabDistance", 0.36f);
+        setRangedParamById(cab, "cabLevel", 0.72f);
+        setRangedParamById(cab, "cabMix", 1.0f);
+    }
+
+    void expectP10FReference(const P10FDuckingMetrics& report, const juce::String& label)
+    {
+        expect(report.metrics.signal.finite && report.metrics.signal.invalidSamples == 0,
+            "P10F reference " + label + " must remain finite: " + p10fDuckingSummary(report));
+        expect(report.outputRmsWhileInputActive() > 0.0025,
+            "P10F reference " + label + " should stay audibly present while input is active: "
+                + p10fDuckingSummary(report));
+        expect(report.gainDropDuringActiveInput < 0.72 && report.maxConsecutiveGainReductionBlocks <= 8,
+            "P10F reference " + label + " defines acceptable high-gain movement without volume collapse: "
+                + p10fDuckingSummary(report));
+        expect(report.ceilingTouchedSamples == 0,
+            "P10F reference " + label + " should not depend on near-clip or clipping samples: "
+                + p10fDuckingSummary(report));
+    }
+
+    void expectP10FNoVolumeCollapse(const P10FDuckingMetrics& report, const juce::String& label)
+    {
+        expect(report.metrics.signal.finite && report.metrics.signal.invalidSamples == 0,
+            "P10F " + label + " must remain finite: " + p10fDuckingSummary(report));
+        expect(report.outputRmsWhileInputActive() > 0.0016,
+            "P10F " + label + " should keep active input audible: " + p10fDuckingSummary(report));
+        expect(report.gainDropDuringActiveInput < 0.76,
+            "P10F " + label + " should not collapse volume while input remains active: "
+                + p10fDuckingSummary(report));
+        expect(report.maxConsecutiveGainReductionBlocks <= 10,
+            "P10F " + label + " should not sustain consecutive active-input gain reduction: "
+                + p10fDuckingSummary(report));
+        expect(report.metrics.signal.clippedSamples == 0 && report.metrics.signal.nearClipSamples == 0,
+            "P10F " + label + " should stay bounded without clipping/near-clip masking: "
+                + p10fDuckingSummary(report));
+        expect(report.metrics.modulationDepth3To20() < 0.62,
+            "P10F " + label + " should not show low-rate envelope pumping: "
+                + p10fDuckingSummary(report));
+    }
+};
+
+struct P10GNoiseFloorMetrics
+{
+    juce::String name;
+    P10DWindowMetrics signal;
+    double idleNoiseRms = 0.0;
+    double postPhraseNoiseRms = 0.0;
+    double outputRmsWhileInputActive = 0.0;
+    double outputRmsDuringSilence = 0.0;
+    double sustainRmsAfterGate = 0.0;
+    double activeInputToOutputSum = 0.0;
+    double previousActiveInputRms = 0.0;
+    double previousActiveRatio = 0.0;
+    double volumeCollapseDuringActiveInput = 0.0;
+    double gateReductionNeededForSilence = 0.0;
+    int idleBlocks = 0;
+    int activeBlocks = 0;
+    int postPhraseBlocks = 0;
+
+    void capture(const juce::AudioBuffer<float>& block,
+                 int blockIndex,
+                 int idleEndBlock,
+                 int postPhraseStartBlock,
+                 double inputRms,
+                 double gateGain = -1.0)
+    {
+        signal.capture(block, gateGain);
+
+        const double outputRms = p10eBlockRms(block);
+        if (blockIndex < idleEndBlock)
+        {
+            idleNoiseRms += outputRms;
+            ++idleBlocks;
+            outputRmsDuringSilence += outputRms;
+            return;
+        }
+
+        if (blockIndex >= postPhraseStartBlock)
+        {
+            postPhraseNoiseRms += outputRms;
+            ++postPhraseBlocks;
+            outputRmsDuringSilence += outputRms;
+            return;
+        }
+
+        if (inputRms > 0.018)
+        {
+            ++activeBlocks;
+            outputRmsWhileInputActive += outputRms;
+            if (blockIndex < 390)
+            {
+                const double ratio = outputRms / juce::jmax(1.0e-9, inputRms);
+                activeInputToOutputSum += ratio;
+                if (previousActiveInputRms > 1.0e-8 && previousActiveRatio > 1.0e-8 && inputRms >= previousActiveInputRms * 0.82)
+                {
+                    const double ratioDrop = ratio / previousActiveRatio;
+                    if (ratioDrop < 1.0)
+                        volumeCollapseDuringActiveInput = juce::jmax(volumeCollapseDuringActiveInput, 1.0 - ratioDrop);
+                }
+                previousActiveInputRms = inputRms;
+                previousActiveRatio = ratio;
+            }
+        }
+        else if (blockIndex < postPhraseStartBlock)
+        {
+            sustainRmsAfterGate += outputRms;
+        }
+    }
+
+    void finish()
+    {
+        if (idleBlocks > 0)
+            idleNoiseRms /= (double) idleBlocks;
+        if (postPhraseBlocks > 0)
+            postPhraseNoiseRms /= (double) postPhraseBlocks;
+        if (activeBlocks > 0)
+        {
+            outputRmsWhileInputActive /= (double) activeBlocks;
+            activeInputToOutputSum /= (double) activeBlocks;
+        }
+
+        const int silenceBlocks = idleBlocks + postPhraseBlocks;
+        outputRmsDuringSilence = silenceBlocks > 0 ? outputRmsDuringSilence / (double) silenceBlocks : 0.0;
+        sustainRmsAfterGate = juce::jmax(sustainRmsAfterGate / (double) juce::jmax(1, postPhraseBlocks), postPhraseNoiseRms);
+
+    }
+
+    double noiseToSignalRatio() const noexcept
+    {
+        return outputRmsWhileInputActive > 1.0e-9
+            ? postPhraseNoiseRms / outputRmsWhileInputActive
+            : 0.0;
+    }
+};
+
+juce::String p10gMetricsSummary(const P10GNoiseFloorMetrics& metrics)
+{
+    return "idleNoiseRms="
+        + juce::String(metrics.idleNoiseRms, 7)
+        + ", postPhraseNoiseRms="
+        + juce::String(metrics.postPhraseNoiseRms, 7)
+        + ", noiseToSignalRatio="
+        + juce::String(metrics.noiseToSignalRatio(), 5)
+        + ", outputRmsWhileInputActive="
+        + juce::String(metrics.outputRmsWhileInputActive, 6)
+        + ", outputRmsDuringSilence="
+        + juce::String(metrics.outputRmsDuringSilence, 7)
+        + ", sustainRmsAfterGate="
+        + juce::String(metrics.sustainRmsAfterGate, 7)
+        + ", gateTransitions="
+        + juce::String(metrics.signal.gateTransitions)
+        + ", gateDeltaPeak="
+        + juce::String(metrics.signal.gateDeltaPeak, 4)
+        + ", volumeCollapseDuringActiveInput="
+        + juce::String(metrics.volumeCollapseDuringActiveInput, 4)
+        + ", nearClip="
+        + juce::String(metrics.signal.signal.nearClipSamples)
+        + ", clipped="
+        + juce::String(metrics.signal.signal.clippedSamples)
+        + ", invalid="
+        + juce::String(metrics.signal.signal.invalidSamples)
+        + ", brightnessProxy="
+        + juce::String(metrics.signal.signal.brightnessProxy(), 4)
+        + ", highFrequencyEnergyProxy="
+        + juce::String(metrics.signal.highFrequencyEnergyProxy(), 5)
+        + ", rumbleProxy="
+        + juce::String(metrics.signal.signal.rumbleProxy(), 4);
+}
+
+void fillP10GNoisePhraseBlock(juce::AudioBuffer<float>& block, int blockIndex)
+{
+    constexpr int idleEndBlock = 110;
+    constexpr int postPhraseStartBlock = 560;
+    const bool active = blockIndex >= idleEndBlock && blockIndex < postPhraseStartBlock;
+    const bool sustainTail = blockIndex >= 440 && blockIndex < postPhraseStartBlock;
+
+    for (int i = 0; i < block.getNumSamples(); ++i)
+    {
+        const int sampleIndex = blockIndex * block.getNumSamples() + i;
+        const float t = (float) sampleIndex / (float) kSampleRate;
+        const float deterministicHiss = 0.000090f
+            * (std::sin(juce::MathConstants<float>::twoPi * 3713.0f * t + 0.17f)
+                + 0.62f * std::sin(juce::MathConstants<float>::twoPi * 5879.0f * t + 1.3f)
+                + 0.38f * std::sin(juce::MathConstants<float>::twoPi * 9137.0f * t + 2.1f));
+        const float hum = 0.000040f * std::sin(juce::MathConstants<float>::twoPi * 60.0f * t);
+
+        float phrase = 0.0f;
+        if (active)
+        {
+            const int pickSample = sampleIndex % (int) (kSampleRate * 0.135);
+            const float pick = std::exp(-(float) pickSample / 52.0f);
+            const float tailScale = sustainTail ? juce::jmap((float) (blockIndex - 440), 0.0f, 120.0f, 0.62f, 0.26f) : 1.0f;
+            phrase = tailScale
+                * (0.070f * std::sin(juce::MathConstants<float>::twoPi * 82.41f * t)
+                    + 0.036f * std::sin(juce::MathConstants<float>::twoPi * 123.47f * t)
+                    + 0.025f * std::sin(juce::MathConstants<float>::twoPi * 164.82f * t))
+                + 0.030f * pick;
+        }
+
+        const float sample = phrase + deterministicHiss + hum;
+        block.setSample(0, i, sample);
+        block.setSample(1, i, sample * 0.97f);
+    }
+}
+
+std::vector<P10GNoiseFloorMetrics> renderP10GChain(
+    const std::vector<std::pair<juce::String, juce::AudioProcessor*>>& stages,
+    int blocksToRun = 760,
+    int warmupBlocks = 20)
+{
+    constexpr int idleEndBlock = 110;
+    constexpr int postPhraseStartBlock = 560;
+    std::vector<P10GNoiseFloorMetrics> reports;
+    reports.reserve(stages.size());
+    for (const auto& stage : stages)
+        reports.push_back({ stage.first });
+
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> block(2, kBlockSize);
+
+    for (int blockIndex = 0; blockIndex < blocksToRun; ++blockIndex)
+    {
+        fillP10GNoisePhraseBlock(block, blockIndex);
+        const double inputRms = p10eBlockRms(block);
+
+        for (size_t stageIndex = 0; stageIndex < stages.size(); ++stageIndex)
+        {
+            auto* processor = stages[stageIndex].second;
+            if (processor != nullptr)
+                processor->processBlock(block, midi);
+
+            if (blockIndex < warmupBlocks)
+                continue;
+
+            double gateGain = -1.0;
+            if (auto* gate = dynamic_cast<NoiseGatePedal*>(processor))
+                gateGain = (double) gate->currentGateGainAtomic.load();
+            else if (auto* distortion = dynamic_cast<DistortionPedal*>(processor))
+                gateGain = (double) distortion->currentGateGain;
+
+            reports[stageIndex].capture(block, blockIndex, idleEndBlock, postPhraseStartBlock, inputRms, gateGain);
+        }
+    }
+
+    for (auto& report : reports)
+        report.finish();
+
+    return reports;
+}
+
+class P10GHighGainNoiseFloorGateCollapseTests final : public juce::UnitTest
+{
+public:
+    P10GHighGainNoiseFloorGateCollapseTests()
+        : juce::UnitTest("P10G High-Gain Noise Floor / Gate / Collapse Diagnostics", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        beginTest("p10g_fuzz_low_gate_reference");
+        {
+            NoiseGatePedal gate;
+            FuzzPedal fuzz;
+            ClassicAmp amp;
+            CabinetPedal cab;
+            prepare(gate); prepare(fuzz); prepare(amp); prepare(cab);
+            configureLowGate(gate, 0.04f);
+            configureFuzzReference(fuzz);
+            configureClassicAmp(amp);
+            configureClassicCab(cab);
+
+            const auto reports = renderP10GChain({ { "noise_gate", &gate }, { "fuzz", &fuzz }, { "classic_amp", &amp }, { "cabinet", &cab } });
+            expectReference(reports.back(), "Fuzz low-gate reference");
+            expect(reports.front().signal.gateTransitions <= 24,
+                "P10G Fuzz low-gate reference should not chatter: " + p10gMetricsSummary(reports.front()));
+        }
+
+        beginTest("p10g_distortion_low_gate_noise_floor");
+        {
+            NoiseGatePedal gate;
+            DistortionPedal distortion;
+            CleanAmp amp;
+            CabinetPedal cab;
+            prepare(gate); prepare(distortion); prepare(amp); prepare(cab);
+            configureLowGate(gate, 0.04f);
+            configureHighGainDistortion(distortion);
+            configureCleanAmp(amp);
+            configureClassicCab(cab);
+
+            const auto reports = renderP10GChain({ { "noise_gate", &gate }, { "distortion", &distortion }, { "clean_amp", &amp }, { "cabinet", &cab } });
+            expectNoiseFloorControlled(reports.back(), "Distortion low-gate noise floor", 0.24);
+            expectNoActiveCollapse(reports[1], "Distortion low-gate active stage");
+        }
+
+        beginTest("p10g_highgain_low_gate_noise_floor");
+        {
+            NoiseGatePedal gate;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepare(gate); prepare(amp); prepare(cab);
+            configureLowGate(gate, 0.04f);
+            configureHighGainAmp(amp);
+            configureModernCab(cab);
+
+            const auto reports = renderP10GChain({ { "noise_gate", &gate }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } });
+            expectNoiseFloorControlled(reports.back(), "HighGainAmp low-gate noise floor", 0.20);
+            expectNoActiveCollapse(reports.back(), "HighGainAmp low-gate active sustain");
+        }
+
+        beginTest("p10g_boost_highgain_ground_noise_guard");
+        {
+            BoostPedal boost;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepare(boost); prepare(amp); prepare(cab);
+            configureBoost(boost);
+            configureHighGainAmp(amp);
+            configureModernCab(cab);
+
+            const auto reports = renderP10GChain({ { "boost", &boost }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } });
+            expectNoiseFloorControlled(reports.back(), "Boost -> HighGainAmp ground-noise guard", 0.25);
+            expect(reports.back().signal.highFrequencyEnergyProxy() < 0.078,
+                "P10G Boost -> HighGainAmp should not leave cheap fizz in post-cab output: "
+                    + p10gMetricsSummary(reports.back()));
+        }
+
+        beginTest("p10g_distortion_highgain_ground_noise_guard");
+        {
+            DistortionPedal distortion;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepare(distortion); prepare(amp); prepare(cab);
+            configureHighGainDistortion(distortion);
+            configureHighGainAmp(amp);
+            configureModernCab(cab);
+
+            const auto reports = renderP10GChain({ { "distortion", &distortion }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } });
+            expectNoiseFloorControlled(reports.back(), "Distortion -> HighGainAmp ground-noise guard", 0.28);
+            expectNoActiveCollapse(reports.front(), "Distortion before HighGain active stage");
+        }
+
+        beginTest("p10g_distortion_active_volume_collapse_guard");
+        {
+            DistortionPedal distortion;
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepare(distortion); prepare(amp); prepare(cab);
+            configureHighGainDistortion(distortion);
+            configureHighGainAmp(amp);
+            configureModernCab(cab);
+
+            const auto reports = renderP10GChain({ { "distortion", &distortion }, { "high_gain_amp", &amp }, { "modern_4x12", &cab } });
+            expectNoActiveCollapse(reports.front(), "Distortion active volume-collapse guard");
+            expectNoActiveCollapse(reports.back(), "Distortion -> HighGainAmp active volume-collapse guard");
+        }
+
+        beginTest("p10g_noise_gate_sustain_preservation_guard");
+        {
+            NoiseGatePedal lowGate;
+            HighGainAmp gatedAmp;
+            Modern4x12Cabinet gatedCab;
+            HighGainAmp openAmp;
+            Modern4x12Cabinet openCab;
+            prepare(lowGate); prepare(gatedAmp); prepare(gatedCab); prepare(openAmp); prepare(openCab);
+            configureLowGate(lowGate, 0.04f);
+            configureHighGainAmp(gatedAmp); configureModernCab(gatedCab);
+            configureHighGainAmp(openAmp); configureModernCab(openCab);
+
+            const auto gated = renderP10GChain({ { "noise_gate", &lowGate }, { "high_gain_amp", &gatedAmp }, { "modern_4x12", &gatedCab } });
+            const auto open = renderP10GChain({ { "high_gain_amp", &openAmp }, { "modern_4x12", &openCab } });
+            expect(gated.back().outputRmsWhileInputActive > open.back().outputRmsWhileInputActive * 0.72,
+                "P10G low gate should preserve active-note sustain; gated="
+                    + p10gMetricsSummary(gated.back())
+                    + ", open="
+                    + p10gMetricsSummary(open.back()));
+            expect(gated.back().idleNoiseRms < open.back().idleNoiseRms * 0.82,
+                "P10G low gate should still reduce idle noise usefully; gated="
+                    + p10gMetricsSummary(gated.back())
+                    + ", open="
+                    + p10gMetricsSummary(open.back()));
+        }
+
+        beginTest("p10g_highgain_fizz_proxy_guard");
+        {
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepare(amp); prepare(cab);
+            configureHighGainAmp(amp);
+            configureModernCab(cab);
+
+            const auto reports = renderP10GChain({ { "high_gain_amp", &amp }, { "modern_4x12", &cab } });
+            expect(reports.back().signal.highFrequencyEnergyProxy() < 0.070,
+                "P10G high-gain fizz proxy should remain controlled without dulling by OutputChain masking: "
+                    + p10gMetricsSummary(reports.back()));
+            expect(reports.back().signal.signal.brightnessProxy() < 0.92,
+                "P10G high-gain post-cab brightness proxy should stay musical: "
+                    + p10gMetricsSummary(reports.back()));
+        }
+
+        beginTest("p10g_highgain_baseline_preservation");
+        {
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepare(amp); prepare(cab);
+            configureHighGainAmp(amp);
+            configureModernCab(cab);
+
+            const auto reports = renderP10GChain({ { "high_gain_amp", &amp }, { "modern_4x12", &cab } });
+            expect(reports.back().outputRmsWhileInputActive > 0.010,
+                "P10G HighGainAmp -> Modern4x12 baseline should remain clearly audible: "
+                    + p10gMetricsSummary(reports.back()));
+            expect(reports.back().signal.signal.nearClipSamples == 0 && reports.back().signal.signal.clippedSamples == 0,
+                "P10G HighGainAmp -> Modern4x12 baseline should keep headroom: "
+                    + p10gMetricsSummary(reports.back()));
+            expect(reports.back().noiseToSignalRatio() < 0.22,
+                "P10G HighGainAmp -> Modern4x12 baseline should not trade tone for a high idle floor: "
+                    + p10gMetricsSummary(reports.back()));
+        }
+    }
+
+private:
+    static void prepare(juce::AudioProcessor& processor)
+    {
+        processor.setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+        processor.prepareToPlay(kSampleRate, kBlockSize);
+    }
+
+    static void configureLowGate(NoiseGatePedal& gate, float amount)
+    {
+        const float bounded = juce::jlimit(0.0f, 1.0f, amount);
+        gate.thresholdParam->setValueNotifyingHost(gate.thresholdParam->convertTo0to1(-80.0f + bounded * 80.0f));
+        gate.attackParam->setValueNotifyingHost(gate.attackParam->convertTo0to1(0.24f));
+        gate.holdParam->setValueNotifyingHost(gate.holdParam->convertTo0to1(82.0f));
+        gate.releaseParam->setValueNotifyingHost(gate.releaseParam->convertTo0to1(185.0f));
+        gate.rangeParam->setValueNotifyingHost(gate.rangeParam->convertTo0to1(-34.0f));
+        gate.hysteresisParam->setValueNotifyingHost(gate.hysteresisParam->convertTo0to1(9.5f));
+        gate.focusParam->setValueNotifyingHost(gate.focusParam->convertTo0to1(0.58f));
+    }
+
+    static void configureFuzzReference(FuzzPedal& fuzz)
+    {
+        fuzz.modeParam->setValueNotifyingHost(normalisedChoiceIndex(fuzz.modeParam, 1));
+        fuzz.fuzzParam->setValueNotifyingHost(fuzz.fuzzParam->convertTo0to1(58.0f));
+        fuzz.toneParam->setValueNotifyingHost(fuzz.toneParam->convertTo0to1(0.44f));
+        fuzz.gateParam->setValueNotifyingHost(fuzz.gateParam->convertTo0to1(0.12f));
+        fuzz.levelParam->setValueNotifyingHost(fuzz.levelParam->convertTo0to1(0.36f));
+        fuzz.biasParam->setValueNotifyingHost(fuzz.biasParam->convertTo0to1(0.64f));
+        fuzz.mixParam->setValueNotifyingHost(fuzz.mixParam->convertTo0to1(1.0f));
+    }
+
+    static void configureHighGainDistortion(DistortionPedal& distortion)
+    {
+        distortion.modeParam->setValueNotifyingHost(normalisedChoiceIndex(distortion.modeParam, 4));
+        distortion.gainParam->setValueNotifyingHost(distortion.gainParam->convertTo0to1(42.0f));
+        distortion.toneParam->setValueNotifyingHost(distortion.toneParam->convertTo0to1(0.44f));
+        distortion.bodyParam->setValueNotifyingHost(distortion.bodyParam->convertTo0to1(0.46f));
+        distortion.tightParam->setValueNotifyingHost(distortion.tightParam->convertTo0to1(0.68f));
+        distortion.levelParam->setValueNotifyingHost(distortion.levelParam->convertTo0to1(0.22f));
+        distortion.mixParam->setValueNotifyingHost(distortion.mixParam->convertTo0to1(1.0f));
+    }
+
+    static void configureBoost(BoostPedal& boost)
+    {
+        setRangedParamById(boost, "boostGain", 8.5f);
+        setRangedParamById(boost, "boostTight", 0.78f);
+        setRangedParamById(boost, "boostTone", 0.46f);
+        setRangedParamById(boost, "boostLevel", 0.70f);
+        setRangedParamById(boost, "boostChar", 0.12f);
+    }
+
+    static void configureHighGainAmp(HighGainAmp& amp)
+    {
+        setRangedParamById(amp, "hgDrive", 7.2f);
+        setRangedParamById(amp, "hgTight", 0.82f);
+        setRangedParamById(amp, "hgPresence", 0.54f);
+        setRangedParamById(amp, "hgTone", 0.52f);
+        setRangedParamById(amp, "hgLevel", 0.58f);
+    }
+
+    static void configureClassicAmp(ClassicAmp& amp)
+    {
+        setRangedParamById(amp, "ampDrive", 3.4f);
+        setRangedParamById(amp, "ampTone", 0.46f);
+        setRangedParamById(amp, "ampPresence", 0.42f);
+        setRangedParamById(amp, "ampDepth", 0.42f);
+        setRangedParamById(amp, "ampLevel", 0.58f);
+    }
+
+    static void configureCleanAmp(CleanAmp& amp)
+    {
+        setRangedParamById(amp, "cleanDrive", 0.42f);
+        setRangedParamById(amp, "cleanBass", 0.48f);
+        setRangedParamById(amp, "cleanTreble", 0.50f);
+        setRangedParamById(amp, "cleanReverb", 0.0f);
+        setRangedParamById(amp, "cleanLevel", 0.64f);
+    }
+
+    static void configureClassicCab(CabinetPedal& cab)
+    {
+        setRangedParamById(cab, "cabThump", 0.8f);
+        setRangedParamById(cab, "cabAir", 0.7f);
+        setRangedParamById(cab, "cabDistance", 0.36f);
+        setRangedParamById(cab, "cabLevel", 0.72f);
+        setRangedParamById(cab, "cabMix", 1.0f);
+    }
+
+    static void configureModernCab(Modern4x12Cabinet& cab)
+    {
+        setRangedParamById(cab, "m4x12Low", 1.0f);
+        setRangedParamById(cab, "m4x12Presence", 1.8f);
+        setRangedParamById(cab, "m4x12Distance", 0.34f);
+        setRangedParamById(cab, "m4x12Level", 0.76f);
+        setRangedParamById(cab, "m4x12Mix", 1.0f);
+    }
+
+    void expectReference(const P10GNoiseFloorMetrics& report, const juce::String& label)
+    {
+        expect(report.signal.signal.finite && report.signal.signal.invalidSamples == 0,
+            "P10G " + label + " must remain finite: " + p10gMetricsSummary(report));
+        expect(report.outputRmsWhileInputActive > 0.0025,
+            "P10G " + label + " should remain audibly present while active: " + p10gMetricsSummary(report));
+        expect(report.noiseToSignalRatio() < 0.34,
+            "P10G " + label + " defines acceptable low-gate noise behavior: " + p10gMetricsSummary(report));
+        expect(report.volumeCollapseDuringActiveInput < 0.82,
+            "P10G " + label + " should not collapse active notes: " + p10gMetricsSummary(report));
+    }
+
+    void expectNoiseFloorControlled(const P10GNoiseFloorMetrics& report, const juce::String& label, double maxNoiseToSignal)
+    {
+        expect(report.signal.signal.finite && report.signal.signal.invalidSamples == 0,
+            "P10G " + label + " must remain finite: " + p10gMetricsSummary(report));
+        expect(report.outputRmsWhileInputActive > 0.0018,
+            "P10G " + label + " should remain audible while played: " + p10gMetricsSummary(report));
+        expect(report.noiseToSignalRatio() < maxNoiseToSignal,
+            "P10G " + label + " should keep idle/post-phrase noise below the active signal: "
+                + p10gMetricsSummary(report));
+        expect(report.postPhraseNoiseRms < 0.012,
+            "P10G " + label + " should not leave a high ground-like post-phrase floor: "
+                + p10gMetricsSummary(report));
+        expect(report.signal.signal.nearClipSamples == 0 && report.signal.signal.clippedSamples == 0,
+            "P10G " + label + " should not use clipping or near-clip masking: " + p10gMetricsSummary(report));
+    }
+
+    void expectNoActiveCollapse(const P10GNoiseFloorMetrics& report, const juce::String& label)
+    {
+        expect(report.volumeCollapseDuringActiveInput < 0.93,
+            "P10G " + label + " should not show active-input volume collapse: " + p10gMetricsSummary(report));
+        expect(report.outputRmsWhileInputActive > 0.0016,
+            "P10G " + label + " should stay audible while input remains active: " + p10gMetricsSummary(report));
+        expect(report.signal.gateDeltaPeak < 0.52,
+            "P10G " + label + " gate movement should not feel like hard ducking: " + p10gMetricsSummary(report));
+    }
+};
+
+class P7IDiagnosticsProfilerTests final : public juce::UnitTest
+{
+public:
+    P7IDiagnosticsProfilerTests()
+        : juce::UnitTest("P7I Diagnostics / Profiler", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        beginTest("P7I CpuMeter reset clears all counters");
+        {
+            CpuMeter meter;
+            const double start = meter.beginBlock();
+            // Simulate a tiny amount of work; endBlock should record finite values.
+            meter.endBlock(start, 64, 48000.0);
+            expect(std::isfinite(meter.getCpuLoad()), "CpuMeter load must be finite after endBlock");
+            expect(std::isfinite(meter.getLastProcessTimeMs()), "CpuMeter last process time must be finite");
+            expect(std::isfinite(meter.getAverageProcessTimeMs()), "CpuMeter average process time must be finite");
+            expect(std::isfinite(meter.getPeakProcessTimeMs()), "CpuMeter peak process time must be finite");
+
+            meter.reset();
+            expectEquals(meter.getCpuLoad(), 0.0);
+            expectEquals(meter.getLastProcessTimeMs(), 0.0);
+            expectEquals(meter.getAverageProcessTimeMs(), 0.0);
+            expectEquals(meter.getPeakProcessTimeMs(), 0.0);
+        }
+
+        beginTest("P7I CpuMeter ignores invalid sample rate / block size without polluting state");
+        {
+            CpuMeter meter;
+            const double start = meter.beginBlock();
+            meter.endBlock(start, 0, 0.0);
+            expect(std::isfinite(meter.getCpuLoad()), "Invalid block must not produce non-finite CPU load");
+            expectEquals(meter.getCpuLoad(), 0.0);
+
+            const double start2 = meter.beginBlock();
+            meter.endBlock(start2, 64, -1.0);
+            expectEquals(meter.getCpuLoad(), 0.0);
+        }
+
+        beginTest("P7I CpuMeter peak decays toward floor across many empty blocks");
+        {
+            CpuMeter meter;
+            const double start = meter.beginBlock();
+            meter.endBlock(start, 64, 48000.0);
+            const double initialPeak = meter.getPeakProcessTimeMs();
+
+            for (int i = 0; i < 10000; ++i)
+            {
+                const double s = meter.beginBlock();
+                meter.endBlock(s, 64, 48000.0);
+            }
+
+            expect(meter.getPeakProcessTimeMs() <= initialPeak + 1.0,
+                "Peak should not grow unboundedly under steady-state");
+            expect(std::isfinite(meter.getPeakProcessTimeMs()), "Peak must remain finite");
+        }
+
+        beginTest("P7I DiagnosticsManager::formatProfilingLine produces deterministic shape");
+        {
+            AudioEngine::ProfilingResult r;
+            r.blockSize = 64;
+            r.processedBlocks = 750;
+            r.sampleRate = 48000.0;
+            r.avgMs = 0.1234;
+            r.peakMs = 0.5678;
+            r.avgCpuPercent = 12.34;
+            r.peakCpuPercent = 45.67;
+            r.invalidSamples = 0;
+            r.clippedSamples = 0;
+            r.dropoutBlocks = 0;
+            r.clickSpikeBlocks = 0;
+            r.passed = true;
+
+            const auto line = Nova::Audio::DiagnosticsManager::formatProfilingLine(r);
+            expect(line.contains("block=64"), "Profiling line must contain block size token");
+            expect(line.contains("blocks=750"), "Profiling line must contain processed block count");
+            expect(line.contains("avgMs="), "Profiling line must contain avgMs");
+            expect(line.contains("peakMs="), "Profiling line must contain peakMs");
+            expect(line.contains("avgCpu="), "Profiling line must contain avgCpu");
+            expect(line.contains("peakCpu="), "Profiling line must contain peakCpu");
+            expect(line.contains("passed=true"), "Profiling line must reflect passed=true");
+            expect(! line.contains("notes="), "Empty notes must not be emitted");
+        }
+
+        beginTest("P7I DiagnosticsManager::formatProfilingLine appends notes when present");
+        {
+            AudioEngine::ProfilingResult r;
+            r.blockSize = 32;
+            r.processedBlocks = 1500;
+            r.passed = false;
+            r.notes = "Investigate dropout headroom.";
+
+            const auto line = Nova::Audio::DiagnosticsManager::formatProfilingLine(r);
+            expect(line.contains("block=32"), "Profiling line must reflect block 32");
+            expect(line.contains("passed=false"), "Profiling line must reflect failed run");
+            expect(line.contains("notes=Investigate dropout headroom."),
+                "Non-empty notes must be appended");
+        }
+
+        beginTest("P7I DiagnosticsManager::formatProfilingResults joins lines and includes header");
+        {
+            std::vector<AudioEngine::ProfilingResult> results;
+            for (int blockSize : { 32, 64 })
+            {
+                AudioEngine::ProfilingResult r;
+                r.blockSize = blockSize;
+                r.processedBlocks = 100;
+                r.passed = true;
+                results.push_back(r);
+            }
+
+            const auto report = Nova::Audio::DiagnosticsManager::formatProfilingResults(results);
+            expect(report.contains("AudioEngine realtime profiling results:"),
+                "Header line must be present");
+            expect(report.contains("block=32"), "Block 32 entry must be present");
+            expect(report.contains("block=64"), "Block 64 entry must be present");
+
+            juce::StringArray reportLines;
+            reportLines.addLines(report);
+            expect(reportLines.size() >= 3, "Header plus per-result lines must be emitted");
+        }
+
+        beginTest("P7I runRealtimeProfilingSuite covers blocks 32 and 64 explicitly");
+        {
+            AudioEngine engine;
+            engine.prepare(48000.0, 128, 2, 2);
+            engine.setEngineEnabled(true);
+            engine.synchronizeProcessingState();
+
+            const auto results = engine.runRealtimeProfilingSuite(1);
+            expect(results.size() >= 2, "Profiling suite must emit at least block 32 and block 64 entries");
+
+            bool sawBlock32 = false;
+            bool sawBlock64 = false;
+            for (const auto& r : results)
+            {
+                if (r.blockSize == 32)
+                    sawBlock32 = true;
+                if (r.blockSize == 64)
+                    sawBlock64 = true;
+
+                expect(r.processedBlocks > 0,
+                    "Block " + juce::String(r.blockSize) + " must process at least one block");
+                expect(std::isfinite(r.avgMs),
+                    "Block " + juce::String(r.blockSize) + " avgMs must be finite");
+                expect(std::isfinite(r.peakMs),
+                    "Block " + juce::String(r.blockSize) + " peakMs must be finite");
+                expect(std::isfinite(r.avgCpuPercent),
+                    "Block " + juce::String(r.blockSize) + " avgCpu must be finite");
+                expect(std::isfinite(r.peakCpuPercent),
+                    "Block " + juce::String(r.blockSize) + " peakCpu must be finite");
+                expect(r.invalidSamples == 0,
+                    "Block " + juce::String(r.blockSize) + " must not contain invalid samples");
+            }
+
+            expect(sawBlock32, "Profiling suite must include block 32 scenario");
+            expect(sawBlock64, "Profiling suite must include block 64 scenario");
+        }
+
+        beginTest("P7I AudioEngine::buildDiagnosticReport is non-empty and contains stable fields");
+        {
+            AudioEngine engine;
+            engine.prepare(48000.0, kBlockSize, 2, 2);
+            engine.setEngineEnabled(true);
+            engine.synchronizeProcessingState();
+
+            const auto report = engine.buildDiagnosticReport();
+            expect(report.isNotEmpty(), "Diagnostic report must not be empty");
+            expect(report.contains("engineOn="), "Diagnostic report must report engineOn");
+            expect(report.contains("sampleRate="), "Diagnostic report must report sampleRate");
+            expect(report.contains("blockSize="), "Diagnostic report must report blockSize");
+            expect(report.contains("cpuLoad="), "Diagnostic report must report cpuLoad");
+            expect(report.contains("autoHealCount="), "Diagnostic report must report autoHealCount");
+        }
+    }
+};
+
 static AudioEngineValidationTests audioEngineValidationTests;
 static P1PedalSafetyTests p1PedalSafetyTests;
+static P10CHighGainProfessionalizationTests p10cHighGainProfessionalizationTests;
+static P10DHighGainArtifactFizzHelicopterTests p10dHighGainArtifactFizzHelicopterTests;
+static P10EHighGainMuteHelicopterReverbTests p10eHighGainMuteHelicopterReverbTests;
+static P10FHighGainRootCauseFuzzReferenceTests p10fHighGainRootCauseFuzzReferenceTests;
+static P10GHighGainNoiseFloorGateCollapseTests p10gHighGainNoiseFloorGateCollapseTests;
+static P7IDiagnosticsProfilerTests p7iDiagnosticsProfilerTests;
 
 void touchAudioEngineValidationTests()
 {
-    juce::ignoreUnused(audioEngineValidationTests, p1PedalSafetyTests);
+    juce::ignoreUnused(audioEngineValidationTests,
+        p1PedalSafetyTests,
+        p10cHighGainProfessionalizationTests,
+        p10dHighGainArtifactFizzHelicopterTests,
+        p10eHighGainMuteHelicopterReverbTests,
+        p10fHighGainRootCauseFuzzReferenceTests,
+        p10gHighGainNoiseFloorGateCollapseTests,
+        p7iDiagnosticsProfilerTests);
 }
 }
 
@@ -8110,5 +13832,10 @@ namespace NovaDiagnostics
 void ensureAudioEngineValidationTestsLinked()
 {
     touchAudioEngineValidationTests();
+}
+
+bool runP9DDraftPresetBuilderFromEnvironment()
+{
+    return runP9DDraftPresetBuilderTool();
 }
 }

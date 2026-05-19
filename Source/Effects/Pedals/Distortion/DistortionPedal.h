@@ -337,7 +337,7 @@ inline ModeConfig makeAmpConfig() noexcept
     config.hardBlend = 0.10f;
     config.harmonic = 0.044f;
     config.sagAmount = 0.10f;
-    config.outputTrim = 0.88f;
+    config.outputTrim = 0.80f;
     config.highShelfDb = -0.3f;
     config.preLowPassHz = 15800.0f;
     config.interCut1Low = 14800.0f;
@@ -409,15 +409,15 @@ inline ModeConfig makeMetalConfig() noexcept
     config.midBodyScale = 4.4f;
     config.midQ = 0.82f;
     config.presenceFreq = 3720.0f;
-    config.presenceDb = 3.8f;
-    config.presenceTightScale = 1.4f;
-    config.topCutLow = 9800.0f;
-    config.topCutHigh = 5400.0f;
-    config.gateFloor = 0.08f;
-    config.gateBaseDb = -70.0f;
-    config.gateGainLiftDb = 20.0f;
-    config.gateTightLiftDb = 8.0f;
-    config.gateHysteresisDb = 5.5f;
+    config.presenceDb = 3.0f;
+    config.presenceTightScale = 1.0f;
+    config.topCutLow = 9000.0f;
+    config.topCutHigh = 5000.0f;
+    config.gateFloor = 0.24f;
+    config.gateBaseDb = -74.0f;
+    config.gateGainLiftDb = 5.0f;
+    config.gateTightLiftDb = 2.5f;
+    config.gateHysteresisDb = 9.5f;
     return config;
 }
 
@@ -469,15 +469,15 @@ inline ModeConfig makeStudioConfig() noexcept
     config.midBodyScale = 2.8f;
     config.midQ = 0.88f;
     config.presenceFreq = 3360.0f;
-    config.presenceDb = 2.1f;
-    config.presenceTightScale = 0.9f;
-    config.topCutLow = 11200.0f;
-    config.topCutHigh = 6600.0f;
-    config.gateFloor = 0.16f;
+    config.presenceDb = 1.5f;
+    config.presenceTightScale = 0.6f;
+    config.topCutLow = 10400.0f;
+    config.topCutHigh = 6100.0f;
+    config.gateFloor = 0.28f;
     config.gateBaseDb = -76.0f;
-    config.gateGainLiftDb = 16.0f;
-    config.gateTightLiftDb = 6.0f;
-    config.gateHysteresisDb = 5.0f;
+    config.gateGainLiftDb = 4.5f;
+    config.gateTightLiftDb = 2.0f;
+    config.gateHysteresisDb = 9.0f;
     return config;
 }
 
@@ -553,9 +553,9 @@ public:
         sagAttackCoeff = std::exp(-1.0f / ((float) innerSr * 0.0015f));
         sagReleaseCoeff = std::exp(-1.0f / ((float) innerSr * 0.055f));
         gateEnvelopeAttackCoeff = std::exp(-1.0f / ((float) sr * 0.0018f));
-        gateEnvelopeReleaseCoeff = std::exp(-1.0f / ((float) sr * 0.028f));
+        gateEnvelopeReleaseCoeff = std::exp(-1.0f / ((float) sr * 0.090f));
         gateOpenCoeff = std::exp(-1.0f / ((float) sr * 0.0012f));
-        gateCloseCoeff = std::exp(-1.0f / ((float) sr * 0.038f));
+        gateCloseCoeff = std::exp(-1.0f / ((float) sr * 0.300f));
 
         invalidateCachedResponse();
 
@@ -643,6 +643,7 @@ public:
                 float x = dryTransient;
 
                 x = inputHP[(size_t) ch].process(x);
+                x *= computeIdleRejectGain(x, ch, driveNorm, tightCtl, modeParam != nullptr ? modeParam->getIndex() : 0);
                 x = preContour[(size_t) ch].process(x);
                 x = preLP[(size_t) ch].process(x);
 
@@ -652,7 +653,10 @@ public:
                 envelope = detector + sagCoeff * (envelope - detector);
                 const float sagGain = 1.0f - config.sagAmount * juce::jlimit(0.0f, 1.0f, envelope * 0.72f);
 
-                const float stage1Drive = juce::Decibels::decibelsToGain(config.stage1BaseDb + gainCtl * config.stage1DrivePerPct) * sagGain;
+                const float highGainCompatibilityTrim = 1.0f / (1.0f + driveNorm * driveNorm * (modeParam != nullptr && modeParam->getIndex() >= 3 ? 0.62f : 0.24f));
+                const float stage1Drive = juce::Decibels::decibelsToGain(config.stage1BaseDb + gainCtl * config.stage1DrivePerPct)
+                    * sagGain
+                    * highGainCompatibilityTrim;
                 const float stage2Drive = config.stage2Base + driveNorm * config.stage2DriveScale + tightCtl * config.stage2TightScale;
                 const float stage3Drive = config.stage3Base + driveNorm * config.stage3DriveScale + tightCtl * 0.06f;
                 const float bias = (config.contourGainDb > 0.0f ? 0.03f : -0.015f) * driveNorm;
@@ -718,7 +722,10 @@ public:
             {
                 const float dry = scratchBuffer.getSample(ch, s);
                 const float wet = buffer.getSample(ch, s);
-                buffer.setSample(ch, s, dry * dryGain + (wet * wetGain * level));
+                const float mixed = dry * dryGain + (wet * wetGain * level);
+                const float contained = containOutputSample(mixed);
+                const float centered = finalDcBlock[(size_t) ch].process(contained);
+                buffer.setSample(ch, s, containOutputSample(centered));
             }
         }
 
@@ -970,6 +977,41 @@ public:
         return juce::jlimit(-1.0f, 1.0f, x * config.outputTrim);
     }
 
+    static float sanitizeAudioSample(float value) noexcept
+    {
+        if (!std::isfinite(value))
+            return 0.0f;
+
+        if (std::abs(value) < 1.0e-30f)
+            return 0.0f;
+
+        return juce::jlimit(-8.0f, 8.0f, value);
+    }
+
+    static float softCeiling(float value, float ceiling) noexcept
+    {
+        value = sanitizeAudioSample(value);
+        ceiling = juce::jmax(0.001f, ceiling);
+
+        const float threshold = ceiling * 0.985f;
+        const float magnitude = std::abs(value);
+        if (magnitude <= threshold)
+            return value;
+
+        const float sign = value < 0.0f ? -1.0f : 1.0f;
+        const float knee = juce::jmax(0.0001f, ceiling - threshold);
+        const float shaped = threshold + knee * std::tanh((magnitude - threshold) / knee);
+
+        return sign * juce::jmin(ceiling, shaped);
+    }
+
+    static float containOutputSample(float value) noexcept
+    {
+        // Post-level containment only. Normal samples below the knee remain unchanged,
+        // while destructive pedal-output overs are stopped before ambience/chorus.
+        return softCeiling(value, 0.94f);
+    }
+
     juce::AudioParameterFloat* gainParam = nullptr;
     juce::AudioParameterFloat* toneParam = nullptr;
     juce::AudioParameterFloat* bodyParam = nullptr;
@@ -1071,8 +1113,11 @@ private:
             filter.reset();
         for (auto& filter : dcBlock)
             filter.reset();
+        for (auto& filter : finalDcBlock)
+            filter.reset();
 
         sagEnvelope.fill(0.0f);
+        idleRejectEnvelope.fill(0.0f);
         inputGate.reset();
         currentGateGain = 1.0f;
     }
@@ -1121,6 +1166,26 @@ private:
             for (int ch = 0; ch < numChannels; ++ch)
                 buffer.setSample(ch, s, buffer.getSample(ch, s) * gateGain);
         }
+    }
+
+    float computeIdleRejectGain(float input, int channel, float driveNorm, float tightAmount, int modeIndex) noexcept
+    {
+        if (modeIndex < 3)
+            return 1.0f;
+
+        const size_t index = (size_t) juce::jlimit(0, 1, channel);
+        const float absolute = std::abs(input);
+        const float attackCoeff = 0.06f;
+        const float releaseCoeff = 0.0018f;
+        auto& env = idleRejectEnvelope[index];
+        env += (absolute - env) * (absolute > env ? attackCoeff : releaseCoeff);
+
+        const float openThreshold = 0.00018f + driveNorm * 0.00032f + tightAmount * 0.00010f;
+        const float closeThreshold = openThreshold * 0.32f;
+        const float zone = Nova::DistortionDSP::clamp01((env - closeThreshold) / juce::jmax(1.0e-7f, openThreshold - closeThreshold));
+        const float smoothZone = zone * zone * (3.0f - 2.0f * zone);
+        const float idleFloor = juce::jmap(driveNorm, 0.20f, 0.10f);
+        return idleFloor + smoothZone * (1.0f - idleFloor);
     }
 
     void updateFilters()
@@ -1194,6 +1259,8 @@ private:
             filter.setLowPass(toneCutoff, 0.68f, innerSr);
         for (auto& filter : dcBlock)
             filter.setHighPass(18.0f, 0.707f, innerSr);
+        for (auto& filter : finalDcBlock)
+            filter.setHighPass(10.0f, 0.707f, sr);
     }
 
     double sr = 44100.0;
@@ -1232,6 +1299,7 @@ private:
     std::array<Nova::DistortionDSP::Biquad, 2> toneLP;
     std::array<Nova::DistortionDSP::Biquad, 2> toneShelf;
     std::array<Nova::DistortionDSP::Biquad, 2> dcBlock;
+    std::array<Nova::DistortionDSP::Biquad, 2> finalDcBlock;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> gainSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
@@ -1239,6 +1307,7 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> tightSmooth;
     juce::AudioBuffer<float> scratchBuffer;
     std::array<float, 2> sagEnvelope {};
+    std::array<float, 2> idleRejectEnvelope {};
     Nova::DistortionDSP::Gate inputGate;
     float sagAttackCoeff = 0.0f;
     float sagReleaseCoeff = 0.0f;

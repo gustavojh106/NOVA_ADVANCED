@@ -149,7 +149,7 @@ public:
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
                 const float clean = scratchBuffer.getSample(ch, sample);
-                const float wet = buffer.getSample(ch, sample);
+                const float wet = buffer.getSample(ch, sample) * kProfessionalCabinetTrim;
                 buffer.setSample(ch, sample, ((wet * mix) + (clean * dry)) * level);
             }
         }
@@ -169,6 +169,7 @@ public:
 
 private:
     static constexpr int kMaxProcessingChannels = 2;
+    static constexpr float kProfessionalCabinetTrim = 0.70f;
 
     using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
         juce::dsp::IIR::Coefficients<float>>;
@@ -255,14 +256,15 @@ private:
         cachedPresence = presence;
         cachedDistance = distance;
 
-        // Modern 4x12 voicing: tight low end, aggressive mids, scooped option
-        const float lpFreq = juce::jmap(distance, 10000.0f, 4000.0f);
+        // Modern 4x12 voicing: tight low end with a controlled post-amp top cut.
+        const float lpFreq = juce::jmap(distance, 6200.0f, 3200.0f);
         const float hpFreq = juce::jmap(distance, 65.0f, 150.0f);
+        const float compensatedPresence = juce::jlimit(-12.0f, 3.5f, presence * 0.45f - 1.2f);
 
         *lowShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(currentSampleRate,
             100.0f, 0.85f, juce::Decibels::decibelsToGain(lowEnd));
         *highShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(currentSampleRate,
-            3000.0f, 0.78f, juce::Decibels::decibelsToGain(presence));
+            3100.0f, 0.74f, juce::Decibels::decibelsToGain(compensatedPresence));
         // Slight mid-scoop characteristic of modern V30-style cabs
         *midScoop.state = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(currentSampleRate,
             650.0f, 1.2f, juce::Decibels::decibelsToGain(-2.0f));

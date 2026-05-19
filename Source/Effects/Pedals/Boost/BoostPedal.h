@@ -226,6 +226,7 @@ public:
             const float clipAmount = character * (0.50f + driveWeight * 0.50f);
             const float denseDrive = 1.0f + character * 1.9f + driveWeight * 0.85f;
             const float voiceBlend = juce::jlimit(0.0f, 1.0f, 0.34f + currentTone * 0.16f);
+            const float ampInputCompatibilityTrim = 1.0f / (1.0f + driveWeight * driveWeight * (0.72f + character * 0.28f));
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
@@ -244,7 +245,7 @@ public:
                 x = presShelf[(size_t) ch].process(x);
                 x = airLP[(size_t) ch].process(x);
                 x = dcBlock[(size_t) ch].process(x);
-                data[sample] = x;
+                data[sample] = x * ampInputCompatibilityTrim;
             }
         }
 
@@ -255,7 +256,7 @@ public:
         {
             const float level = levelSmooth.getNextValue();
             for (int ch = 0; ch < numChannels; ++ch)
-                buffer.setSample(ch, s, buffer.getSample(ch, s) * level);
+                buffer.setSample(ch, s, containBoostOutput(buffer.getSample(ch, s) * level));
         }
 
         endBypassProcess(buffer);
@@ -272,6 +273,22 @@ private:
     static int oversamplingFactor() noexcept
     {
         return 8;
+    }
+
+    static float containBoostOutput(float x) noexcept
+    {
+        if (!std::isfinite(x))
+            return 0.0f;
+
+        constexpr float knee = 0.72f;
+        constexpr float ceiling = 0.94f;
+        const float ax = std::abs(x);
+        if (ax <= knee)
+            return x;
+
+        const float over = ax - knee;
+        const float shaped = knee + (ceiling - knee) * std::tanh(over / (ceiling - knee));
+        return std::copysign(shaped, x);
     }
 
     void resetFilters()

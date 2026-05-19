@@ -1,0 +1,27 @@
+﻿{
+    "generatedAt":  "2026-05-06T12:28:44.8481129-06:00",
+    "repoRoot":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA",
+    "configuration":  "Release",
+    "platform":  "x64",
+    "standalonePath":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\Builds\\VisualStudio2022\\x64\\Release\\Standalone Plugin\\NOVA.exe",
+    "vst3BundlePath":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\Builds\\VisualStudio2022\\x64\\Release\\VST3\\NOVA.vst3",
+    "vst3BinaryPath":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\Builds\\VisualStudio2022\\x64\\Release\\VST3\\NOVA.vst3\\Contents\\x86_64-win\\NOVA.vst3",
+    "checks":  [
+                   {
+                       "id":  "standalone_artifact_exists",
+                       "passed":  true,
+                       "detail":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\Builds\\VisualStudio2022\\x64\\Release\\Standalone Plugin\\NOVA.exe"
+                   },
+                   {
+                       "id":  "vst3_bundle_exists",
+                       "passed":  true,
+                       "detail":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\Builds\\VisualStudio2022\\x64\\Release\\VST3\\NOVA.vst3"
+                   },
+                   {
+                       "id":  "vst3_binary_exists",
+                       "passed":  true,
+                       "detail":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\Builds\\VisualStudio2022\\x64\\Release\\VST3\\NOVA.vst3\\Contents\\x86_64-win\\NOVA.vst3"
+                   }
+               ],
+    "reportsDirectory":  "C:\\Users\\gusta\\OneDrive\\Desktop\\DEV\\ULTIMATE\\NOVA\\artifacts\\host-smoke-preflight\\20260506-122814\\reports"
+}

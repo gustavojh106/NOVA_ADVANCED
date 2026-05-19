@@ -1,0 +1,14 @@
+﻿NOVA Host Smoke Preflight
+Generated: 2026-05-06T15:23:52.7241054-06:00
+Configuration: Release
+Platform: x64
+Standalone: C:\Users\gusta\OneDrive\Desktop\DEV\ULTIMATE\NOVA\Builds\VisualStudio2022\x64\Release\Standalone Plugin\NOVA.exe
+VST3 Bundle: C:\Users\gusta\OneDrive\Desktop\DEV\ULTIMATE\NOVA\Builds\VisualStudio2022\x64\Release\VST3\NOVA.vst3
+VST3 Binary: C:\Users\gusta\OneDrive\Desktop\DEV\ULTIMATE\NOVA\Builds\VisualStudio2022\x64\Release\VST3\NOVA.vst3\Contents\x86_64-win\NOVA.vst3
+
+Checks:
+  [PASS] standalone_artifact_exists: C:\Users\gusta\OneDrive\Desktop\DEV\ULTIMATE\NOVA\Builds\VisualStudio2022\x64\Release\Standalone Plugin\NOVA.exe
+  [PASS] vst3_bundle_exists: C:\Users\gusta\OneDrive\Desktop\DEV\ULTIMATE\NOVA\Builds\VisualStudio2022\x64\Release\VST3\NOVA.vst3
+  [PASS] vst3_binary_exists: C:\Users\gusta\OneDrive\Desktop\DEV\ULTIMATE\NOVA\Builds\VisualStudio2022\x64\Release\VST3\NOVA.vst3\Contents\x86_64-win\NOVA.vst3
+
+Reports copied to: C:\Users\gusta\OneDrive\Desktop\DEV\ULTIMATE\NOVA\artifacts\host-smoke-preflight\20260506-152321\reports

@@ -1,0 +1,24 @@
+NOVA P9E Draft Preset Technical Gain-Staging Report
+Generated: 2026-05-19 13:23:47
+status=PASS
+manifest=Resources/Presets/DraftFactory/factory-bank.draft.json
+builderReport=artifacts/p9d-draft-preset-builder-report.json
+generatedPresetCount=6
+manifestUpdated=false
+noUserPresetDirectoryWrites=True
+noStartupPresetPointerWrites=True
+changedSchema=False
+noFactoryApproved=True
+
+Per-preset results:
+  - Clean Studio: status=PASS; readiness=LISTENING_CANDIDATE; scenario=clean_nominal_headroom; peak=0.16507314; rms=0.06700665; dc=0.00033266; nearClip=0; clipped=0; invalid=0; limiterTouched=0; limiterActiveBlocks=0; sustainedClampBlocks=0; limiterMaxReductionDb=0
+  - Classic Crunch: status=PASS; readiness=LISTENING_CANDIDATE; scenario=crunch_nominal_bounded; peak=0.57068098; rms=0.28242917; dc=0.00232539; nearClip=0; clipped=0; invalid=0; limiterTouched=0; limiterActiveBlocks=0; sustainedClampBlocks=0; limiterMaxReductionDb=0
+  - Tight Modern Rhythm: status=PASS; readiness=LISTENING_CANDIDATE; scenario=high_gain_staccato_proxy; peak=0.11842877; rms=0.02803221; dc=0.00025009; nearClip=0; clipped=0; invalid=0; limiterTouched=0; limiterActiveBlocks=0; sustainedClampBlocks=0; limiterMaxReductionDb=0
+  - Wide Ambient Clean: status=PASS; readiness=LISTENING_CANDIDATE; scenario=ambient_tail_recovery_proxy; peak=0.18907842; rms=0.04512435; dc=0.00018605; nearClip=0; clipped=0; invalid=0; limiterTouched=0; limiterActiveBlocks=0; sustainedClampBlocks=0; limiterMaxReductionDb=0
+  - Funk Comp Clean: status=PASS; readiness=LISTENING_CANDIDATE; scenario=funk_transient_comp_proxy; peak=0.36105093; rms=0.09371597; dc=0.00034750; nearClip=0; clipped=0; invalid=0; limiterTouched=0; limiterActiveBlocks=0; sustainedClampBlocks=0; limiterMaxReductionDb=0
+  - Dry Reference: status=PASS; readiness=LISTENING_CANDIDATE; scenario=dry_reference_nominal; peak=0.09965807; rms=0.03168143; dc=0.00019163; nearClip=0; clipped=0; invalid=0; limiterTouched=0; limiterActiveBlocks=0; sustainedClampBlocks=0; limiterMaxReductionDb=0
+
+Failures: none
+Warnings: none
+
+Policy: no FACTORY_APPROVED, no final factory approval, manual listening pending, Distortion listening pending, P7F/Reaper pending.

@@ -409,8 +409,9 @@ public:
                 else if (inputEnvelope[(size_t) ch] < gateCloseThresh)
                     gateOpen[(size_t) ch] = false;
 
-                const float targetGate = gateAmount < 0.01f ? 1.0f : (gateOpen[(size_t) ch] ? 1.0f : 0.0f);
-                const float gateCoeff = gateOpen[(size_t) ch] ? 0.18f : 0.05f;
+                const float closedGateFloor = juce::jlimit(0.08f, 0.28f, 0.18f - gateAmount * 0.06f);
+                const float targetGate = gateAmount < 0.01f ? 1.0f : (gateOpen[(size_t) ch] ? 1.0f : closedGateFloor);
+                const float gateCoeff = gateOpen[(size_t) ch] ? 0.18f : 0.026f;
                 gateGain[(size_t) ch] += (targetGate - gateGain[(size_t) ch]) * gateCoeff;
                 const float gateScale = juce::jlimit(0.0f, 1.0f,
                     gateGain[(size_t) ch] + (!gateOpen[(size_t) ch] ? inputEnvelope[(size_t) ch] / juce::jmax(0.0001f, gateCloseThresh) * 0.18f : 0.0f));
@@ -492,7 +493,7 @@ public:
             {
                 const float dry = scratchBuffer.getSample(ch, sample);
                 const float wet = buffer.getSample(ch, sample);
-                buffer.setSample(ch, sample, (dry * dryGain + wet * wetGain) * level);
+                buffer.setSample(ch, sample, containFuzzOutput((dry * dryGain + wet * wetGain) * level));
             }
         }
 
@@ -588,6 +589,22 @@ public:
 
 private:
     static constexpr int kMaxProcessingChannels = 2;
+
+    static float containFuzzOutput(float x) noexcept
+    {
+        if (!std::isfinite(x))
+            return 0.0f;
+
+        constexpr float knee = 0.76f;
+        constexpr float ceiling = 0.92f;
+        const float ax = std::abs(x);
+        if (ax <= knee)
+            return x;
+
+        const float over = ax - knee;
+        const float shaped = knee + (ceiling - knee) * std::tanh(over / (ceiling - knee));
+        return std::copysign(shaped, x);
+    }
 
     bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
     {

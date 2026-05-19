@@ -5,6 +5,28 @@ Baseline auditada: `baseline-audio-v2`
 Commit auditado: `da11290f86fcbda228128143b89e2da0f4de97cc`
 Alcance: auditoria estatica inicial de procesadores/pedales. No se reconstruyo ningun pedal y no se cambio codigo de audio.
 
+## P7B closure summary (2026-05-01)
+
+Los items P0 enlistados al final de esta matriz fueron verificados y cerrados en P7B (`docs/p7b-audio-thread-rt-safety-closure-results.md`). En particular:
+
+- Telemetry desde process en `ChannelStrip`, `OutputChain`, `Overdrive`, `CleanAmp`, `Delay`, `Flanger`, `Reverb`: ahora se publica por la cola lock-free `RealtimeSignalTelemetryQueue`. El log/format vive en el thread de logger.
+- Allocations por bloque en amps `ClassicAmp`, `HighGainAmp`, `ChimeAmp`, `BoutiqueAmp`: corregidas a `std::array<float*, kMaxAmpChannels>`.
+- Coeficientes JUCE IIR desde process en amps y CleanAmp: corregidos a `juce::dsp::IIR::ArrayCoefficients` (CleanAmp usa filtros custom). Cabinets se mantienen como P1.
+
+Las reglas estan codificadas en `scripts/check-audio-thread-policy.ps1` con prefijo `p7b_*`. La matriz original sigue como evidencia historica; consultar la P7B closure para el estado vigente.
+
+## P7C closure summary (2026-05-06)
+
+P7C cierra los P1 activos de allocation fallback, cabinet coefficient hygiene y feedback/DC stress (`docs/p7c-allocation-fallback-and-feedback-stress-results.md`):
+
+- `Compressor`, `Distortion`, `Fuzz`, `Neural`, `Wah`, `Cabinet`, `Vintage 2x12 Cabinet`, `Modern 4x12 Cabinet`: no-allocation fallback ante bloques/canales mayores a `prepareToPlay`.
+- `Neural`: helpers por canal fijos con `std::array`; sin `ensureChannels`/`resize` en el path auditado.
+- Cabinets: `ArrayCoefficients<float>` value-type, sin factories alloc-prone `IIR::Coefficients<float>::make*`.
+- `Phaser`: DC accumulation protegido por blockers y regression test bajo bias sostenido.
+- `Delay`, `Flanger`, `Reverb`: stress tests deterministas para DC, NaN/Inf, feedback/runaway y picos altos.
+
+La tabla original se conserva como snapshot de auditoria inicial. El estado vigente de los items P1 cerrados esta en esta seccion y en la closure P7C.
+
 ## Criterios evaluados
 
 Para cada pedal/procesador se reviso:
@@ -51,7 +73,7 @@ Leyenda compacta:
 | 11 | Modern 4x12 Cabinet | `Source/Effects/Pedals/Cabinet/Modern4x12Cabinet.h` | Riesgo: `scratchBuffer.setSize` si excede preparado | OK | Revisar DC post cab | Riesgo medio/alto con high gain | Bypass OK; convolution tail; latencia revisar | No dedicada | Riesgo: JUCE IIR `make*` en process | P1: igual que Cabinet; test con high gain |
 | 12 | IR Loader | N/A registrado | N/A | N/A | N/A | N/A | N/A | N/A | No se encontro loader externo registrado; cabinets usan IR sintetico | Documentar alcance; si se agrega IR loader, exigir carga fuera de audio thread |
 | 13 | Delay | `Source/Effects/Pedals/Delay/DelayPedal.h` | OK: buffers preparados | OK | OK: DC/feedback safeguards | Riesgo: feedback largo/freeze/reverse pueden acumular energia | Bypass OK; tail importante; latencia estable | Riesgo: telemetry log desde process | Revisar automation y feedback filters | P0 telemetry; P1 stress feedback/DC/NaN |
-| 14 | Reverb | `Source/Effects/Pedals/Reverb/ReverbPedal.h` | OK; fallback dry si excede capacidad | OK | OK: DC cleanup y limits | Mejorado; todavia probar freeze/large room | Bypass OK; tail importante; latencia estable | Riesgo: telemetry log desde process | Revisar `engine.configure` por bloque bajo automation | P0 telemetry; P1 automation stress y output envelope |
+| 14 | Reverb | `Source/Effects/Pedals/Reverb/ReverbPedal.h` | OK; fallback dry si excede capacidad | OK | OK: DC cleanup y limits | Mejorado; P7H cubre automation/freeze/gate/reverse/swell bounded | Bypass OK; tail importante; latencia estable | OK: policy cubre no logging/string en processBlock | `engine.configure` auditado: cacheado por parametros, sin allocation obvia, contador diagnostico | P7H: audited/test-locked; surgery opcional futura |
 | 15 | Compressor | `Source/Effects/Pedals/Compressor/CompressorPedal.h` | Riesgo: `dryBuffer.setSize` si excede preparado | OK | N/A, no nonlinear fuerte | Riesgo: makeup/parallel puede subir nivel | Bypass OK; tail/lookahead revisar; latencia estable | No dedicada | Sidechain custom; revisar 32 samples | P1: fallback no-allocation; test pumping/threshold automation |
 | 16 | EQ | `Source/Effects/Pedals/EQ/EQPedal.h` | OK | OK | Revisar: EQ puede desplazar energia baja pero no DC source | Riesgo: boosts pueden near-clip | Bypass OK; tail N/A; latencia estable | No dedicada | Coefs custom actualizados frecuentemente; zipper revisar | P2: tests de automation y output gain compensation |
 | 17 | Chorus | `Source/Effects/Pedals/Chorus/ChorusPedal.h` | OK: delay buffers preparados | OK | OK: feedback/DC handling | Riesgo bajo/medio por wet mix y feedback | Bypass OK; tail/mod delay; latencia estable | No dedicada | Modulation smoothing; revisar block 32 | Buen estado; agregar stress tests |
@@ -64,16 +86,16 @@ Leyenda compacta:
 | 24 | Wah | `Source/Effects/Pedals/Wah/ClassicWahPedal.h` | Riesgo: `scratchBuffer.setSize` si excede preparado | OK | Revisar: filtro resonante sin DC guard dedicado | Riesgo medio: resonancia puede spike | Bypass OK; tail N/A; latencia estable | No dedicada | Zipper de sweep/auto revisar | P1: fallback no-allocation; test resonant peaks |
 | 25 | Octave | `Source/Effects/Pedals/Octave/OctavePedal.h` | OK | OK | OK: DC block | Riesgo medio: tracking/sub voices pueden sumar energia | Bypass OK; tail/tracker; latencia estable | No dedicada | Tracking puede variar con block pequeno | P1: tests block 32/64 y signal guitar/sine |
 | 26 | Tuner tap | `Source/Core/TunerService.h` | OK: buffers preparados en constructor | N/A | N/A para salida; modo tuner silencia output | Riesgo bajo: coste de copia/captura | No usa ProcessorBase; tail N/A; latencia N/A | No logger directo en push | Revisar CPU con block 32/64; analisis corre fuera de audio | P2: mantener analisis fuera de audio y testear mute/tap |
-| 27 | Auto Wah legacy | `Source/Effects/Pedals/AutoWahPedal.h` | Riesgo: `scratchBuffer.setSize` | OK parcial | Revisar | Riesgo medio | Requiere confirmar uso real | No dedicada | Archivo no registrado directamente | P2: retirar o modernizar antes de registrar |
-| 28 | Metal Distortion legacy | `Source/Effects/Pedals/Metal/MetalDistortionPedal.h` | Riesgo: `scratchBuffer.setSize` | OK parcial | Revisar | Riesgo alto por high gain | Requiere confirmar uso real | No dedicada | Archivo no registrado directamente | P2: retirar o modernizar antes de registrar |
-| 29 | Compressor legacy | `Source/Effects/Pedals/CompressorPedal.h` | Riesgo: `setSize` en process | Revisar | Revisar | Revisar | No registrado directamente | No dedicada | Deuda tecnica | P3: eliminar del proyecto o actualizar |
-| 30 | Chorus legacy | `Source/Effects/Pedals/ChorusPedal.h` | Riesgo: `setSize` en process | Revisar | Revisar | Revisar | No registrado directamente | No dedicada | Deuda tecnica | P3: eliminar del proyecto o actualizar |
+| 27 | Auto Wah legacy | `Source/Effects/Pedals/Wah/AutoWahPedal.h` | Quarantined: `scratchBuffer.setSize` permanece solo en header legacy alias-only | OK parcial | Revisar solo si se reactiva | Riesgo medio si se registra | No activo; aliases `Auto Wah`/`Autowah`/`AutoWah` canonicalizan a `Wah` | No dedicada | No registrado en `PedalRegistry`; reemplazo activo `ClassicWahPedal` | P7G: cuarentena contractual, modernizar antes de registrar |
+| 28 | Metal Distortion legacy | `Source/Effects/Pedals/Metal/MetalDistortionPedal.h` | Quarantined: `scratchBuffer.setSize` permanece solo en header legacy alias-only | OK parcial | Revisar solo si se reactiva | Riesgo alto si se registra | No activo; alias `Metal Distortion` canonicaliza a `Distortion` | No dedicada | No registrado en `PedalRegistry`; reemplazo activo `DistortionPedal` | P7G: cuarentena contractual, modernizar antes de registrar |
+| 29 | Compressor legacy | `Source/Effects/Pedals/CompressorPedal.h` | Quarantined: `setSize` permanece solo en duplicado superseded | Revisar solo si se reactiva | Revisar solo si se reactiva | Revisar solo si se reactiva | No activo; no esta en `NOVA.jucer` ni `PedalRegistry` | No dedicada | Reemplazo activo `Source/Effects/Pedals/Compressor/CompressorPedal.h` | P7G: cuarentena contractual, no tocar DSP |
+| 30 | Chorus legacy | `Source/Effects/Pedals/ChorusPedal.h` | Quarantined: `setSize` permanece solo en duplicado superseded | Revisar solo si se reactiva | Revisar solo si se reactiva | Revisar solo si se reactiva | No activo; no esta en `NOVA.jucer` ni `PedalRegistry` | No dedicada | Reemplazo activo `Source/Effects/Pedals/Chorus/ChorusPedal.h` | P7G: cuarentena contractual, no tocar DSP |
 
 ## Observaciones por categoria
 
 ### Allocations en processBlock
 
-Confirmadas o altamente probables:
+Confirmadas o altamente probables en la auditoria inicial:
 
 - `ClassicAmp`, `HighGainAmp`, `ChimeAmp`, `BoutiqueAmp`: `std::vector<float*>` por bloque.
 - `CabinetPedal`, `Vintage2x12Cabinet`, `Modern4x12Cabinet`: `scratchBuffer.setSize` si excede prepare.
@@ -81,6 +103,12 @@ Confirmadas o altamente probables:
 - `DistortionPedal`, `FuzzPedal`, `NeuralPedal`, `ClassicWahPedal`: `scratchBuffer.setSize` si excede prepare.
 - `NeuralPedal` helpers: `resize` de vectores si canales exceden prepare.
 - Legacy/unregistered: `AutoWahPedal`, `MetalDistortionPedal`, root `CompressorPedal`, root `ChorusPedal`.
+
+Estado vigente despues de P7C:
+
+- Los items activos de cabinets/compressor/distortion/fuzz/neural/wah quedaron corregidos con fallback no-allocation.
+- `NeuralPedal` helpers quedaron preasignados con `std::array`.
+- P7G reclasifica los hallazgos legacy/no registrados como cuarentena contractual: no son rutas de audio activas, no cuentan como WARN, y el policy falla si se registran o cambian sus alias sin actualizar la decision.
 
 ### Smoothing
 
@@ -147,16 +175,17 @@ P0:
 
 P1:
 
-1. `AudioBuffer::setSize` fallback en cabinets, compressor, distortion, fuzz, neural, wah.
-2. `NeuralPedal::ensureChannels` con resize en process.
-3. Reproducir/fijar `PhaserPedal` DC accumulation.
-4. Stress tests de delay/reverb/feedback con DC, NaN/Inf y picos.
+1. `AudioBuffer::setSize` fallback en cabinets, compressor, distortion, fuzz, neural, wah. **CERRADO en P7C**.
+2. `NeuralPedal::ensureChannels` con resize en process. **CERRADO en P7C**.
+3. Reproducir/fijar `PhaserPedal` DC accumulation. **CERRADO en P7C**.
+4. Stress tests de delay/reverb/feedback con DC, NaN/Inf y picos. **CERRADO en P7C**.
+5. `ReverbPedal::engine.configure` bajo automatizacion/perf. **AUDITADO en P7H** con contador diagnostico, tests deterministas y policy checks; rediseno estructural queda como opcion futura.
 
 P2:
 
 1. Tests de zipper/discontinuidad para EQ, Tremolo, Wah, modulations.
 2. Medir CPU de visualizer, per-sample atomics y profiler en block 32.
-3. Decidir destino de pedales legacy/no registrados.
+3. Mantener la cuarentena P7G de pedales legacy/no registrados; si P7H decide reactivarlos o eliminarlos, hacerlo como cambio separado con validacion de build/source membership.
 
 ## Pruebas minimas por pedal
 

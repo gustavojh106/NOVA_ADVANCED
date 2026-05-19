@@ -1,0 +1,66 @@
+{
+  "status": "PASS",
+  "manifestPath": "C:/Users/gusta/OneDrive/Desktop/DEV/ULTIMATE/NOVA/Resources/Presets/DraftFactory/factory-bank.draft.json",
+  "outputDirectory": "C:/Users/gusta/OneDrive/Desktop/DEV/ULTIMATE/NOVA/Resources/Presets/DraftFactory/generated",
+  "generatedPresetCount": 6,
+  "wroteUserPresetDirectory": false,
+  "wroteStartupPresetPointer": false,
+  "changedSchema": false,
+  "presets": [
+    {
+      "name": "Clean Studio",
+      "filePath": "C:/Users/gusta/OneDrive/Desktop/DEV/ULTIMATE/NOVA/Resources/Presets/DraftFactory/generated/Clean-Studio.nova-preset",
+      "generationStatus": "GENERATED_DRAFT",
+      "roundTripStatus": "ROUND_TRIP_PASS",
+      "processStatus": "PROCESS_FINITE_PASS",
+      "metrics": { "finite": true, "peak": 0.16507314, "rms": 0.06700665, "dc": 0.00033266, "nearClipSamples": 0, "clippedSamples": 0, "invalidSamples": 0, "limiterTouchedSamples": 0, "limiterActiveBlocks": 0, "sustainedClampBlocks": 0, "limiterMaxReductionDb": 0.00000000, "limiterDeltaPeak": 0.00000000, "softCeilingTouchedSamples": 0 },
+      "failures": []
+    },
+    {
+      "name": "Classic Crunch",
+      "filePath": "C:/Users/gusta/OneDrive/Desktop/DEV/ULTIMATE/NOVA/Resources/Presets/DraftFactory/generated/Classic-Crunch.nova-preset",
+      "generationStatus": "GENERATED_DRAFT",
+      "roundTripStatus": "ROUND_TRIP_PASS",
+      "processStatus": "PROCESS_FINITE_PASS",
+      "metrics": { "finite": true, "peak": 0.57068098, "rms": 0.28242917, "dc": 0.00232539, "nearClipSamples": 0, "clippedSamples": 0, "invalidSamples": 0, "limiterTouchedSamples": 0, "limiterActiveBlocks": 0, "sustainedClampBlocks": 0, "limiterMaxReductionDb": 0.00000000, "limiterDeltaPeak": 0.00000000, "softCeilingTouchedSamples": 0 },
+      "failures": []
+    },
+    {
+      "name": "Tight Modern Rhythm",
+      "filePath": "C:/Users/gusta/OneDrive/Desktop/DEV/ULTIMATE/NOVA/Resources/Presets/DraftFactory/generated/Tight-Modern-Rhythm.nova-preset",
+      "generationStatus": "GENERATED_DRAFT",
+      "roundTripStatus": "ROUND_TRIP_PASS",
+      "processStatus": "PROCESS_FINITE_PASS",
+      "metrics": { "finite": true, "peak": 0.11842877, "rms": 0.02803221, "dc": 0.00025009, "nearClipSamples": 0, "clippedSamples": 0, "invalidSamples": 0, "limiterTouchedSamples": 0, "limiterActiveBlocks": 0, "sustainedClampBlocks": 0, "limiterMaxReductionDb": 0.00000000, "limiterDeltaPeak": 0.00000000, "softCeilingTouchedSamples": 0 },
+      "failures": []
+    },
+    {
+      "name": "Wide Ambient Clean",
+      "filePath": "C:/Users/gusta/OneDrive/Desktop/DEV/ULTIMATE/NOVA/Resources/Presets/DraftFactory/generated/Wide-Ambient-Clean.nova-preset",
+      "generationStatus": "GENERATED_DRAFT",
+      "roundTripStatus": "ROUND_TRIP_PASS",
+      "processStatus": "PROCESS_FINITE_PASS",
+      "metrics": { "finite": true, "peak": 0.18907842, "rms": 0.04512435, "dc": 0.00018605, "nearClipSamples": 0, "clippedSamples": 0, "invalidSamples": 0, "limiterTouchedSamples": 0, "limiterActiveBlocks": 0, "sustainedClampBlocks": 0, "limiterMaxReductionDb": 0.00000000, "limiterDeltaPeak": 0.00000000, "softCeilingTouchedSamples": 0 },
+      "failures": []
+    },
+    {
+      "name": "Funk Comp Clean",
+      "filePath": "C:/Users/gusta/OneDrive/Desktop/DEV/ULTIMATE/NOVA/Resources/Presets/DraftFactory/generated/Funk-Comp-Clean.nova-preset",
+      "generationStatus": "GENERATED_DRAFT",
+      "roundTripStatus": "ROUND_TRIP_PASS",
+      "processStatus": "PROCESS_FINITE_PASS",
+      "metrics": { "finite": true, "peak": 0.36105093, "rms": 0.09371597, "dc": 0.00034750, "nearClipSamples": 0, "clippedSamples": 0, "invalidSamples": 0, "limiterTouchedSamples": 0, "limiterActiveBlocks": 0, "sustainedClampBlocks": 0, "limiterMaxReductionDb": 0.00000000, "limiterDeltaPeak": 0.00000000, "softCeilingTouchedSamples": 0 },
+      "failures": []
+    },
+    {
+      "name": "Dry Reference",
+      "filePath": "C:/Users/gusta/OneDrive/Desktop/DEV/ULTIMATE/NOVA/Resources/Presets/DraftFactory/generated/Dry-Reference.nova-preset",
+      "generationStatus": "GENERATED_DRAFT",
+      "roundTripStatus": "ROUND_TRIP_PASS",
+      "processStatus": "PROCESS_FINITE_PASS",
+      "metrics": { "finite": true, "peak": 0.09965807, "rms": 0.03168143, "dc": 0.00019163, "nearClipSamples": 0, "clippedSamples": 0, "invalidSamples": 0, "limiterTouchedSamples": 0, "limiterActiveBlocks": 0, "sustainedClampBlocks": 0, "limiterMaxReductionDb": 0.00000000, "limiterDeltaPeak": 0.00000000, "softCeilingTouchedSamples": 0 },
+      "failures": []
+    }
+  ],
+  "failures": []
+}

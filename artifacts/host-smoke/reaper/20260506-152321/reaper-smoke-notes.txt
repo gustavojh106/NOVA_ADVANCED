@@ -1,0 +1,7 @@
+﻿P7F Reaper Smoke Evidence
+Timestamp: 20260506-152321
+Status: BLOCKED - Reaper executable not found
+Scenarios RPR-01..RPR-09: NOT RUN
+Preflight: PASS
+Reason: reaper.exe not found in standard install paths or PATH.
+Required next action: install Reaper, configure VST3 path, select audio device, execute docs/p7e-manual-host-smoke-checklist.md.

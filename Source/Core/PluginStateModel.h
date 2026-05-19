@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include <JuceHeader.h>
@@ -57,6 +58,63 @@ inline int zoneSortRank(ZoneID zone)
     }
 }
 
+inline bool isNumericScalar(const juce::var& value) noexcept
+{
+    return value.isBool() || value.isInt() || value.isInt64() || value.isDouble();
+}
+
+inline double readFiniteNumberOr(const juce::var& value, double fallback) noexcept
+{
+    if (!isNumericScalar(value))
+        return fallback;
+
+    const auto numeric = static_cast<double>(value);
+    return std::isfinite(numeric) ? numeric : fallback;
+}
+
+inline void sanitizeBoolProperty(juce::ValueTree tree,
+                                 const juce::Identifier& property,
+                                 bool fallback)
+{
+    if (!tree.isValid())
+        return;
+
+    const auto raw = tree.getProperty(property, fallback);
+    const auto value = raw.isBool()
+        ? static_cast<bool>(raw)
+        : (isNumericScalar(raw) ? (readFiniteNumberOr(raw, fallback ? 1.0 : 0.0) != 0.0) : fallback);
+
+    tree.setProperty(property, value, nullptr);
+}
+
+inline void sanitizeIntProperty(juce::ValueTree tree,
+                                const juce::Identifier& property,
+                                int fallback,
+                                int minimum,
+                                int maximum)
+{
+    if (!tree.isValid())
+        return;
+
+    const auto raw = tree.getProperty(property, fallback);
+    const auto numeric = readFiniteNumberOr(raw, (double) fallback);
+    tree.setProperty(property, juce::jlimit(minimum, maximum, juce::roundToInt(numeric)), nullptr);
+}
+
+inline void sanitizeFloatProperty(juce::ValueTree tree,
+                                  const juce::Identifier& property,
+                                  float fallback,
+                                  float minimum,
+                                  float maximum)
+{
+    if (!tree.isValid())
+        return;
+
+    const auto raw = tree.getProperty(property, fallback);
+    const auto numeric = readFiniteNumberOr(raw, (double) fallback);
+    tree.setProperty(property, (float) juce::jlimit((double) minimum, (double) maximum, numeric), nullptr);
+}
+
 inline void ensureStructure(juce::ValueTree state)
 {
     if (!state.isValid())
@@ -81,44 +139,31 @@ inline void applyDefaultValues(juce::ValueTree state)
     auto settings = getSettingsTree(state);
     if (settings.isValid())
     {
-        if (!settings.hasProperty(IDs::ENGINE_ON))
-            settings.setProperty(IDs::ENGINE_ON, false, nullptr);
-        if (!settings.hasProperty(IDs::SWITCH_MODE))
-            settings.setProperty(IDs::SWITCH_MODE, (int)SwitcherMode::LineA_Only, nullptr);
-        if (!settings.hasProperty(IDs::INPUT_GAIN))
-            settings.setProperty(IDs::INPUT_GAIN, 0.0f, nullptr);
-        if (!settings.hasProperty(IDs::INPUT_GATE))
-            settings.setProperty(IDs::INPUT_GATE, -100.0f, nullptr);
-        if (!settings.hasProperty(IDs::FORCE_MONO))
-            settings.setProperty(IDs::FORCE_MONO, false, nullptr);
-        if (!settings.hasProperty(IDs::OUTPUT_VOL))
-            settings.setProperty(IDs::OUTPUT_VOL, 0.0f, nullptr);
-        if (!settings.hasProperty(IDs::OUTPUT_LIMITER))
-            settings.setProperty(IDs::OUTPUT_LIMITER, 0.0f, nullptr);
-        if (!settings.hasProperty(IDs::OUTPUT_MIX))
-            settings.setProperty(IDs::OUTPUT_MIX, 100.0f, nullptr);
+        sanitizeBoolProperty(settings, IDs::ENGINE_ON, false);
+        sanitizeIntProperty(settings, IDs::SWITCH_MODE, (int) SwitcherMode::LineA_Only,
+            (int) SwitcherMode::LineA_Only, (int) SwitcherMode::Dual_Parallel);
+        sanitizeFloatProperty(settings, IDs::INPUT_GAIN, 0.0f, -60.0f, 24.0f);
+        sanitizeFloatProperty(settings, IDs::INPUT_GATE, -100.0f, -100.0f, 0.0f);
+        sanitizeBoolProperty(settings, IDs::FORCE_MONO, false);
+        sanitizeFloatProperty(settings, IDs::OUTPUT_VOL, 0.0f, -60.0f, 12.0f);
+        sanitizeFloatProperty(settings, IDs::OUTPUT_LIMITER, 0.0f, -12.0f, 0.0f);
+        sanitizeFloatProperty(settings, IDs::OUTPUT_MIX, 100.0f, 0.0f, 100.0f);
     }
 
     auto lineA = getLineTree(state, ChainID::LineA);
     if (lineA.isValid())
     {
-        if (!lineA.hasProperty(IDs::MIXER_GAIN_A))
-            lineA.setProperty(IDs::MIXER_GAIN_A, 1.0f, nullptr);
-        if (!lineA.hasProperty(IDs::MIXER_PAN_A))
-            lineA.setProperty(IDs::MIXER_PAN_A, 0.0f, nullptr);
-        if (!lineA.hasProperty(IDs::MIXER_WIDTH_A))
-            lineA.setProperty(IDs::MIXER_WIDTH_A, 1.0f, nullptr);
+        sanitizeFloatProperty(lineA, IDs::MIXER_GAIN_A, 1.0f, 0.0f, 2.0f);
+        sanitizeFloatProperty(lineA, IDs::MIXER_PAN_A, 0.0f, -1.0f, 1.0f);
+        sanitizeFloatProperty(lineA, IDs::MIXER_WIDTH_A, 1.0f, 0.0f, 2.0f);
     }
 
     auto lineB = getLineTree(state, ChainID::LineB);
     if (lineB.isValid())
     {
-        if (!lineB.hasProperty(IDs::MIXER_GAIN_B))
-            lineB.setProperty(IDs::MIXER_GAIN_B, 1.0f, nullptr);
-        if (!lineB.hasProperty(IDs::MIXER_PAN_B))
-            lineB.setProperty(IDs::MIXER_PAN_B, 0.0f, nullptr);
-        if (!lineB.hasProperty(IDs::MIXER_WIDTH_B))
-            lineB.setProperty(IDs::MIXER_WIDTH_B, 1.0f, nullptr);
+        sanitizeFloatProperty(lineB, IDs::MIXER_GAIN_B, 1.0f, 0.0f, 2.0f);
+        sanitizeFloatProperty(lineB, IDs::MIXER_PAN_B, 0.0f, -1.0f, 1.0f);
+        sanitizeFloatProperty(lineB, IDs::MIXER_WIDTH_B, 1.0f, 0.0f, 2.0f);
     }
 }
 
@@ -138,6 +183,8 @@ inline void sanitizeLine(juce::ValueTree line)
     sanitized.reserve((size_t) line.getNumChildren());
     bool sawAmp = false;
     bool sawCabinet = false;
+    int preCount = 0;
+    int fxCount = 0;
 
     for (int i = 0; i < line.getNumChildren(); ++i)
     {
@@ -171,10 +218,24 @@ inline void sanitizeLine(juce::ValueTree line)
             sawCabinet = true;
         }
 
+        if (finalZone == ZoneID::Pre)
+        {
+            if (preCount >= Config::MAX_PEDALS_PER_FLEX_ZONE)
+                continue;
+
+            ++preCount;
+        }
+        else if (finalZone == ZoneID::FX)
+        {
+            if (fxCount >= Config::MAX_PEDALS_PER_FLEX_ZONE)
+                continue;
+
+            ++fxCount;
+        }
+
         child.setProperty(IDs::PEDAL_TYPE, canonicalType, nullptr);
         child.setProperty(IDs::PEDAL_ZONE, static_cast<int>(finalZone), nullptr);
-        if (!child.hasProperty(IDs::PEDAL_ENABLED))
-            child.setProperty(IDs::PEDAL_ENABLED, true, nullptr);
+        sanitizeBoolProperty(child, IDs::PEDAL_ENABLED, true);
         if (!child.hasProperty(IDs::PEDAL_ID))
             child.setProperty(IDs::PEDAL_ID, juce::Uuid().toString(), nullptr);
 

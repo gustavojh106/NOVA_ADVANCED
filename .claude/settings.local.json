@@ -76,7 +76,20 @@
       "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Configuration Release -Target NOVA_VST3)",
       "Bash(powershell -ExecutionPolicy Bypass -File scripts/run-golden-audio-metrics.ps1)",
       "Bash(powershell -ExecutionPolicy Bypass -File scripts/check-audio-thread-policy.ps1)",
-      "Bash(powershell *)"
+      "Bash(powershell *)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Configuration Debug -Target NOVA_StandalonePlugin)",
+      "PowerShell(\\(Get-Item \"Source\\\\Core\\\\AudioEngineTests.cpp\"\\).LastWriteTime = Get-Date; \\(Get-Item \"Source\\\\Core\\\\AudioEngineTests.cpp\"\\).LastWriteTime)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Configuration Debug -Target NOVA_SharedCode)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Configuration Release -Target NOVA_SharedCode)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Configuration Release -Target NOVA_StandalonePlugin)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Configuration Release -Target NOVA_VST3)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/run-base-audio-validation.ps1 -TimeoutSeconds 600)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/run-golden-audio-metrics.ps1)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/run-rt-profile-scenarios.ps1 -Configuration Release)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/run-rt-profile-stability.ps1 -Configuration Release -CiMode -Runs 3)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/check-audio-thread-policy.ps1)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/run-audio-quality-gates.ps1 -Fast -Configuration Release)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/run-diagnostics-bundle.ps1)"
     ]
   }
 }

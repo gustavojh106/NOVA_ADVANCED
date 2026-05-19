@@ -1,0 +1,7 @@
+preset,category,result,severity,issue_id,notes,artifact_path,readiness_recommendation
+Dry Reference,manual_listening,NOT_RUN,,,,,LISTENING_CANDIDATE
+Clean Studio,manual_listening,NOT_RUN,,,,,LISTENING_CANDIDATE
+Funk Comp Clean,manual_listening,NOT_RUN,,,,,LISTENING_CANDIDATE
+Classic Crunch,manual_listening,NOT_RUN,,,,,LISTENING_CANDIDATE
+Tight Modern Rhythm,manual_listening,NOT_RUN,,,,,LISTENING_CANDIDATE
+Wide Ambient Clean,manual_listening,NOT_RUN,,,,,LISTENING_CANDIDATE

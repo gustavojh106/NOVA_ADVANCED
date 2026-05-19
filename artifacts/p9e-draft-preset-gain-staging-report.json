@@ -1,0 +1,920 @@
+{
+    "generatedAt":  "2026-05-19T19:23:47.0200238Z",
+    "phase":  "P9E",
+    "status":  "PASS",
+    "manifestPath":  "Resources/Presets/DraftFactory/factory-bank.draft.json",
+    "builderReportPath":  "artifacts/p9d-draft-preset-builder-report.json",
+    "generatedDirectory":  "Resources/Presets/DraftFactory/generated",
+    "generatedPresetCount":  6,
+    "manifestUpdated":  false,
+    "manifestUpdateDecision":  "Manifest left unchanged; P9F is a technical recommendation layer and P9D remains the side-effect-free generation writer.",
+    "noUserPresetDirectoryWrites":  true,
+    "noStartupPresetPointerWrites":  true,
+    "changedSchema":  false,
+    "noFactoryApproved":  true,
+    "manualListeningStatus":  "pending",
+    "distortionListeningStatus":  "pending_for_high_gain_or_not_applicable",
+    "reaperSmokeStatus":  "pending",
+    "presets":  [
+                    {
+                        "name":  "Clean Studio",
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Clean-Studio.nova-preset",
+                        "status":  "PASS",
+                        "technicalReadiness":  "LISTENING_CANDIDATE",
+                        "scenario":  "clean_nominal_headroom",
+                        "metrics":  {
+                                        "finite":  true,
+                                        "peak":  0.16507314,
+                                        "rms":  0.06700665,
+                                        "dc":  0.00033266,
+                                        "nearClipSamples":  0,
+                                        "clippedSamples":  0,
+                                        "invalidSamples":  0,
+                                        "limiterTouchedSamples":  0,
+                                        "limiterActiveBlocks":  0,
+                                        "sustainedClampBlocks":  0,
+                                        "limiterMaxReductionDb":  0,
+                                        "limiterDeltaPeak":  0,
+                                        "softCeilingTouchedSamples":  0
+                                    },
+                        "thresholds":  {
+                                           "peakMax":  0.5,
+                                           "rmsMax":  0.18,
+                                           "dcMax":  0.01,
+                                           "nearClipMax":  0,
+                                           "clippedMax":  0,
+                                           "limiterTouchedMax":  0,
+                                           "limiterActiveBlocksMax":  0,
+                                           "sustainedClampBlocksMax":  0,
+                                           "scenario":  "clean_nominal_headroom"
+                                       },
+                        "checks":  [
+                                       {
+                                           "id":  "file_under_generated",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Clean-Studio.nova-preset"
+                                       },
+                                       {
+                                           "id":  "file_exists",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Clean-Studio.nova-preset"
+                                       },
+                                       {
+                                           "id":  "manual_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "manualListeningStatus=pending"
+                                       },
+                                       {
+                                           "id":  "distortion_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "distortionListeningStatus=not_applicable"
+                                       },
+                                       {
+                                           "id":  "reaper_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "reaperSmokeStatus=pending"
+                                       },
+                                       {
+                                           "id":  "round_trip_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                                       },
+                                       {
+                                           "id":  "process_finite_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "processStatus=PROCESS_FINITE_PASS"
+                                       },
+                                       {
+                                           "id":  "finite_output",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "finite=True"
+                                       },
+                                       {
+                                           "id":  "peak_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "peak=0.16507314; max=0.50"
+                                       },
+                                       {
+                                           "id":  "rms_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "rms=0.06700665; max=0.18"
+                                       },
+                                       {
+                                           "id":  "dc_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "dc=0.00033266; max=0.010"
+                                       },
+                                       {
+                                           "id":  "near_clip_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "nearClipSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "no_clipped_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "clippedSamples=0"
+                                       },
+                                       {
+                                           "id":  "no_invalid_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "invalidSamples=0"
+                                       },
+                                       {
+                                           "id":  "direct_limiter_telemetry_available",
+                                           "passed":  true,
+                                           "severity":  "WARN",
+                                           "detail":  "limiterTouchedSamples=0; limiterActiveBlocks=0; sustainedClampBlocks=0"
+                                       },
+                                       {
+                                           "id":  "limiter_touched_samples_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterTouchedSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "limiter_active_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterActiveBlocks=0; max=0"
+                                       },
+                                       {
+                                           "id":  "sustained_clamp_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "sustainedClampBlocks=0; max=0"
+                                       }
+                                   ],
+                        "reasons":  [
+
+                                    ],
+                        "warnings":  [
+
+                                     ]
+                    },
+                    {
+                        "name":  "Classic Crunch",
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Classic-Crunch.nova-preset",
+                        "status":  "PASS",
+                        "technicalReadiness":  "LISTENING_CANDIDATE",
+                        "scenario":  "crunch_nominal_bounded",
+                        "metrics":  {
+                                        "finite":  true,
+                                        "peak":  0.57068098,
+                                        "rms":  0.28242917,
+                                        "dc":  0.00232539,
+                                        "nearClipSamples":  0,
+                                        "clippedSamples":  0,
+                                        "invalidSamples":  0,
+                                        "limiterTouchedSamples":  0,
+                                        "limiterActiveBlocks":  0,
+                                        "sustainedClampBlocks":  0,
+                                        "limiterMaxReductionDb":  0,
+                                        "limiterDeltaPeak":  0,
+                                        "softCeilingTouchedSamples":  0
+                                    },
+                        "thresholds":  {
+                                           "peakMax":  0.95,
+                                           "rmsMax":  0.5,
+                                           "dcMax":  0.02,
+                                           "nearClipMax":  0,
+                                           "clippedMax":  0,
+                                           "limiterTouchedMax":  0,
+                                           "limiterActiveBlocksMax":  0,
+                                           "sustainedClampBlocksMax":  0,
+                                           "scenario":  "crunch_nominal_bounded"
+                                       },
+                        "checks":  [
+                                       {
+                                           "id":  "file_under_generated",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Classic-Crunch.nova-preset"
+                                       },
+                                       {
+                                           "id":  "file_exists",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Classic-Crunch.nova-preset"
+                                       },
+                                       {
+                                           "id":  "manual_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "manualListeningStatus=pending"
+                                       },
+                                       {
+                                           "id":  "distortion_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "distortionListeningStatus=not_applicable"
+                                       },
+                                       {
+                                           "id":  "reaper_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "reaperSmokeStatus=pending"
+                                       },
+                                       {
+                                           "id":  "round_trip_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                                       },
+                                       {
+                                           "id":  "process_finite_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "processStatus=PROCESS_FINITE_PASS"
+                                       },
+                                       {
+                                           "id":  "finite_output",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "finite=True"
+                                       },
+                                       {
+                                           "id":  "peak_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "peak=0.57068098; max=0.95"
+                                       },
+                                       {
+                                           "id":  "rms_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "rms=0.28242917; max=0.50"
+                                       },
+                                       {
+                                           "id":  "dc_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "dc=0.00232539; max=0.020"
+                                       },
+                                       {
+                                           "id":  "near_clip_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "nearClipSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "no_clipped_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "clippedSamples=0"
+                                       },
+                                       {
+                                           "id":  "no_invalid_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "invalidSamples=0"
+                                       },
+                                       {
+                                           "id":  "direct_limiter_telemetry_available",
+                                           "passed":  true,
+                                           "severity":  "WARN",
+                                           "detail":  "limiterTouchedSamples=0; limiterActiveBlocks=0; sustainedClampBlocks=0"
+                                       },
+                                       {
+                                           "id":  "limiter_touched_samples_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterTouchedSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "limiter_active_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterActiveBlocks=0; max=0"
+                                       },
+                                       {
+                                           "id":  "sustained_clamp_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "sustainedClampBlocks=0; max=0"
+                                       }
+                                   ],
+                        "reasons":  [
+
+                                    ],
+                        "warnings":  [
+
+                                     ]
+                    },
+                    {
+                        "name":  "Tight Modern Rhythm",
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Tight-Modern-Rhythm.nova-preset",
+                        "status":  "PASS",
+                        "technicalReadiness":  "LISTENING_CANDIDATE",
+                        "scenario":  "high_gain_staccato_proxy",
+                        "metrics":  {
+                                        "finite":  true,
+                                        "peak":  0.11842877,
+                                        "rms":  0.02803221,
+                                        "dc":  0.00025009,
+                                        "nearClipSamples":  0,
+                                        "clippedSamples":  0,
+                                        "invalidSamples":  0,
+                                        "limiterTouchedSamples":  0,
+                                        "limiterActiveBlocks":  0,
+                                        "sustainedClampBlocks":  0,
+                                        "limiterMaxReductionDb":  0,
+                                        "limiterDeltaPeak":  0,
+                                        "softCeilingTouchedSamples":  0
+                                    },
+                        "thresholds":  {
+                                           "peakMax":  0.9,
+                                           "rmsMax":  0.3,
+                                           "dcMax":  0.02,
+                                           "nearClipMax":  0,
+                                           "clippedMax":  0,
+                                           "limiterTouchedMax":  0,
+                                           "limiterActiveBlocksMax":  0,
+                                           "sustainedClampBlocksMax":  0,
+                                           "scenario":  "high_gain_staccato_proxy"
+                                       },
+                        "checks":  [
+                                       {
+                                           "id":  "file_under_generated",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Tight-Modern-Rhythm.nova-preset"
+                                       },
+                                       {
+                                           "id":  "file_exists",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Tight-Modern-Rhythm.nova-preset"
+                                       },
+                                       {
+                                           "id":  "manual_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "manualListeningStatus=pending"
+                                       },
+                                       {
+                                           "id":  "distortion_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "distortionListeningStatus=pending"
+                                       },
+                                       {
+                                           "id":  "reaper_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "reaperSmokeStatus=pending"
+                                       },
+                                       {
+                                           "id":  "round_trip_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                                       },
+                                       {
+                                           "id":  "process_finite_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "processStatus=PROCESS_FINITE_PASS"
+                                       },
+                                       {
+                                           "id":  "finite_output",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "finite=True"
+                                       },
+                                       {
+                                           "id":  "peak_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "peak=0.11842877; max=0.90"
+                                       },
+                                       {
+                                           "id":  "rms_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "rms=0.02803221; max=0.30"
+                                       },
+                                       {
+                                           "id":  "dc_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "dc=0.00025009; max=0.020"
+                                       },
+                                       {
+                                           "id":  "near_clip_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "nearClipSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "no_clipped_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "clippedSamples=0"
+                                       },
+                                       {
+                                           "id":  "no_invalid_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "invalidSamples=0"
+                                       },
+                                       {
+                                           "id":  "direct_limiter_telemetry_available",
+                                           "passed":  true,
+                                           "severity":  "WARN",
+                                           "detail":  "limiterTouchedSamples=0; limiterActiveBlocks=0; sustainedClampBlocks=0"
+                                       },
+                                       {
+                                           "id":  "limiter_touched_samples_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterTouchedSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "limiter_active_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterActiveBlocks=0; max=0"
+                                       },
+                                       {
+                                           "id":  "sustained_clamp_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "sustainedClampBlocks=0; max=0"
+                                       }
+                                   ],
+                        "reasons":  [
+
+                                    ],
+                        "warnings":  [
+
+                                     ]
+                    },
+                    {
+                        "name":  "Wide Ambient Clean",
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Wide-Ambient-Clean.nova-preset",
+                        "status":  "PASS",
+                        "technicalReadiness":  "LISTENING_CANDIDATE",
+                        "scenario":  "ambient_tail_recovery_proxy",
+                        "metrics":  {
+                                        "finite":  true,
+                                        "peak":  0.18907842,
+                                        "rms":  0.04512435,
+                                        "dc":  0.00018605,
+                                        "nearClipSamples":  0,
+                                        "clippedSamples":  0,
+                                        "invalidSamples":  0,
+                                        "limiterTouchedSamples":  0,
+                                        "limiterActiveBlocks":  0,
+                                        "sustainedClampBlocks":  0,
+                                        "limiterMaxReductionDb":  0,
+                                        "limiterDeltaPeak":  0,
+                                        "softCeilingTouchedSamples":  0
+                                    },
+                        "thresholds":  {
+                                           "peakMax":  0.55,
+                                           "rmsMax":  0.16,
+                                           "dcMax":  0.01,
+                                           "nearClipMax":  0,
+                                           "clippedMax":  0,
+                                           "limiterTouchedMax":  0,
+                                           "limiterActiveBlocksMax":  0,
+                                           "sustainedClampBlocksMax":  0,
+                                           "scenario":  "ambient_tail_recovery_proxy"
+                                       },
+                        "checks":  [
+                                       {
+                                           "id":  "file_under_generated",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Wide-Ambient-Clean.nova-preset"
+                                       },
+                                       {
+                                           "id":  "file_exists",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Wide-Ambient-Clean.nova-preset"
+                                       },
+                                       {
+                                           "id":  "manual_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "manualListeningStatus=pending"
+                                       },
+                                       {
+                                           "id":  "distortion_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "distortionListeningStatus=not_applicable"
+                                       },
+                                       {
+                                           "id":  "reaper_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "reaperSmokeStatus=pending"
+                                       },
+                                       {
+                                           "id":  "round_trip_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                                       },
+                                       {
+                                           "id":  "process_finite_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "processStatus=PROCESS_FINITE_PASS"
+                                       },
+                                       {
+                                           "id":  "finite_output",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "finite=True"
+                                       },
+                                       {
+                                           "id":  "peak_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "peak=0.18907842; max=0.55"
+                                       },
+                                       {
+                                           "id":  "rms_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "rms=0.04512435; max=0.16"
+                                       },
+                                       {
+                                           "id":  "dc_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "dc=0.00018605; max=0.010"
+                                       },
+                                       {
+                                           "id":  "near_clip_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "nearClipSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "no_clipped_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "clippedSamples=0"
+                                       },
+                                       {
+                                           "id":  "no_invalid_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "invalidSamples=0"
+                                       },
+                                       {
+                                           "id":  "direct_limiter_telemetry_available",
+                                           "passed":  true,
+                                           "severity":  "WARN",
+                                           "detail":  "limiterTouchedSamples=0; limiterActiveBlocks=0; sustainedClampBlocks=0"
+                                       },
+                                       {
+                                           "id":  "limiter_touched_samples_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterTouchedSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "limiter_active_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterActiveBlocks=0; max=0"
+                                       },
+                                       {
+                                           "id":  "sustained_clamp_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "sustainedClampBlocks=0; max=0"
+                                       }
+                                   ],
+                        "reasons":  [
+
+                                    ],
+                        "warnings":  [
+
+                                     ]
+                    },
+                    {
+                        "name":  "Funk Comp Clean",
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Funk-Comp-Clean.nova-preset",
+                        "status":  "PASS",
+                        "technicalReadiness":  "LISTENING_CANDIDATE",
+                        "scenario":  "funk_transient_comp_proxy",
+                        "metrics":  {
+                                        "finite":  true,
+                                        "peak":  0.36105093,
+                                        "rms":  0.09371597,
+                                        "dc":  0.0003475,
+                                        "nearClipSamples":  0,
+                                        "clippedSamples":  0,
+                                        "invalidSamples":  0,
+                                        "limiterTouchedSamples":  0,
+                                        "limiterActiveBlocks":  0,
+                                        "sustainedClampBlocks":  0,
+                                        "limiterMaxReductionDb":  0,
+                                        "limiterDeltaPeak":  0,
+                                        "softCeilingTouchedSamples":  0
+                                    },
+                        "thresholds":  {
+                                           "peakMax":  0.6,
+                                           "rmsMax":  0.2,
+                                           "dcMax":  0.01,
+                                           "nearClipMax":  0,
+                                           "clippedMax":  0,
+                                           "limiterTouchedMax":  0,
+                                           "limiterActiveBlocksMax":  0,
+                                           "sustainedClampBlocksMax":  0,
+                                           "scenario":  "funk_transient_comp_proxy"
+                                       },
+                        "checks":  [
+                                       {
+                                           "id":  "file_under_generated",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Funk-Comp-Clean.nova-preset"
+                                       },
+                                       {
+                                           "id":  "file_exists",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Funk-Comp-Clean.nova-preset"
+                                       },
+                                       {
+                                           "id":  "manual_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "manualListeningStatus=pending"
+                                       },
+                                       {
+                                           "id":  "distortion_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "distortionListeningStatus=not_applicable"
+                                       },
+                                       {
+                                           "id":  "reaper_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "reaperSmokeStatus=pending"
+                                       },
+                                       {
+                                           "id":  "round_trip_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                                       },
+                                       {
+                                           "id":  "process_finite_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "processStatus=PROCESS_FINITE_PASS"
+                                       },
+                                       {
+                                           "id":  "finite_output",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "finite=True"
+                                       },
+                                       {
+                                           "id":  "peak_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "peak=0.36105093; max=0.60"
+                                       },
+                                       {
+                                           "id":  "rms_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "rms=0.09371597; max=0.20"
+                                       },
+                                       {
+                                           "id":  "dc_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "dc=0.00034750; max=0.010"
+                                       },
+                                       {
+                                           "id":  "near_clip_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "nearClipSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "no_clipped_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "clippedSamples=0"
+                                       },
+                                       {
+                                           "id":  "no_invalid_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "invalidSamples=0"
+                                       },
+                                       {
+                                           "id":  "direct_limiter_telemetry_available",
+                                           "passed":  true,
+                                           "severity":  "WARN",
+                                           "detail":  "limiterTouchedSamples=0; limiterActiveBlocks=0; sustainedClampBlocks=0"
+                                       },
+                                       {
+                                           "id":  "limiter_touched_samples_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterTouchedSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "limiter_active_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterActiveBlocks=0; max=0"
+                                       },
+                                       {
+                                           "id":  "sustained_clamp_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "sustainedClampBlocks=0; max=0"
+                                       }
+                                   ],
+                        "reasons":  [
+
+                                    ],
+                        "warnings":  [
+
+                                     ]
+                    },
+                    {
+                        "name":  "Dry Reference",
+                        "filePath":  "Resources/Presets/DraftFactory/generated/Dry-Reference.nova-preset",
+                        "status":  "PASS",
+                        "technicalReadiness":  "LISTENING_CANDIDATE",
+                        "scenario":  "dry_reference_nominal",
+                        "metrics":  {
+                                        "finite":  true,
+                                        "peak":  0.09965807,
+                                        "rms":  0.03168143,
+                                        "dc":  0.00019163,
+                                        "nearClipSamples":  0,
+                                        "clippedSamples":  0,
+                                        "invalidSamples":  0,
+                                        "limiterTouchedSamples":  0,
+                                        "limiterActiveBlocks":  0,
+                                        "sustainedClampBlocks":  0,
+                                        "limiterMaxReductionDb":  0,
+                                        "limiterDeltaPeak":  0,
+                                        "softCeilingTouchedSamples":  0
+                                    },
+                        "thresholds":  {
+                                           "peakMax":  0.25,
+                                           "rmsMax":  0.08,
+                                           "dcMax":  0.005,
+                                           "nearClipMax":  0,
+                                           "clippedMax":  0,
+                                           "limiterTouchedMax":  0,
+                                           "limiterActiveBlocksMax":  0,
+                                           "sustainedClampBlocksMax":  0,
+                                           "scenario":  "dry_reference_nominal"
+                                       },
+                        "checks":  [
+                                       {
+                                           "id":  "file_under_generated",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Dry-Reference.nova-preset"
+                                       },
+                                       {
+                                           "id":  "file_exists",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "Resources/Presets/DraftFactory/generated/Dry-Reference.nova-preset"
+                                       },
+                                       {
+                                           "id":  "manual_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "manualListeningStatus=pending"
+                                       },
+                                       {
+                                           "id":  "distortion_listening_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "distortionListeningStatus=not_applicable"
+                                       },
+                                       {
+                                           "id":  "reaper_pending",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "reaperSmokeStatus=pending"
+                                       },
+                                       {
+                                           "id":  "round_trip_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "roundTripStatus=ROUND_TRIP_PASS"
+                                       },
+                                       {
+                                           "id":  "process_finite_pass",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "processStatus=PROCESS_FINITE_PASS"
+                                       },
+                                       {
+                                           "id":  "finite_output",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "finite=True"
+                                       },
+                                       {
+                                           "id":  "peak_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "peak=0.09965807; max=0.25"
+                                       },
+                                       {
+                                           "id":  "rms_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "rms=0.03168143; max=0.08"
+                                       },
+                                       {
+                                           "id":  "dc_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "dc=0.00019163; max=0.005"
+                                       },
+                                       {
+                                           "id":  "near_clip_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "nearClipSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "no_clipped_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "clippedSamples=0"
+                                       },
+                                       {
+                                           "id":  "no_invalid_samples",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "invalidSamples=0"
+                                       },
+                                       {
+                                           "id":  "direct_limiter_telemetry_available",
+                                           "passed":  true,
+                                           "severity":  "WARN",
+                                           "detail":  "limiterTouchedSamples=0; limiterActiveBlocks=0; sustainedClampBlocks=0"
+                                       },
+                                       {
+                                           "id":  "limiter_touched_samples_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterTouchedSamples=0; max=0"
+                                       },
+                                       {
+                                           "id":  "limiter_active_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "limiterActiveBlocks=0; max=0"
+                                       },
+                                       {
+                                           "id":  "sustained_clamp_blocks_target",
+                                           "passed":  true,
+                                           "severity":  "FAIL",
+                                           "detail":  "sustainedClampBlocks=0; max=0"
+                                       }
+                                   ],
+                        "reasons":  [
+
+                                    ],
+                        "warnings":  [
+
+                                     ]
+                    }
+                ],
+    "failures":  [
+
+                 ],
+    "warnings":  [
+
+                 ]
+}

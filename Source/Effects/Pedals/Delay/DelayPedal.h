@@ -565,6 +565,7 @@ public:
             return;
 
         signalTelemetry.captureInput(buffer);
+        scrubInvalidSamples(buffer);
 
         setTargetFromParam(feedbackSmooth, feedbackParam, 0.46f);
         setTargetFromParam(lowCutSmooth, lowCutParam, 70.0f);
@@ -1089,6 +1090,17 @@ private:
     static void setTargetFromParam(Smoother& smoother, ParamType* param, float fallback)
     {
         smoother.setTargetValue(param != nullptr ? param->get() : fallback);
+    }
+
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                if (!std::isfinite(data[i]))
+                    data[i] = 0.0f;
+        }
     }
 
     ModeStyle getModeStyle(int modeIndex, float texture, float reverseAmount) const noexcept

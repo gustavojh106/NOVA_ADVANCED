@@ -149,7 +149,7 @@ public:
             {
                 const float clean = scratchBuffer.getSample(ch, sample);
                 const float wet = buffer.getSample(ch, sample);
-                buffer.setSample(ch, sample, ((wet * mix) + (clean * dry)) * level);
+                buffer.setSample(ch, sample, containCabinetOutput(((wet * mix) + (clean * dry)) * level));
             }
         }
 
@@ -168,6 +168,22 @@ public:
 
 private:
     static constexpr int kMaxProcessingChannels = 2;
+
+    static float containCabinetOutput(float x) noexcept
+    {
+        if (!std::isfinite(x))
+            return 0.0f;
+
+        constexpr float knee = 0.86f;
+        constexpr float ceiling = 0.97f;
+        const float ax = std::abs(x);
+        if (ax <= knee)
+            return x;
+
+        const float over = ax - knee;
+        const float shaped = knee + (ceiling - knee) * std::tanh(over / (ceiling - knee));
+        return std::copysign(shaped, x);
+    }
 
     using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
         juce::dsp::IIR::Coefficients<float>>;
