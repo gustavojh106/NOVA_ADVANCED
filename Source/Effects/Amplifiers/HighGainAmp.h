@@ -19,6 +19,8 @@ public:
         addParameter(toneParam = new juce::AudioParameterFloat("hgTone", "Tone", 0.0f, 1.0f, 0.55f));
         addParameter(presenceParam = new juce::AudioParameterFloat("hgPresence", "Presence", 0.0f, 1.0f, 0.6f));
         addParameter(tightParam = new juce::AudioParameterFloat("hgTight", "Tight", 0.0f, 1.0f, 0.5f));
+        addParameter(resonanceParam = new juce::AudioParameterFloat("hgResonance", "Resonance", 0.0f, 1.0f, 0.46f));
+        addParameter(feelParam = new juce::AudioParameterFloat("hgFeel", "Feel", 0.0f, 1.0f, 0.55f));
         addParameter(levelParam = new juce::AudioParameterFloat("hgLevel", "Level", 0.0f, 2.0f, 1.0f));
     }
 
@@ -29,19 +31,23 @@ public:
     {
         using namespace Nova::PedalUI;
 
-        return new PremiumPedalEditor(*this,
+        return new PremiumHardwareEditor(*this,
+            PremiumHardwareEditor::Skin::Amplifier,
             "Amplifier",
-            "Inferno",
+            "High Gain Amp",
+            "Inferno channel / tight power",
             juce::Colour::fromString("ffDC2626"),
             {
                 { "Drive", driveParam, [](float value) { return formatGain(value); } },
                 { "Tone", toneParam, [](float value) { return formatPercent(value); } },
                 { "Presence", presenceParam, [](float value) { return formatPercent(value); } },
                 { "Tight", tightParam, [](float value) { return formatPercent(value); } },
+                { "Resonance", resonanceParam, [](float value) { return formatPercent(value); } },
+                { "Feel", feelParam, [](float value) { return formatPercent(value); } },
                 { "Master", levelParam, [](float value) { return formatGain(value); } }
             },
-            214,
-            178);
+            640,
+            326);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -62,6 +68,7 @@ public:
         inputHighPass.prepare(innerSpec);
         tightFilter.prepare(innerSpec);
         preBoost.prepare(innerSpec);
+        resonanceShelf.prepare(innerSpec);
         contourLowPass.prepare(innerSpec);
         presenceShelf.prepare(innerSpec);
         postPresenceLowPass.prepare(innerSpec);
@@ -76,6 +83,7 @@ public:
         cachedTone = std::numeric_limits<float>::quiet_NaN();
         cachedPresence = std::numeric_limits<float>::quiet_NaN();
         cachedTight = std::numeric_limits<float>::quiet_NaN();
+        cachedResonance = std::numeric_limits<float>::quiet_NaN();
 
         setProcessingLatency((int)oversampler.getLatencyInSamples());
         prepareBypassSmoother(sampleRate, samplesPerBlock);
@@ -94,6 +102,7 @@ public:
         inputHighPass.reset();
         tightFilter.reset();
         preBoost.reset();
+        resonanceShelf.reset();
         contourLowPass.reset();
         presenceShelf.reset();
         postPresenceLowPass.reset();
@@ -129,6 +138,7 @@ public:
         {
             const int channels = (int)upsampled.getNumChannels();
             const int samples = (int)upsampled.getNumSamples();
+            const float feel = readFeel();
             std::array<float*, kMaxAmpChannels> channelData{};
             const int channelsToProcess = juce::jmin(channels, kMaxAmpChannels);
             for (int ch = 0; ch < channelsToProcess; ++ch)
@@ -144,12 +154,13 @@ public:
                     auto* data = channelData[(size_t) ch];
                     float x = data[sample];
 
-                    x *= computeInputNoiseRejectGain(x, ch, drive);
+                    x *= computeInputNoiseRejectGain(x, ch, drive, feel);
                     x = conditionPreampInput(x);
 
                     // Power supply sag
                     sagEnvelope[(size_t)ch] = juce::jmax(std::abs(x), sagEnvelope[(size_t)ch] * Nova::Config::AMP_SAG_DECAY);
-                    const float sag = 1.0f / (1.0f + sagEnvelope[(size_t)ch] * 0.22f);
+                    const float sagDepth = 0.18f + (1.0f - feel) * 0.08f;
+                    const float sag = 1.0f / (1.0f + sagEnvelope[(size_t)ch] * sagDepth);
 
                     // Stage 1: Preamp tube
                     x = std::tanh((x * pushGain * sag) + 0.05f);
@@ -168,6 +179,7 @@ public:
             }
         }
 
+        resonanceShelf.process(context);
         contourLowPass.process(context);
         presenceShelf.process(context);
         postPresenceLowPass.process(context);
@@ -202,7 +214,7 @@ private:
         return sign * (0.72f + std::atan(extra * 0.82f) * 0.54f);
     }
 
-    float computeInputNoiseRejectGain(float input, int channel, float drive) noexcept
+    float computeInputNoiseRejectGain(float input, int channel, float drive, float feel) noexcept
     {
         const size_t index = (size_t) juce::jlimit(0, kMaxAmpChannels - 1, channel);
         const float absolute = std::abs(input);
@@ -211,12 +223,19 @@ private:
         env += (absolute - env) * coeff;
 
         const float driveNorm = juce::jlimit(0.0f, 1.0f, (drive - 1.0f) / 9.0f);
-        const float openThreshold = 0.00012f + driveNorm * 0.00042f;
+        const float feelNorm = juce::jlimit(0.0f, 1.0f, feel);
+        const float openThreshold = (0.00012f + driveNorm * 0.00042f) * (1.15f - feelNorm * 0.28f);
         const float closeThreshold = openThreshold * 0.30f;
         const float zone = juce::jlimit(0.0f, 1.0f, (env - closeThreshold) / juce::jmax(1.0e-7f, openThreshold - closeThreshold));
         const float smoothZone = zone * zone * (3.0f - 2.0f * zone);
-        const float floor = juce::jmap(driveNorm, 0.18f, 0.07f);
+        const float floor = juce::jmap(driveNorm, 0.18f, 0.07f) * (0.90f + feelNorm * 0.18f);
         return floor + smoothZone * (1.0f - floor);
+    }
+
+    float readFeel() const noexcept
+    {
+        const float value = feelParam != nullptr ? feelParam->get() : 0.55f;
+        return std::isfinite(value) ? juce::jlimit(0.0f, 1.0f, value) : 0.55f;
     }
 
     void updateVoicingIfNeeded()
@@ -224,20 +243,24 @@ private:
         const float tone = toneParam != nullptr ? *toneParam : 0.55f;
         const float presence = presenceParam != nullptr ? *presenceParam : 0.6f;
         const float tight = tightParam != nullptr ? *tightParam : 0.5f;
+        const float resonance = resonanceParam != nullptr ? *resonanceParam : 0.46f;
 
         const bool toneChanged = !std::isfinite(cachedTone) || std::abs(cachedTone - tone) > 1.0e-4f;
         const bool presenceChanged = !std::isfinite(cachedPresence) || std::abs(cachedPresence - presence) > 1.0e-4f;
         const bool tightChanged = !std::isfinite(cachedTight) || std::abs(cachedTight - tight) > 1.0e-4f;
-        if (!toneChanged && !presenceChanged && !tightChanged)
+        const bool resonanceChanged = !std::isfinite(cachedResonance) || std::abs(cachedResonance - resonance) > 1.0e-4f;
+        if (!toneChanged && !presenceChanged && !tightChanged && !resonanceChanged)
             return;
 
         cachedTone = tone;
         cachedPresence = presence;
         cachedTight = tight;
+        cachedResonance = resonance;
 
         const float hpFreq = juce::jmap(tight, 45.0f, 180.0f);
         const float cutoff = juce::jmap(tone, 2400.0f, 7800.0f);
         const float presenceGain = juce::jmap(presence, -2.0f, 4.7f);
+        const float resonanceGain = juce::jmap(resonance, -2.0f, 3.5f);
         const float boostGain = juce::jmap(tight, 0.0f, 3.0f);
         const float postPresenceCutoff = juce::jlimit(4700.0f,
             8200.0f,
@@ -248,6 +271,8 @@ private:
             juce::jmap(tight, 80.0f, 220.0f), 0.6f);
         *preBoost.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(currentInnerRate,
             1800.0f, 0.7f, juce::Decibels::decibelsToGain(boostGain));
+        *resonanceShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(currentInnerRate,
+            125.0f, 0.72f, juce::Decibels::decibelsToGain(resonanceGain));
         *contourLowPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass(currentInnerRate, cutoff, 0.62f);
         *presenceShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(currentInnerRate,
             2800.0f, 0.68f, juce::Decibels::decibelsToGain(presenceGain));
@@ -260,6 +285,7 @@ private:
     Filter inputHighPass;
     Filter tightFilter;
     Filter preBoost;
+    Filter resonanceShelf;
     Filter contourLowPass;
     Filter presenceShelf;
     Filter postPresenceLowPass;
@@ -277,11 +303,14 @@ private:
     juce::AudioParameterFloat* toneParam = nullptr;
     juce::AudioParameterFloat* presenceParam = nullptr;
     juce::AudioParameterFloat* tightParam = nullptr;
+    juce::AudioParameterFloat* resonanceParam = nullptr;
+    juce::AudioParameterFloat* feelParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentInnerRate = 352800.0;
     float cachedTone = std::numeric_limits<float>::quiet_NaN();
     float cachedPresence = std::numeric_limits<float>::quiet_NaN();
     float cachedTight = std::numeric_limits<float>::quiet_NaN();
+    float cachedResonance = std::numeric_limits<float>::quiet_NaN();
     bool isPrepared = false;
 };

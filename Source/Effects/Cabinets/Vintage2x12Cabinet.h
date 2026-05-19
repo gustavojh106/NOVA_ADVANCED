@@ -17,6 +17,9 @@ public:
     {
         addParameter(warmthParam = new juce::AudioParameterFloat("v2x12Warmth", "Warmth", -12.0f, 12.0f, 3.0f));
         addParameter(sparkleParam = new juce::AudioParameterFloat("v2x12Sparkle", "Sparkle", -12.0f, 12.0f, 1.5f));
+        addParameter(resonanceParam = new juce::AudioParameterFloat("v2x12Resonance", "Resonance", -6.0f, 6.0f, 0.0f));
+        addParameter(lowCutParam = new juce::AudioParameterFloat("v2x12LowCut", "Low Cut", 55.0f, 220.0f, 70.0f));
+        addParameter(highCutParam = new juce::AudioParameterFloat("v2x12HighCut", "High Cut", 2800.0f, 8500.0f, 7000.0f));
         addParameter(distanceParam = new juce::AudioParameterFloat("v2x12Distance", "Distance", 0.0f, 1.0f, 0.28f));
         addParameter(mixParam = new juce::AudioParameterFloat("v2x12Mix", "Mix", 0.0f, 1.0f, 1.0f));
         addParameter(levelParam = new juce::AudioParameterFloat("v2x12Level", "Level", 0.0f, 2.0f, 1.0f));
@@ -29,19 +32,24 @@ public:
     {
         using namespace Nova::PedalUI;
 
-        return new PremiumPedalEditor(*this,
+        return new PremiumHardwareEditor(*this,
+            PremiumHardwareEditor::Skin::Cabinet,
             "Cabinet",
             "Vintage 2x12",
+            "Open-back body / speaker air",
             juce::Colour::fromString("ffD97706"),
             {
                 { "Warmth", warmthParam, [](float value) { return formatDecibels(value); } },
                 { "Sparkle", sparkleParam, [](float value) { return formatDecibels(value); } },
+                { "Resonance", resonanceParam, [](float value) { return formatDecibels(value); } },
+                { "Low Cut", lowCutParam, [](float value) { return formatHertz(value); } },
+                { "High Cut", highCutParam, [](float value) { return formatHertz(value); } },
                 { "Distance", distanceParam, [](float value) { return formatPercent(value); } },
                 { "Mix", mixParam, [](float value) { return formatPercent(value); } },
                 { "Level", levelParam, [](float value) { return formatGain(value); } }
             },
-            214,
-            178);
+            660,
+            356);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -60,6 +68,7 @@ public:
         convolution.prepare(spec);
         loadSyntheticIR(sampleRate);
         lowShelf.prepare(spec);
+        resonancePeak.prepare(spec);
         highShelf.prepare(spec);
         contourLP.prepare(spec);
         contourHP.prepare(spec);
@@ -76,6 +85,9 @@ public:
         currentSampleRate = sampleRate;
         cachedWarmth = std::numeric_limits<float>::quiet_NaN();
         cachedSparkle = std::numeric_limits<float>::quiet_NaN();
+        cachedResonance = std::numeric_limits<float>::quiet_NaN();
+        cachedLowCut = std::numeric_limits<float>::quiet_NaN();
+        cachedHighCut = std::numeric_limits<float>::quiet_NaN();
         cachedDistance = std::numeric_limits<float>::quiet_NaN();
 
         prepareBypassSmoother(sampleRate, samplesPerBlock);
@@ -92,6 +104,7 @@ public:
     {
         convolution.reset();
         lowShelf.reset();
+        resonancePeak.reset();
         highShelf.reset();
         contourLP.reset();
         contourHP.reset();
@@ -132,6 +145,7 @@ public:
             convolution.process(context);
 
         lowShelf.process(context);
+        resonancePeak.process(context);
         highShelf.process(context);
         contourLP.process(context);
         contourHP.process(context);
@@ -240,24 +254,35 @@ private:
     {
         const float warmth = warmthParam != nullptr ? *warmthParam : 3.0f;
         const float sparkle = sparkleParam != nullptr ? *sparkleParam : 1.5f;
+        const float resonance = resonanceParam != nullptr ? *resonanceParam : 0.0f;
+        const float lowCut = lowCutParam != nullptr ? *lowCutParam : 70.0f;
+        const float highCut = highCutParam != nullptr ? *highCutParam : 7000.0f;
         const float distance = distanceParam != nullptr ? *distanceParam : 0.28f;
 
         const bool warmthChanged = !std::isfinite(cachedWarmth) || std::abs(cachedWarmth - warmth) > 1.0e-4f;
         const bool sparkleChanged = !std::isfinite(cachedSparkle) || std::abs(cachedSparkle - sparkle) > 1.0e-4f;
+        const bool resonanceChanged = !std::isfinite(cachedResonance) || std::abs(cachedResonance - resonance) > 1.0e-4f;
+        const bool lowCutChanged = !std::isfinite(cachedLowCut) || std::abs(cachedLowCut - lowCut) > 1.0e-4f;
+        const bool highCutChanged = !std::isfinite(cachedHighCut) || std::abs(cachedHighCut - highCut) > 1.0e-4f;
         const bool distanceChanged = !std::isfinite(cachedDistance) || std::abs(cachedDistance - distance) > 1.0e-4f;
-        if (!warmthChanged && !sparkleChanged && !distanceChanged)
+        if (!warmthChanged && !sparkleChanged && !resonanceChanged && !lowCutChanged && !highCutChanged && !distanceChanged)
             return;
 
         cachedWarmth = warmth;
         cachedSparkle = sparkle;
+        cachedResonance = resonance;
+        cachedLowCut = lowCut;
+        cachedHighCut = highCut;
         cachedDistance = distance;
 
         // Vintage 2x12 voicing: warmer, less aggressive high end, tighter bass
-        const float lpFreq = juce::jmap(distance, 7200.0f, 3000.0f);
-        const float hpFreq = juce::jmap(distance, 70.0f, 160.0f);
+        const float lpFreq = juce::jmin(juce::jmap(distance, 7200.0f, 3000.0f), highCut);
+        const float hpFreq = juce::jmax(juce::jmap(distance, 70.0f, 160.0f), lowCut);
 
         *lowShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(currentSampleRate,
             180.0f, 0.75f, juce::Decibels::decibelsToGain(warmth));
+        *resonancePeak.state = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(currentSampleRate,
+            118.0f, 1.05f, juce::Decibels::decibelsToGain(resonance));
         *highShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(currentSampleRate,
             4200.0f, 0.65f, juce::Decibels::decibelsToGain(sparkle));
         *contourLP.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass(currentSampleRate, lpFreq, 0.62f);
@@ -266,6 +291,7 @@ private:
 
     juce::dsp::Convolution convolution;
     Filter lowShelf;
+    Filter resonancePeak;
     Filter highShelf;
     Filter contourLP;
     Filter contourHP;
@@ -276,6 +302,9 @@ private:
 
     juce::AudioParameterFloat* warmthParam = nullptr;
     juce::AudioParameterFloat* sparkleParam = nullptr;
+    juce::AudioParameterFloat* resonanceParam = nullptr;
+    juce::AudioParameterFloat* lowCutParam = nullptr;
+    juce::AudioParameterFloat* highCutParam = nullptr;
     juce::AudioParameterFloat* distanceParam = nullptr;
     juce::AudioParameterFloat* mixParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
@@ -285,6 +314,9 @@ private:
     int preparedChannels = 0;
     float cachedWarmth = std::numeric_limits<float>::quiet_NaN();
     float cachedSparkle = std::numeric_limits<float>::quiet_NaN();
+    float cachedResonance = std::numeric_limits<float>::quiet_NaN();
+    float cachedLowCut = std::numeric_limits<float>::quiet_NaN();
+    float cachedHighCut = std::numeric_limits<float>::quiet_NaN();
     float cachedDistance = std::numeric_limits<float>::quiet_NaN();
     std::atomic<int> fallbackBlockCount{ 0 };
     bool isPrepared = false;

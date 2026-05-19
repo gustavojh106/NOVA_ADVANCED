@@ -1,5 +1,5 @@
 NOVA Offline QA Report
-Generated: 2026-05-19 13:22:03
+Generated: 2026-05-19 15:53:23
 Scenarios: 74
 
 [PASS] impulse_transparency_line_a
@@ -170,15 +170,15 @@ null_rms=0.10629905
 [PASS] overdrive_cleanamp_reverb_chain_nominal
 notes=Overdrive->CleanAmp->Reverb chain stayed finite, safe and musically stable with a decaying tail
 input_peak=0.28328192
-output_peak=0.50009149
-output_rms=0.07948290
-output_dc=0.00001187
+output_peak=0.50169563
+output_rms=0.07960489
+output_dc=0.00001026
 finite=1.00000000
 near_clip_count=0.00000000
-tail_rms=0.02352910
-body_rms=0.10046377
-late_tail_rms=0.00349086
-tail_decay_ratio=0.14836357
+tail_rms=0.02356519
+body_rms=0.10061708
+late_tail_rms=0.00349620
+tail_decay_ratio=0.14836272
 
 [PASS] overdrive_automation_stress
 notes=Overdrive remained finite under aggressive preamp automation
@@ -367,7 +367,7 @@ iterations=2250.00000000
 
 [PASS] reverb_tail_quality
 notes=Cloud tail stayed finite, sustained and decayed cleanly
-render_ms=742.13820000
+render_ms=704.84360000
 peak=0.90457606
 rms=0.00173052
 late_rms_0p8_1p3s=0.00018238
@@ -534,7 +534,7 @@ blocks=2400.00000000
 
 [PASS] graph_diagnostic_report
 notes=Diagnostic report reflects graph topology
-report_length_chars=1010.00000000
+report_length_chars=1012.00000000
 contains_delay=1.00000000
 contains_reverb=1.00000000
 contains_ids=1.00000000

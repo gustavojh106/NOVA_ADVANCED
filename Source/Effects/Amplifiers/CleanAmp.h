@@ -45,6 +45,7 @@ public:
         addParameter(bassParam = new juce::AudioParameterFloat("cleanBass", "Bass", 0.0f, 1.0f, 0.52f));
         addParameter(trebleParam = new juce::AudioParameterFloat("cleanTreble", "Treble", 0.0f, 1.0f, 0.55f));
         addParameter(reverbParam = new juce::AudioParameterFloat("cleanReverb", "Reverb", 0.0f, 1.0f, 0.20f));
+        addParameter(headroomParam = new juce::AudioParameterFloat("cleanHeadroom", "Headroom", 0.0f, 1.0f, 0.50f));
         addParameter(levelParam = new juce::AudioParameterFloat("cleanLevel", "Level", 0.0f, 2.0f, 1.0f));
     }
 
@@ -56,19 +57,22 @@ public:
     {
         using namespace Nova::PedalUI;
 
-        return new PremiumPedalEditor(*this,
+        return new PremiumHardwareEditor(*this,
+            PremiumHardwareEditor::Skin::Amplifier,
             "Amplifier",
-            "Crystal",
+            "Clean Amp",
+            "Crystal channel / high headroom",
             juce::Colour::fromString("ff60A5FA"),
             {
                 { "Drive",  driveParam,  [](float value) { return formatPercent(value); } },
                 { "Bass",   bassParam,   [](float value) { return formatPercent(value); } },
                 { "Treble", trebleParam, [](float value) { return formatPercent(value); } },
                 { "Reverb", reverbParam, [](float value) { return formatPercent(value); } },
+                { "Headroom", headroomParam, [](float value) { return formatPercent(value); } },
                 { "Master", levelParam,  [](float value) { return formatGain(value); } }
             },
-            214,
-            178);
+            620,
+            326);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -104,12 +108,14 @@ public:
         bassSmooth.reset(currentInnerRate, 0.035);
         trebleSmooth.reset(currentInnerRate, 0.035);
         reverbSmooth.reset(currentSampleRate, 0.060);
+        headroomSmooth.reset(currentInnerRate, 0.040);
         masterSmooth.reset(currentSampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
 
         driveSmooth.setCurrentAndTargetValue(readDrive());
         bassSmooth.setCurrentAndTargetValue(readBass());
         trebleSmooth.setCurrentAndTargetValue(readTreble());
         reverbSmooth.setCurrentAndTargetValue(readReverb());
+        headroomSmooth.setCurrentAndTargetValue(readHeadroom());
         masterSmooth.setCurrentAndTargetValue(readLevel());
 
         cachedBass = std::numeric_limits<float>::quiet_NaN();
@@ -150,6 +156,7 @@ public:
         bassSmooth.setCurrentAndTargetValue(readBass());
         trebleSmooth.setCurrentAndTargetValue(readTreble());
         reverbSmooth.setCurrentAndTargetValue(readReverb());
+        headroomSmooth.setCurrentAndTargetValue(readHeadroom());
         masterSmooth.setCurrentAndTargetValue(readLevel());
 
         cachedBass = std::numeric_limits<float>::quiet_NaN();
@@ -433,6 +440,7 @@ private:
                 << ", bass=" << NovaDiagnostics::formatTelemetryScalar(amp.readBass())
                 << ", treble=" << NovaDiagnostics::formatTelemetryScalar(amp.readTreble())
                 << ", reverb=" << NovaDiagnostics::formatTelemetryScalar(amp.readReverb())
+                << ", headroom=" << NovaDiagnostics::formatTelemetryScalar(amp.readHeadroom())
                 << ", level=" << NovaDiagnostics::formatTelemetryScalar(amp.readLevel())
                 << ", innerSampleRate=" << NovaDiagnostics::formatTelemetryScalar((float) amp.currentInnerRate)
                 << ", oversamplingFactor=" << kOversamplingFactor
@@ -668,13 +676,15 @@ private:
         return sign * juce::jmin(ceiling, shaped);
     }
 
-    static float triodeShape(float x) noexcept
+    static float triodeShape(float x, float headroom) noexcept
     {
         // Studio-clean preamp curve.
         // V1 was stable but too compressed. This keeps most of the clean transient
         // and blends in controlled tube-like asymmetry only as coloration.
-        const float shaped = std::tanh((x * 0.72f) + (0.025f * x * x)) * 1.05f;
-        return (0.74f * x) + (0.26f * shaped);
+        const float saturationDrive = juce::jmap(headroom, 0.88f, 0.56f);
+        const float colourBlend = juce::jmap(headroom, 0.34f, 0.18f);
+        const float shaped = std::tanh((x * saturationDrive) + (0.025f * x * x)) * 1.05f;
+        return ((1.0f - colourBlend) * x) + (colourBlend * shaped);
     }
 
     float readDrive() const noexcept
@@ -697,6 +707,11 @@ private:
         return sanitize01(reverbParam != nullptr ? reverbParam->get() : 0.20f, 0.20f);
     }
 
+    float readHeadroom() const noexcept
+    {
+        return sanitize01(headroomParam != nullptr ? headroomParam->get() : 0.50f, 0.50f);
+    }
+
     float readLevel() const noexcept
     {
         return sanitizeLevel(levelParam != nullptr ? levelParam->get() : 1.0f);
@@ -708,6 +723,7 @@ private:
         bassSmooth.setTargetValue(readBass());
         trebleSmooth.setTargetValue(readTreble());
         reverbSmooth.setTargetValue(readReverb());
+        headroomSmooth.setTargetValue(readHeadroom());
         masterSmooth.setTargetValue(readLevel());
     }
 
@@ -770,11 +786,12 @@ private:
             const float driveNorm = sanitize01(driveSmooth.getNextValue(), 0.25f);
             const float bass = sanitize01(bassSmooth.getNextValue(), 0.52f);
             const float treble = sanitize01(trebleSmooth.getNextValue(), 0.55f);
+            const float headroom = sanitize01(headroomSmooth.getNextValue(), 0.50f);
 
             // Drive is intentionally less explosive than the original version.
             // It still gets warm, but it should not feed the amp/reverb with runaway levels.
-            const float drive = 1.0f + (driveNorm * 2.10f);
-            const float compensation = 1.0f / std::sqrt(1.0f + (driveNorm * 0.85f));
+            const float drive = 1.0f + (driveNorm * juce::jmap(headroom, 2.75f, 1.45f));
+            const float compensation = 1.0f / std::sqrt(1.0f + (driveNorm * juce::jmap(headroom, 1.05f, 0.62f)));
 
             debugTelemetry.captureControlWindow(drive,
                 bass,
@@ -790,7 +807,7 @@ private:
                 debugTelemetry.capturePreDrive(x);
 
                 x *= drive;
-                x = triodeShape(x);
+                x = triodeShape(x, headroom);
                 x *= compensation;
 
                 debugTelemetry.captureSaturation(x);
@@ -893,12 +910,14 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> bassSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> trebleSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> reverbSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> headroomSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> masterSmooth;
 
     juce::AudioParameterFloat* driveParam = nullptr;
     juce::AudioParameterFloat* bassParam = nullptr;
     juce::AudioParameterFloat* trebleParam = nullptr;
     juce::AudioParameterFloat* reverbParam = nullptr;
+    juce::AudioParameterFloat* headroomParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentSampleRate = 44100.0;

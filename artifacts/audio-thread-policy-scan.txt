@@ -1,5 +1,5 @@
 NOVA Audio Thread Policy Scan
-Generated: 2026-05-19 13:23:32
+Generated: 2026-05-19 15:55:11
 status=PASS
 summary.activeFiles=32
 summary.activeRanges=38
@@ -8,7 +8,7 @@ summary.warnings=0
 summary.allowlistedWarnings=0
 summary.legacyWarnings=0
 summary.legacyQuarantined=4
-summary.contractChecks=532
+summary.contractChecks=595
 summary.contractFailures=0
 summary.allowListEntries=2
 
@@ -568,6 +568,69 @@ RuntimeGraphManager contract checks detail:
   - [p10g_no_ui_deploy_reaper_closure] target=P10G docs passed=True detail=no UI/deploy/Reaper closure marker
   - [p10g_pending_statuses_preserved] target=P10G docs passed=True detail=manual listening, high-gain listening, and Reaper remain pending
   - [p10g_clean_preservation_noted] target=P10G docs passed=True detail=clean preservation documented
+  - [p11a_doc_present] target=docs/p11a-amp-interface-and-circuit-audit.md passed=True detail=P11A doc found
+  - [p11a_doc_present] target=docs/p11a-amp-professionalization-results.md passed=True detail=P11A doc found
+  - [p11a_amp_scenario_present] target=p11a_amp_catalog_surface_guard passed=True detail=scenario found in AudioEngineTests.cpp
+  - [p11a_amp_scenario_present] target=p11a_amp_state_roundtrip_new_controls passed=True detail=scenario found in AudioEngineTests.cpp
+  - [p11a_amp_scenario_present] target=p11a_amp_tonal_stability_guard passed=True detail=scenario found in AudioEngineTests.cpp
+  - [p11a_amp_scenario_present] target=p11a_highgain_baseline_preservation passed=True detail=scenario found in AudioEngineTests.cpp
+  - [p11a_amp_scenario_present] target=p11a_clean_path_preservation passed=True detail=scenario found in AudioEngineTests.cpp
+  - [p11a_amp_parameter_present] target=Source/Effects/Amplifiers/CleanAmp.h:cleanHeadroom passed=True detail=parameter marker found
+  - [p11a_amp_parameter_present] target=Source/Effects/Amplifiers/ClassicAmp.h:ampSag passed=True detail=parameter marker found
+  - [p11a_amp_parameter_present] target=Source/Effects/Amplifiers/ClassicAmp.h:ampBright passed=True detail=parameter marker found
+  - [p11a_amp_parameter_present] target=Source/Effects/Amplifiers/HighGainAmp.h:hgResonance passed=True detail=parameter marker found
+  - [p11a_amp_parameter_present] target=Source/Effects/Amplifiers/HighGainAmp.h:hgFeel passed=True detail=parameter marker found
+  - [p11a_amp_parameter_present] target=Source/Effects/Amplifiers/ChimeAmp.h:chimeSag passed=True detail=parameter marker found
+  - [p11a_amp_parameter_present] target=Source/Effects/Amplifiers/BoutiqueAmp.h:boutTouch passed=True detail=parameter marker found
+  - [p11a_no_golden_baseline_update] target=git diff --name-only passed=True detail=no golden baseline files changed
+  - [p11a_no_schema_bump] target=STATE_SCHEMA_VERSION passed=True detail=STATE_SCHEMA_VERSION remains 1
+  - [p11a_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure marker in base validation
+  - [p11a_no_outputchain_masking] target=OutputChain passed=True detail=OutputChain unchanged
+  - [p11a_no_factory_approved] target=P11A docs passed=True detail=no factory approval marker
+  - [p11a_cabinets_out_of_scope_documented] target=P11A docs passed=True detail=cabinet deferral documented
+  - [p11b_doc_present] target=docs/p11b-cabinet-interface-and-voicing-audit.md passed=True detail=P11B doc found
+  - [p11b_doc_present] target=docs/p11b-cabinet-professionalization-results.md passed=True detail=P11B doc found
+  - [p11b_cabinet_scenario_present] target=p11b_cabinet_catalog_surface_guard passed=True detail=scenario found in AudioEngineTests.cpp
+  - [p11b_cabinet_scenario_present] target=p11b_cabinet_state_roundtrip_new_controls passed=True detail=scenario found in AudioEngineTests.cpp
+  - [p11b_cabinet_scenario_present] target=p11b_cabinet_voicing_stability_guard passed=True detail=scenario found in AudioEngineTests.cpp
+  - [p11b_cabinet_scenario_present] target=p11b_modern4x12_highgain_baseline_preservation passed=True detail=scenario found in AudioEngineTests.cpp
+  - [p11b_cabinet_scenario_present] target=p11b_clean_cabinet_path_preservation passed=True detail=scenario found in AudioEngineTests.cpp
+  - [p11b_cabinet_parameter_present] target=Source/Effects/Cabinets/CabinetPedal.h:cabResonance passed=True detail=parameter marker found
+  - [p11b_cabinet_parameter_present] target=Source/Effects/Cabinets/CabinetPedal.h:cabLowCut passed=True detail=parameter marker found
+  - [p11b_cabinet_parameter_present] target=Source/Effects/Cabinets/CabinetPedal.h:cabHighCut passed=True detail=parameter marker found
+  - [p11b_cabinet_parameter_present] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h:v2x12Resonance passed=True detail=parameter marker found
+  - [p11b_cabinet_parameter_present] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h:v2x12LowCut passed=True detail=parameter marker found
+  - [p11b_cabinet_parameter_present] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h:v2x12HighCut passed=True detail=parameter marker found
+  - [p11b_cabinet_parameter_present] target=Source/Effects/Cabinets/Modern4x12Cabinet.h:m4x12Resonance passed=True detail=parameter marker found
+  - [p11b_cabinet_parameter_present] target=Source/Effects/Cabinets/Modern4x12Cabinet.h:m4x12LowCut passed=True detail=parameter marker found
+  - [p11b_cabinet_parameter_present] target=Source/Effects/Cabinets/Modern4x12Cabinet.h:m4x12HighCut passed=True detail=parameter marker found
+  - [p11b_no_golden_baseline_update] target=git diff --name-only passed=True detail=no golden baseline files changed
+  - [p11b_no_schema_bump] target=STATE_SCHEMA_VERSION passed=True detail=STATE_SCHEMA_VERSION remains 1
+  - [p11b_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure marker in base validation
+  - [p11b_no_outputchain_masking] target=OutputChain passed=True detail=OutputChain unchanged
+  - [p11b_no_factory_approved] target=P11B docs passed=True detail=no factory approval marker
+  - [p11b_manual_listening_separate] target=P11B docs passed=True detail=manual listening remains separate
+  - [p11c_doc_present] target=docs/p11c-amp-cab-open-ui-redesign-audit.md passed=True detail=P11C doc found
+  - [p11c_doc_present] target=docs/p11c-amp-cab-open-ui-redesign-results.md passed=True detail=P11C doc found
+  - [p11c_hardware_editor_marker_present] target=Source/Effects/Pedals/Base/PremiumPedalUI.h:class PremiumHardwareEditor passed=True detail=shared hardware editor class
+  - [p11c_hardware_editor_marker_present] target=Source/Effects/Pedals/Base/PremiumPedalUI.h:enum class Skin passed=True detail=category skin selector
+  - [p11c_hardware_editor_marker_present] target=Source/Effects/Pedals/Base/PremiumPedalUI.h:Amplifier passed=True detail=amplifier skin
+  - [p11c_hardware_editor_marker_present] target=Source/Effects/Pedals/Base/PremiumPedalUI.h:Cabinet passed=True detail=cabinet skin
+  - [p11c_hardware_editor_marker_present] target=Source/Effects/Pedals/Base/PremiumPedalUI.h:paintAmplifier passed=True detail=amp-specific paint path
+  - [p11c_hardware_editor_marker_present] target=Source/Effects/Pedals/Base/PremiumPedalUI.h:paintCabinet passed=True detail=cabinet-specific paint path
+  - [p11c_open_editor_skin_adopted] target=Source/Effects/Amplifiers/CleanAmp.h:PremiumHardwareEditor::Skin::Amplifier passed=True detail=P11C editor skin adopted
+  - [p11c_open_editor_skin_adopted] target=Source/Effects/Amplifiers/ClassicAmp.h:PremiumHardwareEditor::Skin::Amplifier passed=True detail=P11C editor skin adopted
+  - [p11c_open_editor_skin_adopted] target=Source/Effects/Amplifiers/HighGainAmp.h:PremiumHardwareEditor::Skin::Amplifier passed=True detail=P11C editor skin adopted
+  - [p11c_open_editor_skin_adopted] target=Source/Effects/Amplifiers/ChimeAmp.h:PremiumHardwareEditor::Skin::Amplifier passed=True detail=P11C editor skin adopted
+  - [p11c_open_editor_skin_adopted] target=Source/Effects/Amplifiers/BoutiqueAmp.h:PremiumHardwareEditor::Skin::Amplifier passed=True detail=P11C editor skin adopted
+  - [p11c_open_editor_skin_adopted] target=Source/Effects/Cabinets/CabinetPedal.h:PremiumHardwareEditor::Skin::Cabinet passed=True detail=P11C editor skin adopted
+  - [p11c_open_editor_skin_adopted] target=Source/Effects/Cabinets/Vintage2x12Cabinet.h:PremiumHardwareEditor::Skin::Cabinet passed=True detail=P11C editor skin adopted
+  - [p11c_open_editor_skin_adopted] target=Source/Effects/Cabinets/Modern4x12Cabinet.h:PremiumHardwareEditor::Skin::Cabinet passed=True detail=P11C editor skin adopted
+  - [p11c_no_golden_baseline_update] target=git diff --name-only passed=True detail=no golden baseline files changed
+  - [p11c_no_schema_bump] target=STATE_SCHEMA_VERSION passed=True detail=STATE_SCHEMA_VERSION remains 1
+  - [p11c_no_outputchain_masking] target=OutputChain passed=True detail=OutputChain unchanged
+  - [p11c_no_dsp_change_documented] target=P11C docs passed=True detail=no-DSP scope documented
+  - [p11c_manual_qa_separate] target=P11C docs passed=True detail=manual QA remains separate
   - [p7i_diagnostics_polish_doc_present] target=docs/p7i-diagnostics-visualizer-cpu-profiler-polish-results.md passed=True detail=P7I diagnostics polish doc found
   - [p7i_diagnostics_bundle_script_present] target=scripts/run-diagnostics-bundle.ps1 passed=True detail=P7I diagnostics bundle script found
   - [p7i_diagnostics_manager_format_profiling_line_present] target=Source/Core/Audio/DiagnosticsManager.h passed=True detail=formatProfilingLine present

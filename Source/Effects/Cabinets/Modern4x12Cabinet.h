@@ -17,6 +17,9 @@ public:
     {
         addParameter(lowEndParam = new juce::AudioParameterFloat("m4x12Low", "Low End", -12.0f, 12.0f, 2.0f));
         addParameter(presenceParam = new juce::AudioParameterFloat("m4x12Presence", "Presence", -12.0f, 12.0f, 2.5f));
+        addParameter(resonanceParam = new juce::AudioParameterFloat("m4x12Resonance", "Resonance", -6.0f, 6.0f, 0.0f));
+        addParameter(lowCutParam = new juce::AudioParameterFloat("m4x12LowCut", "Low Cut", 45.0f, 190.0f, 65.0f));
+        addParameter(highCutParam = new juce::AudioParameterFloat("m4x12HighCut", "High Cut", 3200.0f, 9000.0f, 6200.0f));
         addParameter(distanceParam = new juce::AudioParameterFloat("m4x12Distance", "Distance", 0.0f, 1.0f, 0.22f));
         addParameter(mixParam = new juce::AudioParameterFloat("m4x12Mix", "Mix", 0.0f, 1.0f, 1.0f));
         addParameter(levelParam = new juce::AudioParameterFloat("m4x12Level", "Level", 0.0f, 2.0f, 1.0f));
@@ -29,19 +32,24 @@ public:
     {
         using namespace Nova::PedalUI;
 
-        return new PremiumPedalEditor(*this,
+        return new PremiumHardwareEditor(*this,
+            PremiumHardwareEditor::Skin::Cabinet,
             "Cabinet",
             "Modern 4x12",
+            "Closed-back punch / fizz control",
             juce::Colour::fromString("ff6366F1"),
             {
                 { "Low End", lowEndParam, [](float value) { return formatDecibels(value); } },
                 { "Presence", presenceParam, [](float value) { return formatDecibels(value); } },
+                { "Resonance", resonanceParam, [](float value) { return formatDecibels(value); } },
+                { "Low Cut", lowCutParam, [](float value) { return formatHertz(value); } },
+                { "High Cut", highCutParam, [](float value) { return formatHertz(value); } },
                 { "Distance", distanceParam, [](float value) { return formatPercent(value); } },
                 { "Mix", mixParam, [](float value) { return formatPercent(value); } },
                 { "Level", levelParam, [](float value) { return formatGain(value); } }
             },
-            214,
-            178);
+            660,
+            356);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -60,6 +68,7 @@ public:
         convolution.prepare(spec);
         loadSyntheticIR(sampleRate);
         lowShelf.prepare(spec);
+        resonancePeak.prepare(spec);
         highShelf.prepare(spec);
         contourLP.prepare(spec);
         contourHP.prepare(spec);
@@ -77,6 +86,9 @@ public:
         currentSampleRate = sampleRate;
         cachedLowEnd = std::numeric_limits<float>::quiet_NaN();
         cachedPresence = std::numeric_limits<float>::quiet_NaN();
+        cachedResonance = std::numeric_limits<float>::quiet_NaN();
+        cachedLowCut = std::numeric_limits<float>::quiet_NaN();
+        cachedHighCut = std::numeric_limits<float>::quiet_NaN();
         cachedDistance = std::numeric_limits<float>::quiet_NaN();
 
         prepareBypassSmoother(sampleRate, samplesPerBlock);
@@ -93,6 +105,7 @@ public:
     {
         convolution.reset();
         lowShelf.reset();
+        resonancePeak.reset();
         highShelf.reset();
         contourLP.reset();
         contourHP.reset();
@@ -134,6 +147,7 @@ public:
             convolution.process(context);
 
         lowShelf.process(context);
+        resonancePeak.process(context);
         highShelf.process(context);
         midScoop.process(context);
         contourLP.process(context);
@@ -244,25 +258,36 @@ private:
     {
         const float lowEnd = lowEndParam != nullptr ? *lowEndParam : 2.0f;
         const float presence = presenceParam != nullptr ? *presenceParam : 2.5f;
+        const float resonance = resonanceParam != nullptr ? *resonanceParam : 0.0f;
+        const float lowCut = lowCutParam != nullptr ? *lowCutParam : 65.0f;
+        const float highCut = highCutParam != nullptr ? *highCutParam : 6200.0f;
         const float distance = distanceParam != nullptr ? *distanceParam : 0.22f;
 
         const bool lowChanged = !std::isfinite(cachedLowEnd) || std::abs(cachedLowEnd - lowEnd) > 1.0e-4f;
         const bool presChanged = !std::isfinite(cachedPresence) || std::abs(cachedPresence - presence) > 1.0e-4f;
+        const bool resonanceChanged = !std::isfinite(cachedResonance) || std::abs(cachedResonance - resonance) > 1.0e-4f;
+        const bool lowCutChanged = !std::isfinite(cachedLowCut) || std::abs(cachedLowCut - lowCut) > 1.0e-4f;
+        const bool highCutChanged = !std::isfinite(cachedHighCut) || std::abs(cachedHighCut - highCut) > 1.0e-4f;
         const bool distChanged = !std::isfinite(cachedDistance) || std::abs(cachedDistance - distance) > 1.0e-4f;
-        if (!lowChanged && !presChanged && !distChanged)
+        if (!lowChanged && !presChanged && !resonanceChanged && !lowCutChanged && !highCutChanged && !distChanged)
             return;
 
         cachedLowEnd = lowEnd;
         cachedPresence = presence;
+        cachedResonance = resonance;
+        cachedLowCut = lowCut;
+        cachedHighCut = highCut;
         cachedDistance = distance;
 
         // Modern 4x12 voicing: tight low end with a controlled post-amp top cut.
-        const float lpFreq = juce::jmap(distance, 6200.0f, 3200.0f);
-        const float hpFreq = juce::jmap(distance, 65.0f, 150.0f);
+        const float lpFreq = juce::jmin(juce::jmap(distance, 6200.0f, 3200.0f), highCut);
+        const float hpFreq = juce::jmax(juce::jmap(distance, 65.0f, 150.0f), lowCut);
         const float compensatedPresence = juce::jlimit(-12.0f, 3.5f, presence * 0.45f - 1.2f);
 
         *lowShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(currentSampleRate,
             100.0f, 0.85f, juce::Decibels::decibelsToGain(lowEnd));
+        *resonancePeak.state = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(currentSampleRate,
+            82.0f, 1.25f, juce::Decibels::decibelsToGain(resonance));
         *highShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(currentSampleRate,
             3100.0f, 0.74f, juce::Decibels::decibelsToGain(compensatedPresence));
         // Slight mid-scoop characteristic of modern V30-style cabs
@@ -274,6 +299,7 @@ private:
 
     juce::dsp::Convolution convolution;
     Filter lowShelf;
+    Filter resonancePeak;
     Filter highShelf;
     Filter contourLP;
     Filter contourHP;
@@ -285,6 +311,9 @@ private:
 
     juce::AudioParameterFloat* lowEndParam = nullptr;
     juce::AudioParameterFloat* presenceParam = nullptr;
+    juce::AudioParameterFloat* resonanceParam = nullptr;
+    juce::AudioParameterFloat* lowCutParam = nullptr;
+    juce::AudioParameterFloat* highCutParam = nullptr;
     juce::AudioParameterFloat* distanceParam = nullptr;
     juce::AudioParameterFloat* mixParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
@@ -294,6 +323,9 @@ private:
     int preparedChannels = 0;
     float cachedLowEnd = std::numeric_limits<float>::quiet_NaN();
     float cachedPresence = std::numeric_limits<float>::quiet_NaN();
+    float cachedResonance = std::numeric_limits<float>::quiet_NaN();
+    float cachedLowCut = std::numeric_limits<float>::quiet_NaN();
+    float cachedHighCut = std::numeric_limits<float>::quiet_NaN();
     float cachedDistance = std::numeric_limits<float>::quiet_NaN();
     std::atomic<int> fallbackBlockCount{ 0 };
     bool isPrepared = false;

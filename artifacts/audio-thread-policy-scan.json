@@ -1,5 +1,5 @@
 {
-    "generatedAt":  "2026-05-19T13:23:32.3017124-06:00",
+    "generatedAt":  "2026-05-19T15:55:11.7790089-06:00",
     "status":  "PASS",
     "summary":  {
                     "activeFiles":  32,
@@ -9,7 +9,7 @@
                     "allowlistedWarnings":  0,
                     "legacyWarnings":  0,
                     "legacyQuarantined":  4,
-                    "contractChecks":  532,
+                    "contractChecks":  595,
                     "contractFailures":  0,
                     "allowListEntries":  2
                 },
@@ -3142,6 +3142,384 @@
                                "target":  "P10G docs",
                                "passed":  true,
                                "detail":  "clean preservation documented"
+                           },
+                           {
+                               "checkId":  "p11a_doc_present",
+                               "target":  "docs/p11a-amp-interface-and-circuit-audit.md",
+                               "passed":  true,
+                               "detail":  "P11A doc found"
+                           },
+                           {
+                               "checkId":  "p11a_doc_present",
+                               "target":  "docs/p11a-amp-professionalization-results.md",
+                               "passed":  true,
+                               "detail":  "P11A doc found"
+                           },
+                           {
+                               "checkId":  "p11a_amp_scenario_present",
+                               "target":  "p11a_amp_catalog_surface_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p11a_amp_scenario_present",
+                               "target":  "p11a_amp_state_roundtrip_new_controls",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p11a_amp_scenario_present",
+                               "target":  "p11a_amp_tonal_stability_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p11a_amp_scenario_present",
+                               "target":  "p11a_highgain_baseline_preservation",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p11a_amp_scenario_present",
+                               "target":  "p11a_clean_path_preservation",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p11a_amp_parameter_present",
+                               "target":  "Source/Effects/Amplifiers/CleanAmp.h:cleanHeadroom",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11a_amp_parameter_present",
+                               "target":  "Source/Effects/Amplifiers/ClassicAmp.h:ampSag",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11a_amp_parameter_present",
+                               "target":  "Source/Effects/Amplifiers/ClassicAmp.h:ampBright",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11a_amp_parameter_present",
+                               "target":  "Source/Effects/Amplifiers/HighGainAmp.h:hgResonance",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11a_amp_parameter_present",
+                               "target":  "Source/Effects/Amplifiers/HighGainAmp.h:hgFeel",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11a_amp_parameter_present",
+                               "target":  "Source/Effects/Amplifiers/ChimeAmp.h:chimeSag",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11a_amp_parameter_present",
+                               "target":  "Source/Effects/Amplifiers/BoutiqueAmp.h:boutTouch",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11a_no_golden_baseline_update",
+                               "target":  "git diff --name-only",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p11a_no_schema_bump",
+                               "target":  "STATE_SCHEMA_VERSION",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p11a_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure marker in base validation"
+                           },
+                           {
+                               "checkId":  "p11a_no_outputchain_masking",
+                               "target":  "OutputChain",
+                               "passed":  true,
+                               "detail":  "OutputChain unchanged"
+                           },
+                           {
+                               "checkId":  "p11a_no_factory_approved",
+                               "target":  "P11A docs",
+                               "passed":  true,
+                               "detail":  "no factory approval marker"
+                           },
+                           {
+                               "checkId":  "p11a_cabinets_out_of_scope_documented",
+                               "target":  "P11A docs",
+                               "passed":  true,
+                               "detail":  "cabinet deferral documented"
+                           },
+                           {
+                               "checkId":  "p11b_doc_present",
+                               "target":  "docs/p11b-cabinet-interface-and-voicing-audit.md",
+                               "passed":  true,
+                               "detail":  "P11B doc found"
+                           },
+                           {
+                               "checkId":  "p11b_doc_present",
+                               "target":  "docs/p11b-cabinet-professionalization-results.md",
+                               "passed":  true,
+                               "detail":  "P11B doc found"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_scenario_present",
+                               "target":  "p11b_cabinet_catalog_surface_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_scenario_present",
+                               "target":  "p11b_cabinet_state_roundtrip_new_controls",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_scenario_present",
+                               "target":  "p11b_cabinet_voicing_stability_guard",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_scenario_present",
+                               "target":  "p11b_modern4x12_highgain_baseline_preservation",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_scenario_present",
+                               "target":  "p11b_clean_cabinet_path_preservation",
+                               "passed":  true,
+                               "detail":  "scenario found in AudioEngineTests.cpp"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_parameter_present",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h:cabResonance",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_parameter_present",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h:cabLowCut",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_parameter_present",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h:cabHighCut",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_parameter_present",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h:v2x12Resonance",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_parameter_present",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h:v2x12LowCut",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_parameter_present",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h:v2x12HighCut",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_parameter_present",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h:m4x12Resonance",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_parameter_present",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h:m4x12LowCut",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11b_cabinet_parameter_present",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h:m4x12HighCut",
+                               "passed":  true,
+                               "detail":  "parameter marker found"
+                           },
+                           {
+                               "checkId":  "p11b_no_golden_baseline_update",
+                               "target":  "git diff --name-only",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p11b_no_schema_bump",
+                               "target":  "STATE_SCHEMA_VERSION",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p11b_no_known_failure_ignore_added",
+                               "target":  "scripts/run-base-audio-validation.ps1",
+                               "passed":  true,
+                               "detail":  "no known-failure marker in base validation"
+                           },
+                           {
+                               "checkId":  "p11b_no_outputchain_masking",
+                               "target":  "OutputChain",
+                               "passed":  true,
+                               "detail":  "OutputChain unchanged"
+                           },
+                           {
+                               "checkId":  "p11b_no_factory_approved",
+                               "target":  "P11B docs",
+                               "passed":  true,
+                               "detail":  "no factory approval marker"
+                           },
+                           {
+                               "checkId":  "p11b_manual_listening_separate",
+                               "target":  "P11B docs",
+                               "passed":  true,
+                               "detail":  "manual listening remains separate"
+                           },
+                           {
+                               "checkId":  "p11c_doc_present",
+                               "target":  "docs/p11c-amp-cab-open-ui-redesign-audit.md",
+                               "passed":  true,
+                               "detail":  "P11C doc found"
+                           },
+                           {
+                               "checkId":  "p11c_doc_present",
+                               "target":  "docs/p11c-amp-cab-open-ui-redesign-results.md",
+                               "passed":  true,
+                               "detail":  "P11C doc found"
+                           },
+                           {
+                               "checkId":  "p11c_hardware_editor_marker_present",
+                               "target":  "Source/Effects/Pedals/Base/PremiumPedalUI.h:class PremiumHardwareEditor",
+                               "passed":  true,
+                               "detail":  "shared hardware editor class"
+                           },
+                           {
+                               "checkId":  "p11c_hardware_editor_marker_present",
+                               "target":  "Source/Effects/Pedals/Base/PremiumPedalUI.h:enum class Skin",
+                               "passed":  true,
+                               "detail":  "category skin selector"
+                           },
+                           {
+                               "checkId":  "p11c_hardware_editor_marker_present",
+                               "target":  "Source/Effects/Pedals/Base/PremiumPedalUI.h:Amplifier",
+                               "passed":  true,
+                               "detail":  "amplifier skin"
+                           },
+                           {
+                               "checkId":  "p11c_hardware_editor_marker_present",
+                               "target":  "Source/Effects/Pedals/Base/PremiumPedalUI.h:Cabinet",
+                               "passed":  true,
+                               "detail":  "cabinet skin"
+                           },
+                           {
+                               "checkId":  "p11c_hardware_editor_marker_present",
+                               "target":  "Source/Effects/Pedals/Base/PremiumPedalUI.h:paintAmplifier",
+                               "passed":  true,
+                               "detail":  "amp-specific paint path"
+                           },
+                           {
+                               "checkId":  "p11c_hardware_editor_marker_present",
+                               "target":  "Source/Effects/Pedals/Base/PremiumPedalUI.h:paintCabinet",
+                               "passed":  true,
+                               "detail":  "cabinet-specific paint path"
+                           },
+                           {
+                               "checkId":  "p11c_open_editor_skin_adopted",
+                               "target":  "Source/Effects/Amplifiers/CleanAmp.h:PremiumHardwareEditor::Skin::Amplifier",
+                               "passed":  true,
+                               "detail":  "P11C editor skin adopted"
+                           },
+                           {
+                               "checkId":  "p11c_open_editor_skin_adopted",
+                               "target":  "Source/Effects/Amplifiers/ClassicAmp.h:PremiumHardwareEditor::Skin::Amplifier",
+                               "passed":  true,
+                               "detail":  "P11C editor skin adopted"
+                           },
+                           {
+                               "checkId":  "p11c_open_editor_skin_adopted",
+                               "target":  "Source/Effects/Amplifiers/HighGainAmp.h:PremiumHardwareEditor::Skin::Amplifier",
+                               "passed":  true,
+                               "detail":  "P11C editor skin adopted"
+                           },
+                           {
+                               "checkId":  "p11c_open_editor_skin_adopted",
+                               "target":  "Source/Effects/Amplifiers/ChimeAmp.h:PremiumHardwareEditor::Skin::Amplifier",
+                               "passed":  true,
+                               "detail":  "P11C editor skin adopted"
+                           },
+                           {
+                               "checkId":  "p11c_open_editor_skin_adopted",
+                               "target":  "Source/Effects/Amplifiers/BoutiqueAmp.h:PremiumHardwareEditor::Skin::Amplifier",
+                               "passed":  true,
+                               "detail":  "P11C editor skin adopted"
+                           },
+                           {
+                               "checkId":  "p11c_open_editor_skin_adopted",
+                               "target":  "Source/Effects/Cabinets/CabinetPedal.h:PremiumHardwareEditor::Skin::Cabinet",
+                               "passed":  true,
+                               "detail":  "P11C editor skin adopted"
+                           },
+                           {
+                               "checkId":  "p11c_open_editor_skin_adopted",
+                               "target":  "Source/Effects/Cabinets/Vintage2x12Cabinet.h:PremiumHardwareEditor::Skin::Cabinet",
+                               "passed":  true,
+                               "detail":  "P11C editor skin adopted"
+                           },
+                           {
+                               "checkId":  "p11c_open_editor_skin_adopted",
+                               "target":  "Source/Effects/Cabinets/Modern4x12Cabinet.h:PremiumHardwareEditor::Skin::Cabinet",
+                               "passed":  true,
+                               "detail":  "P11C editor skin adopted"
+                           },
+                           {
+                               "checkId":  "p11c_no_golden_baseline_update",
+                               "target":  "git diff --name-only",
+                               "passed":  true,
+                               "detail":  "no golden baseline files changed"
+                           },
+                           {
+                               "checkId":  "p11c_no_schema_bump",
+                               "target":  "STATE_SCHEMA_VERSION",
+                               "passed":  true,
+                               "detail":  "STATE_SCHEMA_VERSION remains 1"
+                           },
+                           {
+                               "checkId":  "p11c_no_outputchain_masking",
+                               "target":  "OutputChain",
+                               "passed":  true,
+                               "detail":  "OutputChain unchanged"
+                           },
+                           {
+                               "checkId":  "p11c_no_dsp_change_documented",
+                               "target":  "P11C docs",
+                               "passed":  true,
+                               "detail":  "no-DSP scope documented"
+                           },
+                           {
+                               "checkId":  "p11c_manual_qa_separate",
+                               "target":  "P11C docs",
+                               "passed":  true,
+                               "detail":  "manual QA remains separate"
                            },
                            {
                                "checkId":  "p7i_diagnostics_polish_doc_present",

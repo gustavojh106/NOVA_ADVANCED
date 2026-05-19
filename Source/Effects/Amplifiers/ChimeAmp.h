@@ -32,6 +32,7 @@ public:
         addParameter(trebleCutParam = new juce::AudioParameterFloat("chimeTrebleCut", "Treble",    0.0f, 1.0f, 0.62f));
         addParameter(bassCutParam   = new juce::AudioParameterFloat("chimeBassCut",   "Bass",      0.0f, 1.0f, 0.48f));
         addParameter(brillParam     = new juce::AudioParameterFloat("chimeBrill",     "Brilliance",0.0f, 1.0f, 0.55f));
+        addParameter(sagParam       = new juce::AudioParameterFloat("chimeSag",       "Sag",       0.0f, 1.0f, 0.50f));
         addParameter(levelParam     = new juce::AudioParameterFloat("chimeLevel",     "Master",    0.0f, 2.0f, 1.0f));
     }
 
@@ -42,19 +43,22 @@ public:
     {
         using namespace Nova::PedalUI;
 
-        return new PremiumPedalEditor(*this,
+        return new PremiumHardwareEditor(*this,
+            PremiumHardwareEditor::Skin::Amplifier,
             "Amplifier",
-            "Chime",
+            "Chime Amp",
+            "Class-A chime / top boost",
             juce::Colour::fromString("ff22D3EE"),
             {
                 { "Drive",      driveParam,     [](float v) { return formatGain(v); } },
                 { "Treble",     trebleCutParam, [](float v) { return formatPercent(v); } },
                 { "Bass",       bassCutParam,   [](float v) { return formatPercent(v); } },
                 { "Brilliance", brillParam,     [](float v) { return formatPercent(v); } },
+                { "Sag",        sagParam,       [](float v) { return formatPercent(v); } },
                 { "Master",     levelParam,     [](float v) { return formatGain(v); } }
             },
-            214,
-            178);
+            620,
+            326);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -80,9 +84,11 @@ public:
         dcBlock.prepare(innerSpec);
 
         driveSmooth.reset(innerRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
+        sagSmooth.reset(innerRate, 0.045);
         masterSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
 
         driveSmooth.setCurrentAndTargetValue(driveParam != nullptr ? *driveParam : 1.6f);
+        sagSmooth.setCurrentAndTargetValue(sagParam != nullptr ? *sagParam : 0.50f);
         masterSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
 
         cachedTreble = std::numeric_limits<float>::quiet_NaN();
@@ -111,6 +117,7 @@ public:
         for (auto& b : cathodeBias) b = 0.0f;
 
         driveSmooth.setCurrentAndTargetValue(driveParam != nullptr ? *driveParam : 1.6f);
+        sagSmooth.setCurrentAndTargetValue(sagParam != nullptr ? *sagParam : 0.50f);
         masterSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
     }
 
@@ -121,6 +128,7 @@ public:
 
         updateVoicingIfNeeded();
         driveSmooth.setTargetValue(driveParam != nullptr ? *driveParam : 1.6f);
+        sagSmooth.setTargetValue(sagParam != nullptr ? *sagParam : 0.50f);
         masterSmooth.setTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
 
         juce::dsp::AudioBlock<float> block(buffer);
@@ -142,7 +150,10 @@ public:
             for (int s = 0; s < samples; ++s)
             {
                 const float drive = driveSmooth.getNextValue();
+                const float sagControl = juce::jlimit(0.0f, 1.0f, sagSmooth.getNextValue());
                 const float preGain = 1.0f + drive * 1.5f;
+                const float cathodeDepth = 0.22f + sagControl * 0.26f;
+                const float sagDepth = 0.42f + sagControl * 0.46f;
 
                 for (int ch = 0; ch < channelsToProcess; ++ch)
                 {
@@ -153,11 +164,11 @@ public:
                     // Class A amps have cathode resistor that shifts bias under load
                     const float rectified = std::abs(x * drive);
                     cathodeBias[(size_t)ch] += (rectified - cathodeBias[(size_t)ch]) * cathodeBiasCoeff;
-                    const float biasShift = cathodeBias[(size_t)ch] * 0.35f;
+                    const float biasShift = cathodeBias[(size_t)ch] * cathodeDepth;
 
                     // --- Power supply sag (lighter than push-pull, more spongy) ---
                     sagEnv[(size_t)ch] = juce::jmax(rectified, sagEnv[(size_t)ch] * 0.9988f);
-                    const float sag = 1.0f / (1.0f + sagEnv[(size_t)ch] * 0.65f);
+                    const float sag = 1.0f / (1.0f + sagEnv[(size_t)ch] * sagDepth);
 
                     // --- Stage 1: EF86 pentode preamp ---
                     // Asymmetric: sharper positive clip, softer negative (pentode character)
@@ -246,6 +257,7 @@ private:
     Filter dcBlock;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> sagSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> masterSmooth;
 
     static constexpr int kMaxAmpChannels = 8;
@@ -256,6 +268,7 @@ private:
     juce::AudioParameterFloat* trebleCutParam = nullptr;
     juce::AudioParameterFloat* bassCutParam   = nullptr;
     juce::AudioParameterFloat* brillParam     = nullptr;
+    juce::AudioParameterFloat* sagParam       = nullptr;
     juce::AudioParameterFloat* levelParam     = nullptr;
 
     double innerRate = 352800.0;

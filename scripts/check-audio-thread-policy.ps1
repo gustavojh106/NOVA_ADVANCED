@@ -6607,6 +6607,573 @@ if (-not [string]::IsNullOrWhiteSpace($p10gCombinedDocText)) {
 }
 
 # ---------------------------------------------------------------------------
+# P11A - Amp interface and circuit professionalization
+# ---------------------------------------------------------------------------
+
+$p11aAuditRel = "docs/p11a-amp-interface-and-circuit-audit.md"
+$p11aResultsRel = "docs/p11a-amp-professionalization-results.md"
+$p11aDocRels = @($p11aAuditRel, $p11aResultsRel)
+$p11aCombinedDocText = ""
+foreach ($p11aDocRel in $p11aDocRels) {
+    $p11aDocPath = Join-Path $repoRoot $p11aDocRel
+    $hasP11aDoc = Test-Path $p11aDocPath
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11a_doc_present"
+        target = $p11aDocRel
+        passed = $hasP11aDoc
+        detail = if ($hasP11aDoc) { "P11A doc found" } else { "P11A doc missing" }
+    }
+    if (-not $hasP11aDoc) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11a_doc_missing"
+            file = Normalize-RelPath($p11aDocRel)
+            function = "P11A documentation"
+            detail = "P11A requires $p11aDocRel."
+        }
+    }
+    else {
+        $p11aCombinedDocText += "`n" + (Get-Content -LiteralPath $p11aDocPath -Raw)
+    }
+}
+
+if (Test-Path $audioTestPath) {
+    if ($null -eq $audioTestText) {
+        $audioTestText = Get-Content -LiteralPath $audioTestPath -Raw
+    }
+
+    $p11aScenarioNames = @(
+        "p11a_amp_catalog_surface_guard",
+        "p11a_amp_state_roundtrip_new_controls",
+        "p11a_amp_tonal_stability_guard",
+        "p11a_highgain_baseline_preservation",
+        "p11a_clean_path_preservation"
+    )
+
+    foreach ($scenarioName in $p11aScenarioNames) {
+        $hasScenario = $audioTestText.Contains($scenarioName)
+        $contractChecks += [pscustomobject]@{
+            checkId = "p11a_amp_scenario_present"
+            target = $scenarioName
+            passed = $hasScenario
+            detail = if ($hasScenario) { "scenario found in AudioEngineTests.cpp" } else { "scenario missing" }
+        }
+        if (-not $hasScenario) {
+            $contractFailures += [pscustomobject]@{
+                checkId = "p11a_amp_scenario_missing"
+                file = Normalize-RelPath($audioTestRel)
+                function = "P11A amp professionalization"
+                detail = "AudioEngineTests.cpp must contain P11A scenario '$scenarioName'."
+            }
+        }
+    }
+}
+
+$p11aAmpParameterChecks = @(
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/CleanAmp.h"; marker = "cleanHeadroom" },
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/ClassicAmp.h"; marker = "ampSag" },
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/ClassicAmp.h"; marker = "ampBright" },
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/HighGainAmp.h"; marker = "hgResonance" },
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/HighGainAmp.h"; marker = "hgFeel" },
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/ChimeAmp.h"; marker = "chimeSag" },
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/BoutiqueAmp.h"; marker = "boutTouch" }
+)
+foreach ($check in $p11aAmpParameterChecks) {
+    $path = Join-Path $repoRoot $check.file
+    $text = if (Test-Path $path) { Get-Content -LiteralPath $path -Raw } else { "" }
+    $hasMarker = $text.Contains($check.marker)
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11a_amp_parameter_present"
+        target = "$($check.file):$($check.marker)"
+        passed = $hasMarker
+        detail = if ($hasMarker) { "parameter marker found" } else { "parameter marker missing" }
+    }
+    if (-not $hasMarker) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11a_amp_parameter_missing"
+            file = Normalize-RelPath($check.file)
+            function = "P11A amp parameter surface"
+            detail = "P11A expected amp parameter marker '$($check.marker)'."
+        }
+    }
+}
+
+$p11aGoldenBaselineChanged = @($gitChangedFiles | Where-Object { $_ -match '^docs/golden-metrics/' -or $_ -match 'golden.*baseline' })
+$contractChecks += [pscustomobject]@{
+    checkId = "p11a_no_golden_baseline_update"
+    target = "git diff --name-only"
+    passed = ($p11aGoldenBaselineChanged.Count -eq 0)
+    detail = if ($p11aGoldenBaselineChanged.Count -eq 0) { "no golden baseline files changed" } else { "changed=" + ($p11aGoldenBaselineChanged -join ",") }
+}
+if ($p11aGoldenBaselineChanged.Count -gt 0) {
+    $contractFailures += [pscustomobject]@{
+        checkId = "p11a_golden_baseline_updated"
+        file = "docs/golden-metrics"
+        function = "P11A baseline guard"
+        detail = "P11A must not update golden baseline files."
+    }
+}
+
+if (Test-Path $p8cConstantsPath) {
+    $p11aSchemaUnchanged = $p8cConstantsText -match "STATE_SCHEMA_VERSION\s*=\s*1\b"
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11a_no_schema_bump"
+        target = "STATE_SCHEMA_VERSION"
+        passed = $p11aSchemaUnchanged
+        detail = if ($p11aSchemaUnchanged) { "STATE_SCHEMA_VERSION remains 1" } else { "STATE_SCHEMA_VERSION is no longer 1" }
+    }
+    if (-not $p11aSchemaUnchanged) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11a_schema_bumped"
+            file = Normalize-RelPath($p8cConstantsRel)
+            function = "P11A schema guard"
+            detail = "P11A must not bump schema."
+        }
+    }
+}
+
+if (Test-Path $baseValidationScriptPath) {
+    if ($null -eq $baseValidationScriptText) {
+        $baseValidationScriptText = Get-Content -LiteralPath $baseValidationScriptPath -Raw
+    }
+    $p11aKnownFailureAdded = $baseValidationScriptText -match 'knownFailure|knownFailures|ignoredFailures'
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11a_no_known_failure_ignore_added"
+        target = $baseValidationScriptRel
+        passed = (-not $p11aKnownFailureAdded)
+        detail = if ($p11aKnownFailureAdded) { "known-failure marker found" } else { "no known-failure marker in base validation" }
+    }
+    if ($p11aKnownFailureAdded) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11a_known_failure_ignore_added"
+            file = Normalize-RelPath($baseValidationScriptRel)
+            function = "P11A validation guard"
+            detail = "P11A must not add known-failure ignores to base validation."
+        }
+    }
+}
+
+$p11aOutputChainMasking = @($gitChangedFiles | Where-Object { $_ -match '^Source/Core/DSP/Global/OutputChain\.(h|cpp)$' }).Count -gt 0
+$contractChecks += [pscustomobject]@{
+    checkId = "p11a_no_outputchain_masking"
+    target = "OutputChain"
+    passed = (-not $p11aOutputChainMasking)
+    detail = if ($p11aOutputChainMasking) { "OutputChain changed during P11A" } else { "OutputChain unchanged" }
+}
+if ($p11aOutputChainMasking) {
+    $contractFailures += [pscustomobject]@{
+        checkId = "p11a_outputchain_masking"
+        file = "Source/Core/DSP/Global/OutputChain"
+        function = "P11A masking guard"
+        detail = "P11A must not hide amp issues with OutputChain changes."
+    }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($p11aCombinedDocText)) {
+    $p11aDocsAvoidFactoryApproval = -not ($p11aCombinedDocText -match 'FACTORY_APPROVED|factory approval.*PASS')
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11a_no_factory_approved"
+        target = "P11A docs"
+        passed = $p11aDocsAvoidFactoryApproval
+        detail = if ($p11aDocsAvoidFactoryApproval) { "no factory approval marker" } else { "factory approval marker found" }
+    }
+    if (-not $p11aDocsAvoidFactoryApproval) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11a_factory_approved"
+            file = "docs/p11a"
+            function = "P11A approval guard"
+            detail = "P11A must not approve factory presets."
+        }
+    }
+
+    $p11aCabinetsOutOfScope = ($p11aCombinedDocText -match 'No cabinet work|cabinet.*out of scope|Defer.*cabinet')
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11a_cabinets_out_of_scope_documented"
+        target = "P11A docs"
+        passed = $p11aCabinetsOutOfScope
+        detail = if ($p11aCabinetsOutOfScope) { "cabinet deferral documented" } else { "cabinet deferral missing" }
+    }
+    if (-not $p11aCabinetsOutOfScope) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11a_cabinet_scope_missing"
+            file = "docs/p11a"
+            function = "P11A scope guard"
+            detail = "P11A docs must state cabinets remain out of scope."
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# P11B - Cabinet interface and voicing professionalization
+# ---------------------------------------------------------------------------
+
+$p11bAuditRel = "docs/p11b-cabinet-interface-and-voicing-audit.md"
+$p11bResultsRel = "docs/p11b-cabinet-professionalization-results.md"
+$p11bDocRels = @($p11bAuditRel, $p11bResultsRel)
+$p11bCombinedDocText = ""
+foreach ($p11bDocRel in $p11bDocRels) {
+    $p11bDocPath = Join-Path $repoRoot $p11bDocRel
+    $hasP11bDoc = Test-Path $p11bDocPath
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11b_doc_present"
+        target = $p11bDocRel
+        passed = $hasP11bDoc
+        detail = if ($hasP11bDoc) { "P11B doc found" } else { "P11B doc missing" }
+    }
+    if (-not $hasP11bDoc) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11b_doc_missing"
+            file = Normalize-RelPath($p11bDocRel)
+            function = "P11B documentation"
+            detail = "P11B requires $p11bDocRel."
+        }
+    }
+    else {
+        $p11bCombinedDocText += "`n" + (Get-Content -LiteralPath $p11bDocPath -Raw)
+    }
+}
+
+if (Test-Path $audioTestPath) {
+    if ($null -eq $audioTestText) {
+        $audioTestText = Get-Content -LiteralPath $audioTestPath -Raw
+    }
+
+    $p11bScenarioNames = @(
+        "p11b_cabinet_catalog_surface_guard",
+        "p11b_cabinet_state_roundtrip_new_controls",
+        "p11b_cabinet_voicing_stability_guard",
+        "p11b_modern4x12_highgain_baseline_preservation",
+        "p11b_clean_cabinet_path_preservation"
+    )
+
+    foreach ($scenarioName in $p11bScenarioNames) {
+        $hasScenario = $audioTestText.Contains($scenarioName)
+        $contractChecks += [pscustomobject]@{
+            checkId = "p11b_cabinet_scenario_present"
+            target = $scenarioName
+            passed = $hasScenario
+            detail = if ($hasScenario) { "scenario found in AudioEngineTests.cpp" } else { "scenario missing" }
+        }
+        if (-not $hasScenario) {
+            $contractFailures += [pscustomobject]@{
+                checkId = "p11b_cabinet_scenario_missing"
+                file = Normalize-RelPath($audioTestRel)
+                function = "P11B cabinet professionalization"
+                detail = "AudioEngineTests.cpp must contain P11B scenario '$scenarioName'."
+            }
+        }
+    }
+}
+
+$p11bCabinetParameterChecks = @(
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/CabinetPedal.h"; marker = "cabResonance" },
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/CabinetPedal.h"; marker = "cabLowCut" },
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/CabinetPedal.h"; marker = "cabHighCut" },
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/Vintage2x12Cabinet.h"; marker = "v2x12Resonance" },
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/Vintage2x12Cabinet.h"; marker = "v2x12LowCut" },
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/Vintage2x12Cabinet.h"; marker = "v2x12HighCut" },
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/Modern4x12Cabinet.h"; marker = "m4x12Resonance" },
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/Modern4x12Cabinet.h"; marker = "m4x12LowCut" },
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/Modern4x12Cabinet.h"; marker = "m4x12HighCut" }
+)
+foreach ($check in $p11bCabinetParameterChecks) {
+    $path = Join-Path $repoRoot $check.file
+    $text = if (Test-Path $path) { Get-Content -LiteralPath $path -Raw } else { "" }
+    $hasMarker = $text.Contains($check.marker)
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11b_cabinet_parameter_present"
+        target = "$($check.file):$($check.marker)"
+        passed = $hasMarker
+        detail = if ($hasMarker) { "parameter marker found" } else { "parameter marker missing" }
+    }
+    if (-not $hasMarker) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11b_cabinet_parameter_missing"
+            file = Normalize-RelPath($check.file)
+            function = "P11B cabinet parameter surface"
+            detail = "P11B expected cabinet parameter marker '$($check.marker)'."
+        }
+    }
+}
+
+$p11bGoldenBaselineChanged = @($gitChangedFiles | Where-Object { $_ -match '^docs/golden-metrics/' -or $_ -match 'golden.*baseline' })
+$contractChecks += [pscustomobject]@{
+    checkId = "p11b_no_golden_baseline_update"
+    target = "git diff --name-only"
+    passed = ($p11bGoldenBaselineChanged.Count -eq 0)
+    detail = if ($p11bGoldenBaselineChanged.Count -eq 0) { "no golden baseline files changed" } else { "changed=" + ($p11bGoldenBaselineChanged -join ",") }
+}
+if ($p11bGoldenBaselineChanged.Count -gt 0) {
+    $contractFailures += [pscustomobject]@{
+        checkId = "p11b_golden_baseline_updated"
+        file = "docs/golden-metrics"
+        function = "P11B baseline guard"
+        detail = "P11B must not update golden baseline files."
+    }
+}
+
+if (Test-Path $p8cConstantsPath) {
+    $p11bSchemaUnchanged = $p8cConstantsText -match "STATE_SCHEMA_VERSION\s*=\s*1\b"
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11b_no_schema_bump"
+        target = "STATE_SCHEMA_VERSION"
+        passed = $p11bSchemaUnchanged
+        detail = if ($p11bSchemaUnchanged) { "STATE_SCHEMA_VERSION remains 1" } else { "STATE_SCHEMA_VERSION is no longer 1" }
+    }
+    if (-not $p11bSchemaUnchanged) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11b_schema_bumped"
+            file = Normalize-RelPath($p8cConstantsRel)
+            function = "P11B schema guard"
+            detail = "P11B must not bump schema."
+        }
+    }
+}
+
+if (Test-Path $baseValidationScriptPath) {
+    if ($null -eq $baseValidationScriptText) {
+        $baseValidationScriptText = Get-Content -LiteralPath $baseValidationScriptPath -Raw
+    }
+    $p11bKnownFailureAdded = $baseValidationScriptText -match 'knownFailure|knownFailures|ignoredFailures'
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11b_no_known_failure_ignore_added"
+        target = $baseValidationScriptRel
+        passed = (-not $p11bKnownFailureAdded)
+        detail = if ($p11bKnownFailureAdded) { "known-failure marker found" } else { "no known-failure marker in base validation" }
+    }
+    if ($p11bKnownFailureAdded) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11b_known_failure_ignore_added"
+            file = Normalize-RelPath($baseValidationScriptRel)
+            function = "P11B validation guard"
+            detail = "P11B must not add known-failure ignores to base validation."
+        }
+    }
+}
+
+$p11bOutputChainMasking = @($gitChangedFiles | Where-Object { $_ -match '^Source/Core/DSP/Global/OutputChain\.(h|cpp)$' }).Count -gt 0
+$contractChecks += [pscustomobject]@{
+    checkId = "p11b_no_outputchain_masking"
+    target = "OutputChain"
+    passed = (-not $p11bOutputChainMasking)
+    detail = if ($p11bOutputChainMasking) { "OutputChain changed during P11B" } else { "OutputChain unchanged" }
+}
+if ($p11bOutputChainMasking) {
+    $contractFailures += [pscustomobject]@{
+        checkId = "p11b_outputchain_masking"
+        file = "Source/Core/DSP/Global/OutputChain"
+        function = "P11B masking guard"
+        detail = "P11B must not hide cabinet issues with OutputChain changes."
+    }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($p11bCombinedDocText)) {
+    $p11bDocsAvoidFactoryApproval = -not ($p11bCombinedDocText -match 'FACTORY_APPROVED|factory approval.*PASS')
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11b_no_factory_approved"
+        target = "P11B docs"
+        passed = $p11bDocsAvoidFactoryApproval
+        detail = if ($p11bDocsAvoidFactoryApproval) { "no factory approval marker" } else { "factory approval marker found" }
+    }
+    if (-not $p11bDocsAvoidFactoryApproval) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11b_factory_approved"
+            file = "docs/p11b"
+            function = "P11B approval guard"
+            detail = "P11B must not approve factory presets."
+        }
+    }
+
+    $p11bManualListeningSeparate = ($p11bCombinedDocText -match 'Manual listening is required|manual listening')
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11b_manual_listening_separate"
+        target = "P11B docs"
+        passed = $p11bManualListeningSeparate
+        detail = if ($p11bManualListeningSeparate) { "manual listening remains separate" } else { "manual listening note missing" }
+    }
+    if (-not $p11bManualListeningSeparate) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11b_manual_listening_missing"
+            file = "docs/p11b"
+            function = "P11B manual QA guard"
+            detail = "P11B docs must keep manual listening separate from automated validation."
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# P11C - Amp/Cab open editor visual differentiation
+# ---------------------------------------------------------------------------
+
+$p11cAuditRel = "docs/p11c-amp-cab-open-ui-redesign-audit.md"
+$p11cResultsRel = "docs/p11c-amp-cab-open-ui-redesign-results.md"
+$p11cDocRels = @($p11cAuditRel, $p11cResultsRel)
+$p11cCombinedDocText = ""
+foreach ($p11cDocRel in $p11cDocRels) {
+    $p11cDocPath = Join-Path $repoRoot $p11cDocRel
+    $hasP11cDoc = Test-Path $p11cDocPath
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11c_doc_present"
+        target = $p11cDocRel
+        passed = $hasP11cDoc
+        detail = if ($hasP11cDoc) { "P11C doc found" } else { "P11C doc missing" }
+    }
+    if (-not $hasP11cDoc) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11c_doc_missing"
+            file = Normalize-RelPath($p11cDocRel)
+            function = "P11C documentation"
+            detail = "P11C requires $p11cDocRel."
+        }
+    }
+    else {
+        $p11cCombinedDocText += "`n" + (Get-Content -LiteralPath $p11cDocPath -Raw)
+    }
+}
+
+$p11cUiRel = "Source/Effects/Pedals/Base/PremiumPedalUI.h"
+$p11cUiPath = Join-Path $repoRoot $p11cUiRel
+$p11cUiText = if (Test-Path $p11cUiPath) { Get-Content -LiteralPath $p11cUiPath -Raw } else { "" }
+$p11cUiChecks = @(
+    [pscustomobject]@{ marker = "class PremiumHardwareEditor"; detail = "shared hardware editor class" },
+    [pscustomobject]@{ marker = "enum class Skin"; detail = "category skin selector" },
+    [pscustomobject]@{ marker = "Amplifier"; detail = "amplifier skin" },
+    [pscustomobject]@{ marker = "Cabinet"; detail = "cabinet skin" },
+    [pscustomobject]@{ marker = "paintAmplifier"; detail = "amp-specific paint path" },
+    [pscustomobject]@{ marker = "paintCabinet"; detail = "cabinet-specific paint path" }
+)
+foreach ($check in $p11cUiChecks) {
+    $hasMarker = $p11cUiText.Contains($check.marker)
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11c_hardware_editor_marker_present"
+        target = "${p11cUiRel}:$($check.marker)"
+        passed = $hasMarker
+        detail = if ($hasMarker) { $check.detail } else { "missing $($check.detail)" }
+    }
+    if (-not $hasMarker) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11c_hardware_editor_marker_missing"
+            file = Normalize-RelPath($p11cUiRel)
+            function = "P11C open editor UI"
+            detail = "P11C expected UI marker '$($check.marker)'."
+        }
+    }
+}
+
+$p11cEditorAdoptionChecks = @(
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/CleanAmp.h"; marker = "PremiumHardwareEditor::Skin::Amplifier" },
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/ClassicAmp.h"; marker = "PremiumHardwareEditor::Skin::Amplifier" },
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/HighGainAmp.h"; marker = "PremiumHardwareEditor::Skin::Amplifier" },
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/ChimeAmp.h"; marker = "PremiumHardwareEditor::Skin::Amplifier" },
+    [pscustomobject]@{ file = "Source/Effects/Amplifiers/BoutiqueAmp.h"; marker = "PremiumHardwareEditor::Skin::Amplifier" },
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/CabinetPedal.h"; marker = "PremiumHardwareEditor::Skin::Cabinet" },
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/Vintage2x12Cabinet.h"; marker = "PremiumHardwareEditor::Skin::Cabinet" },
+    [pscustomobject]@{ file = "Source/Effects/Cabinets/Modern4x12Cabinet.h"; marker = "PremiumHardwareEditor::Skin::Cabinet" }
+)
+foreach ($check in $p11cEditorAdoptionChecks) {
+    $path = Join-Path $repoRoot $check.file
+    $text = if (Test-Path $path) { Get-Content -LiteralPath $path -Raw } else { "" }
+    $hasMarker = $text.Contains($check.marker)
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11c_open_editor_skin_adopted"
+        target = "$($check.file):$($check.marker)"
+        passed = $hasMarker
+        detail = if ($hasMarker) { "P11C editor skin adopted" } else { "P11C editor skin missing" }
+    }
+    if (-not $hasMarker) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11c_open_editor_skin_missing"
+            file = Normalize-RelPath($check.file)
+            function = "P11C editor adoption"
+            detail = "Expected '$($check.marker)' in open editor creation."
+        }
+    }
+}
+
+$p11cGoldenBaselineChanged = @($gitChangedFiles | Where-Object { $_ -match '^docs/golden-metrics/' -or $_ -match 'golden.*baseline' })
+$contractChecks += [pscustomobject]@{
+    checkId = "p11c_no_golden_baseline_update"
+    target = "git diff --name-only"
+    passed = ($p11cGoldenBaselineChanged.Count -eq 0)
+    detail = if ($p11cGoldenBaselineChanged.Count -eq 0) { "no golden baseline files changed" } else { "changed=" + ($p11cGoldenBaselineChanged -join ",") }
+}
+if ($p11cGoldenBaselineChanged.Count -gt 0) {
+    $contractFailures += [pscustomobject]@{
+        checkId = "p11c_golden_baseline_updated"
+        file = "docs/golden-metrics"
+        function = "P11C baseline guard"
+        detail = "P11C must not update golden baseline files."
+    }
+}
+
+if (Test-Path $p8cConstantsPath) {
+    $p11cSchemaUnchanged = $p8cConstantsText -match "STATE_SCHEMA_VERSION\s*=\s*1\b"
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11c_no_schema_bump"
+        target = "STATE_SCHEMA_VERSION"
+        passed = $p11cSchemaUnchanged
+        detail = if ($p11cSchemaUnchanged) { "STATE_SCHEMA_VERSION remains 1" } else { "STATE_SCHEMA_VERSION is no longer 1" }
+    }
+    if (-not $p11cSchemaUnchanged) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11c_schema_bumped"
+            file = Normalize-RelPath($p8cConstantsRel)
+            function = "P11C schema guard"
+            detail = "P11C must not bump schema."
+        }
+    }
+}
+
+$p11cOutputChainMasking = @($gitChangedFiles | Where-Object { $_ -match '^Source/Core/DSP/Global/OutputChain\.(h|cpp)$' }).Count -gt 0
+$contractChecks += [pscustomobject]@{
+    checkId = "p11c_no_outputchain_masking"
+    target = "OutputChain"
+    passed = (-not $p11cOutputChainMasking)
+    detail = if ($p11cOutputChainMasking) { "OutputChain changed during P11C" } else { "OutputChain unchanged" }
+}
+if ($p11cOutputChainMasking) {
+    $contractFailures += [pscustomobject]@{
+        checkId = "p11c_outputchain_masking"
+        file = "Source/Core/DSP/Global/OutputChain"
+        function = "P11C masking guard"
+        detail = "P11C must not hide UI issues with OutputChain changes."
+    }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($p11cCombinedDocText)) {
+    $p11cDocsStateNoDsp = ($p11cCombinedDocText -match 'No DSP changes|does not change DSP')
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11c_no_dsp_change_documented"
+        target = "P11C docs"
+        passed = $p11cDocsStateNoDsp
+        detail = if ($p11cDocsStateNoDsp) { "no-DSP scope documented" } else { "no-DSP scope missing" }
+    }
+    if (-not $p11cDocsStateNoDsp) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11c_no_dsp_scope_missing"
+            file = "docs/p11c"
+            function = "P11C scope guard"
+            detail = "P11C docs must state that DSP was not changed."
+        }
+    }
+
+    $p11cManualQaSeparate = ($p11cCombinedDocText -match 'manual visual QA|Manual Visual QA|Manual listening')
+    $contractChecks += [pscustomobject]@{
+        checkId = "p11c_manual_qa_separate"
+        target = "P11C docs"
+        passed = $p11cManualQaSeparate
+        detail = if ($p11cManualQaSeparate) { "manual QA remains separate" } else { "manual QA note missing" }
+    }
+    if (-not $p11cManualQaSeparate) {
+        $contractFailures += [pscustomobject]@{
+            checkId = "p11c_manual_qa_missing"
+            file = "docs/p11c"
+            function = "P11C manual QA guard"
+            detail = "P11C docs must keep manual QA separate from automated validation."
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
 # P7I - Diagnostics / Visualizer / CPU Profiler polish
 # ---------------------------------------------------------------------------
 

@@ -37,6 +37,7 @@ public:
         addParameter(warmthParam  = new juce::AudioParameterFloat("boutWarmth",  "Warmth",  0.0f, 1.0f, 0.50f));
         addParameter(midParam     = new juce::AudioParameterFloat("boutMid",     "Mid",     0.0f, 1.0f, 0.55f));
         addParameter(presParam    = new juce::AudioParameterFloat("boutPres",    "Presence", 0.0f, 1.0f, 0.50f));
+        addParameter(touchParam   = new juce::AudioParameterFloat("boutTouch",   "Touch",   0.0f, 1.0f, 0.55f));
         addParameter(levelParam   = new juce::AudioParameterFloat("boutLevel",   "Master",  0.0f, 2.0f, 1.0f));
     }
 
@@ -47,19 +48,22 @@ public:
     {
         using namespace Nova::PedalUI;
 
-        return new PremiumPedalEditor(*this,
+        return new PremiumHardwareEditor(*this,
+            PremiumHardwareEditor::Skin::Amplifier,
             "Amplifier",
-            "Velvet",
+            "Boutique Amp",
+            "Velvet channel / touch response",
             juce::Colour::fromString("ffA78BFA"),
             {
                 { "Drive",    driveParam,  [](float v) { return formatGain(v); } },
                 { "Warmth",   warmthParam, [](float v) { return formatPercent(v); } },
                 { "Mid",      midParam,    [](float v) { return formatPercent(v); } },
                 { "Presence", presParam,   [](float v) { return formatPercent(v); } },
+                { "Touch",    touchParam,  [](float v) { return formatPercent(v); } },
                 { "Master",   levelParam,  [](float v) { return formatGain(v); } }
             },
-            214,
-            178);
+            620,
+            326);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -85,9 +89,11 @@ public:
         dcBlock.prepare(innerSpec);
 
         driveSmooth.reset(innerRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
+        touchSmooth.reset(innerRate, 0.040);
         masterSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
 
         driveSmooth.setCurrentAndTargetValue(driveParam != nullptr ? *driveParam : 1.2f);
+        touchSmooth.setCurrentAndTargetValue(touchParam != nullptr ? *touchParam : 0.55f);
         masterSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
 
         cachedWarmth = std::numeric_limits<float>::quiet_NaN();
@@ -115,6 +121,7 @@ public:
         for (auto& e : envelope) e = 0.0f;
 
         driveSmooth.setCurrentAndTargetValue(driveParam != nullptr ? *driveParam : 1.2f);
+        touchSmooth.setCurrentAndTargetValue(touchParam != nullptr ? *touchParam : 0.55f);
         masterSmooth.setCurrentAndTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
     }
 
@@ -125,6 +132,7 @@ public:
 
         updateVoicingIfNeeded();
         driveSmooth.setTargetValue(driveParam != nullptr ? *driveParam : 1.2f);
+        touchSmooth.setTargetValue(touchParam != nullptr ? *touchParam : 0.55f);
         masterSmooth.setTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
 
         juce::dsp::AudioBlock<float> block(buffer);
@@ -146,6 +154,9 @@ public:
             for (int s = 0; s < samples; ++s)
             {
                 const float drive = driveSmooth.getNextValue();
+                const float touch = juce::jlimit(0.0f, 1.0f, touchSmooth.getNextValue());
+                const float touchSensitivity = juce::jmap(touch, 0.35f, 0.85f);
+                const float cleanThreshold = juce::jmap(touch, 0.52f, 0.72f);
 
                 for (int ch = 0; ch < channelsToProcess; ++ch)
                 {
@@ -162,14 +173,14 @@ public:
                     // This is what makes boutique amps "clean up" with guitar volume
                     // High envelope → less gain → stays clean on hard hits
                     // Low envelope → more gain → breaks up on soft picking
-                    const float dynamicGain = drive * (1.0f / (1.0f + envelope[(size_t)ch] * 0.6f));
+                    const float dynamicGain = drive * (1.0f / (1.0f + envelope[(size_t)ch] * touchSensitivity));
 
                     // --- Stage 1: Preamp tube (high headroom) ---
                     // Soft polynomial curve below threshold, tanh above
                     // This gives transparent clean at low levels, smooth breakup at high
                     const float input1 = x * (0.8f + dynamicGain * 1.4f);
                     float stage1;
-                    if (std::abs(input1) < 0.6f)
+                    if (std::abs(input1) < cleanThreshold)
                     {
                         // Below threshold: gentle 2nd harmonic warmth (even harmonics)
                         // y = x - (x^2 * sign(x) * amount) — adds only H2
@@ -269,6 +280,7 @@ private:
     Filter dcBlock;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveSmooth;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> touchSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> masterSmooth;
 
     static constexpr int kMaxAmpChannels = 8;
@@ -278,6 +290,7 @@ private:
     juce::AudioParameterFloat* warmthParam  = nullptr;
     juce::AudioParameterFloat* midParam     = nullptr;
     juce::AudioParameterFloat* presParam    = nullptr;
+    juce::AudioParameterFloat* touchParam   = nullptr;
     juce::AudioParameterFloat* levelParam   = nullptr;
 
     double innerRate = 352800.0;

@@ -289,6 +289,344 @@ private:
     bool lastBypassState = false;
 };
 
+class PremiumHardwareEditor : public juce::AudioProcessorEditor,
+                              private juce::Timer
+{
+public:
+    enum class Skin
+    {
+        Amplifier,
+        Cabinet
+    };
+
+    PremiumHardwareEditor(juce::AudioProcessor& processor,
+        Skin editorSkin,
+        juce::String categoryText,
+        juce::String titleText,
+        juce::String subtitleText,
+        juce::Colour accentColour,
+        std::initializer_list<ParameterBinding> parameterBindings,
+        int width = 620,
+        int height = 326)
+        : juce::AudioProcessorEditor(&processor),
+          owner(processor),
+          skin(editorSkin),
+          category(std::move(categoryText)),
+          title(std::move(titleText)),
+          subtitle(std::move(subtitleText)),
+          accent(accentColour),
+          lookAndFeel(accentColour)
+    {
+        setLookAndFeel(&lookAndFeel);
+
+        for (const auto& binding : parameterBindings)
+            addControl(binding);
+
+        setSize(width, height);
+        startTimerHz(18);
+    }
+
+    ~PremiumHardwareEditor() override
+    {
+        stopTimer();
+        setLookAndFeel(nullptr);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        skin == Skin::Amplifier ? paintAmplifier(g) : paintCabinet(g);
+
+        if (isBypassed())
+        {
+            g.setColour(juce::Colour::fromString("bb05070B"));
+            g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(1.0f), 12.0f);
+            g.setColour(Nova::Colors::Error.withAlpha(0.82f));
+            g.setFont(juce::Font(juce::FontOptions(12.0f, juce::Font::bold)));
+            g.drawText("BYPASSED", getLocalBounds().reduced(18), juce::Justification::topRight);
+        }
+    }
+
+    void resized() override
+    {
+        skin == Skin::Amplifier ? resizedAmplifier() : resizedCabinet();
+    }
+
+private:
+    struct Control
+    {
+        juce::Slider slider;
+        juce::Label label;
+        std::unique_ptr<juce::SliderParameterAttachment> attachment;
+    };
+
+    void timerCallback() override
+    {
+        const bool currentBypassed = isBypassed();
+        if (currentBypassed != lastBypassState)
+        {
+            lastBypassState = currentBypassed;
+            repaint();
+        }
+    }
+
+    void addControl(const ParameterBinding& binding)
+    {
+        if (binding.parameter == nullptr)
+            return;
+
+        auto control = std::make_unique<Control>();
+        control->slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
+        control->slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 54, 16);
+        control->slider.setRotaryParameters(UI::KnobGeometry::knobStartAngleRadians(),
+            UI::KnobGeometry::knobEndAngleRadians(),
+            true);
+        control->slider.setDoubleClickReturnValue(true,
+            binding.parameter->convertFrom0to1(binding.parameter->getDefaultValue()));
+
+        control->slider.textFromValueFunction = [formatter = binding.formatter](double value)
+        {
+            if (formatter)
+                return formatter((float)value);
+
+            return juce::String(value, 2);
+        };
+
+        control->slider.valueFromTextFunction = [](const juce::String& text)
+        {
+            return text.retainCharacters("0123456789-+.").getDoubleValue();
+        };
+
+        control->label.setText(binding.label.toUpperCase(), juce::dontSendNotification);
+        control->label.setFont(juce::Font(juce::FontOptions(9.5f, juce::Font::bold)));
+        control->label.setJustificationType(juce::Justification::centred);
+        control->label.setColour(juce::Label::textColourId, juce::Colours::white.withAlpha(0.70f));
+        control->label.setInterceptsMouseClicks(false, false);
+
+        control->attachment = std::make_unique<juce::SliderParameterAttachment>(*binding.parameter, control->slider);
+
+        addAndMakeVisible(control->slider);
+        addAndMakeVisible(control->label);
+        controls.push_back(std::move(control));
+    }
+
+    void paintAmplifier(juce::Graphics& g)
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        const auto body = bounds.reduced(1.0f);
+
+        juce::ColourGradient bg(juce::Colour::fromString("ff070A12"), 0.0f, 0.0f,
+            juce::Colour::fromString("ff111827"), 0.0f, bounds.getBottom(), false);
+        g.setGradientFill(bg);
+        g.fillRoundedRectangle(body, 12.0f);
+
+        g.setColour(accent.withAlpha(0.20f));
+        g.drawRoundedRectangle(body, 12.0f, 1.0f);
+
+        auto header = bounds.reduced(16.0f, 14.0f).removeFromTop(72.0f);
+        juce::ColourGradient headGrad(juce::Colour::fromString("ff151B2A"), header.getX(), header.getY(),
+            juce::Colour::fromString("ff0A0F1B"), header.getRight(), header.getBottom(), false);
+        g.setGradientFill(headGrad);
+        g.fillRoundedRectangle(header, 9.0f);
+        g.setColour(accent.withAlpha(0.28f));
+        g.drawRoundedRectangle(header, 9.0f, 1.0f);
+
+        g.setColour(accent.withAlpha(0.32f));
+        g.fillRoundedRectangle(header.removeFromLeft(5.0f), 2.5f);
+
+        auto titleArea = header.reduced(18.0f, 10.0f);
+        g.setColour(juce::Colours::white.withAlpha(0.46f));
+        g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
+        g.drawText(category.toUpperCase() + " CHANNEL", titleArea.removeFromTop(15.0f).toNearestInt(),
+            juce::Justification::centredLeft);
+
+        g.setColour(juce::Colours::white.withAlpha(0.93f));
+        g.setFont(juce::Font(juce::FontOptions(26.0f, juce::Font::bold)));
+        g.drawText(title.toUpperCase(), titleArea.removeFromTop(32.0f).toNearestInt(),
+            juce::Justification::centredLeft);
+
+        g.setColour(accent.withAlpha(0.82f));
+        g.setFont(juce::Font(juce::FontOptions(11.5f, juce::Font::bold)));
+        g.drawText(subtitle.toUpperCase(), titleArea.toNearestInt(), juce::Justification::centredLeft);
+
+        auto meter = bounds.reduced(24.0f, 0.0f).withY(104.0f).withHeight(12.0f);
+        g.setColour(juce::Colour::fromString("ff060A11"));
+        g.fillRoundedRectangle(meter, 4.0f);
+        for (int i = 0; i < 18; ++i)
+        {
+            const float x = meter.getX() + 8.0f + (float)i * ((meter.getWidth() - 16.0f) / 17.0f);
+            const float alpha = i % 3 == 0 ? 0.34f : 0.18f;
+            g.setColour(accent.withAlpha(alpha));
+            g.drawVerticalLine((int)std::round(x), meter.getY() + 2.0f, meter.getBottom() - 2.0f);
+        }
+
+        paintSectionPanel(g, juce::Rectangle<float>(18.0f, 128.0f, bounds.getWidth() - 36.0f, bounds.getHeight() - 146.0f),
+            "PREAMP / TONE STACK / POWER");
+    }
+
+    void paintCabinet(juce::Graphics& g)
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        const auto body = bounds.reduced(1.0f);
+
+        juce::ColourGradient bg(juce::Colour::fromString("ff050812"), 0.0f, 0.0f,
+            juce::Colour::fromString("ff120B21"), 0.0f, bounds.getBottom(), false);
+        g.setGradientFill(bg);
+        g.fillRoundedRectangle(body, 12.0f);
+
+        g.setColour(accent.withAlpha(0.20f));
+        g.drawRoundedRectangle(body, 12.0f, 1.0f);
+
+        auto header = bounds.reduced(16.0f, 14.0f).removeFromTop(56.0f);
+        g.setColour(juce::Colour::fromString("ff101725"));
+        g.fillRoundedRectangle(header, 8.0f);
+        g.setColour(accent.withAlpha(0.24f));
+        g.drawRoundedRectangle(header, 8.0f, 1.0f);
+
+        g.setColour(juce::Colours::white.withAlpha(0.48f));
+        g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
+        g.drawText("SPEAKER / IR MODULE", header.toNearestInt().reduced(16, 7), juce::Justification::topLeft);
+
+        g.setColour(juce::Colours::white.withAlpha(0.92f));
+        g.setFont(juce::Font(juce::FontOptions(23.0f, juce::Font::bold)));
+        g.drawText(title.toUpperCase(), header.toNearestInt().reduced(16, 17), juce::Justification::centredLeft);
+
+        g.setColour(accent.withAlpha(0.82f));
+        g.setFont(juce::Font(juce::FontOptions(10.5f, juce::Font::bold)));
+        g.drawText(subtitle.toUpperCase(), header.toNearestInt().reduced(16, 8), juce::Justification::bottomRight);
+
+        auto grille = juce::Rectangle<float>(18.0f, 86.0f, bounds.getWidth() - 36.0f, 98.0f);
+        g.setColour(juce::Colour::fromString("ff080D17"));
+        g.fillRoundedRectangle(grille, 8.0f);
+        g.setColour(juce::Colour::fromString("ff273143").withAlpha(0.78f));
+        g.drawRoundedRectangle(grille, 8.0f, 1.0f);
+
+        auto inner = grille.reduced(16.0f, 12.0f);
+        for (int i = 0; i < 13; ++i)
+        {
+            const float y = inner.getY() + (float)i * (inner.getHeight() / 12.0f);
+            g.setColour(i % 3 == 0 ? accent.withAlpha(0.22f) : juce::Colours::white.withAlpha(0.08f));
+            g.drawHorizontalLine((int)std::round(y), inner.getX(), inner.getRight());
+        }
+
+        for (int i = 0; i < 4; ++i)
+        {
+            const float cx = inner.getX() + inner.getWidth() * ((float)i + 0.5f) / 4.0f;
+            const auto speaker = juce::Rectangle<float>(cx - 27.0f, inner.getCentreY() - 27.0f, 54.0f, 54.0f);
+            g.setColour(juce::Colour::fromString("ff05070C"));
+            g.fillEllipse(speaker);
+            g.setColour(accent.withAlpha(0.18f));
+            g.drawEllipse(speaker, 1.0f);
+            g.setColour(juce::Colours::white.withAlpha(0.08f));
+            g.drawEllipse(speaker.reduced(10.0f), 1.0f);
+        }
+
+        paintSectionPanel(g, juce::Rectangle<float>(18.0f, 200.0f, bounds.getWidth() - 36.0f, bounds.getHeight() - 218.0f),
+            "VOICING / CUTS / ROOM");
+    }
+
+    void paintSectionPanel(juce::Graphics& g, juce::Rectangle<float> area, const juce::String& text)
+    {
+        g.setColour(juce::Colour::fromString("aa0A101A"));
+        g.fillRoundedRectangle(area, 9.0f);
+        g.setColour(juce::Colour::fromString("ff273143").withAlpha(0.72f));
+        g.drawRoundedRectangle(area, 9.0f, 1.0f);
+
+        g.setColour(accent.withAlpha(0.68f));
+        g.setFont(juce::Font(juce::FontOptions(9.0f, juce::Font::bold)));
+        g.drawText(text, area.toNearestInt().reduced(12, 8), juce::Justification::topLeft);
+    }
+
+    void resizedAmplifier()
+    {
+        if (controls.empty())
+            return;
+
+        auto area = getLocalBounds().reduced(22);
+        area.removeFromTop(126);
+
+        const int total = (int)controls.size();
+        const int heroSize = 86;
+        auto driveCell = area.removeFromLeft(116).reduced(4, 18);
+        layoutControl(0, driveCell, heroSize);
+
+        auto masterCell = area.removeFromRight(116).reduced(4, 18);
+        if (total > 1)
+            layoutControl(total - 1, masterCell, heroSize);
+
+        area.reduce(8, 14);
+        const int middleStart = 1;
+        const int middleCount = juce::jmax(0, total - 2);
+        if (middleCount <= 0)
+            return;
+
+        const int topCount = middleCount <= 3 ? middleCount : (middleCount + 1) / 2;
+        const int bottomCount = middleCount - topCount;
+        auto topRow = area.removeFromTop(bottomCount > 0 ? 70 : area.getHeight());
+        layoutRow(topRow, middleStart, topCount, 64);
+
+        if (bottomCount > 0)
+        {
+            area.removeFromTop(4);
+            layoutRow(area.removeFromTop(70), middleStart + topCount, bottomCount, 64);
+        }
+    }
+
+    void resizedCabinet()
+    {
+        if (controls.empty())
+            return;
+
+        auto area = getLocalBounds().reduced(22);
+        area.removeFromTop(206);
+
+        const int total = (int)controls.size();
+        layoutRow(area.reduced(0, 6), 0, total, 58);
+    }
+
+    void layoutRow(juce::Rectangle<int> row, int startIndex, int count, int knobSize)
+    {
+        if (count <= 0)
+            return;
+
+        const int cellWidth = row.getWidth() / count;
+        for (int i = 0; i < count; ++i)
+        {
+            auto cell = row.withTrimmedLeft(i * cellWidth).removeFromLeft(cellWidth).reduced(4, 0);
+            layoutControl(startIndex + i, cell, knobSize);
+        }
+    }
+
+    void layoutControl(int index, juce::Rectangle<int> cell, int knobSize)
+    {
+        if (index < 0 || index >= (int)controls.size())
+            return;
+
+        auto& control = *controls[(size_t)index];
+        control.label.setBounds(cell.removeFromTop(15));
+
+        const int knobX = cell.getCentreX() - knobSize / 2;
+        control.slider.setBounds(knobX, cell.getY(), knobSize, juce::jmin(knobSize + 20, cell.getHeight()));
+    }
+
+    bool isBypassed() const
+    {
+        if (auto* base = dynamic_cast<const ProcessorBase*>(&owner))
+            return base->getBypassed();
+
+        return false;
+    }
+
+    juce::AudioProcessor& owner;
+    Skin skin;
+    juce::String category;
+    juce::String title;
+    juce::String subtitle;
+    juce::Colour accent;
+    PedalLookAndFeel lookAndFeel;
+    std::vector<std::unique_ptr<Control>> controls;
+    bool lastBypassState = false;
+};
+
 inline juce::String formatPercent(float value)
 {
     return juce::String(juce::roundToInt(value * 100.0f)) + "%";

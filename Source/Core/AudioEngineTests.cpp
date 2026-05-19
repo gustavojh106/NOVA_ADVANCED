@@ -13626,6 +13626,549 @@ private:
     }
 };
 
+struct P11AAmpRenderStats
+{
+    double rms = 0.0;
+    double peak = 0.0;
+    int measuredBlocks = 0;
+    P10DWindowMetrics signal;
+
+    void capture(const juce::AudioBuffer<float>& block)
+    {
+        rms += p10eBlockRms(block);
+        peak = juce::jmax(peak, computeBufferPeak(block, 0, block.getNumSamples()));
+        signal.capture(block);
+        ++measuredBlocks;
+    }
+
+    void finish()
+    {
+        if (measuredBlocks > 0)
+            rms /= (double) measuredBlocks;
+    }
+};
+
+juce::String p11aAmpStatsSummary(const P11AAmpRenderStats& stats)
+{
+    return "rms=" + juce::String(stats.rms, 6)
+        + ", peak=" + juce::String(stats.peak, 5)
+        + ", invalid=" + juce::String(stats.signal.signal.invalidSamples)
+        + ", nearClip=" + juce::String(stats.signal.signal.nearClipSamples)
+        + ", clipped=" + juce::String(stats.signal.signal.clippedSamples)
+        + ", brightnessProxy=" + juce::String(stats.signal.signal.brightnessProxy(), 4)
+        + ", rumbleProxy=" + juce::String(stats.signal.signal.rumbleProxy(), 4);
+}
+
+class P11AAmpProfessionalizationTests final : public juce::UnitTest
+{
+public:
+    P11AAmpProfessionalizationTests()
+        : juce::UnitTest("P11A Amp Interface And Circuit Professionalization", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        beginTest("p11a_amp_catalog_surface_guard");
+        {
+            const std::array<juce::String, 5> ampTypes {
+                "Clean Amp", "Classic Amp", "High Gain Amp", "Chime Amp", "Boutique Amp"
+            };
+
+            for (const auto& type : ampTypes)
+            {
+                expect(Nova::PedalCatalog::kindFromType(type) == Nova::PedalCatalog::Kind::Amplifier,
+                    type + " must remain cataloged as an amplifier");
+
+                auto amp = PedalRegistry::createPedal(type);
+                expect(amp != nullptr, type + " must remain constructible");
+                expect(amp != nullptr && amp->hasEditor(), type + " must expose its amp editor");
+                expect(amp != nullptr && amp->getParameters().size() >= 6,
+                    type + " should expose a professional amp control surface");
+            }
+
+            expectHasParam("Clean Amp", "cleanHeadroom");
+            expectHasParam("Classic Amp", "ampSag");
+            expectHasParam("Classic Amp", "ampBright");
+            expectHasParam("High Gain Amp", "hgResonance");
+            expectHasParam("High Gain Amp", "hgFeel");
+            expectHasParam("Chime Amp", "chimeSag");
+            expectHasParam("Boutique Amp", "boutTouch");
+        }
+
+        beginTest("p11a_amp_state_roundtrip_new_controls");
+        {
+            expectRoundTrip("Clean Amp", "cleanHeadroom", 0.72f);
+            expectRoundTrip("Classic Amp", "ampSag", 0.68f);
+            expectRoundTrip("Classic Amp", "ampBright", 0.36f);
+            expectRoundTrip("High Gain Amp", "hgResonance", 0.58f);
+            expectRoundTrip("High Gain Amp", "hgFeel", 0.42f);
+            expectRoundTrip("Chime Amp", "chimeSag", 0.64f);
+            expectRoundTrip("Boutique Amp", "boutTouch", 0.76f);
+        }
+
+        beginTest("p11a_amp_tonal_stability_guard");
+        {
+            const std::array<juce::String, 5> ampTypes {
+                "Clean Amp", "Classic Amp", "High Gain Amp", "Chime Amp", "Boutique Amp"
+            };
+
+            for (const auto& type : ampTypes)
+            {
+                auto amp = PedalRegistry::createPedal(type);
+                expect(amp != nullptr, type + " must be constructible for rendering");
+                if (amp == nullptr)
+                    continue;
+
+                configureUsableAmpVoice(*amp, type);
+                auto stats = renderAmp(*amp, type);
+                expect(stats.signal.signal.finite && stats.signal.signal.invalidSamples == 0,
+                    "P11A " + type + " must remain finite: " + p11aAmpStatsSummary(stats));
+                expect(stats.rms > 0.0010,
+                    "P11A " + type + " should remain clearly audible: " + p11aAmpStatsSummary(stats));
+                expect(stats.peak < 1.85,
+                    "P11A " + type + " should keep local amp headroom without OutputChain masking: " + p11aAmpStatsSummary(stats));
+                expect(stats.signal.signal.clippedSamples == 0 && stats.signal.signal.nearClipSamples == 0,
+                    "P11A " + type + " should avoid clipping/near-clip samples: " + p11aAmpStatsSummary(stats));
+            }
+        }
+
+        beginTest("p11a_highgain_baseline_preservation");
+        {
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepare(amp); prepare(cab);
+            setRangedParamById(amp, "hgDrive", 7.2f);
+            setRangedParamById(amp, "hgTight", 0.82f);
+            setRangedParamById(amp, "hgPresence", 0.54f);
+            setRangedParamById(amp, "hgTone", 0.52f);
+            setRangedParamById(amp, "hgResonance", 0.46f);
+            setRangedParamById(amp, "hgFeel", 0.55f);
+            setRangedParamById(amp, "hgLevel", 0.58f);
+            setRangedParamById(cab, "m4x12Low", 1.0f);
+            setRangedParamById(cab, "m4x12Presence", 1.8f);
+            setRangedParamById(cab, "m4x12Distance", 0.34f);
+            setRangedParamById(cab, "m4x12Level", 0.76f);
+            setRangedParamById(cab, "m4x12Mix", 1.0f);
+
+            const auto reports = renderP10GChain({ { "high_gain_amp", &amp }, { "modern_4x12", &cab } });
+            expect(reports.back().outputRmsWhileInputActive > 0.010,
+                "P11A HighGainAmp -> Modern4x12 baseline must stay audible: " + p10gMetricsSummary(reports.back()));
+            expect(reports.back().noiseToSignalRatio() < 0.23,
+                "P11A HighGainAmp -> Modern4x12 baseline must not regain high idle floor: " + p10gMetricsSummary(reports.back()));
+            expect(reports.back().signal.highFrequencyEnergyProxy() < 0.073,
+                "P11A HighGainAmp -> Modern4x12 fizz proxy should stay controlled: " + p10gMetricsSummary(reports.back()));
+        }
+
+        beginTest("p11a_clean_path_preservation");
+        {
+            CleanAmp amp;
+            prepare(amp);
+            setRangedParamById(amp, "cleanDrive", 0.32f);
+            setRangedParamById(amp, "cleanReverb", 0.0f);
+            setRangedParamById(amp, "cleanHeadroom", 0.62f);
+            setRangedParamById(amp, "cleanLevel", 0.70f);
+
+            auto stats = renderAmp(amp, "Clean Amp");
+            expect(stats.signal.signal.finite && stats.signal.signal.invalidSamples == 0,
+                "P11A Clean Amp path must remain finite: " + p11aAmpStatsSummary(stats));
+            expect(stats.rms > 0.0012,
+                "P11A Clean Amp path must remain audible: " + p11aAmpStatsSummary(stats));
+            expect(stats.signal.signal.clippedSamples == 0 && stats.signal.signal.nearClipSamples == 0,
+                "P11A Clean Amp path must keep headroom: " + p11aAmpStatsSummary(stats));
+        }
+    }
+
+private:
+    static void prepare(juce::AudioProcessor& processor)
+    {
+        processor.setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+        processor.prepareToPlay(kSampleRate, kBlockSize);
+    }
+
+    static juce::RangedAudioParameter* findParam(juce::AudioProcessor& processor, const juce::String& paramId)
+    {
+        for (auto* param : processor.getParameters())
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+                if (ranged->getParameterID() == paramId)
+                    return ranged;
+
+        return nullptr;
+    }
+
+    void expectHasParam(const juce::String& type, const juce::String& paramId)
+    {
+        auto amp = PedalRegistry::createPedal(type);
+        expect(amp != nullptr && findParam(*amp, paramId) != nullptr,
+            "P11A " + type + " must expose parameter " + paramId);
+    }
+
+    void expectRoundTrip(const juce::String& type, const juce::String& paramId, float plainValue)
+    {
+        auto source = PedalRegistry::createPedal(type);
+        auto restored = PedalRegistry::createPedal(type);
+        expect(source != nullptr && restored != nullptr, "P11A roundtrip processors must be constructible for " + type);
+        if (source == nullptr || restored == nullptr)
+            return;
+
+        expect(setRangedParamById(*source, paramId, plainValue),
+            "P11A source should accept parameter " + paramId);
+
+        juce::MemoryBlock state;
+        source->getStateInformation(state);
+        restored->setStateInformation(state.getData(), (int) state.getSize());
+
+        auto* restoredParam = findParam(*restored, paramId);
+        expect(restoredParam != nullptr, "P11A restored amp should contain parameter " + paramId);
+        if (restoredParam == nullptr)
+            return;
+
+        const float restoredPlain = restoredParam->convertFrom0to1(restoredParam->getValue());
+        expect(std::abs(restoredPlain - plainValue) <= 0.015f,
+            "P11A " + type + " should round-trip " + paramId
+                + " expected=" + juce::String(plainValue, 3)
+                + " actual=" + juce::String(restoredPlain, 3));
+    }
+
+    static void configureUsableAmpVoice(juce::AudioProcessor& amp, const juce::String& type)
+    {
+        if (type == "Clean Amp")
+        {
+            setRangedParamById(amp, "cleanDrive", 0.38f);
+            setRangedParamById(amp, "cleanBass", 0.50f);
+            setRangedParamById(amp, "cleanTreble", 0.52f);
+            setRangedParamById(amp, "cleanReverb", 0.0f);
+            setRangedParamById(amp, "cleanHeadroom", 0.62f);
+            setRangedParamById(amp, "cleanLevel", 0.70f);
+        }
+        else if (type == "Classic Amp")
+        {
+            setRangedParamById(amp, "ampDrive", 3.2f);
+            setRangedParamById(amp, "ampTone", 0.50f);
+            setRangedParamById(amp, "ampPresence", 0.46f);
+            setRangedParamById(amp, "ampDepth", 0.48f);
+            setRangedParamById(amp, "ampSag", 0.50f);
+            setRangedParamById(amp, "ampBright", 0.46f);
+            setRangedParamById(amp, "ampLevel", 0.62f);
+        }
+        else if (type == "High Gain Amp")
+        {
+            setRangedParamById(amp, "hgDrive", 6.8f);
+            setRangedParamById(amp, "hgTone", 0.50f);
+            setRangedParamById(amp, "hgPresence", 0.52f);
+            setRangedParamById(amp, "hgTight", 0.80f);
+            setRangedParamById(amp, "hgResonance", 0.44f);
+            setRangedParamById(amp, "hgFeel", 0.52f);
+            setRangedParamById(amp, "hgLevel", 0.58f);
+        }
+        else if (type == "Chime Amp")
+        {
+            setRangedParamById(amp, "chimeDrive", 1.8f);
+            setRangedParamById(amp, "chimeTrebleCut", 0.58f);
+            setRangedParamById(amp, "chimeBassCut", 0.50f);
+            setRangedParamById(amp, "chimeBrill", 0.52f);
+            setRangedParamById(amp, "chimeSag", 0.54f);
+            setRangedParamById(amp, "chimeLevel", 0.66f);
+        }
+        else if (type == "Boutique Amp")
+        {
+            setRangedParamById(amp, "boutDrive", 1.45f);
+            setRangedParamById(amp, "boutWarmth", 0.52f);
+            setRangedParamById(amp, "boutMid", 0.56f);
+            setRangedParamById(amp, "boutPres", 0.48f);
+            setRangedParamById(amp, "boutTouch", 0.60f);
+            setRangedParamById(amp, "boutLevel", 0.68f);
+        }
+    }
+
+    static void fillAmpExerciseBlock(juce::AudioBuffer<float>& block, int blockIndex)
+    {
+        for (int i = 0; i < block.getNumSamples(); ++i)
+        {
+            const int sampleIndex = blockIndex * block.getNumSamples() + i;
+            const float t = (float) sampleIndex / (float) kSampleRate;
+            const float phraseEnv = blockIndex < 190 ? 1.0f : std::exp(-(float)(blockIndex - 190) / 48.0f);
+            const float pick = std::exp(-(float)(sampleIndex % 1800) / 70.0f) * 0.020f;
+            const float sample = phraseEnv
+                * (0.058f * std::sin(juce::MathConstants<float>::twoPi * 110.0f * t)
+                    + 0.032f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t)
+                    + 0.018f * std::sin(juce::MathConstants<float>::twoPi * 329.63f * t)
+                    + pick);
+
+            block.setSample(0, i, sample);
+            block.setSample(1, i, sample * 0.985f);
+        }
+    }
+
+    static P11AAmpRenderStats renderAmp(juce::AudioProcessor& amp, const juce::String& type)
+    {
+        juce::ignoreUnused(type);
+        prepare(amp);
+
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> block(2, kBlockSize);
+        P11AAmpRenderStats stats;
+
+        for (int blockIndex = 0; blockIndex < 260; ++blockIndex)
+        {
+            fillAmpExerciseBlock(block, blockIndex);
+            amp.processBlock(block, midi);
+            if (blockIndex >= 24)
+                stats.capture(block);
+        }
+
+        stats.finish();
+        return stats;
+    }
+};
+
+class P11BCabinetProfessionalizationTests final : public juce::UnitTest
+{
+public:
+    P11BCabinetProfessionalizationTests()
+        : juce::UnitTest("P11B Cabinet Interface And Voicing Professionalization", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        beginTest("p11b_cabinet_catalog_surface_guard");
+        {
+            const std::array<juce::String, 3> cabinetTypes { "Cabinet", "Vintage 2x12", "Modern 4x12" };
+            for (const auto& type : cabinetTypes)
+            {
+                expect(Nova::PedalCatalog::kindFromType(type) == Nova::PedalCatalog::Kind::Cabinet,
+                    type + " must remain cataloged as a cabinet");
+
+                auto cabinet = PedalRegistry::createPedal(type);
+                expect(cabinet != nullptr, type + " must remain constructible");
+                expect(cabinet != nullptr && cabinet->hasEditor(), type + " must expose its cabinet editor");
+                expect(cabinet != nullptr && cabinet->getParameters().size() >= 8,
+                    type + " should expose a professional cabinet control surface");
+            }
+
+            expectHasParam("Cabinet", "cabResonance");
+            expectHasParam("Cabinet", "cabLowCut");
+            expectHasParam("Cabinet", "cabHighCut");
+            expectHasParam("Vintage 2x12", "v2x12Resonance");
+            expectHasParam("Vintage 2x12", "v2x12LowCut");
+            expectHasParam("Vintage 2x12", "v2x12HighCut");
+            expectHasParam("Modern 4x12", "m4x12Resonance");
+            expectHasParam("Modern 4x12", "m4x12LowCut");
+            expectHasParam("Modern 4x12", "m4x12HighCut");
+        }
+
+        beginTest("p11b_cabinet_state_roundtrip_new_controls");
+        {
+            expectRoundTrip("Cabinet", "cabResonance", 1.8f);
+            expectRoundTrip("Cabinet", "cabLowCut", 92.0f);
+            expectRoundTrip("Cabinet", "cabHighCut", 6800.0f);
+            expectRoundTrip("Vintage 2x12", "v2x12Resonance", 1.4f);
+            expectRoundTrip("Vintage 2x12", "v2x12LowCut", 105.0f);
+            expectRoundTrip("Vintage 2x12", "v2x12HighCut", 5200.0f);
+            expectRoundTrip("Modern 4x12", "m4x12Resonance", 1.2f);
+            expectRoundTrip("Modern 4x12", "m4x12LowCut", 88.0f);
+            expectRoundTrip("Modern 4x12", "m4x12HighCut", 5600.0f);
+        }
+
+        beginTest("p11b_cabinet_voicing_stability_guard");
+        {
+            const std::array<juce::String, 3> cabinetTypes { "Cabinet", "Vintage 2x12", "Modern 4x12" };
+            for (const auto& type : cabinetTypes)
+            {
+                auto cabinet = PedalRegistry::createPedal(type);
+                expect(cabinet != nullptr, type + " must be constructible for rendering");
+                if (cabinet == nullptr)
+                    continue;
+
+                configureUsableCabinetVoice(*cabinet, type);
+                auto stats = renderCabinet(*cabinet);
+                expect(stats.signal.signal.finite && stats.signal.signal.invalidSamples == 0,
+                    "P11B " + type + " must remain finite: " + p11aAmpStatsSummary(stats));
+                expect(stats.rms > 0.0008,
+                    "P11B " + type + " should remain audible: " + p11aAmpStatsSummary(stats));
+                expect(stats.peak < 1.70,
+                    "P11B " + type + " should not create unnecessary overs: " + p11aAmpStatsSummary(stats));
+                expect(stats.signal.signal.clippedSamples == 0 && stats.signal.signal.nearClipSamples == 0,
+                    "P11B " + type + " should avoid clipping/near-clip samples: " + p11aAmpStatsSummary(stats));
+                expect(stats.signal.signal.rumbleProxy() < 0.72,
+                    "P11B " + type + " should keep rumble bounded: " + p11aAmpStatsSummary(stats));
+                expect(stats.signal.highFrequencyEnergyProxy() < 0.18,
+                    "P11B " + type + " should keep high-frequency cabinet energy controlled: " + p11aAmpStatsSummary(stats));
+            }
+        }
+
+        beginTest("p11b_modern4x12_highgain_baseline_preservation");
+        {
+            HighGainAmp amp;
+            Modern4x12Cabinet cab;
+            prepare(amp); prepare(cab);
+            setRangedParamById(amp, "hgDrive", 7.2f);
+            setRangedParamById(amp, "hgTight", 0.82f);
+            setRangedParamById(amp, "hgPresence", 0.54f);
+            setRangedParamById(amp, "hgTone", 0.52f);
+            setRangedParamById(amp, "hgResonance", 0.46f);
+            setRangedParamById(amp, "hgFeel", 0.55f);
+            setRangedParamById(amp, "hgLevel", 0.58f);
+            configureUsableCabinetVoice(cab, "Modern 4x12");
+
+            const auto reports = renderP10GChain({ { "high_gain_amp", &amp }, { "modern_4x12", &cab } });
+            expect(reports.back().outputRmsWhileInputActive > 0.010,
+                "P11B HighGainAmp -> Modern4x12 baseline must stay audible: " + p10gMetricsSummary(reports.back()));
+            expect(reports.back().noiseToSignalRatio() < 0.23,
+                "P11B HighGainAmp -> Modern4x12 baseline must not regain high idle floor: " + p10gMetricsSummary(reports.back()));
+            expect(reports.back().signal.highFrequencyEnergyProxy() < 0.073,
+                "P11B Modern4x12 high-gain fizz proxy should remain controlled: " + p10gMetricsSummary(reports.back()));
+        }
+
+        beginTest("p11b_clean_cabinet_path_preservation");
+        {
+            CleanAmp amp;
+            CabinetPedal cab;
+            prepare(amp); prepare(cab);
+            setRangedParamById(amp, "cleanDrive", 0.32f);
+            setRangedParamById(amp, "cleanReverb", 0.0f);
+            setRangedParamById(amp, "cleanHeadroom", 0.62f);
+            setRangedParamById(amp, "cleanLevel", 0.70f);
+            configureUsableCabinetVoice(cab, "Cabinet");
+
+            const auto reports = renderP10GChain({ { "clean_amp", &amp }, { "cabinet", &cab } }, 420, 20);
+            expect(reports.back().signal.signal.finite && reports.back().signal.signal.invalidSamples == 0,
+                "P11B CleanAmp -> Cabinet path must remain finite: " + p10gMetricsSummary(reports.back()));
+            expect(reports.back().outputRmsWhileInputActive > 0.0020,
+                "P11B CleanAmp -> Cabinet path must remain audible: " + p10gMetricsSummary(reports.back()));
+            expect(reports.back().signal.signal.clippedSamples == 0 && reports.back().signal.signal.nearClipSamples == 0,
+                "P11B CleanAmp -> Cabinet path must keep headroom: " + p10gMetricsSummary(reports.back()));
+        }
+    }
+
+private:
+    static void prepare(juce::AudioProcessor& processor)
+    {
+        processor.setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+        processor.prepareToPlay(kSampleRate, kBlockSize);
+    }
+
+    static juce::RangedAudioParameter* findParam(juce::AudioProcessor& processor, const juce::String& paramId)
+    {
+        for (auto* param : processor.getParameters())
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+                if (ranged->getParameterID() == paramId)
+                    return ranged;
+
+        return nullptr;
+    }
+
+    void expectHasParam(const juce::String& type, const juce::String& paramId)
+    {
+        auto cabinet = PedalRegistry::createPedal(type);
+        expect(cabinet != nullptr && findParam(*cabinet, paramId) != nullptr,
+            "P11B " + type + " must expose parameter " + paramId);
+    }
+
+    void expectRoundTrip(const juce::String& type, const juce::String& paramId, float plainValue)
+    {
+        auto source = PedalRegistry::createPedal(type);
+        auto restored = PedalRegistry::createPedal(type);
+        expect(source != nullptr && restored != nullptr, "P11B roundtrip processors must be constructible for " + type);
+        if (source == nullptr || restored == nullptr)
+            return;
+
+        expect(setRangedParamById(*source, paramId, plainValue),
+            "P11B source should accept parameter " + paramId);
+
+        juce::MemoryBlock state;
+        source->getStateInformation(state);
+        restored->setStateInformation(state.getData(), (int) state.getSize());
+
+        auto* restoredParam = findParam(*restored, paramId);
+        expect(restoredParam != nullptr, "P11B restored cabinet should contain parameter " + paramId);
+        if (restoredParam == nullptr)
+            return;
+
+        const float restoredPlain = restoredParam->convertFrom0to1(restoredParam->getValue());
+        expect(std::abs(restoredPlain - plainValue) <= juce::jmax(0.020f, std::abs(plainValue) * 0.010f),
+            "P11B " + type + " should round-trip " + paramId
+                + " expected=" + juce::String(plainValue, 3)
+                + " actual=" + juce::String(restoredPlain, 3));
+    }
+
+    static void configureUsableCabinetVoice(juce::AudioProcessor& cabinet, const juce::String& type)
+    {
+        if (type == "Cabinet")
+        {
+            setRangedParamById(cabinet, "cabThump", 1.5f);
+            setRangedParamById(cabinet, "cabAir", 0.0f);
+            setRangedParamById(cabinet, "cabResonance", 0.0f);
+            setRangedParamById(cabinet, "cabLowCut", 65.0f);
+            setRangedParamById(cabinet, "cabHighCut", 7800.0f);
+            setRangedParamById(cabinet, "cabDistance", 0.34f);
+            setRangedParamById(cabinet, "cabMix", 1.0f);
+            setRangedParamById(cabinet, "cabLevel", 0.72f);
+        }
+        else if (type == "Vintage 2x12")
+        {
+            setRangedParamById(cabinet, "v2x12Warmth", 3.0f);
+            setRangedParamById(cabinet, "v2x12Sparkle", 1.5f);
+            setRangedParamById(cabinet, "v2x12Resonance", 0.0f);
+            setRangedParamById(cabinet, "v2x12LowCut", 82.0f);
+            setRangedParamById(cabinet, "v2x12HighCut", 6200.0f);
+            setRangedParamById(cabinet, "v2x12Distance", 0.28f);
+            setRangedParamById(cabinet, "v2x12Mix", 1.0f);
+            setRangedParamById(cabinet, "v2x12Level", 0.76f);
+        }
+        else if (type == "Modern 4x12")
+        {
+            setRangedParamById(cabinet, "m4x12Low", 1.0f);
+            setRangedParamById(cabinet, "m4x12Presence", 1.8f);
+            setRangedParamById(cabinet, "m4x12Resonance", 0.0f);
+            setRangedParamById(cabinet, "m4x12LowCut", 72.0f);
+            setRangedParamById(cabinet, "m4x12HighCut", 6200.0f);
+            setRangedParamById(cabinet, "m4x12Distance", 0.34f);
+            setRangedParamById(cabinet, "m4x12Mix", 1.0f);
+            setRangedParamById(cabinet, "m4x12Level", 0.76f);
+        }
+    }
+
+    static P11AAmpRenderStats renderCabinet(juce::AudioProcessor& cabinet)
+    {
+        prepare(cabinet);
+
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> block(2, kBlockSize);
+        P11AAmpRenderStats stats;
+
+        for (int blockIndex = 0; blockIndex < 300; ++blockIndex)
+        {
+            fillCabinetExerciseBlock(block, blockIndex);
+            cabinet.processBlock(block, midi);
+            if (blockIndex >= 24)
+                stats.capture(block);
+        }
+
+        stats.finish();
+        return stats;
+    }
+
+    static void fillCabinetExerciseBlock(juce::AudioBuffer<float>& block, int blockIndex)
+    {
+        for (int i = 0; i < block.getNumSamples(); ++i)
+        {
+            const int sampleIndex = blockIndex * block.getNumSamples() + i;
+            const float t = (float) sampleIndex / (float) kSampleRate;
+            const float phraseEnv = blockIndex < 210 ? 1.0f : std::exp(-(float)(blockIndex - 210) / 54.0f);
+            const float sample = phraseEnv
+                * (0.065f * std::sin(juce::MathConstants<float>::twoPi * 98.0f * t)
+                    + 0.038f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t)
+                    + 0.020f * std::sin(juce::MathConstants<float>::twoPi * 392.0f * t)
+                    + 0.006f * std::sin(juce::MathConstants<float>::twoPi * 5400.0f * t));
+
+            block.setSample(0, i, sample);
+            block.setSample(1, i, sample * 0.985f);
+        }
+    }
+};
+
 class P7IDiagnosticsProfilerTests final : public juce::UnitTest
 {
 public:
@@ -13812,6 +14355,8 @@ static P10DHighGainArtifactFizzHelicopterTests p10dHighGainArtifactFizzHelicopte
 static P10EHighGainMuteHelicopterReverbTests p10eHighGainMuteHelicopterReverbTests;
 static P10FHighGainRootCauseFuzzReferenceTests p10fHighGainRootCauseFuzzReferenceTests;
 static P10GHighGainNoiseFloorGateCollapseTests p10gHighGainNoiseFloorGateCollapseTests;
+static P11AAmpProfessionalizationTests p11aAmpProfessionalizationTests;
+static P11BCabinetProfessionalizationTests p11bCabinetProfessionalizationTests;
 static P7IDiagnosticsProfilerTests p7iDiagnosticsProfilerTests;
 
 void touchAudioEngineValidationTests()
@@ -13823,6 +14368,8 @@ void touchAudioEngineValidationTests()
         p10eHighGainMuteHelicopterReverbTests,
         p10fHighGainRootCauseFuzzReferenceTests,
         p10gHighGainNoiseFloorGateCollapseTests,
+        p11aAmpProfessionalizationTests,
+        p11bCabinetProfessionalizationTests,
         p7iDiagnosticsProfilerTests);
 }
 }

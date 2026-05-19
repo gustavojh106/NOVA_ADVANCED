@@ -19,6 +19,8 @@ public:
         addParameter(toneParam = new juce::AudioParameterFloat("ampTone", "Tone", 0.0f, 1.0f, 0.58f));
         addParameter(presenceParam = new juce::AudioParameterFloat("ampPresence", "Presence", 0.0f, 1.0f, 0.55f));
         addParameter(depthParam = new juce::AudioParameterFloat("ampDepth", "Depth", 0.0f, 1.0f, 0.46f));
+        addParameter(sagParam = new juce::AudioParameterFloat("ampSag", "Sag", 0.0f, 1.0f, 0.45f));
+        addParameter(brightParam = new juce::AudioParameterFloat("ampBright", "Bright", 0.0f, 1.0f, 0.50f));
         addParameter(levelParam = new juce::AudioParameterFloat("ampLevel", "Level", 0.0f, 2.0f, 1.0f));
     }
 
@@ -29,19 +31,23 @@ public:
     {
         using namespace Nova::PedalUI;
 
-        return new PremiumPedalEditor(*this,
+        return new PremiumHardwareEditor(*this,
+            PremiumHardwareEditor::Skin::Amplifier,
             "Amplifier",
-            "Classic",
+            "Classic Amp",
+            "Vintage preamp / power section",
             juce::Colour::fromString("ffF0A030"),
             {
                 { "Drive", driveParam, [](float value) { return formatGain(value); } },
                 { "Tone", toneParam, [](float value) { return formatPercent(value); } },
                 { "Presence", presenceParam, [](float value) { return formatPercent(value); } },
                 { "Depth", depthParam, [](float value) { return formatPercent(value); } },
+                { "Sag", sagParam, [](float value) { return formatPercent(value); } },
+                { "Bright", brightParam, [](float value) { return formatPercent(value); } },
                 { "Master", levelParam, [](float value) { return formatGain(value); } }
             },
-            214,
-            178);
+            640,
+            326);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -60,6 +66,7 @@ public:
         innerSpec.numChannels = (juce::uint32)juce::jmax(1, getTotalNumOutputChannels());
 
         inputHighPass.prepare(innerSpec);
+        brightShelf.prepare(innerSpec);
         depthShelf.prepare(innerSpec);
         ampCore.prepare(innerSpec);
         contourLowPass.prepare(innerSpec);
@@ -71,6 +78,7 @@ public:
         cachedTone = std::numeric_limits<float>::quiet_NaN();
         cachedPresence = std::numeric_limits<float>::quiet_NaN();
         cachedDepth = std::numeric_limits<float>::quiet_NaN();
+        cachedBright = std::numeric_limits<float>::quiet_NaN();
 
         setProcessingLatency((int)oversampler.getLatencyInSamples());
         prepareBypassSmoother(sampleRate, samplesPerBlock);
@@ -88,6 +96,7 @@ public:
     {
         oversampler.reset();
         inputHighPass.reset();
+        brightShelf.reset();
         depthShelf.reset();
         contourLowPass.reset();
         presenceShelf.reset();
@@ -96,6 +105,8 @@ public:
 
         if (driveParam != nullptr)
             ampCore.setDriveTarget(*driveParam);
+        if (sagParam != nullptr)
+            ampCore.setSagTarget(*sagParam);
 
         if (levelParam != nullptr)
             masterSmooth.setCurrentAndTargetValue(*levelParam);
@@ -108,6 +119,7 @@ public:
 
         updateVoicingIfNeeded();
         ampCore.setDriveTarget(driveParam != nullptr ? *driveParam : 2.8f);
+        ampCore.setSagTarget(sagParam != nullptr ? *sagParam : 0.45f);
         masterSmooth.setTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
 
         juce::dsp::AudioBlock<float> block(buffer);
@@ -115,6 +127,7 @@ public:
         juce::dsp::ProcessContextReplacing<float> context(upsampled);
 
         inputHighPass.process(context);
+        brightShelf.process(context);
         depthShelf.process(context);
         ampCore.process(context);
         contourLowPass.process(context);
@@ -139,6 +152,7 @@ private:
         void prepare(const juce::dsp::ProcessSpec& spec)
         {
             driveSmooth.reset(spec.sampleRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
+            sagSmooth.reset(spec.sampleRate, 0.045);
             reset();
         }
 
@@ -146,11 +160,18 @@ private:
         {
             for (auto& env : sagEnvelope)
                 env = 0.0f;
+
+            sagSmooth.setCurrentAndTargetValue(0.45f);
         }
 
         void setDriveTarget(float drive)
         {
             driveSmooth.setTargetValue(1.2f + drive * 1.75f);
+        }
+
+        void setSagTarget(float sag)
+        {
+            sagSmooth.setTargetValue(juce::jlimit(0.0f, 1.0f, sag));
         }
 
         template <typename ProcessContext>
@@ -167,7 +188,9 @@ private:
             for (int sample = 0; sample < samples; ++sample)
             {
                 const float drive = driveSmooth.getNextValue();
+                const float sagAmount = sagSmooth.getNextValue();
                 const float stagePush = 1.7f + drive * 0.22f;
+                const float sagDepth = 0.25f + sagAmount * 0.67f;
 
                 for (int ch = 0; ch < channelsToProcess; ++ch)
                 {
@@ -175,7 +198,7 @@ private:
                     const float x = data[sample];
 
                     sagEnvelope[(size_t)ch] = juce::jmax(std::abs(x), sagEnvelope[(size_t)ch] * Nova::Config::AMP_SAG_DECAY);
-                    const float sag = 1.0f / (1.0f + sagEnvelope[(size_t)ch] * 0.55f);
+                    const float sag = 1.0f / (1.0f + sagEnvelope[(size_t)ch] * sagDepth);
 
                     const float biased = (x * drive * sag) + 0.045f;
                     const float stage1 = std::tanh(biased);
@@ -190,6 +213,7 @@ private:
     private:
         static constexpr int kMaxCoreChannels = 8;
         juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> driveSmooth;
+        juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> sagSmooth;
         std::array<float, kMaxCoreChannels> sagEnvelope{};
     };
 
@@ -201,22 +225,30 @@ private:
         const float tone = toneParam != nullptr ? *toneParam : 0.58f;
         const float presence = presenceParam != nullptr ? *presenceParam : 0.55f;
         const float depth = depthParam != nullptr ? *depthParam : 0.46f;
+        const float bright = brightParam != nullptr ? *brightParam : 0.50f;
 
         const bool toneChanged = !std::isfinite(cachedTone) || std::abs(cachedTone - tone) > 1.0e-4f;
         const bool presenceChanged = !std::isfinite(cachedPresence) || std::abs(cachedPresence - presence) > 1.0e-4f;
         const bool depthChanged = !std::isfinite(cachedDepth) || std::abs(cachedDepth - depth) > 1.0e-4f;
-        if (!toneChanged && !presenceChanged && !depthChanged)
+        const bool brightChanged = !std::isfinite(cachedBright) || std::abs(cachedBright - bright) > 1.0e-4f;
+        if (!toneChanged && !presenceChanged && !depthChanged && !brightChanged)
             return;
 
         cachedTone = tone;
         cachedPresence = presence;
         cachedDepth = depth;
+        cachedBright = bright;
 
         const float cutoff = juce::jmap(tone, 1800.0f, 8500.0f);
-        const float presenceGain = juce::jmap(presence, -1.0f, 6.5f);
+        const float presenceGain = juce::jmap(presence, -1.0f, 6.5f) + juce::jmap(bright, -0.8f, 1.1f);
         const float depthGain = juce::jmap(depth, -3.0f, 7.5f);
+        const float brightGain = juce::jmap(bright, -1.8f, 2.2f);
 
         *inputHighPass.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(currentInnerRate, 32.0f);
+        *brightShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(currentInnerRate,
+            1450.0f,
+            0.70f,
+            juce::Decibels::decibelsToGain(brightGain));
         *depthShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(currentInnerRate,
             155.0f,
             0.78f,
@@ -233,6 +265,7 @@ private:
 
     juce::dsp::Oversampling<float> oversampler;
     Filter inputHighPass;
+    Filter brightShelf;
     Filter depthShelf;
     PremiumAmpCore ampCore;
     Filter contourLowPass;
@@ -244,11 +277,14 @@ private:
     juce::AudioParameterFloat* toneParam = nullptr;
     juce::AudioParameterFloat* presenceParam = nullptr;
     juce::AudioParameterFloat* depthParam = nullptr;
+    juce::AudioParameterFloat* sagParam = nullptr;
+    juce::AudioParameterFloat* brightParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentInnerRate = 352800.0;
     float cachedTone = std::numeric_limits<float>::quiet_NaN();
     float cachedPresence = std::numeric_limits<float>::quiet_NaN();
     float cachedDepth = std::numeric_limits<float>::quiet_NaN();
+    float cachedBright = std::numeric_limits<float>::quiet_NaN();
     bool isPrepared = false;
 };

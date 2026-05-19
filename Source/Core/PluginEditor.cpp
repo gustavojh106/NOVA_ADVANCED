@@ -2058,6 +2058,20 @@ public:
 
         const float cornerR = getHeight() < 90 ? 8.0f : 12.0f;
 
+        const auto itemKind = Nova::PedalCatalog::kindFromType(getDisplayName());
+
+        if (itemKind == Nova::PedalCatalog::Kind::Cabinet)
+        {
+            paintCabinetSlot(g, bounds, enabled, accent, cornerR);
+            return;
+        }
+
+        if (itemKind == Nova::PedalCatalog::Kind::Amplifier)
+        {
+            paintAmplifierSlot(g, bounds, enabled, accent, cornerR);
+            return;
+        }
+
         // ---- Accent-colored background ----
         const float sat = enabled ? 0.45f : 0.15f;
         const float briTop = enabled ? 0.18f : 0.08f;
@@ -2144,6 +2158,200 @@ public:
     }
 
 private:
+    void paintCabinetSlot(juce::Graphics& g,
+        juce::Rectangle<float> bounds,
+        bool enabled,
+        juce::Colour accent,
+        float cornerR)
+    {
+        const auto grilleDark = enabled ? juce::Colour::fromString("ff080A0E") : juce::Colour::fromString("ff050506");
+        const auto grilleMid = enabled
+            ? juce::Colour::fromString("ff151821").interpolatedWith(accent, 0.10f)
+            : juce::Colour::fromString("ff08090B");
+
+        juce::ColourGradient body(grilleMid, bounds.getCentreX(), bounds.getY(),
+            grilleDark, bounds.getCentreX(), bounds.getBottom(), false);
+        body.addColour(0.55, juce::Colour::fromString("ff20242F").interpolatedWith(accent, 0.06f));
+        g.setGradientFill(body);
+        g.fillRoundedRectangle(bounds, cornerR);
+
+        g.setColour(hovered && enabled ? accent.withAlpha(0.68f) : accent.withAlpha(enabled ? 0.30f : 0.10f));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), cornerR, hovered && enabled ? 1.8f : 1.0f);
+
+        auto content = bounds.reduced(8.0f, 7.0f);
+        auto topRow = content.removeFromTop(22.0f);
+        topRow.removeFromLeft(42.0f);
+        topRow.removeFromRight(24.0f);
+
+        auto badge = topRow.removeFromLeft(58.0f).reduced(1.0f, 2.0f);
+        g.setColour(accent.withAlpha(enabled ? 0.22f : 0.08f));
+        g.fillRoundedRectangle(badge, 6.0f);
+        g.setColour(accent.withAlpha(enabled ? 0.90f : 0.34f));
+        g.setFont(juce::Font(juce::FontOptions(8.5f, juce::Font::bold)));
+        g.drawFittedText("CAB IR", badge.toNearestInt().reduced(5, 0), juce::Justification::centred, 1);
+
+        auto titleArea = content.removeFromTop(24.0f);
+        g.setColour(enabled ? juce::Colours::white.withAlpha(0.96f) : juce::Colours::white.withAlpha(0.38f));
+        g.setFont(juce::Font(juce::FontOptions(14.0f, juce::Font::bold)));
+        g.drawFittedText(getDisplayName(), titleArea.toNearestInt(), juce::Justification::centred, 1);
+
+        auto subtitleArea = content.removeFromTop(15.0f);
+        g.setColour(accent.withAlpha(enabled ? 0.60f : 0.24f));
+        g.setFont(juce::Font(juce::FontOptions(10.0f)));
+        g.drawFittedText(Nova::PedalCatalog::subtitleForType(getDisplayName()),
+            subtitleArea.toNearestInt(), juce::Justification::centred, 1);
+
+        auto cabFace = bounds.reduced(14.0f, 10.0f);
+        cabFace.removeFromTop(70.0f);
+        cabFace.removeFromBottom(22.0f);
+
+        if (cabFace.getHeight() > 22.0f)
+        {
+            g.setColour(juce::Colour::fromString("ff050608").withAlpha(enabled ? 0.92f : 0.64f));
+            g.fillRoundedRectangle(cabFace, 6.0f);
+            g.setColour(accent.withAlpha(enabled ? 0.24f : 0.08f));
+            g.drawRoundedRectangle(cabFace, 6.0f, 1.0f);
+
+            const int grilleLines = 7;
+            for (int i = 1; i < grilleLines; ++i)
+            {
+                const float y = cabFace.getY() + cabFace.getHeight() * ((float)i / (float)grilleLines);
+                g.setColour(juce::Colours::white.withAlpha(enabled ? 0.040f : 0.015f));
+                g.drawHorizontalLine(juce::roundToInt(y), cabFace.getX() + 6.0f, cabFace.getRight() - 6.0f);
+            }
+
+            const float speakerSize = juce::jmin(cabFace.getWidth() * 0.34f, cabFace.getHeight() * 0.72f);
+            const float y = cabFace.getCentreY() - speakerSize * 0.5f;
+            const std::array<float, 2> xs {
+                cabFace.getX() + cabFace.getWidth() * 0.28f - speakerSize * 0.5f,
+                cabFace.getX() + cabFace.getWidth() * 0.72f - speakerSize * 0.5f
+            };
+
+            for (float x : xs)
+            {
+                g.setColour(juce::Colours::black.withAlpha(0.58f));
+                g.fillEllipse(x + 1.0f, y + 1.0f, speakerSize, speakerSize);
+                g.setColour(accent.withAlpha(enabled ? 0.22f : 0.07f));
+                g.fillEllipse(x, y, speakerSize, speakerSize);
+                g.setColour(accent.withAlpha(enabled ? 0.42f : 0.12f));
+                g.drawEllipse(x + 4.0f, y + 4.0f, speakerSize - 8.0f, speakerSize - 8.0f, 1.2f);
+                g.setColour(juce::Colours::black.withAlpha(0.35f));
+                g.fillEllipse(x + speakerSize * 0.40f, y + speakerSize * 0.40f, speakerSize * 0.20f, speakerSize * 0.20f);
+            }
+        }
+
+        auto glowBar = bounds.reduced(16.0f, 0.0f).removeFromTop(2.0f);
+        g.setColour(accent.withAlpha(enabled ? (hovered ? 0.60f : 0.34f) : 0.10f));
+        g.fillRoundedRectangle(glowBar, 1.0f);
+
+        if (!enabled)
+        {
+            g.setColour(juce::Colours::black.withAlpha(0.56f));
+            g.fillRoundedRectangle(bounds, cornerR);
+
+            const float midX = bounds.getCentreX();
+            const float midY = bounds.getCentreY();
+            g.setColour(Nova::Colors::Error.withAlpha(0.50f));
+            g.drawLine(midX - 7.0f, midY - 7.0f, midX + 7.0f, midY + 7.0f, 2.0f);
+            g.drawLine(midX + 7.0f, midY - 7.0f, midX - 7.0f, midY + 7.0f, 2.0f);
+        }
+    }
+
+    void paintAmplifierSlot(juce::Graphics& g,
+        juce::Rectangle<float> bounds,
+        bool enabled,
+        juce::Colour accent,
+        float cornerR)
+    {
+        const auto topColour = enabled
+            ? juce::Colour::fromString("ff171A21").interpolatedWith(accent, 0.13f)
+            : juce::Colour::fromString("ff090A0D");
+        const auto bottomColour = enabled
+            ? juce::Colour::fromString("ff080A0F")
+            : juce::Colour::fromString("ff050506");
+
+        juce::ColourGradient body(topColour, bounds.getCentreX(), bounds.getY(),
+            bottomColour, bounds.getCentreX(), bounds.getBottom(), false);
+        body.addColour(0.42, juce::Colour::fromString("ff24212A").interpolatedWith(accent, 0.08f));
+        g.setGradientFill(body);
+        g.fillRoundedRectangle(bounds, cornerR);
+
+        g.setColour(hovered && enabled ? accent.withAlpha(0.70f) : accent.withAlpha(enabled ? 0.34f : 0.10f));
+        g.drawRoundedRectangle(bounds.reduced(0.5f), cornerR, hovered && enabled ? 1.8f : 1.0f);
+
+        auto content = bounds.reduced(8.0f, 7.0f);
+        auto topRow = content.removeFromTop(22.0f);
+        topRow.removeFromLeft(42.0f);
+        topRow.removeFromRight(24.0f);
+
+        auto badge = topRow.removeFromLeft(62.0f).reduced(1.0f, 2.0f);
+        g.setColour(accent.withAlpha(enabled ? 0.24f : 0.08f));
+        g.fillRoundedRectangle(badge, 6.0f);
+        g.setColour(accent.withAlpha(enabled ? 0.92f : 0.34f));
+        g.setFont(juce::Font(juce::FontOptions(8.5f, juce::Font::bold)));
+        g.drawFittedText("AMP HEAD", badge.toNearestInt().reduced(5, 0), juce::Justification::centred, 1);
+
+        auto titleArea = content.removeFromTop(26.0f);
+        g.setColour(enabled ? juce::Colours::white.withAlpha(0.96f) : juce::Colours::white.withAlpha(0.38f));
+        g.setFont(juce::Font(juce::FontOptions(14.0f, juce::Font::bold)));
+        g.drawFittedText(getDisplayName(), titleArea.toNearestInt(), juce::Justification::centred, 1);
+
+        auto subtitleArea = content.removeFromTop(16.0f);
+        g.setColour(accent.withAlpha(enabled ? 0.62f : 0.25f));
+        g.setFont(juce::Font(juce::FontOptions(10.0f)));
+        g.drawFittedText(Nova::PedalCatalog::subtitleForType(getDisplayName()),
+            subtitleArea.toNearestInt(), juce::Justification::centred, 1);
+
+        auto face = bounds.reduced(12.0f, 10.0f);
+        face.removeFromTop(74.0f);
+        face.removeFromBottom(21.0f);
+
+        if (face.getHeight() > 18.0f)
+        {
+            g.setColour(juce::Colour::fromString("ff05070A").withAlpha(enabled ? 0.92f : 0.62f));
+            g.fillRoundedRectangle(face, 7.0f);
+            g.setColour(accent.withAlpha(enabled ? 0.28f : 0.08f));
+            g.drawRoundedRectangle(face, 7.0f, 1.0f);
+
+            const int lines = 5;
+            for (int i = 1; i < lines; ++i)
+            {
+                const float y = face.getY() + face.getHeight() * ((float)i / (float)lines);
+                g.setColour(juce::Colours::white.withAlpha(enabled ? 0.045f : 0.018f));
+                g.drawHorizontalLine(juce::roundToInt(y), face.getX() + 8.0f, face.getRight() - 8.0f);
+            }
+
+            const int knobCount = 5;
+            const float knobSize = 6.0f;
+            const float usableWidth = face.getWidth() - 28.0f;
+            for (int i = 0; i < knobCount; ++i)
+            {
+                const float x = face.getX() + 14.0f + usableWidth * ((float)i / (float)(knobCount - 1));
+                const float y = face.getCentreY() - knobSize * 0.5f;
+                g.setColour(juce::Colours::black.withAlpha(0.58f));
+                g.fillEllipse(x - 0.5f, y + 1.0f, knobSize + 1.0f, knobSize + 1.0f);
+                g.setColour(enabled ? accent.withAlpha(0.88f) : accent.withAlpha(0.25f));
+                g.fillEllipse(x, y, knobSize, knobSize);
+            }
+        }
+
+        auto glowBar = bounds.reduced(16.0f, 0.0f).removeFromTop(2.0f);
+        g.setColour(accent.withAlpha(enabled ? (hovered ? 0.65f : 0.38f) : 0.10f));
+        g.fillRoundedRectangle(glowBar, 1.0f);
+
+        if (!enabled)
+        {
+            g.setColour(juce::Colours::black.withAlpha(0.56f));
+            g.fillRoundedRectangle(bounds, cornerR);
+
+            const float midX = bounds.getCentreX();
+            const float midY = bounds.getCentreY();
+            g.setColour(Nova::Colors::Error.withAlpha(0.50f));
+            g.drawLine(midX - 7.0f, midY - 7.0f, midX + 7.0f, midY + 7.0f, 2.0f);
+            g.drawLine(midX + 7.0f, midY - 7.0f, midX - 7.0f, midY + 7.0f, 2.0f);
+        }
+    }
+
     bool isPedalEnabled() const
     {
         return (bool)pedalState.getProperty(Nova::IDs::PEDAL_ENABLED, true);

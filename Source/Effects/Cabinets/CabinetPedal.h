@@ -17,6 +17,9 @@ public:
     {
         addParameter(thumpParam = new juce::AudioParameterFloat("cabThump", "Thump", -12.0f, 12.0f, 1.5f));
         addParameter(airParam = new juce::AudioParameterFloat("cabAir", "Air", -12.0f, 12.0f, 0.0f));
+        addParameter(resonanceParam = new juce::AudioParameterFloat("cabResonance", "Resonance", -6.0f, 6.0f, 0.0f));
+        addParameter(lowCutParam = new juce::AudioParameterFloat("cabLowCut", "Low Cut", 45.0f, 180.0f, 55.0f));
+        addParameter(highCutParam = new juce::AudioParameterFloat("cabHighCut", "High Cut", 3500.0f, 10000.0f, 8200.0f));
         addParameter(distanceParam = new juce::AudioParameterFloat("cabDistance", "Distance", 0.0f, 1.0f, 0.34f));
         addParameter(mixParam = new juce::AudioParameterFloat("cabMix", "Mix", 0.0f, 1.0f, 1.0f));
         addParameter(levelParam = new juce::AudioParameterFloat("cabLevel", "Level", 0.0f, 2.0f, 1.0f));
@@ -29,19 +32,24 @@ public:
     {
         using namespace Nova::PedalUI;
 
-        return new PremiumPedalEditor(*this,
+        return new PremiumHardwareEditor(*this,
+            PremiumHardwareEditor::Skin::Cabinet,
             "Cabinet",
             "Atlas 4x12",
+            "Balanced final voicing / IR",
             juce::Colour::fromString("ffA78BFA"),
             {
                 { "Thump", thumpParam, [](float value) { return formatDecibels(value); } },
                 { "Air", airParam, [](float value) { return formatDecibels(value); } },
+                { "Resonance", resonanceParam, [](float value) { return formatDecibels(value); } },
+                { "Low Cut", lowCutParam, [](float value) { return formatHertz(value); } },
+                { "High Cut", highCutParam, [](float value) { return formatHertz(value); } },
                 { "Distance", distanceParam, [](float value) { return formatPercent(value); } },
                 { "Mix", mixParam, [](float value) { return formatPercent(value); } },
                 { "Level", levelParam, [](float value) { return formatGain(value); } }
             },
-            214,
-            178);
+            660,
+            356);
     }
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override
@@ -60,6 +68,7 @@ public:
         convolution.prepare(spec);
         loadSyntheticIR(sampleRate);
         lowShelf.prepare(spec);
+        resonancePeak.prepare(spec);
         highShelf.prepare(spec);
         contourLowPass.prepare(spec);
         contourHighPass.prepare(spec);
@@ -79,6 +88,9 @@ public:
         currentSampleRate = sampleRate;
         cachedThump = std::numeric_limits<float>::quiet_NaN();
         cachedAir = std::numeric_limits<float>::quiet_NaN();
+        cachedResonance = std::numeric_limits<float>::quiet_NaN();
+        cachedLowCut = std::numeric_limits<float>::quiet_NaN();
+        cachedHighCut = std::numeric_limits<float>::quiet_NaN();
         cachedDistance = std::numeric_limits<float>::quiet_NaN();
         prepareBypassSmoother(sampleRate, samplesPerBlock);
         reset();
@@ -94,6 +106,7 @@ public:
     {
         convolution.reset();
         lowShelf.reset();
+        resonancePeak.reset();
         highShelf.reset();
         contourLowPass.reset();
         contourHighPass.reset();
@@ -134,6 +147,7 @@ public:
             convolution.process(context);
 
         lowShelf.process(context);
+        resonancePeak.process(context);
         highShelf.process(context);
         contourLowPass.process(context);
         contourHighPass.process(context);
@@ -258,25 +272,38 @@ private:
     {
         const float thump = thumpParam != nullptr ? *thumpParam : 1.5f;
         const float air = airParam != nullptr ? *airParam : 0.0f;
+        const float resonance = resonanceParam != nullptr ? *resonanceParam : 0.0f;
+        const float lowCut = lowCutParam != nullptr ? *lowCutParam : 55.0f;
+        const float highCut = highCutParam != nullptr ? *highCutParam : 8200.0f;
         const float distance = distanceParam != nullptr ? *distanceParam : 0.34f;
 
         const bool thumpChanged = !std::isfinite(cachedThump) || std::abs(cachedThump - thump) > 1.0e-4f;
         const bool airChanged = !std::isfinite(cachedAir) || std::abs(cachedAir - air) > 1.0e-4f;
+        const bool resonanceChanged = !std::isfinite(cachedResonance) || std::abs(cachedResonance - resonance) > 1.0e-4f;
+        const bool lowCutChanged = !std::isfinite(cachedLowCut) || std::abs(cachedLowCut - lowCut) > 1.0e-4f;
+        const bool highCutChanged = !std::isfinite(cachedHighCut) || std::abs(cachedHighCut - highCut) > 1.0e-4f;
         const bool distanceChanged = !std::isfinite(cachedDistance) || std::abs(cachedDistance - distance) > 1.0e-4f;
-        if (!thumpChanged && !airChanged && !distanceChanged)
+        if (!thumpChanged && !airChanged && !resonanceChanged && !lowCutChanged && !highCutChanged && !distanceChanged)
             return;
 
         cachedThump = thump;
         cachedAir = air;
+        cachedResonance = resonance;
+        cachedLowCut = lowCut;
+        cachedHighCut = highCut;
         cachedDistance = distance;
 
-        const float lowPass = juce::jmap(distance, 9800.0f, 3600.0f);
-        const float highPass = juce::jmap(distance, 55.0f, 140.0f);
+        const float lowPass = juce::jmin(juce::jmap(distance, 9800.0f, 3600.0f), highCut);
+        const float highPass = juce::jmax(juce::jmap(distance, 55.0f, 140.0f), lowCut);
 
         *lowShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(currentSampleRate,
             130.0f,
             0.8f,
             juce::Decibels::decibelsToGain(thump));
+        *resonancePeak.state = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(currentSampleRate,
+            92.0f,
+            1.15f,
+            juce::Decibels::decibelsToGain(resonance));
         *highShelf.state = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(currentSampleRate,
             3400.0f,
             0.72f,
@@ -291,6 +318,7 @@ private:
 
     juce::dsp::Convolution convolution;
     Filter lowShelf;
+    Filter resonancePeak;
     Filter highShelf;
     Filter contourLowPass;
     Filter contourHighPass;
@@ -301,6 +329,9 @@ private:
 
     juce::AudioParameterFloat* thumpParam = nullptr;
     juce::AudioParameterFloat* airParam = nullptr;
+    juce::AudioParameterFloat* resonanceParam = nullptr;
+    juce::AudioParameterFloat* lowCutParam = nullptr;
+    juce::AudioParameterFloat* highCutParam = nullptr;
     juce::AudioParameterFloat* distanceParam = nullptr;
     juce::AudioParameterFloat* mixParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
@@ -310,6 +341,9 @@ private:
     int preparedChannels = 0;
     float cachedThump = std::numeric_limits<float>::quiet_NaN();
     float cachedAir = std::numeric_limits<float>::quiet_NaN();
+    float cachedResonance = std::numeric_limits<float>::quiet_NaN();
+    float cachedLowCut = std::numeric_limits<float>::quiet_NaN();
+    float cachedHighCut = std::numeric_limits<float>::quiet_NaN();
     float cachedDistance = std::numeric_limits<float>::quiet_NaN();
     std::atomic<int> fallbackBlockCount{ 0 };
     bool isPrepared = false;
