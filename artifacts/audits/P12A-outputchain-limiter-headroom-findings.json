@@ -1,0 +1,128 @@
+[
+  {
+    "id": "P12A-F001",
+    "title": "Default 0 dB OutputChain limiter bypasses lookahead limiting",
+    "severity": "High",
+    "probability": "High",
+    "affected_files": [
+      "Source/Core/DSP/Global/OutputChain.cpp",
+      "Source/Core/DSP/Global/OutputChain.h",
+      "Source/Core/PluginStateModel.h",
+      "Source/Core/PluginProcessor.cpp"
+    ],
+    "evidence": [
+      "OutputChainProcessor::isLimiterActiveDb returns true only when sanitized limiterDb < -0.0001f.",
+      "OutputChainProcessor::processBlock calls limiter.process only inside if (isLimiterActiveDb(currentLimiterDb)).",
+      "PluginStateModel reset/default settings set OUTPUT_LIMITER to 0.0f.",
+      "PluginProcessor output limiter parameter default is 0.0f."
+    ],
+    "recommendation": "Make 0 dB a real transparent safety limiter threshold instead of bypass, or explicitly change product semantics. Preferred P12B fix is OutputChain-only always-on transparent safety limiting with correct latency reporting.",
+    "suggested_model_effort": "Codex Medium"
+  },
+  {
+    "id": "P12A-F002",
+    "title": "Final soft ceiling is too narrow to act as primary sustained high-gain protection",
+    "severity": "High",
+    "probability": "High",
+    "affected_files": [
+      "Source/Core/DSP/Global/OutputChain.cpp"
+    ],
+    "evidence": [
+      "applySoftCeiling uses threshold 0.985f, ceiling 0.999f, and knee 0.014f.",
+      "Soft ceiling is applied after master gain and after the optional limiter branch.",
+      "OutputChain comments state the soft ceiling should be last-resort safety, not the main limiter."
+    ],
+    "recommendation": "Do not rely on the soft ceiling for normal high-gain control. Keep it as emergency protection and route normal overs through the lookahead limiter.",
+    "suggested_model_effort": "Codex Medium"
+  },
+  {
+    "id": "P12A-F003",
+    "title": "Positive master and ChannelStrip gain can drive default OutputChain into emergency shaping",
+    "severity": "Medium",
+    "probability": "High",
+    "affected_files": [
+      "Source/Core/DSP/Global/OutputChain.cpp",
+      "Source/Core/DSP/Global/ChannelStrip.cpp",
+      "Source/Core/PluginProcessor.cpp",
+      "Source/Core/PluginStateModel.h"
+    ],
+    "evidence": [
+      "OutputChain master gain accepts up to +12 dB.",
+      "ChannelStrip line gain accepts 0.0x to 2.0x.",
+      "Master gain is applied before limiter/soft ceiling.",
+      "At limiterDb 0.0f, the limiter branch is skipped."
+    ],
+    "recommendation": "Do not reduce master gain first. Fix the final safety limiter semantics so positive master gain remains usable without directly driving the final soft ceiling.",
+    "suggested_model_effort": "Codex Medium"
+  },
+  {
+    "id": "P12A-F004",
+    "title": "HighGainAmp and Modern4x12 can plausibly produce enough energy to expose the OutputChain gap",
+    "severity": "Medium",
+    "probability": "Medium",
+    "affected_files": [
+      "Source/Effects/Amplifiers/HighGainAmp.h",
+      "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+      "Source/Effects/Pedals/Boost/BoostPedal.h",
+      "Source/Effects/Pedals/Distortion/DistortionPedal.h"
+    ],
+    "evidence": [
+      "HighGainAmp has drive 1..10, level 0..2, presence/resonance/preboost filters, and kProfessionalOutputTrim 0.32f.",
+      "Modern4x12 has low end +/-12 dB, resonance +/-6 dB, level 0..2, convolution with Normalise::no, and kProfessionalCabinetTrim 0.70f.",
+      "Boost can add up to +24 dB before local containment.",
+      "Distortion supports high-gain modes and level mapping up to 1.6x."
+    ],
+    "recommendation": "Do not edit amp, cab, boost, or distortion processBlock bodies for P12B. Use these chains as acceptance scenarios for an OutputChain fix.",
+    "suggested_model_effort": "Codex Medium"
+  },
+  {
+    "id": "P12A-F005",
+    "title": "Always-on lookahead limiter at 0 dB changes latency expectations",
+    "severity": "Medium",
+    "probability": "High",
+    "affected_files": [
+      "Source/Core/DSP/Global/OutputChain.cpp",
+      "Source/Core/AudioEngineTests.cpp"
+    ],
+    "evidence": [
+      "updateReportedLatencyForLimiter currently reports lookahead latency only when isLimiterActiveDb is true.",
+      "AudioEngineTests currently assert getLatencySamples() == 0 for limiter set to 0.0f.",
+      "GraphBuilder captures graph latency after prepare/rebuild."
+    ],
+    "recommendation": "If P12B always runs the lookahead limiter at 0 dB, update OutputChain latency reporting and tests deliberately. Do not run lookahead while reporting zero latency.",
+    "suggested_model_effort": "Codex Medium"
+  },
+  {
+    "id": "P12A-F006",
+    "title": "Existing high-gain tests encode no-dependency-on-OutputChain-limiter for nominal chains",
+    "severity": "Low",
+    "probability": "High",
+    "affected_files": [
+      "Source/Core/AudioEngineTests.cpp"
+    ],
+    "evidence": [
+      "P10C test p10c_high_gain_chain_outputchain_limiter_independence expects limiterTouchedSamples == 0 and limiterActiveBlocks == 0 for a staged nominal chain.",
+      "P10D checks also guard against OutputChain limiter masking in high-gain scenarios."
+    ],
+    "recommendation": "Preserve the intent that nominal staging should not need heavy limiting, but add separate P12B tests proving default safety limiting catches true overs before soft ceiling.",
+    "suggested_model_effort": "Codex Medium"
+  },
+  {
+    "id": "P12A-F007",
+    "title": "Master gain cap reduction would hide rather than fix the verified limiter semantics bug",
+    "severity": "Medium",
+    "probability": "Medium",
+    "affected_files": [
+      "Source/Core/DSP/Global/OutputChain.cpp",
+      "Source/Core/PluginProcessor.cpp",
+      "Source/Core/PluginStateModel.h"
+    ],
+    "evidence": [
+      "OutputChain master supports +12 dB.",
+      "Default limiter bypass means reducing master maximum would only reduce probability of hitting the soft ceiling, not restore transparent safety limiting.",
+      "Changing parameter max could affect existing sessions using positive output gain."
+    ],
+    "recommendation": "Reject master range reduction as the first fix. Reconsider only after OutputChain limiter behavior is corrected and measured.",
+    "suggested_model_effort": "Codex Low"
+  }
+]

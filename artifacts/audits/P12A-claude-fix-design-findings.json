@@ -1,0 +1,116 @@
+{
+  "audit": "P12A-claude-fix-design",
+  "generated": "2026-05-22",
+  "reviewer": "claude-opus-4-7",
+  "code_modified": false,
+  "scope": [
+    "Source/Core/DSP/Global/OutputChain.h",
+    "Source/Core/DSP/Global/OutputChain.cpp",
+    "Source/Core/DSP/Global/ChannelStrip.cpp",
+    "Source/Core/DSP/Global/InputChain.cpp",
+    "Source/Effects/Amplifiers/HighGainAmp.h",
+    "Source/Effects/Pedals/Fuzz/FuzzPedal.h"
+  ],
+  "root_cause": {
+    "summary": "Lookahead limiter is bypassed at the factory default (limiterDb = 0). Soft-ceiling alone (threshold 0.985, knee 0.014 linear) is the only protection and audibly distorts on sustained high-gain content.",
+    "evidence": [
+      { "file": "Source/Core/DSP/Global/OutputChain.cpp", "line": 278, "claim": "if (isLimiterActiveDb(currentLimiterDb)) limiter.process(...)" },
+      { "file": "Source/Core/DSP/Global/OutputChain.cpp", "lines": "28-31", "claim": "isLimiterActiveDb returns false at threshold == 0" },
+      { "file": "Source/Core/DSP/Global/OutputChain.cpp", "lines": "33-54", "claim": "Soft ceiling threshold 0.985, ceiling 0.999, knee ~0.12 dB" },
+      { "file": "Source/Core/DSP/Global/OutputChain.h", "line": 14, "claim": "Header states 'lookahead delay is always active' which code does not implement" }
+    ]
+  },
+  "headroom_budget": {
+    "highgain_amp_stage_sum": 1.24,
+    "highgain_amp_pro_trim": 0.32,
+    "highgain_amp_master_range_max": 2.0,
+    "fuzz_internal_hard_clamp": 1.25,
+    "channel_strip_gain_max": 2.0,
+    "output_master_range_db": [-36.0, 12.0],
+    "soft_ceiling_threshold": 0.985,
+    "soft_ceiling_ceiling": 0.999,
+    "soft_ceiling_knee_linear": 0.014,
+    "limiter_lookahead_ms": 2.0,
+    "limiter_lookahead_samples_at_44100": 88,
+    "limiter_internal_active_gate": 0.9885531
+  },
+  "proposed_fix": {
+    "always_on_limiter": {
+      "verdict": "ADOPT",
+      "rationale": "Lookahead path already implemented and contract-tested. Always-on costs lookahead delay + per-sample comparison. currentGain stays at 1.0 when peaks under threshold; output bit-identical to pre-fix on clean material.",
+      "concrete_actions": [
+        "Remove if-gate at OutputChain.cpp:278; call limiter.process unconditionally",
+        "Default targetLimiterDb to -0.3 (was 0.0)",
+        "Clamp sanitizeLimiterDb range to [-12.0, -0.1] to avoid colliding with internal 0.9885531 gate"
+      ],
+      "trade_offs": {
+        "transparency": "Bit-identical when peaks <= threshold; transient lookahead delay (88 samples) is musically inaudible",
+        "highgain_feel": "Improves: transients controlled with lookahead instead of tanh saturation against narrow soft-ceiling knee",
+        "clean_path": "Untouched; limiter currentGain == 1.0 on clean material",
+        "fuzz_reference": "Fuzz character preserved internally; limiter only acts when fuzz Level=1 sends peaks > -0.3 dBTP",
+        "latency": "Constant 2 ms reported once at prepare; no PDC flip-flop",
+        "preset_compatibility": "No schema bump; sanitizers absorb out-of-range legacy values"
+      }
+    },
+    "master_gain_range": {
+      "verdict": "NARROW",
+      "from": [-36.0, 12.0],
+      "to": [-36.0, 6.0],
+      "rationale": "Removes ducking failure mode when users park master at +12 dB; preserves legitimate make-up for low-output passive guitars; draft presets all ship master <= 0 dB so unaffected"
+    },
+    "soft_ceiling_knee": {
+      "verdict": "TIGHTEN_NOT_WIDEN",
+      "from": { "threshold": 0.985, "ceiling": 0.999 },
+      "to": { "threshold": 0.997, "ceiling": 0.9995 },
+      "rationale": "After always-on limiter, soft ceiling should be insurance for parameter-automation transients, denormal sticks, NaN recovery only. Widening knee would add audible softening on amp transients; reject."
+    },
+    "chain_level_headroom_trims": {
+      "verdict": "REJECT",
+      "rationale": "Pedal/amp outputTrim values are voiced; re-tuning them to make the limiter not duck is fake safety that trades tone for clean meters. Treat persistent ducking as a misvoicing bug in the offending pedal, not a global trim issue."
+    }
+  },
+  "top_risks": [
+    {
+      "id": "R1_LATENCY_PDC",
+      "severity": "high",
+      "summary": "Latency must be reported ONCE at prepare; toggling the threshold knob must not change reported latency or DAWs will re-PDC and glitch."
+    },
+    {
+      "id": "R2_FUZZ_TRANSIENT",
+      "severity": "medium",
+      "summary": "Fuzz Level=1 may trigger limiter on peaks; null-test A/B against pre-fix on a fuzz-only preset to confirm sustain unaffected."
+    },
+    {
+      "id": "R3_TEST_SCENARIO_UNDERDRIVEN",
+      "severity": "high",
+      "summary": "Existing P9E high_gain_staccato_proxy peaks at 0.12, never exercises the bug. New scenario required before fix can be auditably PASSed."
+    },
+    {
+      "id": "R4_MASTER_CLAMP_UX",
+      "severity": "low",
+      "summary": "User-saved presets with master > +6 dB will silently clamp via sanitizer. UX comms note."
+    },
+    {
+      "id": "R5_INTERNAL_GATE_COLLISION",
+      "severity": "medium",
+      "summary": "Limiter internal per-sample active-gate at 0.9885531 (~ -0.1 dB) must not collide with default threshold -0.3 dBTP. Enforce by clamp range [-12, -0.1]."
+    }
+  ],
+  "do_not_touch": [
+    "RuntimeGraphManager",
+    "AudioEngine graph swap",
+    "PluginStateModel schema",
+    "Pedal processBlock bodies",
+    "Test file structure",
+    "kProfessionalOutputTrim",
+    "Per-pedal outputTrim values"
+  ],
+  "post_fix_validation": [
+    "audio-thread-policy-scan re-run; expect 0 failures, 0 warnings",
+    "null-test against pre-fix build with limiter forced bypass on clean material; expect bit-identical",
+    "new high-gain scenario: HighGainAmp drive=10 + Modern4x12 + master=0 dB + pink+chord input at -6 dBFS; expect limiterActiveBlocks > 0 AND softCeilingTouchedSamples == 0 AND limiterMaxReductionDb <= 6.0",
+    "fuzz A/B at Level=1 on FuzzPedal-only preset; expect sustain RMS delta < 1.0e-3",
+    "host PDC delta across full limiter knob sweep == 0"
+  ],
+  "verdict": "Adopt always-on limiter, narrow master upper bound, tighten soft ceiling. Reject chain-level trims. Run new high-gain scenario before approval."
+}

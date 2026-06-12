@@ -1,0 +1,123 @@
+{
+  "task": "P12C-runtime-output-sanitizer-escape-audit",
+  "date": "2026-06-02",
+  "branch": "master",
+  "headCommit": "d743d7f",
+  "codeModified": false,
+  "buildRun": false,
+  "verdict": "P12B not shipped. OutputChain on master still treats limiterDb=0 as limiter bypass, not transparent safety. Sanitizer is honest; the unsafe runtime state is reached through the sanitizer's permissive default (limiterDb=0). With +10.73 dB master and chain gainB=2, the only full-scale protection is the 0.985->0.999 tanh soft ceiling, which pins output at 0.999 and produces the observed nearClipSamples spikes.",
+  "logsAnalyzed": [
+    "C:/Users/gusta/AppData/Roaming/NOVA/Logs/HighGainAmp - Modern4x12.txt",
+    "C:/Users/gusta/AppData/Roaming/NOVA/Logs/Boost - HighGainAmp - Modern4x12.txt",
+    "C:/Users/gusta/AppData/Roaming/NOVA/Logs/Distortion - HighGainAmp - Modern4x12.txt",
+    "C:/Users/gusta/AppData/Roaming/NOVA/Logs/Fuzz - ClassicAmp - Cabinet.txt",
+    "C:/Users/gusta/AppData/Roaming/NOVA/Logs/CleanAmp - Cabinet.txt",
+    "C:/Users/gusta/AppData/Roaming/NOVA/Logs/Preset con master alto.txt",
+    "C:/Users/gusta/AppData/Roaming/NOVA/Logs/session-log.txt"
+  ],
+  "observedSymptoms": {
+    "outputVolumeDbPeak": 10.73,
+    "outputLimiterDb": 0.0,
+    "outputChainPeakLMax": 0.999,
+    "channelStripAPeakLMax": 0.993999,
+    "channelStripBAlertPeakLMax": 0.968572,
+    "nearClipSamplesPeakPerWindow": 105226,
+    "windowMs": 2003,
+    "sampleRate": 44100,
+    "blockSize": 480,
+    "softCeilingCeilingConstant": 0.999,
+    "softCeilingThresholdConstant": 0.985,
+    "signalNearClipThreshold": 0.98
+  },
+  "topFindings": [
+    {
+      "id": 1,
+      "severity": "critical",
+      "title": "Limiter structurally bypassed at default limiterDb=0",
+      "evidence": "Source/Core/DSP/Global/OutputChain.cpp:278 calls limiter.process(...) only inside isLimiterActiveDb(currentLimiterDb). isLimiterActiveDb(0.0f) returns false because the comparison is < -0.0001f. PluginProcessor.cpp:451 and PluginStateModel.h:306 both default the parameter to 0.0f, so the default-shipped state has the limiter off."
+    },
+    {
+      "id": 2,
+      "severity": "critical",
+      "title": "Soft ceiling becomes de facto main limiter at default",
+      "evidence": "OutputChain.cpp:33-54 applySoftCeiling has threshold=0.985, ceiling=0.999, knee=0.014 (14 mdB). Logs show sustained peakLMax=0.999, exactly the ceiling constant. softCeilingTouchedSamples is high in alert windows when nearClipSamples is high."
+    },
+    {
+      "id": 3,
+      "severity": "high",
+      "title": "Sanitizer is permissive, not protective",
+      "evidence": "sanitizeOutputVolumeDb clamps to [-36, +12] (OutputChain.cpp:3-11). sanitizeLimiterDb clamps to [-12, 0] (OutputChain.cpp:13-21). +10.73 dB master and 0 dB limiter are both in range. There is no cross-check between master gain and limiter state."
+    },
+    {
+      "id": 4,
+      "severity": "high",
+      "title": "ChannelStrip allows +6 dB chain makeup",
+      "evidence": "ChannelStrip.cpp:5-11 sanitizeGain clamps to [0, 2] linear. Preset con master alto uses gainB=2 (max) plus widthB=0 (mono summing), driving ChannelStrip output close to 1.0 before OutputChain master gain is applied."
+    },
+    {
+      "id": 5,
+      "severity": "medium",
+      "title": "SIGNAL_NEAR_CLIP_THRESHOLD sits below soft-ceiling ceiling",
+      "evidence": "Constants.h:112 SIGNAL_NEAR_CLIP_THRESHOLD=0.98 < softCeiling ceiling 0.999. Any soft-ceiling-engaged sample (>=0.985 in, ~0.999 out) increments nearClipSamples. High nearClipSamples is a consequence of soft ceiling becoming the main limiter, not a separate bug."
+    }
+  ],
+  "secondaryFindings": [
+    {
+      "id": "S1",
+      "title": "Latency reporting will desync if limiter becomes always-on",
+      "evidence": "OutputChain.cpp:172-175 updateReportedLatencyForLimiter sets latency to limiter.getLookaheadSamples() only when isLimiterActiveDb(limiterDb). P12D must remove the branch."
+    },
+    {
+      "id": "S2",
+      "title": "UI naming oddity (not a bypass)",
+      "evidence": "PluginEditor.cpp:3458-3459 attaches OUTPUT_LIMITER parameter to a slider named outputGain. The parameter binding is correct; sanitization still runs; this is a naming/labeling concern only."
+    },
+    {
+      "id": "S3",
+      "title": "Tests encode current (buggy) default",
+      "evidence": "AudioEngineTests.cpp:3907, 4091, 4138, 4196, 4594 explicitly set outputLimiterDb = 0.0f. P12D must update these to expect always-on lookahead."
+    }
+  ],
+  "verifiedBypassPaths": [],
+  "rejectedBypassHypotheses": [
+    {
+      "hypothesis": "Preset/host path bypasses sanitizer",
+      "rejected": true,
+      "reason": "SessionStore.h, SessionPersistence.h, PluginStateModel.h all route through sanitizeFloatProperty / setProperty with default 0.0f. Sanitizer is invoked; it simply allows 0.0f."
+    },
+    {
+      "hypothesis": "UI binding skips sanitizer",
+      "rejected": true,
+      "reason": "SliderParameterAttachment targets the RangedAudioParameter, which constrains values to [-12, 0]. Sanitization runs on every push to runtime params cache."
+    },
+    {
+      "hypothesis": "Race condition / stale target read on targetLimiterDb",
+      "rejected": true,
+      "reason": "OutputChain.cpp uses std::atomic<float> with sanitize on both store and read. No torn or stale value would produce sustained 0.999 across many windows."
+    }
+  ],
+  "exactSuspectedBypassPath": "outputLimiterParam default 0.0f -> SessionStore runtimeParamsCache.outputLimiterDb=0.0f -> RuntimeGlobalParams snapshot.outputLimiterDb=0.0f -> AudioEngine pushes to OutputChain via setParams(vol, 0.0f) -> sanitizeLimiterDb(0.0f) returns 0.0f -> isLimiterActiveDb(0.0f) returns false -> processBlock skips limiter.process -> applyMasterGain applies +10.73 dB -> applyFinalSoftCeiling is the only ceiling and pins at 0.999 -> telemetry reports peakLMax=0.999 with nearClipSamples high.",
+  "recommendedP12DScope": {
+    "must": [
+      "Redefine limiterDb=0 as engaged transparent safety with threshold ~-0.3 dB linear (0.95..0.97) and slow release",
+      "isLimiterActiveDb(0.0f) returns true",
+      "updateReportedLatencyForLimiter: report limiter.getLookaheadSamples() unconditionally; remove the 0 vs lookahead branch",
+      "Update existing unit tests that encode limiter-off-at-0-dB behavior",
+      "Add regression test using Preset con master alto state asserting output-chain.window.peakLMax < 0.97 and nearClipSamples within a small budget",
+      "Add CleanAmp no-regression test for quiet signal stability"
+    ],
+    "should": [
+      "Telemetry-only warning when outputVolumeDb > +6 dB AND chain gain >= 1.5"
+    ],
+    "outOfScope": [
+      "RuntimeGraphManager",
+      "AudioEngine graph swap path",
+      "DryWetMixer",
+      "RoutingMixer",
+      "PluginStateModel schema",
+      "Pedal processBlock bodies",
+      "Test file structure",
+      "UI visual design"
+    ]
+  }
+}
