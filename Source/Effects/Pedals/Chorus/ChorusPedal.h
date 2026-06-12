@@ -11,6 +11,11 @@ namespace Nova { namespace ChorusDSP {
 
 static constexpr int kMaxVoices = 3;
 
+inline float sanitizeAudioSample(float x) noexcept
+{
+    return std::isfinite(x) ? x : 0.0f;
+}
+
 inline float wrapPhase(float phase) noexcept
 {
     phase -= std::floor(phase);
@@ -95,9 +100,22 @@ struct Biquad
 
     float process(float x) noexcept
     {
+        x = sanitizeAudioSample(x);
+        if (!std::isfinite(z1) || !std::isfinite(z2))
+            reset();
+
         const float y = b0 * x + z1;
+        if (!std::isfinite(y))
+        {
+            reset();
+            return 0.0f;
+        }
+
         z1 = b1 * x - a1 * y + z2;
         z2 = b2 * x - a2 * y;
+        if (!std::isfinite(z1) || !std::isfinite(z2))
+            reset();
+
         return y;
     }
 };
@@ -123,7 +141,7 @@ struct DelayLine
 
     void write(float sample) noexcept
     {
-        buffer[(size_t) writePos] = sample;
+        buffer[(size_t) writePos] = sanitizeAudioSample(sample);
         if (++writePos >= size)
             writePos = 0;
     }
@@ -141,10 +159,10 @@ struct DelayLine
         const int i3 = (i1 + 2) % size;
         const float frac = readPos - std::floor(readPos);
 
-        const float y0 = buffer[(size_t) i0];
-        const float y1 = buffer[(size_t) i1];
-        const float y2 = buffer[(size_t) i2];
-        const float y3 = buffer[(size_t) i3];
+        const float y0 = sanitizeAudioSample(buffer[(size_t) i0]);
+        const float y1 = sanitizeAudioSample(buffer[(size_t) i1]);
+        const float y2 = sanitizeAudioSample(buffer[(size_t) i2]);
+        const float y3 = sanitizeAudioSample(buffer[(size_t) i3]);
 
         const float a = y3 - y2 - y0 + y1;
         const float b = y0 - y1 - a;
@@ -339,8 +357,12 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
+        juce::ScopedNoDenormals noDenormals;
+
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
+
+        scrubInvalidSamples(buffer);
 
         rateSmooth.setTargetValue(rateParam != nullptr ? rateParam->get() : 0.85f);
         depthSmooth.setTargetValue(depthParam != nullptr ? depthParam->get() : 0.58f);
@@ -385,8 +407,8 @@ public:
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 const float stereoSign = ch == 0 ? -1.0f : 1.0f;
-                const float previousLocalFeedback = feedbackState[(size_t) ch];
-                const float previousCrossFeedback = feedbackState[(size_t) (1 - ch)];
+                const float previousLocalFeedback = Nova::ChorusDSP::sanitizeAudioSample(feedbackState[(size_t) ch]);
+                const float previousCrossFeedback = Nova::ChorusDSP::sanitizeAudioSample(feedbackState[(size_t) (1 - ch)]);
                 float voiceSum = 0.0f;
 
                 for (int voice = 0; voice < config.voices; ++voice)
@@ -460,9 +482,10 @@ public:
                 float wet = Nova::ChorusDSP::softClip(wetRaw[(size_t) ch], 1.12f + depth * 0.16f);
                 wet = toneLPF[(size_t) ch].process(wet);
                 wet = dcBlock[(size_t) ch].process(wet);
+                wet = Nova::ChorusDSP::sanitizeAudioSample(wet);
                 wetState[(size_t) ch] = wet;
-                feedbackState[(size_t) ch] = wet * (0.86f - 0.10f * mix);
-                buffer.setSample(ch, sample, dry[(size_t) ch] * dryGain + wet * wetGain);
+                feedbackState[(size_t) ch] = Nova::ChorusDSP::sanitizeAudioSample(wet * (0.86f - 0.10f * mix));
+                buffer.setSample(ch, sample, Nova::ChorusDSP::sanitizeAudioSample(dry[(size_t) ch] * dryGain + wet * wetGain));
             }
 
             lfoPhase += rate / (float) sr;
@@ -511,6 +534,16 @@ public:
     float lfoPhase = 0.0f;
 
 private:
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                data[i] = Nova::ChorusDSP::sanitizeAudioSample(data[i]);
+        }
+    }
+
     void updateFilters(bool force = false)
     {
         const float tone = toneParam != nullptr ? toneParam->get() : 0.62f;

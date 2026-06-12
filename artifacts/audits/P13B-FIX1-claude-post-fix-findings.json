@@ -1,0 +1,75 @@
+{
+  "task": "P13B-FIX1-claude-post-fix-review",
+  "date": "2026-06-12",
+  "reviewer": "Claude Fable (read-only)",
+  "patchAuthor": "Codex 5.5",
+  "verdict": "approve",
+  "canCloseP13BFix1": true,
+  "safeToProceedToAmpsCabinets": true,
+  "codeModifiedDuringReview": false,
+  "reviewedFiles": [
+    "CLAUDE.md",
+    "Source/Core/AudioEngineTests.cpp",
+    "Source/Effects/Pedals/Chorus/ChorusPedal.h",
+    "Source/Effects/Pedals/Delay/DelayPedal.h",
+    "Source/Effects/Pedals/Flanger/FlangerPedal.h",
+    "Source/Effects/Pedals/Octave/OctavePedal.h",
+    "audio-base-test-report.txt (generated)"
+  ],
+  "questionAnswers": {
+    "q1_scopedNoDenormalsCorrect": "yes - first statement of processBlock in Delay/Chorus/Flanger; Octave guard moved before bypass gate; covers full DSP scope; nested base-class guards harmless",
+    "q2_chorusScrubSafe": "yes - sanitizer is identity for all finite values; input scrub + Biquad/DelayLine/feedback-state hardening removes NaN latch; transparency pinned by new dry test",
+    "q3_octaveScrubSafe": "yes - input scrub + Biquad/EnvelopeFollower/PeriodTracker recovery; identity for finite audio",
+    "q4_testsMeaningful": "yes - Chorus/Octave NaN-recovery tests would fail pre-patch and use two-phase latch detection; Delay/Flanger near-silence tests are weak-but-harmless guards",
+    "q5_toneUnchanged": "yes - no coefficient/gain/curve touched; only non-finite-to-zero and FTZ",
+    "q6_rtClean": "yes - no allocation, locks, logging, strings, or dynamic resize added",
+    "q7_claudeMdAccurate": "yes - matches verified absence of RTNeural usage (F-P13B-007)",
+    "q8_additionalFixRequired": "none blocking",
+    "q9_closeFix1": true,
+    "q10_proceedAmpsCabinets": true
+  },
+  "validationEvidence": {
+    "build": "Standalone PASS, 0 warnings/errors; SharedCode forced rebuild PASS; relink PASS",
+    "tests": "273 results, 7553 passes, 0 failures (+5 results vs 268 baseline, matching 5 added tests)",
+    "rtPolicyScan": "PASS 0/0",
+    "doNotTouchZones": "none entered - diff confined to declared files plus generated test report"
+  },
+  "observations": [
+    {
+      "id": "OBS-1",
+      "severity": "Low",
+      "title": "Near-silence tail tests have low discriminating power",
+      "detail": "1e-20 impulse with feedback < 1 cannot exceed the 1e-12 assertion threshold even pre-patch; tests guard future silence-region bugs but do not validate the denormal fix specifically and cannot measure CPU.",
+      "action": "Keep as guards; optional future profiling harness."
+    },
+    {
+      "id": "OBS-2",
+      "severity": "Low (pre-existing)",
+      "title": "Input scrub runs after beginBypassProcess dry-buffer capture",
+      "detail": "In all pedals (Delay/Flanger/Neural/Chorus/Octave) the dry buffer is copied before sanitization, so NaN input can transit the dry leg during a bypass crossfade. Engine health monitor + auto-heal backstop. Established codebase pattern, not a FIX1 regression; fixing it would alter ProcessorBase ordering semantics (out of scope).",
+      "action": "Future hardening pass candidate."
+    },
+    {
+      "id": "OBS-3",
+      "severity": "Cosmetic",
+      "title": "sanitizeAudioSample applied to non-audio quantity",
+      "detail": "OctavePedal PeriodTracker uses the audio-sample sanitizer on smoothedFreq; functionally a plain finiteness guard.",
+      "action": "None required."
+    },
+    {
+      "id": "OBS-4",
+      "severity": "Info",
+      "title": "Generated test report in diff",
+      "detail": "audio-base-test-report.txt updated to 273/7553/0.",
+      "action": "Commit as-is."
+    },
+    {
+      "id": "OBS-5",
+      "severity": "Low",
+      "title": "F-P13B-004 not included in FIX1",
+      "detail": "Unused, safety-divergent Reverb::Engine::processSample remains; was item 3 on the P13B recommendation list.",
+      "action": "Track as small follow-up (delete or align); does not block FIX1 closure or the amps/cabinets audit."
+    }
+  ],
+  "recommendedNextStep": "Commit P13B-FIX1, then proceed to the amps/cabinets audit. Carry forward: F-P13B-004 cleanup, P13A pending Release VST3 + manual DAW PDC null test, P13B listening matrix."
+}

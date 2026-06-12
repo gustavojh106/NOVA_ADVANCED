@@ -1,0 +1,154 @@
+{
+  "task": "P13B-stateful-timebased-effects-audit",
+  "date": "2026-06-12",
+  "auditor": "Claude Fable (read-only)",
+  "baseline": "post-P12D + P13A-F001",
+  "codeModified": false,
+  "verdict": {
+    "delayReverbNeuralSafeToKeepEnabled": true,
+    "effectsToHideOrBetaOnly": [],
+    "blockersBeforeAmpsCabinets": [],
+    "carryOverValidation": [
+      "Release VST3 build (P13A pending)",
+      "Manual DAW PDC null test with Neural enabled vs bypassed (P13A pending)"
+    ]
+  },
+  "scorecard": {
+    "Delay":   { "dspSafety": 9, "latencyPdc": 10, "bypassTails": 8, "rtSafety": 8, "paramSafety": 9, "testCoverage": 9,  "releaseReadiness": 9 },
+    "Reverb":  { "dspSafety": 9, "latencyPdc": 10, "bypassTails": 8, "rtSafety": 8, "paramSafety": 9, "testCoverage": 10, "releaseReadiness": 9 },
+    "Neural":  { "dspSafety": 8, "latencyPdc": 9,  "bypassTails": 9, "rtSafety": 7, "paramSafety": 9, "testCoverage": 7,  "releaseReadiness": 8 },
+    "Chorus":  { "dspSafety": 7, "latencyPdc": 10, "bypassTails": 9, "rtSafety": 8, "paramSafety": 9, "testCoverage": 8,  "releaseReadiness": 8 },
+    "Flanger": { "dspSafety": 8, "latencyPdc": 10, "bypassTails": 9, "rtSafety": 8, "paramSafety": 9, "testCoverage": 9,  "releaseReadiness": 9 },
+    "Octave":  { "dspSafety": 8, "latencyPdc": 10, "bypassTails": 9, "rtSafety": 8, "paramSafety": 9, "testCoverage": 8,  "releaseReadiness": 8 }
+  },
+  "findings": [
+    {
+      "id": "F-P13B-001",
+      "effect": ["Delay", "Chorus", "Flanger"],
+      "severity": "Medium",
+      "probability": "Medium",
+      "title": "Missing ScopedNoDenormals in processBlock DSP scope",
+      "evidence": "grep ScopedNoDenormals Source/Effects/Pedals: absent from DelayPedal/ChorusPedal/FlangerPedal processBlock bodies. ProcessorBase guard is scoped to beginBypassProcess/endBypassProcess only; ProcessorBase.h:200 comment explicitly requires derived processors to add their own. Decaying feedback tails generate denormals; CPU spikes possible on hosts without global FTZ/DAZ.",
+      "affectedFiles": [
+        "Source/Effects/Pedals/Delay/DelayPedal.h:562",
+        "Source/Effects/Pedals/Chorus/ChorusPedal.h:340",
+        "Source/Effects/Pedals/Flanger/FlangerPedal.h:358"
+      ],
+      "recommendedFix": "Add 'juce::ScopedNoDenormals noDenormals;' at the top of each processBlock after the bypass gate (3 one-line changes).",
+      "implementer": "Codex 5.5",
+      "blocksNextFamily": false
+    },
+    {
+      "id": "F-P13B-002",
+      "effect": ["Chorus"],
+      "severity": "Medium",
+      "probability": "Low-Medium",
+      "title": "No NaN/Inf input scrub; NaN latches permanently in biquad and feedback state",
+      "evidence": "ChorusPedal::processBlock has no scrubInvalidSamples (Delay/Flanger/Neural scrub, Reverb fully sanitizes). tanh(NaN)=NaN, so feedbackState and biquad z1/z2 hold NaN until reset. Engine auto-heal (CORRUPT_BLOCKS_BEFORE_HEAL=2) recovers at the cost of an audible dropout and full graph state loss.",
+      "affectedFiles": ["Source/Effects/Pedals/Chorus/ChorusPedal.h:340"],
+      "recommendedFix": "Add the scrubInvalidSamples helper used by FlangerPedal.h:533, plus a NaN-abuse unit test mirroring the Delay/Flanger quartet.",
+      "implementer": "Codex 5.5",
+      "blocksNextFamily": false
+    },
+    {
+      "id": "F-P13B-003",
+      "effect": ["Octave"],
+      "severity": "Low-Medium",
+      "probability": "Low",
+      "title": "No NaN/Inf input scrub; NaN latches in filters, envelopes, and PeriodTracker history",
+      "evidence": "OctavePedal::processBlock lacks input scrub; same NaN-latch pattern as Chorus across ~14 biquads, 2 envelope followers, and the 768-sample tracker history.",
+      "affectedFiles": ["Source/Effects/Pedals/Octave/OctavePedal.h:321"],
+      "recommendedFix": "Add the same scrub helper and a NaN-abuse test.",
+      "implementer": "Codex 5.5",
+      "blocksNextFamily": false
+    },
+    {
+      "id": "F-P13B-004",
+      "effect": ["Reverb"],
+      "severity": "Low",
+      "probability": "Low",
+      "title": "Unused Engine::processSample diverges from processBlock safety clamps",
+      "evidence": "Engine::processSample (ReverbPedal.h:1089) duplicates processBlock (:1255) but lacks the per-line softCeiling(x, 1.15f) clamp present at :1349. The pedal only calls processBlock; the dead path is a maintenance/divergence trap.",
+      "affectedFiles": ["Source/Effects/Pedals/Reverb/ReverbPedal.h:1089-1250"],
+      "recommendedFix": "Delete processSample or align it exactly with processBlock.",
+      "implementer": "Codex 5.5",
+      "blocksNextFamily": false
+    },
+    {
+      "id": "F-P13B-005",
+      "effect": ["Delay", "Reverb", "all tailed FX"],
+      "severity": "Info/UX",
+      "probability": "Certain",
+      "title": "Bypass truncates tails by design; behavior undocumented for users, no trails mode",
+      "evidence": "ProcessorBase.h:230-236: wet engine is not rendered while bypassed and reset() runs on un-bypass so stale tails never jump back in. Intentional and commented, but musicians commonly expect delay/reverb spillover through bypass.",
+      "affectedFiles": ["Source/Effects/Pedals/Base/ProcessorBase.h"],
+      "recommendedFix": "Document the behavior; optionally design a 'trails' bypass mode in a later phase (touches bypass architecture - not in this phase).",
+      "implementer": "Product decision; implementation Codex 5.5 if approved",
+      "blocksNextFamily": false
+    },
+    {
+      "id": "F-P13B-006",
+      "effect": ["Neural", "Reverb", "Delay"],
+      "severity": "Low",
+      "probability": "High (constant cost)",
+      "title": "Per-sample coefficient recomputation CPU hotspots",
+      "evidence": "Neural: updateToneModel once per base-rate sample = 7 exp-based setCutoff calls/sample (NeuralPedal.h:305-313). Reverb: outputTone setCutoff = 2 exp/sample (ReverbPedal.h:1277). Delay: per-sample getModeStyle + std::pow + feedback biquad rebuild every 8 samples. All bounded and correct; pure CPU headroom risk.",
+      "affectedFiles": [
+        "Source/Effects/Pedals/Neural/NeuralPedal.h",
+        "Source/Effects/Pedals/Reverb/ReverbPedal.h",
+        "Source/Effects/Pedals/Delay/DelayPedal.h"
+      ],
+      "recommendedFix": "Profile first; then rate-limit coefficient updates to block edges or N-sample intervals with smoothing.",
+      "implementer": "Codex 5.5 (after profiling pass)",
+      "blocksNextFamily": false
+    },
+    {
+      "id": "F-P13B-007",
+      "effect": ["Neural"],
+      "severity": "Low (docs) / Medium (product claim)",
+      "probability": "Certain",
+      "title": "Neural pedal contains no RTNeural inference despite documentation claim",
+      "evidence": "grep RTNeural Source/Effects returns nothing. NeuralPedal is an analytic two-stage waveshaper (denseClip/silkyClip) with envelope sag at 8x oversampling. CLAUDE.md states 'Neural/ uses RTNeural inference for neural amp modeling'. Vendored RTNeural/Eigen/xsimd/models are unused by this pedal.",
+      "affectedFiles": ["Source/Effects/Pedals/Neural/NeuralPedal.h", "CLAUDE.md"],
+      "recommendedFix": "Correct CLAUDE.md (and any user-facing naming/claims), or wire an actual RTNeural model as a separate feature task.",
+      "implementer": "Doc fix: Codex 5.5; model integration: separate phase",
+      "blocksNextFamily": false
+    },
+    {
+      "id": "F-P13B-008",
+      "effect": ["Reverb"],
+      "severity": "Low",
+      "probability": "Medium",
+      "title": "FDN line lengths change instantly during size/mode automation (possible zipper/clicks)",
+      "evidence": "configure() calls lines[i].setLength on any size/mode delta > 1e-4, firing throughout a knob sweep; read-pointer jumps can zipper. P7H automation tests assert boundedness, not click-freedom.",
+      "affectedFiles": ["Source/Effects/Pedals/Reverb/ReverbPedal.h:877-897"],
+      "recommendedFix": "Only if listening test L7 confirms audible artifacts: crossfade or slew line-length changes.",
+      "implementer": "Codex 5.5 (conditional on listening result)",
+      "blocksNextFamily": false
+    },
+    {
+      "id": "F-P13B-009",
+      "effect": ["all tailed FX"],
+      "severity": "Info",
+      "probability": "Medium",
+      "title": "Pedal removal mid-tail: gap/click behavior unverified by ear",
+      "evidence": "Node destruction on graph publish cuts the tail instantly; STARTUP_COUNTER_GRAPH_CHANGE=6 mutes the swap. Whether the result is a clean gap or a click is unverified.",
+      "affectedFiles": ["Source/Core/AudioEngine.cpp (do-not-touch zone; listening item only)"],
+      "recommendedFix": "Manual listening item L8 only; no code change proposed.",
+      "implementer": "none",
+      "blocksNextFamily": false
+    }
+  ],
+  "latencyPdcSummary": {
+    "reportingProcessorsInScope": { "Neural": "8x oversampler latency via setProcessingLatency (rounded to int)" },
+    "correctlyZero": ["Delay", "Reverb", "Chorus", "Flanger", "Octave"],
+    "bypassLatencyPath": "ProcessorBase::setBypassed swaps latency N<->0 -> AudioEngine rebuilds graph latency (test :5710) -> P13A-F001 async/deduped host setLatencySamples (PluginProcessor.cpp:470-513, test :4514)",
+    "mismatches": "none found between internal delay and reported latency"
+  },
+  "tailBehavior": {
+    "bypass": "truncates tail via 10ms crossfade; state reset on un-bypass (intentional, commented)",
+    "remove": "tail destroyed with node; startup-silence masks swap",
+    "presetSwitch": "full rebuild clears tails",
+    "sampleRateSwitch": "full reallocate + reset; SR-aware coefficients everywhere; covered by tests"
+  }
+}

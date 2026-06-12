@@ -8,6 +8,11 @@
 
 namespace Nova::OctaveDSP
 {
+inline float sanitizeAudioSample(float x) noexcept
+{
+    return std::isfinite(x) ? x : 0.0f;
+}
+
 struct Biquad
 {
     float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
@@ -48,9 +53,22 @@ struct Biquad
 
     float process(float x) noexcept
     {
+        x = sanitizeAudioSample(x);
+        if (!std::isfinite(z1) || !std::isfinite(z2))
+            reset();
+
         const float y = b0 * x + z1;
+        if (!std::isfinite(y))
+        {
+            reset();
+            return 0.0f;
+        }
+
         z1 = b1 * x - a1 * y + z2;
         z2 = b2 * x - a2 * y;
+        if (!std::isfinite(z1) || !std::isfinite(z2))
+            reset();
+
         return y;
     }
 };
@@ -72,8 +90,13 @@ struct EnvelopeFollower
 
     float process(float absInput) noexcept
     {
+        absInput = std::abs(sanitizeAudioSample(absInput));
+        if (!std::isfinite(state))
+            state = 0.0f;
+
         const float coeff = absInput > state ? attackCoeff : releaseCoeff;
         state += coeff * (absInput - state);
+        state = sanitizeAudioSample(state);
         return state;
     }
 };
@@ -102,6 +125,17 @@ struct PeriodTracker
 
     float process(float conditioned, float envelope) noexcept
     {
+        conditioned = sanitizeAudioSample(conditioned);
+        envelope = std::abs(sanitizeAudioSample(envelope));
+        if (!std::isfinite(trackedPeriod)
+            || !std::isfinite(smoothedFreq)
+            || !std::isfinite(confidence)
+            || !std::isfinite(bestCorrelation)
+            || !std::isfinite(decimateAccumulator))
+        {
+            reset();
+        }
+
         decimateAccumulator += conditioned;
         if (++decimateCounter >= kDecimation)
         {
@@ -117,6 +151,7 @@ struct PeriodTracker
         const float targetFreq = juce::jlimit(48.0f, 920.0f, decimatedSr / juce::jmax(1.0f, trackedPeriod));
         const float trackingSlew = juce::jmap(confidence, 0.025f, 0.12f);
         smoothedFreq += (targetFreq - smoothedFreq) * trackingSlew;
+        smoothedFreq = sanitizeAudioSample(smoothedFreq);
         return smoothedFreq;
     }
 
@@ -141,7 +176,7 @@ private:
 
     float historyAt(int offsetFromNewest) const noexcept
     {
-        return history[(size_t) wrapIndex(writePos - 1 - offsetFromNewest)];
+        return sanitizeAudioSample(history[(size_t) wrapIndex(writePos - 1 - offsetFromNewest)]);
     }
 
     float computeCorrelation(int lag, int window) const noexcept
@@ -223,7 +258,7 @@ private:
 
     void pushDecimatedSample(float sample, float envelope) noexcept
     {
-        history[(size_t) writePos] = sample;
+        history[(size_t) writePos] = sanitizeAudioSample(sample);
         writePos = (writePos + 1) % kHistorySize;
 
         if (++analysisCounter >= kAnalysisHop)
@@ -320,10 +355,12 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
+        juce::ScopedNoDenormals noDenormals;
+
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
 
-        juce::ScopedNoDenormals noDenormals;
+        scrubInvalidSamples(buffer);
 
         subSmooth.setTargetValue(subParam != nullptr ? snapBlendTarget(subParam->get()) : 0.72f);
         upperSmooth.setTargetValue(upperParam != nullptr ? snapBlendTarget(upperParam->get()) : 0.28f);
@@ -424,6 +461,16 @@ public:
     juce::AudioParameterFloat* levelParam = nullptr;
 
 private:
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int i = 0; i < buffer.getNumSamples(); ++i)
+                data[i] = Nova::OctaveDSP::sanitizeAudioSample(data[i]);
+        }
+    }
+
     static float snapBlendTarget(float value) noexcept
     {
         if (value <= 1.0e-4f)

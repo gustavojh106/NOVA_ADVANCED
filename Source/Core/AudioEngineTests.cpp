@@ -6767,6 +6767,47 @@ public:
             expect(nullRms <= 1.0e-6, "Dry-only settings should leave the signal effectively untouched");
         }
 
+        beginTest("OctavePedal sanitizes NaN/Inf input and recovers to finite output");
+        {
+            OctavePedal pedal;
+            pedal.subParam->setValueNotifyingHost(pedal.subParam->convertTo0to1(0.72f));
+            pedal.upperParam->setValueNotifyingHost(pedal.upperParam->convertTo0to1(0.35f));
+            pedal.dryParam->setValueNotifyingHost(pedal.dryParam->convertTo0to1(0.45f));
+            pedal.toneParam->setValueNotifyingHost(pedal.toneParam->convertTo0to1(0.60f));
+            pedal.levelParam->setValueNotifyingHost(pedal.levelParam->convertTo0to1(1.0f));
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+            juce::AudioBuffer<float> dirty(2, kBlockSize * 20);
+            dirty.clear();
+            for (int i = 0; i < dirty.getNumSamples(); ++i)
+            {
+                const float clean = 0.14f * std::sin(juce::MathConstants<float>::twoPi * 110.0f
+                    * (float) i / (float) kSampleRate);
+                const float v = (i % 11 == 0) ? std::numeric_limits<float>::quiet_NaN()
+                              : (i % 17 == 0) ? std::numeric_limits<float>::infinity()
+                              : (i % 23 == 0) ? -std::numeric_limits<float>::infinity()
+                              : clean;
+                dirty.setSample(0, i, v);
+                dirty.setSample(1, i, v);
+            }
+
+            const auto dirtyOutput = renderOctaveOutput(pedal, dirty, kBlockSize);
+
+            juce::AudioBuffer<float> recovery(2, kBlockSize * 20);
+            recovery.clear();
+            for (int i = 0; i < recovery.getNumSamples(); ++i)
+            {
+                const float clean = 0.14f * std::sin(juce::MathConstants<float>::twoPi * 146.83f
+                    * (float) i / (float) kSampleRate);
+                recovery.setSample(0, i, clean);
+                recovery.setSample(1, i, clean);
+            }
+
+            const auto recoveryOutput = renderOctaveOutput(pedal, recovery, kBlockSize);
+            expect(bufferHasOnlyFiniteSamples(dirtyOutput), "Octave must scrub NaN/Inf input to finite output");
+            expect(bufferHasOnlyFiniteSamples(recoveryOutput), "Octave state must recover to finite output after invalid input");
+        }
+
         beginTest("OctavePedal sub voice locks below the played note");
         {
             OctavePedal pedal;
@@ -11945,6 +11986,27 @@ public:
             expect(bufferHasOnlyFiniteSamples(output), "Delay must scrub NaN/Inf inputs to a finite output");
         }
 
+        beginTest("DelayPedal near-silence feedback tail remains finite");
+        {
+            DelayPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.94f));
+            pedal.timeParam->setValueNotifyingHost(pedal.timeParam->convertTo0to1(160.0f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            const int totalSamples = (int) (kSampleRate * 2.0);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            input.setSample(0, 0, 1.0e-20f);
+            input.setSample(1, 0, -1.0e-20f);
+
+            const auto output = renderDelayOutput(pedal, input, kBlockSize);
+            const double peak = computeBufferPeak(output, 0, output.getNumSamples());
+
+            expect(bufferHasOnlyFiniteSamples(output), "Near-silence delay tail must remain finite");
+            expect(peak < 1.0e-12, "Near-silence delay tail should stay effectively silent");
+        }
+
         beginTest("DelayPedal high peak input under feedback stays bounded");
         {
             DelayPedal pedal;
@@ -12041,6 +12103,27 @@ public:
             expect(peak < 8.0, "Max-feedback flanger should respect the safety ceiling");
         }
 
+        beginTest("FlangerPedal near-silence feedback tail remains finite");
+        {
+            FlangerPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.feedbackParam->setValueNotifyingHost(pedal.feedbackParam->convertTo0to1(0.92f));
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.88f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(1.0f));
+
+            const int totalSamples = (int) (kSampleRate * 1.5);
+            juce::AudioBuffer<float> input(2, totalSamples);
+            input.clear();
+            input.setSample(0, 0, 1.0e-20f);
+            input.setSample(1, 0, 1.0e-20f);
+
+            const auto output = renderFlangerOutput(pedal, input, kBlockSize);
+            const double peak = computeBufferPeak(output, 0, output.getNumSamples());
+
+            expect(bufferHasOnlyFiniteSamples(output), "Near-silence flanger tail must remain finite");
+            expect(peak < 1.0e-12, "Near-silence flanger tail should stay effectively silent");
+        }
+
         beginTest("FlangerPedal sanitizes NaN/Inf input under aggressive feedback");
         {
             FlangerPedal pedal;
@@ -12100,6 +12183,66 @@ public:
             expect(bufferHasOnlyFiniteSamples(output), "High-peak flanger render must remain finite");
             expect(peak < 8.0, "High-peak flanger should respect the safety ceiling");
             expect(lateRms < 2.0, "High-peak flanger should not sustain near-clip energy");
+        }
+
+        beginTest("ChorusPedal sanitizes NaN/Inf input and recovers to finite output");
+        {
+            ChorusPedal pedal;
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+            pedal.depthParam->setValueNotifyingHost(pedal.depthParam->convertTo0to1(0.92f));
+            pedal.widthParam->setValueNotifyingHost(pedal.widthParam->convertTo0to1(0.95f));
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.70f));
+
+            juce::AudioBuffer<float> dirty(2, kBlockSize * 16);
+            dirty.clear();
+            for (int i = 0; i < dirty.getNumSamples(); ++i)
+            {
+                const float clean = 0.08f * std::sin(juce::MathConstants<float>::twoPi * 220.0f
+                    * (float) i / (float) kSampleRate);
+                const float v = (i % 13 == 0) ? std::numeric_limits<float>::quiet_NaN()
+                              : (i % 19 == 0) ? std::numeric_limits<float>::infinity()
+                              : (i % 31 == 0) ? -std::numeric_limits<float>::infinity()
+                              : clean;
+                dirty.setSample(0, i, v);
+                dirty.setSample(1, i, -v);
+            }
+
+            const auto dirtyOutput = renderChorusOutput(pedal, dirty, kBlockSize);
+
+            juce::AudioBuffer<float> recovery(2, kBlockSize * 16);
+            recovery.clear();
+            for (int i = 0; i < recovery.getNumSamples(); ++i)
+            {
+                const float clean = 0.06f * std::sin(juce::MathConstants<float>::twoPi * 246.94f
+                    * (float) i / (float) kSampleRate);
+                recovery.setSample(0, i, clean);
+                recovery.setSample(1, i, clean);
+            }
+
+            const auto recoveryOutput = renderChorusOutput(pedal, recovery, kBlockSize);
+            expect(bufferHasOnlyFiniteSamples(dirtyOutput), "Chorus must scrub NaN/Inf input to finite output");
+            expect(bufferHasOnlyFiniteSamples(recoveryOutput), "Chorus state must recover to finite output after invalid input");
+        }
+
+        beginTest("ChorusPedal dry finite input is unchanged by safety scrub");
+        {
+            ChorusPedal pedal;
+            pedal.mixParam->setValueNotifyingHost(pedal.mixParam->convertTo0to1(0.0f));
+            pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+            juce::AudioBuffer<float> input(2, kBlockSize * 12);
+            input.clear();
+            for (int i = 0; i < input.getNumSamples(); ++i)
+            {
+                const float t = (float) i / (float) kSampleRate;
+                input.setSample(0, i, 0.11f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t));
+                input.setSample(1, i, 0.09f * std::sin(juce::MathConstants<float>::twoPi * 247.0f * t));
+            }
+
+            const auto output = renderChorusOutput(pedal, input, kBlockSize);
+            expect(bufferHasOnlyFiniteSamples(output), "Dry finite chorus render must remain finite");
+            expect(computeBufferNullRms(input, output) <= 1.0e-6,
+                "Dry finite chorus input should be materially unchanged by safety scrub");
         }
 
         beginTest("ReverbPedal max decay under sustained input stays bounded");

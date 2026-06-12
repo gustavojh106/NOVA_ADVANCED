@@ -1,0 +1,77 @@
+[
+  {
+    "id": "P13B-FIX1-F001",
+    "title": "Delay, Chorus, and Flanger process blocks now install denormal guards",
+    "severity": "Resolved",
+    "probability": "Confirmed",
+    "affected_files": [
+      "Source/Effects/Pedals/Delay/DelayPedal.h",
+      "Source/Effects/Pedals/Chorus/ChorusPedal.h",
+      "Source/Effects/Pedals/Flanger/FlangerPedal.h"
+    ],
+    "evidence": [
+      "Each target processBlock now creates juce::ScopedNoDenormals before DSP work.",
+      "Near-silence Delay and Flanger regression tests pass.",
+      "Full NOVA validation passes with 273 results, 7553 passes, 0 failures."
+    ],
+    "status": "resolved"
+  },
+  {
+    "id": "P13B-FIX1-F002",
+    "title": "Chorus now scrubs invalid input and prevents invalid feedback/filter state from latching",
+    "severity": "Resolved",
+    "probability": "Confirmed",
+    "affected_files": [
+      "Source/Effects/Pedals/Chorus/ChorusPedal.h",
+      "Source/Core/AudioEngineTests.cpp"
+    ],
+    "evidence": [
+      "Chorus input buffer samples are sanitized before DSP processing.",
+      "Chorus delay-line writes/reads, biquad state, wet state, and feedback state sanitize NaN/Inf to zero.",
+      "Regression tests prove NaN/Inf input recovery and dry finite-input transparency."
+    ],
+    "status": "resolved"
+  },
+  {
+    "id": "P13B-FIX1-F003",
+    "title": "Octave now scrubs invalid input and hardens filter/envelope/tracker state",
+    "severity": "Resolved",
+    "probability": "Confirmed",
+    "affected_files": [
+      "Source/Effects/Pedals/Octave/OctavePedal.h",
+      "Source/Core/AudioEngineTests.cpp"
+    ],
+    "evidence": [
+      "Octave input buffer samples are sanitized before DSP processing.",
+      "Octave biquads, envelope follower, and period tracker sanitize or reset invalid state.",
+      "Regression tests prove NaN/Inf input recovery; existing dry-only transparency test still passes."
+    ],
+    "status": "resolved"
+  },
+  {
+    "id": "P13B-FIX1-F007",
+    "title": "CLAUDE.md no longer claims the current Neural pedal uses RTNeural inference",
+    "severity": "Resolved",
+    "probability": "Confirmed",
+    "affected_files": [
+      "CLAUDE.md"
+    ],
+    "evidence": [
+      "Documentation now describes Neural as analytic/model-inspired waveshaping.",
+      "Vendored RTNeural/models are documented as unused by the current Neural pedal implementation."
+    ],
+    "status": "resolved"
+  },
+  {
+    "id": "P13B-FIX1-D001",
+    "title": "Neural and Reverb CPU hotspot work remains deferred",
+    "severity": "Deferred",
+    "probability": "Known",
+    "affected_files": [],
+    "evidence": [
+      "This task intentionally avoided Neural/Reverb optimization and behavior changes."
+    ],
+    "recommendation": "Handle CPU profiling/optimization in a separate profiling-focused task.",
+    "status": "deferred"
+  }
+]

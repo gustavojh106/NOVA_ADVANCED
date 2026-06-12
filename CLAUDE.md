@@ -116,7 +116,7 @@ Source/
 └── Resources/Textures/         # Knob filmstrips, surface materials
 ```
 
-**Pedal file structure**: All 17 pedals are in their own subfolder (e.g., `Pedals/Overdrive/OverdrivePedal.h` + `OverdriveEditor.h`). Notable exceptions: `Wah/` contains two pedals (ClassicWahPedal + AutoWahPedal), and `Neural/` uses RTNeural inference for neural amp modeling (distinct from other pedal patterns). A few legacy flat files (e.g., `Pedals/ChorusPedal.h`, `Pedals/CompressorPedal.h`) still exist but are fully superseded — always use the subfolder version.
+**Pedal file structure**: All 17 pedals are in their own subfolder (e.g., `Pedals/Overdrive/OverdrivePedal.h` + `OverdriveEditor.h`). Notable exceptions: `Wah/` contains two pedals (ClassicWahPedal + AutoWahPedal), and `Neural/` is currently an analytic/model-inspired waveshaping pedal rather than an RTNeural inference path. A few legacy flat files (e.g., `Pedals/ChorusPedal.h`, `Pedals/CompressorPedal.h`) still exist but are fully superseded — always use the subfolder version.
 
 ### Key Files
 
@@ -191,6 +191,6 @@ Changes to these files can cascade broadly — test beyond compile:
 
 ### Libraries (vendored in `Source/Lib/`)
 
-- **RTNeural**: Neural network inference for amp modeling
-- **Eigen**, **json**, **xsimd**: RTNeural dependencies
-- **models/**: Pre-trained neural network weights (JSON resources)
+- **RTNeural**: Vendored but not used by the current Neural pedal implementation
+- **Eigen**, **json**, **xsimd**: Vendored RTNeural dependencies
+- **models/**: Vendored model resources; unused by the current Neural pedal implementation
