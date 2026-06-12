@@ -10,7 +10,9 @@
 #include <atomic>
 
 class NOVAAudioProcessor final : public juce::AudioProcessor,
-    public juce::AudioProcessorParameter::Listener
+    public juce::AudioProcessorParameter::Listener,
+    private juce::AsyncUpdater,
+    private AudioEngine::LatencyListener
 {
 public:
     NOVAAudioProcessor();
@@ -84,10 +86,17 @@ private:
     void parameterValueChanged(int parameterIndex, float newValue) override;
     void parameterGestureChanged(int, bool) override {}
 
+    // AsyncUpdater / AudioEngine::LatencyListener
+    void handleAsyncUpdate() override;
+    void audioEngineLatencyChanged(int latencySamples) override;
+
     // Host bridge helpers.
     void createGlobalParameters();
     void refreshEngineEnabledIfNeeded(bool allowLogging = true);
     void refreshEngineGlobalParamsIfNeeded(bool force, bool allowLogging = true);
+    void requestHostLatencyRefresh();
+    void updateHostLatencyFromEngineNow();
+    void applyHostLatencyIfChanged(int graphLatencySamples);
     void logRuntimeSnapshot(const juce::String& context, const AudioEngine::RuntimeGlobalParams& snapshot) const;
     void logStateSnapshot(const juce::String& context) const;
     void synchronizeEngineNow();
@@ -127,6 +136,9 @@ private:
     std::atomic<bool> lastEngineEnabled{ false };
     std::atomic<bool> deferredRuntimeSnapshotLog{ false };
     std::atomic<bool> deferredEngineToggleLog{ false };
+    std::atomic<bool> audioEnginePreparedForHostLatency{ false };
+    std::atomic<bool> hostLatencyRefreshPending{ false };
+    std::atomic<int> lastReportedHostLatencySamples{ -1 };
     std::atomic<int> hostTransportPollCounter{ 0 };
     RuntimeGlobalParamAtomics lastRuntimeGlobalParams;
 

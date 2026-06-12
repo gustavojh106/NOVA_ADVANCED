@@ -1859,6 +1859,47 @@ void warmUpEngine(AudioEngine& engine, int blockSize, int blocks = 10)
     }
 }
 
+// P12D helper: the OutputChain limiter is always armed at the transparent
+// safety threshold, so the engine has a stable lookahead delay even on the
+// clean path. Tests that previously asserted sample-by-sample equality on tiny
+// buffers must now reconstruct the output pattern at the latency offset.
+void expectStereoSamplesMatchAfterLatency(juce::UnitTest& test,
+    AudioEngine& engine,
+    const std::vector<float>& expectedLeft,
+    const std::vector<float>& expectedRight,
+    int blockSize,
+    float tolerance = kTolerance)
+{
+    const int latency = engine.getLatencyNumSamples();
+    const int patternSize = (int)expectedLeft.size();
+    const int totalSamples = ((latency + patternSize + blockSize - 1) / blockSize + 2) * blockSize;
+
+    juce::AudioBuffer<float> input(2, totalSamples);
+    input.clear();
+    input.copyFrom(0, 0, expectedLeft.data(), patternSize);
+    input.copyFrom(1, 0, expectedRight.data(), patternSize);
+
+    juce::AudioBuffer<float> captured(2, totalSamples);
+    captured.clear();
+    juce::MidiBuffer midi;
+
+    for (int offset = 0; offset + blockSize <= totalSamples; offset += blockSize)
+    {
+        juce::AudioBuffer<float> block(2, blockSize);
+        for (int ch = 0; ch < 2; ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, blockSize);
+        engine.process(block, midi);
+        for (int ch = 0; ch < 2; ++ch)
+            captured.copyFrom(ch, offset, block, ch, 0, blockSize);
+    }
+
+    juce::AudioBuffer<float> output(2, patternSize);
+    for (int ch = 0; ch < 2; ++ch)
+        output.copyFrom(ch, 0, captured, ch, latency, patternSize);
+
+    expectStereoSamplesMatch(test, output, expectedLeft, expectedRight, tolerance);
+}
+
 enum class P1PedalSignal
 {
     Silence,
@@ -3228,7 +3269,10 @@ public:
                 "Legacy -20 dB limiter settings should clamp to the safer -12 dB ceiling range");
 
             output.setParams(0.0f, 0.0f);
-            expectEquals(output.getLatencySamples(), 0, "Bypassed limiter should not report lookahead latency");
+            // P12D: limiter is always armed at the transparent safety threshold,
+            // so the lookahead delay is stable regardless of user-controlled limiterDb.
+            expect(output.getLatencySamples() > 0,
+                "Always-armed limiter should report stable lookahead latency at limiterDb=0");
         }
 
         beginTest("OutputChain limiter catches isolated pick transients with lookahead");
@@ -3601,16 +3645,38 @@ public:
             output.setParams(-6.0f, 0.0f);
             output.reset();
 
-            juce::AudioBuffer<float> outputBuffer(2, 4);
-            outputBuffer.clear();
-            outputBuffer.setSample(0, 0, 1.0f);
-            outputBuffer.setSample(1, 0, 1.0f);
-            output.processBlock(outputBuffer, midi);
+            // P12D: limiter is always armed, so OutputChain has a stable lookahead
+            // delay. A 4-sample impulse buffer is shorter than the lookahead, so we
+            // drive a sustained sine instead and verify steady-state master gain.
+            constexpr int kSettleBlocks = 12;
+            juce::AudioBuffer<float> outputBuffer(2, kBlockSize);
+            float observedPeakL = 0.0f;
+            float observedPeakR = 0.0f;
+            for (int blockIndex = 0; blockIndex < kSettleBlocks; ++blockIndex)
+            {
+                for (int i = 0; i < kBlockSize; ++i)
+                {
+                    const float t = (float)(blockIndex * kBlockSize + i) / (float)kSampleRate;
+                    const float sample = std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                    outputBuffer.setSample(0, i, sample);
+                    outputBuffer.setSample(1, i, sample);
+                }
 
-            expect(outputBuffer.getSample(0, 0) < 0.55f && outputBuffer.getSample(0, 0) > 0.45f,
-                "Output gain should survive reset");
-            expect(outputBuffer.getSample(1, 0) < 0.55f && outputBuffer.getSample(1, 0) > 0.45f,
-                "Output gain should survive reset on both channels");
+                output.processBlock(outputBuffer, midi);
+
+                if (blockIndex >= kSettleBlocks - 2)
+                {
+                    observedPeakL = juce::jmax(observedPeakL,
+                        outputBuffer.getMagnitude(0, 0, kBlockSize));
+                    observedPeakR = juce::jmax(observedPeakR,
+                        outputBuffer.getMagnitude(1, 0, kBlockSize));
+                }
+            }
+
+            expect(observedPeakL < 0.55f && observedPeakL > 0.45f,
+                "Output gain should survive reset, peakL=" + juce::String(observedPeakL, 6));
+            expect(observedPeakR < 0.55f && observedPeakR > 0.45f,
+                "Output gain should survive reset on both channels, peakR=" + juce::String(observedPeakR, 6));
         }
 
         beginTest("GraphRetirementQueue preserves grace period and bounded cleanup");
@@ -3753,17 +3819,13 @@ public:
             engine.setEngineEnabled(true);
             warmUpEngine(engine, kBlockSize);
 
-            juce::AudioBuffer<float> buffer(2, 4);
-            juce::MidiBuffer midi;
+            // P12D: keep the test pattern peak below the OutputChain transparent
+            // safety threshold (~0.97 linear) so the always-armed limiter does
+            // not reduce gain. This preserves the bit-accurate clean-path check.
+            const std::vector<float> left{ 0.225f, -0.45f, 0.675f, -0.9f };
+            const std::vector<float> right{ -0.18f, 0.36f, -0.54f, 0.72f };
 
-            const std::vector<float> left{ 0.25f, -0.5f, 0.75f, -1.0f };
-            const std::vector<float> right{ -0.2f, 0.4f, -0.6f, 0.8f };
-
-            buffer.copyFrom(0, 0, left.data(), (int)left.size());
-            buffer.copyFrom(1, 0, right.data(), (int)right.size());
-
-            engine.process(buffer, midi);
-            expectStereoSamplesMatch(*this, buffer, left, right, 3.5e-3f);
+            expectStereoSamplesMatchAfterLatency(*this, engine, left, right, kBlockSize, 3.5e-3f);
         }
 
         beginTest("AudioEngine disabled state preserves dry input");
@@ -3803,17 +3865,10 @@ public:
             engine.setEngineEnabled(true);
             warmUpEngine(engine, kBlockSize);
 
-            juce::AudioBuffer<float> buffer(2, 4);
-            juce::MidiBuffer midi;
-
             const std::vector<float> left{ 0.1f, 0.2f, -0.3f, 0.4f };
             const std::vector<float> right{ -0.4f, 0.3f, -0.2f, 0.1f };
 
-            buffer.copyFrom(0, 0, left.data(), (int)left.size());
-            buffer.copyFrom(1, 0, right.data(), (int)right.size());
-
-            engine.process(buffer, midi);
-            expectStereoSamplesMatch(*this, buffer, left, right, 3.5e-3f);
+            expectStereoSamplesMatchAfterLatency(*this, engine, left, right, kBlockSize, 3.5e-3f);
         }
 
         beginTest("AudioEngine base path stays finite and level-stable across sample rates and block sizes");
@@ -4150,9 +4205,21 @@ public:
 
             auto renderOneBlock = [&](const juce::AudioBuffer<float>& input)
             {
+                // P12D: OutputChain always reports lookahead latency, so a single
+                // block of input would arrive after the buffer ends. Prime the
+                // delay line with copies of the same periodic signal first.
+                const int latency = engine.getLatencyNumSamples();
+                const int primingBlocks = juce::jmax(2,
+                    (latency + input.getNumSamples() - 1) / input.getNumSamples() + 1);
+                juce::MidiBuffer midi;
+                for (int i = 0; i < primingBlocks; ++i)
+                {
+                    juce::AudioBuffer<float> scratch(input.getNumChannels(), input.getNumSamples());
+                    scratch.makeCopyOf(input);
+                    engine.process(scratch, midi);
+                }
                 juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
                 output.makeCopyOf(input);
-                juce::MidiBuffer midi;
                 engine.process(output, midi);
                 return output;
             };
@@ -4258,6 +4325,230 @@ public:
                     + juce::String(transitionDownDelta, 8)
                     + ", steadyRef="
                     + juce::String(steadyReference, 8));
+        }
+
+        beginTest("P12D OutputChain transparent safety catches hot master before soft ceiling");
+        {
+            // Regression for P12C-confirmed escape: outputVolumeDb >> 0 with
+            // outputLimiterDb = 0 previously bypassed the lookahead limiter and
+            // pinned output at the 0.999 soft ceiling, producing sustained
+            // near-clip in manual logs (see "Preset con master alto.txt").
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            params.outputVolumeDb = 10.73f; // match the bad manual log exactly
+            params.outputLimiterDb = 0.0f;  // ship-default; was the bypass path
+            params.gainA = 1.0f;
+            params.panA = 0.0f;
+            params.widthA = 1.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 32);
+
+            constexpr int kCaptureBlocks = 64;
+            juce::AudioBuffer<float> capture(2, kBlockSize * kCaptureBlocks);
+            juce::MidiBuffer midi;
+            int globalSample = 0;
+            bool finite = true;
+
+            for (int blockIndex = 0; blockIndex < kCaptureBlocks; ++blockIndex)
+            {
+                juce::AudioBuffer<float> block(2, kBlockSize);
+                for (int i = 0; i < kBlockSize; ++i, ++globalSample)
+                {
+                    const float t = (float)((double)globalSample / kSampleRate);
+                    // 0.5 amplitude * +10.73 dB master (~x3.44) -> 1.72 linear,
+                    // well above both the 0.97 transparent threshold and the
+                    // 0.999 soft ceiling. Without the fix, output peaks at 0.999.
+                    block.setSample(0, i, 0.50f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t));
+                    block.setSample(1, i, 0.50f * std::sin(juce::MathConstants<float>::twoPi * 277.0f * t + 0.19f));
+                }
+
+                engine.process(block, midi);
+                finite = finite && bufferHasOnlyFiniteSamples(block);
+
+                for (int ch = 0; ch < 2; ++ch)
+                    capture.copyFrom(ch, blockIndex * kBlockSize, block, ch, 0, kBlockSize);
+            }
+
+            float outputPeak = 0.0f;
+            int aboveTransparentSafety = 0;
+            int aboveSoftCeilingThreshold = 0;
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const auto* data = capture.getReadPointer(ch);
+                for (int i = 0; i < capture.getNumSamples(); ++i)
+                {
+                    const float mag = std::abs(data[i]);
+                    outputPeak = juce::jmax(outputPeak, mag);
+                    if (mag > 0.975f)
+                        ++aboveTransparentSafety;
+                    if (mag > 0.985f)
+                        ++aboveSoftCeilingThreshold;
+                }
+            }
+
+            const auto snapshot = engine.getOutputChainDebugSnapshot();
+
+            expect(finite, "P12D regression render must remain finite");
+            expect(outputPeak < 0.98f,
+                "Lookahead limiter must hold output below the soft-ceiling band; outputPeak="
+                    + juce::String(outputPeak, 6));
+            expect(aboveSoftCeilingThreshold == 0,
+                "No sample should reach the 0.985 soft-ceiling threshold; aboveSoftCeilingThreshold="
+                    + juce::String(aboveSoftCeilingThreshold));
+            expect(aboveTransparentSafety < capture.getNumSamples() / 256,
+                "Output should sit at or below the transparent safety threshold; aboveTransparentSafety="
+                    + juce::String(aboveTransparentSafety));
+            expect(snapshot.limiterMaxReductionDb > 0.5f,
+                "Lookahead limiter must actually reduce gain under hot master; maxReductionDb="
+                    + juce::String(snapshot.limiterMaxReductionDb, 4));
+            expect(snapshot.softCeilingTouchedSamples == 0,
+                "Soft ceiling must not act as the main limiter after P12D; softCeilingTouchedSamples="
+                    + juce::String(snapshot.softCeilingTouchedSamples));
+        }
+
+        beginTest("P12D OutputChain stays transparent on quiet signal at default limiter");
+        {
+            // Companion to the P12D hot-master regression: at default limiter
+            // (0 dB) with quiet input, the always-armed limiter must not touch
+            // gain and must not introduce audible artefacts.
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            params.outputVolumeDb = 0.0f;
+            params.outputLimiterDb = 0.0f;
+            params.gainA = 1.0f;
+            params.panA = 0.0f;
+            params.widthA = 1.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 32);
+
+            constexpr int kCaptureBlocks = 48;
+            double inSquares = 0.0;
+            double outSquares = 0.0;
+            int measuredSamples = 0;
+            bool finite = true;
+            int globalSample = 0;
+            juce::MidiBuffer midi;
+
+            for (int blockIndex = 0; blockIndex < kCaptureBlocks; ++blockIndex)
+            {
+                juce::AudioBuffer<float> block(2, kBlockSize);
+                for (int i = 0; i < kBlockSize; ++i, ++globalSample)
+                {
+                    const float t = (float)((double)globalSample / kSampleRate);
+                    const float sample = 0.10f * std::sin(juce::MathConstants<float>::twoPi * 196.0f * t);
+                    block.setSample(0, i, sample);
+                    block.setSample(1, i, sample);
+                    if (blockIndex >= 12)
+                        inSquares += (double)sample * (double)sample;
+                }
+
+                engine.process(block, midi);
+                finite = finite && bufferHasOnlyFiniteSamples(block);
+
+                if (blockIndex < 12)
+                    continue;
+
+                for (int ch = 0; ch < 2; ++ch)
+                {
+                    const auto* data = block.getReadPointer(ch);
+                    for (int i = 0; i < kBlockSize; ++i)
+                        outSquares += (double)data[i] * (double)data[i];
+                }
+                measuredSamples += kBlockSize;
+            }
+
+            const double inRms = std::sqrt(inSquares / juce::jmax(1, measuredSamples));
+            const double outRms = std::sqrt(outSquares / juce::jmax(1, measuredSamples * 2));
+            const double ratio = outRms / juce::jmax(1.0e-9, inRms);
+            const auto snapshot = engine.getOutputChainDebugSnapshot();
+
+            expect(finite, "P12D quiet-signal render must remain finite");
+            expect(ratio > 0.94 && ratio < 1.06,
+                "Quiet signal must pass through unchanged at default limiter; ratio="
+                    + juce::String(ratio, 6));
+            expect(snapshot.limiterMaxReductionDb < 0.05f,
+                "Always-armed limiter must not reduce gain on quiet signal; maxReductionDb="
+                    + juce::String(snapshot.limiterMaxReductionDb, 6));
+            expect(snapshot.limiterActiveBlocks == 0,
+                "No actual limiter clamping should occur on quiet signal; limiterActiveBlocks="
+                    + juce::String(snapshot.limiterActiveBlocks));
+            expect(snapshot.softCeilingTouchedSamples == 0,
+                "Soft ceiling must not engage on quiet signal; softCeilingTouchedSamples="
+                    + juce::String(snapshot.softCeilingTouchedSamples));
+        }
+
+        beginTest("P12D OutputChain reports lookahead latency at every limiter setting");
+        {
+            // Always-on limiter implies a stable, non-zero output-stage latency
+            // regardless of user-controlled limiterDb. The previous build only
+            // reported latency when limiterDb < -0.0001.
+            OutputChainProcessor output;
+            output.prepareToPlay(kSampleRate, kBlockSize);
+
+            output.setParams(0.0f, 0.0f);
+            const int latencyAtZero = output.getLatencySamples();
+
+            output.setParams(0.0f, -6.0f);
+            const int latencyAtMinusSix = output.getLatencySamples();
+
+            output.setParams(0.0f, -12.0f);
+            const int latencyAtMinusTwelve = output.getLatencySamples();
+
+            expect(latencyAtZero > 0,
+                "Output stage must report lookahead latency even at limiterDb = 0; latency="
+                    + juce::String(latencyAtZero));
+            expectEquals(latencyAtZero, latencyAtMinusSix);
+            expectEquals(latencyAtZero, latencyAtMinusTwelve);
+        }
+
+        beginTest("P13A host PDC reports live AudioEngine graph latency");
+        {
+            NOVAAudioProcessor processor;
+            processor.setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+            processor.prepareToPlay(kSampleRate, kBlockSize);
+
+            const int baselineLatency = processor.getAudioEngine().getLatencyNumSamples();
+            expect(baselineLatency > 0,
+                "Empty graph should report OutputChain lookahead latency after prepare");
+            expectEquals(processor.getLatencySamples(), baselineLatency);
+
+            const std::array<float, 3> limiterSettings { 0.0f, -6.0f, -12.0f };
+            for (float limiterDb : limiterSettings)
+            {
+                expect(setRangedParamById(processor, Nova::IDs::OUTPUT_LIMITER.toString(), limiterDb),
+                    "Output limiter parameter should be reachable from processor tests");
+
+                juce::AudioBuffer<float> buffer(2, kBlockSize);
+                juce::MidiBuffer midi;
+                processor.processBlock(buffer, midi);
+
+                expectEquals(processor.getAudioEngine().getLatencyNumSamples(), baselineLatency);
+                expectEquals(processor.getLatencySamples(), baselineLatency);
+            }
+
+            processor.requestAddPedal("Overdrive", Nova::ChainID::LineA, Nova::ZoneID::Pre, 0);
+            const int activeLatency = processor.getAudioEngine().getLatencyNumSamples();
+            expect(activeLatency > baselineLatency,
+                "Active Overdrive should add latency above the OutputChain baseline");
+            expectEquals(processor.getLatencySamples(), activeLatency);
+
+            processor.requestBypassPedal(Nova::ChainID::LineA, 0, true);
+            expectEquals(processor.getAudioEngine().getLatencyNumSamples(), baselineLatency);
+            expectEquals(processor.getLatencySamples(), baselineLatency);
+
+            processor.requestBypassPedal(Nova::ChainID::LineA, 0, false);
+            expectEquals(processor.getAudioEngine().getLatencyNumSamples(), activeLatency);
+            expectEquals(processor.getLatencySamples(), activeLatency);
         }
 
         beginTest("DryWetMixer scratch preparation and fallback boundaries remain canonical");
@@ -5160,9 +5451,25 @@ public:
             engine.setEngineEnabled(true);
             warmUpEngine(engine, kBlockSize, 12);
 
-            juce::AudioBuffer<float> oversized(2, kBlockSize + 32);
+            // P12D: prime OutputChain lookahead with the same periodic signal so
+            // the oversized buffer rendering produces non-zero output rather than
+            // catching the delay line in its initial empty state.
+            constexpr int kOversizedSamples = kBlockSize + 32;
+            juce::AudioBuffer<float> oversized(2, kOversizedSamples);
             juce::MidiBuffer midi;
-            for (int i = 0; i < oversized.getNumSamples(); ++i)
+            for (int primingBlock = 0; primingBlock < 4; ++primingBlock)
+            {
+                juce::AudioBuffer<float> primer(2, kBlockSize);
+                for (int i = 0; i < kBlockSize; ++i)
+                {
+                    const float t = (float)((primingBlock * kBlockSize) + i) / (float)kSampleRate;
+                    primer.setSample(0, i, 0.14f * std::sin(juce::MathConstants<float>::twoPi * 183.0f * t));
+                    primer.setSample(1, i, 0.10f * std::sin(juce::MathConstants<float>::twoPi * 271.0f * t + 0.22f));
+                }
+                engine.process(primer, midi);
+            }
+
+            for (int i = 0; i < kOversizedSamples; ++i)
             {
                 const float t = (float)i / (float)kSampleRate;
                 oversized.setSample(0, i, 0.14f * std::sin(juce::MathConstants<float>::twoPi * 183.0f * t));
@@ -5295,18 +5602,18 @@ public:
             engine.setEngineEnabled(true);
             warmUpEngine(engine, kBlockSize);
 
-            juce::AudioBuffer<float> buffer(2, 4);
             juce::MidiBuffer midi;
             const std::vector<float> left{ 0.22f, -0.11f, 0.33f, -0.44f };
             const std::vector<float> right{ -0.15f, 0.25f, -0.35f, 0.45f };
 
-            buffer.copyFrom(0, 0, left.data(), (int)left.size());
-            buffer.copyFrom(1, 0, right.data(), (int)right.size());
-            engine.process(buffer, midi);
-            expectStereoSamplesMatch(*this, buffer, left, right, 3.5e-3f);
+            expectStereoSamplesMatchAfterLatency(*this, engine, left, right, kBlockSize, 3.5e-3f);
 
             engine.setEngineEnabled(false);
             warmUpEngine(engine, kBlockSize, 4);
+            // When the engine is disabled the dry signal bypasses OutputChain
+            // entirely, so latency drops to zero and the 4-sample equality check
+            // still applies directly.
+            juce::AudioBuffer<float> buffer(2, 4);
             buffer.copyFrom(0, 0, left.data(), (int)left.size());
             buffer.copyFrom(1, 0, right.data(), (int)right.size());
             engine.process(buffer, midi);
@@ -5314,10 +5621,7 @@ public:
 
             engine.setEngineEnabled(true);
             warmUpEngine(engine, kBlockSize, 10);
-            buffer.copyFrom(0, 0, left.data(), (int)left.size());
-            buffer.copyFrom(1, 0, right.data(), (int)right.size());
-            engine.process(buffer, midi);
-            expectStereoSamplesMatch(*this, buffer, left, right, 3.5e-3f);
+            expectStereoSamplesMatchAfterLatency(*this, engine, left, right, kBlockSize, 3.5e-3f);
         }
 
         beginTest("AudioEngine re-enable refresh re-prepares released pedal processors");
@@ -5407,17 +5711,24 @@ public:
         {
             AudioEngine engine;
             engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.synchronizeProcessingState();
+
+            // P12D: OutputChain always reports its lookahead delay. The "no pedal"
+            // graph latency is therefore the OutputChain baseline, not zero.
+            const int outputChainBaselineLatency = engine.getLatencyNumSamples();
+
             engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "latency-overdrive");
             engine.synchronizeProcessingState();
 
             const int activeLatency = engine.getLatencyNumSamples();
-            expect(activeLatency > 0, "Overdrive should contribute graph latency when active");
+            expect(activeLatency > outputChainBaselineLatency,
+                "Overdrive should contribute graph latency above the OutputChain baseline");
             auto* activeProcessor = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
             expect(activeProcessor != nullptr, "Expected an active Overdrive processor before bypass");
 
             engine.setPedalBypassed(Nova::ChainID::LineA, 0, true);
             engine.synchronizeProcessingState();
-            expectEquals(engine.getLatencyNumSamples(), 0);
+            expectEquals(engine.getLatencyNumSamples(), outputChainBaselineLatency);
             expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
                 "Bypass latency rebuild should update the active graph in place, not publish a replacement graph");
 
@@ -5738,7 +6049,9 @@ public:
 
             const auto baseline = runNoPedalScenario(0.0f, 0.0f, 0.028f);
             const auto boosted = runNoPedalScenario(12.0f, 0.0f, 0.028f);
-            const auto limited = runNoPedalScenario(0.0f, -6.0f, 0.42f);
+            // Drive the limiter above the -6 dB threshold (~0.501 linear) so the
+            // assertion below exercises actual gain reduction, not just an armed flag.
+            const auto limited = runNoPedalScenario(0.0f, -6.0f, 0.70f);
 
             expect(baseline.finite, "Baseline global processor render must stay finite");
             expect(boosted.finite, "Boosted global processor render must stay finite");

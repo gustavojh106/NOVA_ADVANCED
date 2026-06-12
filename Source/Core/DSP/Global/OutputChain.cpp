@@ -15,19 +15,31 @@ float OutputChainProcessor::sanitizeLimiterDb(float value) noexcept
     if (!std::isfinite(value))
         return 0.0f;
 
-    // 0 dB means transparent safety mode.
-    // Legacy/extreme negative states are clamped to the audible MVP floor.
+    // 0 dB == transparent safety mode (always armed). Negative values lower the
+    // user-controlled threshold further. The lookahead limiter is always engaged;
+    // see limiterDbToLinear() for the safety floor.
     return juce::jlimit(-12.0f, 0.0f, value);
 }
 
 float OutputChainProcessor::limiterDbToLinear(float limiterDb) noexcept
 {
-    return juce::Decibels::decibelsToGain(sanitizeLimiterDb(limiterDb), -120.0f);
+    // Transparent safety floor. At limiter = 0 dB the user expects "no audible
+    // limiting" but the previous build bypassed the lookahead entirely. The
+    // sanitizer-honest fix is to keep the limiter armed at a high but engaged
+    // threshold so master-stage runaway (e.g. +10.73 dB master + hot chain) is
+    // caught before it reaches the final soft ceiling at 0.999.
+    constexpr float kTransparentSafetyLinear = 0.97f; // ~ -0.265 dB
+
+    const float sanitized = sanitizeLimiterDb(limiterDb);
+    const float threshold = juce::Decibels::decibelsToGain(sanitized, -120.0f);
+    return juce::jmin(threshold, kTransparentSafetyLinear);
 }
 
-bool OutputChainProcessor::isLimiterActiveDb(float limiterDb) noexcept
+bool OutputChainProcessor::isLimiterActiveDb(float /*limiterDb*/) noexcept
 {
-    return sanitizeLimiterDb(limiterDb) < -0.0001f;
+    // Limiter is always armed. limiterDbToLinear() guarantees the threshold
+    // never sits at or above 1.0, so the lookahead path runs every block.
+    return true;
 }
 
 float OutputChainProcessor::applySoftCeiling(float x) noexcept
@@ -169,9 +181,10 @@ void OutputChainProcessor::applyParameterTargets(bool forceSync) noexcept
     }
 }
 
-void OutputChainProcessor::updateReportedLatencyForLimiter(float limiterDb)
+void OutputChainProcessor::updateReportedLatencyForLimiter(float /*limiterDb*/)
 {
-    setLatencySamples(isLimiterActiveDb(limiterDb) ? limiter.getLookaheadSamples() : 0);
+    // Limiter is always armed -> latency is always the lookahead delay.
+    setLatencySamples(limiter.getLookaheadSamples());
 }
 
 void OutputChainProcessor::applyDcBlockers(juce::AudioBuffer<float>& buffer) noexcept
@@ -273,15 +286,11 @@ void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     applyMasterGain(buffer);
     debugTelemetry.postGainStage.capture(buffer);
 
-    // 3) Lookahead limiter only when the ceiling is active.
-    PeakLimiter::Result limiterResult;
-    if (isLimiterActiveDb(currentLimiterDb))
-        limiterResult = limiter.process(buffer, limiterThresholdLinearSmooth);
-    else
-    {
-        limiterResult.thresholdLinearMin = 1.0f;
-        limiterResult.thresholdLinearMax = 1.0f;
-    }
+    // 3) Lookahead limiter is always armed (transparent safety threshold even
+    // when the user-controlled limiterDb is 0). The previous build bypassed the
+    // lookahead at 0 dB and relied on the 0.985->0.999 soft ceiling alone,
+    // which left hot master gain unchecked.
+    const PeakLimiter::Result limiterResult = limiter.process(buffer, limiterThresholdLinearSmooth);
 
     debugTelemetry.captureControls(currentOutputVolDb, currentLimiterDb, limiterResult);
     debugTelemetry.postLimiterStage.capture(buffer);

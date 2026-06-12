@@ -117,12 +117,14 @@ void AudioEngine::publishGraph(std::shared_ptr<GraphRuntime> newGraph)
     if (newGraph == nullptr)
         return;
 
+    const int latencySamples = newGraph->latencySamples;
     const uint64_t nowBlock = audioPlane.audioBlockCounter.load(std::memory_order_acquire);
     runtimeGraphs.publish(std::move(newGraph), nowBlock,
         [this](int latencySamples) noexcept
         {
             updateDryDelayLatency(latencySamples);
         });
+    notifyLatencyChanged(latencySamples);
 
     cleanupRetiredGraphs();
 }
@@ -231,7 +233,19 @@ void AudioEngine::applyPedalBypassToActiveGraph(Nova::ChainID chain, int index, 
             Nova::Config::MAX_GRAPH_LATENCY_SAMPLES,
             runtime->graph->getLatencySamples());
         updateDryDelayLatency(runtime->latencySamples);
+        notifyLatencyChanged(runtime->latencySamples);
     }
+}
+
+void AudioEngine::setLatencyListener(LatencyListener* listener) noexcept
+{
+    latencyListener.store(listener, std::memory_order_release);
+}
+
+void AudioEngine::notifyLatencyChanged(int latencySamples)
+{
+    if (auto* listener = latencyListener.load(std::memory_order_acquire))
+        listener->audioEngineLatencyChanged(latencySamples);
 }
 
 // ========================================================== 

@@ -376,6 +376,8 @@ NOVAAudioProcessor::NOVAAudioProcessor()
 #endif
 
     createGlobalParameters();
+    audioEngine.setLatencyListener(this);
+
     sessionCoordinator.bindParameters({
         engineOnParam,
         switchModeParam,
@@ -405,6 +407,9 @@ NOVAAudioProcessor::NOVAAudioProcessor()
 
 NOVAAudioProcessor::~NOVAAudioProcessor()
 {
+    audioEngine.setLatencyListener(nullptr);
+    cancelPendingUpdate();
+
     logStateSnapshot("processor.destroying");
 
     for (auto* parameter : getParameters())
@@ -460,6 +465,51 @@ void NOVAAudioProcessor::parameterValueChanged(int parameterIndex, float newValu
 
     if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(getParameters()[parameterIndex]))
         sessionCoordinator.noteParameterValueChanged(ranged->paramID, newValue);
+}
+
+void NOVAAudioProcessor::handleAsyncUpdate()
+{
+    if (!hostLatencyRefreshPending.exchange(false, std::memory_order_acq_rel))
+        return;
+
+    updateHostLatencyFromEngineNow();
+}
+
+void NOVAAudioProcessor::audioEngineLatencyChanged(int)
+{
+    if (!audioEnginePreparedForHostLatency.load(std::memory_order_acquire))
+        return;
+
+    requestHostLatencyRefresh();
+}
+
+void NOVAAudioProcessor::requestHostLatencyRefresh()
+{
+    hostLatencyRefreshPending.store(true, std::memory_order_release);
+    triggerAsyncUpdate();
+}
+
+void NOVAAudioProcessor::updateHostLatencyFromEngineNow()
+{
+    if (!audioEnginePreparedForHostLatency.load(std::memory_order_acquire))
+        return;
+
+    applyHostLatencyIfChanged(audioEngine.getLatencyNumSamples());
+}
+
+void NOVAAudioProcessor::applyHostLatencyIfChanged(int graphLatencySamples)
+{
+    const int safeLatency = juce::jlimit(0, Nova::Config::MAX_GRAPH_LATENCY_SAMPLES, graphLatencySamples);
+    const int previous = lastReportedHostLatencySamples.exchange(safeLatency, std::memory_order_acq_rel);
+    if (previous == safeLatency)
+        return;
+
+    // Host PDC policy: report the live graph latency. Graph latency changes are
+    // prepared off the audio callback and mirrored here after prepare/sync or by
+    // AsyncUpdater, so processBlock never calls the host.
+    setLatencySamples(safeLatency);
+    NovaDiagnostics::SessionLogger::logEvent("processor.latency",
+        "Reported host latency samples=" + juce::String(safeLatency));
 }
 
 void NOVAAudioProcessor::refreshEngineGlobalParamsIfNeeded(bool force, bool allowLogging)
@@ -535,6 +585,8 @@ void NOVAAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         samplesPerBlock,
         getTotalNumInputChannels(),
         getTotalNumOutputChannels());
+    audioEnginePreparedForHostLatency.store(true, std::memory_order_release);
+    updateHostLatencyFromEngineNow();
 
     hostTransportPollCounter.store(0, std::memory_order_release);
 
@@ -545,6 +597,7 @@ void NOVAAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 
 void NOVAAudioProcessor::releaseResources()
 {
+    audioEnginePreparedForHostLatency.store(false, std::memory_order_release);
     NovaDiagnostics::SessionLogger::logEvent("processor.release", "releaseResources called");
 }
 
@@ -997,6 +1050,7 @@ void NOVAAudioProcessor::hardRefreshAudioEngineForCurrentIO()
     NovaDiagnostics::SessionLogger::logEvent("engine.hard_refresh", refreshMessage);
 
     audioEngine.prepare(sampleRate, ioBlockSize, numInputs, numOutputs);
+    updateHostLatencyFromEngineNow();
     invalidateEnginePushCaches(false, true);
 }
 
@@ -1035,6 +1089,7 @@ bool NOVAAudioProcessor::shouldPushRuntimeGlobals(const AudioEngine::RuntimeGlob
 void NOVAAudioProcessor::synchronizeEngineNow()
 {
     audioEngine.synchronizeProcessingState();
+    updateHostLatencyFromEngineNow();
 }
 
 // ==============================================================================

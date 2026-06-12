@@ -1,0 +1,51 @@
+[
+  {
+    "id": "P13A-F001-R001",
+    "title": "Null-byte corruption in PluginProcessor.h and P13A-F001 deliverables has been repaired",
+    "severity": "Resolved",
+    "probability": "Confirmed",
+    "affected_files": [
+      "Source/Core/PluginProcessor.h",
+      "docs/reports/P13A-F001-host-pdc-latency-reporting-fix-report.md",
+      "docs/reports/P13A-F001-host-pdc-latency-reporting-fix-summary.md",
+      "artifacts/audits/P13A-F001-host-pdc-latency-reporting-fix-findings.json",
+      "artifacts/audits/P13A-F001-host-pdc-latency-reporting-fix-checklist.md"
+    ],
+    "evidence": [
+      "PluginProcessor.h now declares the async updater, latency listener, helper methods, and atomics used by the existing P13A-F001 implementation in PluginProcessor.cpp.",
+      "Standalone Debug build and forced rebuild both completed with 0 warnings and 0 errors.",
+      "Base audio validation completed with 268 results, 7543 passes, 0 failures.",
+      "Null-byte scan found no null bytes in the repaired header or regenerated deliverables."
+    ],
+    "recommendation": "Commit the repaired files promptly so the recovered header and reports are protected by git.",
+    "status": "resolved"
+  },
+  {
+    "id": "P13A-F001-R002",
+    "title": "Host-facing live latency policy still needs DAW validation before release",
+    "severity": "Medium",
+    "probability": "Medium",
+    "affected_files": [
+      "Source/Core/PluginProcessor.cpp"
+    ],
+    "evidence": [
+      "The existing implementation reports live graph latency to the host.",
+      "Standalone validation does not exercise the VST3 wrapper or DAW PDC display."
+    ],
+    "recommendation": "Before release, build Release VST3 and inspect PDC behavior in a DAW such as Reaper, including bypass-toggle behavior during playback.",
+    "status": "open-release-validation"
+  },
+  {
+    "id": "P13A-F001-R003",
+    "title": "Repository location under OneDrive remains a corruption risk",
+    "severity": "Medium",
+    "probability": "Medium",
+    "affected_files": [],
+    "evidence": [
+      "The working tree is located under C:/Users/gusta/OneDrive/Desktop/DEV/ULTIMATE/NOVA.",
+      "The original failure mode was null-byte corruption of recently written text files."
+    ],
+    "recommendation": "Move the working repo outside OneDrive sync or exclude it from sync. Keep the null-byte scan as part of recovery validation.",
+    "status": "open-environment-risk"
+  }
+]

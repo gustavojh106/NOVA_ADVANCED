@@ -30,6 +30,13 @@ class AudioEngine : public juce::Thread,
     private juce::AsyncUpdater
 {
 public:
+    class LatencyListener
+    {
+    public:
+        virtual ~LatencyListener() = default;
+        virtual void audioEngineLatencyChanged(int latencySamples) = 0;
+    };
+
     struct ChainNodeView
     {
         juce::AudioProcessorGraph::Node::Ptr node;
@@ -82,6 +89,7 @@ public:
 
     void setEngineEnabled(bool enabled);
     void updateMixer(float gainA, float gainB, Nova::SwitcherMode mode);
+    void setLatencyListener(LatencyListener* listener) noexcept;
 
     std::vector<ChainNodeView> getNodes(Nova::ChainID chain) const;
     juce::AudioProcessor* getProcessorForPedal(Nova::ChainID chain, int index);
@@ -255,6 +263,7 @@ private:
     void resetRuntimeGraph(GraphRuntime& runtime);
     void resetDryDelayLine();
     void updateDryDelayLatency(int latencySamples) noexcept;
+    void notifyLatencyChanged(int latencySamples);
 
     void processWithSampleAccurateDryWet(GraphRuntime& runtime,
         juce::AudioBuffer<float>& buffer,
@@ -277,5 +286,6 @@ private:
     Nova::Audio::RuntimeGraphManager<GraphRuntime> runtimeGraphs;
     ControlPlane controlPlane;
     AudioPlane audioPlane;
+    std::atomic<LatencyListener*> latencyListener{ nullptr };
     std::atomic<int> diagnosticsMode{ (int)DiagnosticsMode::Production };
 };

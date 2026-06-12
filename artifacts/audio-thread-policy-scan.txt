@@ -1,15 +1,15 @@
 NOVA Audio Thread Policy Scan
-Generated: 2026-05-19 15:55:11
-status=PASS
+Generated: 2026-06-10 13:28:20
+status=FAIL
 summary.activeFiles=32
 summary.activeRanges=38
-summary.failures=0
+summary.failures=12
 summary.warnings=0
 summary.allowlistedWarnings=0
 summary.legacyWarnings=0
 summary.legacyQuarantined=4
-summary.contractChecks=595
-summary.contractFailures=0
+summary.contractChecks=638
+summary.contractFailures=12
 summary.allowListEntries=2
 
 Active files scanned:
@@ -52,7 +52,31 @@ Allowlist entries:
 
 No FAIL findings in active audio routes.
 
-RuntimeGraphManager contract checks: PASS
+RuntimeGraphManager contract FAIL findings:
+  - [p9f_audio_path_behavior_file_changed] git diff function=P9F scope guard
+    detail=P9F must not change OutputChain, AudioEngine, DryWetMixer, RoutingMixer, or GraphBuilder behavior files.
+  - [p9g_audio_path_behavior_file_changed] git diff function=P9G scope guard
+    detail=P9G must not change OutputChain, AudioEngine, DryWetMixer, RoutingMixer, or GraphBuilder behavior files.
+  - [p10c_outputchain_only_masking] Source/Core/DSP/Global/OutputChain function=P10C masking guard
+    detail=P10C must not hide high-gain issues with OutputChain-only limiting changes.
+  - [p10d_outputchain_only_masking] Source/Core/DSP/Global/OutputChain function=P10D masking guard
+    detail=P10D must not hide high-gain issues with OutputChain-only limiting changes.
+  - [p10e_outputchain_only_masking] Source/Core/DSP/Global/OutputChain function=P10E masking guard
+    detail=P10E must not hide high-gain issues with OutputChain-only limiting changes.
+  - [p10f_outputchain_only_masking] Source/Core/DSP/Global/OutputChain function=P10F masking guard
+    detail=P10F must not hide high-gain issues with OutputChain-only limiting changes.
+  - [p10g_outputchain_masking] Source/Core/DSP/Global/OutputChain function=P10G masking guard
+    detail=P10G must not hide high-gain issues with OutputChain limiting changes.
+  - [p11a_outputchain_masking] Source/Core/DSP/Global/OutputChain function=P11A masking guard
+    detail=P11A must not hide amp issues with OutputChain changes.
+  - [p11b_outputchain_masking] Source/Core/DSP/Global/OutputChain function=P11B masking guard
+    detail=P11B must not hide cabinet issues with OutputChain changes.
+  - [p11c_outputchain_masking] Source/Core/DSP/Global/OutputChain function=P11C masking guard
+    detail=P11C must not hide UI issues with OutputChain changes.
+  - [p11c_settings_outputchain_masking] Source/Core/DSP/Global/OutputChain function=P11C Settings masking guard
+    detail=P11C Settings must not change OutputChain.
+  - [p11c_settings_dsp_changed] Source/Core or Source/Effects function=P11C Settings DSP guard
+    detail=Settings rebuild must not change DSP/audio path files.
 
 RuntimeGraphManager contract checks detail:
   - [manager_method_exists] target=RuntimeGraphManager::getActiveRaw passed=True detail=found
@@ -385,7 +409,7 @@ RuntimeGraphManager contract checks detail:
   - [p9f_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p9f_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
   - [p9f_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
-  - [p9f_no_audio_path_behavior_files_changed] target=git diff passed=True detail=no OutputChain/AudioEngine/DryWet/Routing/GraphBuilder file changes
+  - [p9f_no_audio_path_behavior_files_changed] target=git diff passed=False detail=changed=Source/Core/AudioEngine.cpp,Source/Core/AudioEngine.h,Source/Core/DSP/Global/OutputChain.cpp,Source/Core/DSP/Global/OutputChain.h
   - [p9f_docs_no_factory_approved] target=docs/p9f-draft-preset-direct-limiter-telemetry-results.md passed=True detail=P9F docs avoid shipping approval marker
   - [p9f_docs_keep_pending_statuses] target=docs/p9f-draft-preset-direct-limiter-telemetry-results.md passed=True detail=manual, Distortion, and Reaper statuses remain pending
   - [p9g_p9g_technical_readiness_snapshot_md_present] target=docs/p9g-technical-readiness-snapshot.md passed=True detail=P9G document found
@@ -401,7 +425,7 @@ RuntimeGraphManager contract checks detail:
   - [p9g_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p9g_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
   - [p9g_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
-  - [p9g_no_audio_path_behavior_files_changed] target=git diff passed=True detail=no OutputChain/AudioEngine/DryWet/Routing/GraphBuilder file changes
+  - [p9g_no_audio_path_behavior_files_changed] target=git diff passed=False detail=changed=Source/Core/AudioEngine.cpp,Source/Core/AudioEngine.h,Source/Core/DSP/Global/OutputChain.cpp,Source/Core/DSP/Global/OutputChain.h
   - [p9g_p9f_limiter_report_still_pass] target=artifacts/p9f-draft-preset-limiter-telemetry-report.json passed=True detail=status=PASS; limiterTelemetryZero=True
   - [p10a_p10a_six_draft_preset_listening_run_pack_md_present] target=docs/p10a-six-draft-preset-listening-run-pack.md passed=True detail=P10A file found
   - [p10a_p10a_six_draft_preset_listening_checklist_md_present] target=docs/p10a-six-draft-preset-listening-checklist.md passed=True detail=P10A file found
@@ -445,7 +469,7 @@ RuntimeGraphManager contract checks detail:
   - [p10c_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p10c_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
   - [p10c_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
-  - [p10c_no_outputchain_only_masking] target=git diff passed=True detail=OutputChain unchanged
+  - [p10c_no_outputchain_only_masking] target=git diff passed=False detail=OutputChain changed during P10C
   - [p10c_no_factory_approved] target=P10C docs passed=True detail=no factory approval marker
   - [p10c_pending_statuses_preserved] target=P10C docs passed=True detail=manual listening, high-gain listening, and Reaper remain pending
   - [p10d_doc_present] target=docs/p10d-high-gain-artifact-fizz-helicopter-investigation.md passed=True detail=P10D doc found
@@ -470,7 +494,7 @@ RuntimeGraphManager contract checks detail:
   - [p10d_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p10d_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
   - [p10d_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
-  - [p10d_no_outputchain_only_masking] target=git diff passed=True detail=OutputChain unchanged
+  - [p10d_no_outputchain_only_masking] target=git diff passed=False detail=OutputChain changed during P10D
   - [p10d_no_factory_approved] target=P10D docs passed=True detail=no factory approval marker
   - [p10d_pending_statuses_preserved] target=P10D docs passed=True detail=manual listening, high-gain listening, and Reaper remain pending
   - [p10d_clean_preservation_noted] target=P10D docs passed=True detail=clean preservation documented
@@ -498,7 +522,7 @@ RuntimeGraphManager contract checks detail:
   - [p10e_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p10e_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
   - [p10e_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
-  - [p10e_no_outputchain_only_masking] target=git diff passed=True detail=OutputChain unchanged
+  - [p10e_no_outputchain_only_masking] target=git diff passed=False detail=OutputChain changed during P10E
   - [p10e_no_factory_approved] target=P10E docs passed=True detail=no factory approval marker
   - [p10e_no_ui_deploy_reaper_closure] target=P10E docs passed=True detail=no UI/deploy/Reaper closure marker
   - [p10e_pending_statuses_preserved] target=P10E docs passed=True detail=manual listening, high-gain listening, and Reaper remain pending
@@ -526,7 +550,7 @@ RuntimeGraphManager contract checks detail:
   - [p10f_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p10f_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
   - [p10f_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
-  - [p10f_no_outputchain_only_masking] target=git diff passed=True detail=OutputChain unchanged
+  - [p10f_no_outputchain_only_masking] target=git diff passed=False detail=OutputChain changed during P10F
   - [p10f_fuzz_reference_guard_present] target=P10F docs passed=True detail=Fuzz reference documented
   - [p10f_ducking_guard_present] target=P10F docs passed=True detail=ducking guard documented
   - [p10f_no_factory_approved] target=P10F docs passed=True detail=no factory approval marker
@@ -560,7 +584,7 @@ RuntimeGraphManager contract checks detail:
   - [p10g_no_golden_baseline_update] target=git diff --name-only passed=True detail=no golden baseline files changed
   - [p10g_no_schema_bump] target=STATE_SCHEMA_VERSION passed=True detail=STATE_SCHEMA_VERSION remains 1
   - [p10g_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure marker in base validation
-  - [p10g_no_outputchain_masking] target=OutputChain passed=True detail=OutputChain unchanged
+  - [p10g_no_outputchain_masking] target=OutputChain passed=False detail=OutputChain changed during P10G
   - [p10g_fuzz_low_gate_reference_present] target=P10G docs passed=True detail=Fuzz low-gate reference documented
   - [p10g_active_volume_collapse_guard_present] target=P10G docs passed=True detail=active volume collapse guard documented
   - [p10g_noise_floor_guard_present] target=P10G docs passed=True detail=noise floor guards documented
@@ -585,7 +609,7 @@ RuntimeGraphManager contract checks detail:
   - [p11a_no_golden_baseline_update] target=git diff --name-only passed=True detail=no golden baseline files changed
   - [p11a_no_schema_bump] target=STATE_SCHEMA_VERSION passed=True detail=STATE_SCHEMA_VERSION remains 1
   - [p11a_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure marker in base validation
-  - [p11a_no_outputchain_masking] target=OutputChain passed=True detail=OutputChain unchanged
+  - [p11a_no_outputchain_masking] target=OutputChain passed=False detail=OutputChain changed during P11A
   - [p11a_no_factory_approved] target=P11A docs passed=True detail=no factory approval marker
   - [p11a_cabinets_out_of_scope_documented] target=P11A docs passed=True detail=cabinet deferral documented
   - [p11b_doc_present] target=docs/p11b-cabinet-interface-and-voicing-audit.md passed=True detail=P11B doc found
@@ -607,7 +631,7 @@ RuntimeGraphManager contract checks detail:
   - [p11b_no_golden_baseline_update] target=git diff --name-only passed=True detail=no golden baseline files changed
   - [p11b_no_schema_bump] target=STATE_SCHEMA_VERSION passed=True detail=STATE_SCHEMA_VERSION remains 1
   - [p11b_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure marker in base validation
-  - [p11b_no_outputchain_masking] target=OutputChain passed=True detail=OutputChain unchanged
+  - [p11b_no_outputchain_masking] target=OutputChain passed=False detail=OutputChain changed during P11B
   - [p11b_no_factory_approved] target=P11B docs passed=True detail=no factory approval marker
   - [p11b_manual_listening_separate] target=P11B docs passed=True detail=manual listening remains separate
   - [p11c_doc_present] target=docs/p11c-amp-cab-open-ui-redesign-audit.md passed=True detail=P11C doc found
@@ -628,9 +652,52 @@ RuntimeGraphManager contract checks detail:
   - [p11c_open_editor_skin_adopted] target=Source/Effects/Cabinets/Modern4x12Cabinet.h:PremiumHardwareEditor::Skin::Cabinet passed=True detail=P11C editor skin adopted
   - [p11c_no_golden_baseline_update] target=git diff --name-only passed=True detail=no golden baseline files changed
   - [p11c_no_schema_bump] target=STATE_SCHEMA_VERSION passed=True detail=STATE_SCHEMA_VERSION remains 1
-  - [p11c_no_outputchain_masking] target=OutputChain passed=True detail=OutputChain unchanged
+  - [p11c_no_outputchain_masking] target=OutputChain passed=False detail=OutputChain changed during P11C
   - [p11c_no_dsp_change_documented] target=P11C docs passed=True detail=no-DSP scope documented
   - [p11c_manual_qa_separate] target=P11C docs passed=True detail=manual QA remains separate
+  - [p11c_settings_doc_present] target=docs/p11c-settings-system-rebuild-audit.md passed=True detail=P11C Settings doc found
+  - [p11c_settings_doc_present] target=docs/p11c-settings-system-rebuild-results.md passed=True detail=P11C Settings doc found
+  - [p11c_settings_doc_present] target=docs/p11c-audio-setup-wizard-placeholder-plan.md passed=True detail=P11C Settings doc found
+  - [p11c_settings_ui_marker_present] target=Source/Core/PluginEditor.cpp:SettingsOverlayV2 passed=True detail=settings UI marker found
+  - [p11c_settings_ui_marker_present] target=Source/Core/PluginEditor.cpp:SettingsV2Section passed=True detail=settings UI marker found
+  - [p11c_settings_ui_marker_present] target=Source/Core/PluginEditor.cpp:SettingsV2Card passed=True detail=settings UI marker found
+  - [p11c_settings_ui_marker_present] target=Source/Core/PluginEditor.cpp:SettingsV2Row passed=True detail=settings UI marker found
+  - [p11c_settings_ui_marker_present] target=Source/Core/PluginEditor.cpp:Search settings passed=True detail=settings UI marker found
+  - [p11c_settings_ui_marker_present] target=Source/Core/PluginEditor.cpp:Reset Section passed=True detail=settings UI marker found
+  - [p11c_settings_ui_marker_present] target=Source/Core/PluginEditor.cpp:Restore Defaults passed=True detail=settings UI marker found
+  - [p11c_settings_ui_marker_present] target=Source/Core/PluginEditor.cpp:Export Settings passed=True detail=settings UI marker found
+  - [p11c_settings_ui_marker_present] target=Source/Core/PluginEditor.cpp:Import Settings passed=True detail=settings UI marker found
+  - [p11c_settings_ui_marker_present] target=Source/Core/PluginEditor.cpp:Start Audio Setup Wizard passed=True detail=settings UI marker found
+  - [p11c_settings_ui_marker_present] target=Source/Core/PluginEditor.cpp:Wizard Shell passed=True detail=settings UI marker found
+  - [p11c_settings_section_present] target=Overview passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Audio passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Audio Setup Wizard passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Input & Output passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Performance passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Engine & Processing passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Modules passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Pedals passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Amplifiers passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Cabinets passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Presets & Sessions passed=True detail=settings section present
+  - [p11c_settings_section_present] target=MIDI / Control passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Interface passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Workflow passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Diagnostics passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Files & Storage passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Safety passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Updates / About passed=True detail=settings section present
+  - [p11c_settings_section_present] target=Advanced passed=True detail=settings section present
+  - [p11c_audio_setup_wizard_placeholder_present] target=Source/Core/PluginEditor.cpp passed=True detail=wizard placeholder shell present
+  - [p11c_settings_no_golden_baseline_update] target=git diff --name-only passed=True detail=no golden baseline files changed
+  - [p11c_settings_no_schema_bump] target=STATE_SCHEMA_VERSION passed=True detail=STATE_SCHEMA_VERSION remains 1
+  - [p11c_settings_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure marker in base validation
+  - [p11c_settings_no_outputchain_masking] target=OutputChain passed=False detail=OutputChain changed during P11C Settings
+  - [p11c_settings_no_dsp_changes] target=git diff --name-only passed=False detail=changed=Source/Core/AudioEngine.cpp,Source/Core/AudioEngine.h,Source/Core/DSP/Global/OutputChain.cpp,Source/Core/DSP/Global/OutputChain.h
+  - [p11c_settings_no_dsp_documented] target=P11C Settings docs passed=True detail=no-DSP scope documented
+  - [p11c_settings_no_factory_approval] target=P11C Settings docs passed=True detail=no factory approval marker
+  - [p11c_settings_no_reaper_p7f_closure] target=P11C Settings docs passed=True detail=no Reaper/P7F closure marker
+  - [p11c_settings_manual_qa_separate] target=P11C Settings docs passed=True detail=manual QA remains separate
   - [p7i_diagnostics_polish_doc_present] target=docs/p7i-diagnostics-visualizer-cpu-profiler-polish-results.md passed=True detail=P7I diagnostics polish doc found
   - [p7i_diagnostics_bundle_script_present] target=scripts/run-diagnostics-bundle.ps1 passed=True detail=P7I diagnostics bundle script found
   - [p7i_diagnostics_manager_format_profiling_line_present] target=Source/Core/Audio/DiagnosticsManager.h passed=True detail=formatProfilingLine present
@@ -669,4 +736,4 @@ P7G quarantined legacy findings (not WARN; not active audio routes):
     line=scratchBuffer.setSize(numChannels, numSamples, false, false, true);
     quarantineReason=Legacy Auto Wah names canonicalize to the registered Wah processor; AutoWahPedal is not registered.
 
-Policy result: PASS
+Policy result: FAIL

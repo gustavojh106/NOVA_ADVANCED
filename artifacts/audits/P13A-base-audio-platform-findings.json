@@ -1,0 +1,220 @@
+[
+  {
+    "id": "P13A-F001",
+    "title": "Host PDC never reported: plugin always claims zero latency while wet path carries limiter lookahead plus pedal latency",
+    "severity": "High",
+    "probability": "High",
+    "affected_files": [
+      "Source/Core/PluginProcessor.cpp",
+      "Source/Core/AudioEngine.cpp",
+      "Source/Core/DSP/Global/OutputChain.cpp"
+    ],
+    "evidence": [
+      "Grep over Source/ shows no setLatencySamples call on NOVAAudioProcessor; only OutputChain (OutputChain.cpp:187), ProcessorBase, and DryWetMixer internals call it",
+      "OutputChain always reports lookahead (~96 samples @48kHz) inside the graph; AudioEngine::getLatencyNumSamples() exists but is only consumed by tests and the internal dry-delay compensation",
+      "Tests assert graph latency invariants (AudioEngineTests.cpp:5670-5700) but never the processor-level latency the host sees"
+    ],
+    "recommendation": "Report audioEngine.getLatencyNumSamples() via NOVAAudioProcessor::setLatencySamples on prepareToPlay and whenever a graph publish changes latency (message-thread safe). Define dynamic-latency policy (live value vs stable maximum). Add a unit test asserting processor latency > 0 and equal to graph latency.",
+    "suggested_effort": "Claude Sonnet"
+  },
+  {
+    "id": "P13A-F002",
+    "title": "Auto-heal graph rebuild recreates pedals with default parameters; live pedal state silently lost",
+    "severity": "Medium",
+    "probability": "Low",
+    "affected_files": [
+      "Source/Core/AudioEngine.cpp",
+      "Source/Core/Audio/GraphBuilder.h",
+      "Source/Core/SessionPersistence.h"
+    ],
+    "evidence": [
+      "GraphBuilder::buildChain creates processors from GraphChainNodeSpec (type/zone/bypass only) via PedalRegistry::createPedal (GraphBuilder.h:188-239)",
+      "Pedal parameter replay exists only in SessionPersistence::rebuildEngineFromState (SessionPersistence.h:48-123), which is not invoked on the HealthMonitor-triggered RebuildGraph path (AudioEngine.cpp:302-310)",
+      "No test injects corruption and verifies pedal state survives auto-heal"
+    ],
+    "recommendation": "On auto-heal, capture live pedal states before rebuild and replay them after publish (or route the heal through the session layer). Add a corruption-injection test asserting parameter survival.",
+    "suggested_effort": "Codex Medium"
+  },
+  {
+    "id": "P13A-F003",
+    "title": "Global dry/wet mix applied after OutputChain limiter; mixed output not ceiling-protected at mix < 100%",
+    "severity": "Medium",
+    "probability": "Medium",
+    "affected_files": [
+      "Source/Core/AudioEngine.cpp",
+      "Source/Core/Audio/DryWetMixer.h"
+    ],
+    "evidence": [
+      "processWithSampleAccurateDryWet mixes captured raw dry input with the graph output after runtime.graph->processBlock, which contains OutputChain (AudioEngine.cpp:557-596)",
+      "Only HealthMonitor's 24.0 linear hard clamp applies after mixing (HealthMonitor.h:50-113)",
+      "Dry component also bypasses InputChain gate/conditioning by design"
+    ],
+    "recommendation": "Decide policy: either move the global mix before the output safety stage, or apply a final ceiling after mixing, or document that the output ceiling guarantee only holds at mix=100%.",
+    "suggested_effort": "Codex High"
+  },
+  {
+    "id": "P13A-F004",
+    "title": "RoutingMixer remaps line gain <= 0.001 to unity: Level A/B parameter at 0 produces full volume with a discontinuity",
+    "severity": "Medium",
+    "probability": "Medium",
+    "affected_files": [
+      "Source/Core/Audio/RoutingMixer.h",
+      "Source/Core/PluginProcessor.cpp"
+    ],
+    "evidence": [
+      "RoutingMixer::makeLineTarget: 'target.gain = input.gain <= 0.001f ? 1.0f : input.gain' (RoutingMixer.h:66)",
+      "Host parameters Level A/B span 0.0..2.0 with 0.0 reachable (PluginProcessor.cpp:434-446)",
+      "Policy is pinned by tests AudioEngineTests.cpp:4762 and 5202 rather than challenged"
+    ],
+    "recommendation": "Decide explicitly: treat 0 as mute (preferred, continuous) or raise the parameter minimum. Update the pinned policy tests deliberately in the same change.",
+    "suggested_effort": "Claude Sonnet"
+  },
+  {
+    "id": "P13A-F005",
+    "title": "In-place active-graph mutation on pedal bypass: control thread calls graph->rebuild() on the graph the audio thread is rendering",
+    "severity": "Medium",
+    "probability": "Low",
+    "affected_files": [
+      "Source/Core/AudioEngine.cpp"
+    ],
+    "evidence": [
+      "applyPedalBypassToActiveGraph mutates slot state and calls runtime->graph->rebuild() plus latency update on the active runtime (AudioEngine.cpp:205-235)",
+      "Relies on juce::AudioProcessorGraph internal render-sequence locking; the audio thread can block on the graph callback lock during the swap",
+      "Test AudioEngineTests.cpp:5670-5700 requires in-place semantics (same processor instance across bypass)"
+    ],
+    "recommendation": "Measure audio-thread stall during rapid bypass toggling at small block sizes; if measurable, move bypass latency changes to the immutable-swap path or use a lock-free latency handoff. Otherwise document the lock contract.",
+    "suggested_effort": "Codex High"
+  },
+  {
+    "id": "P13A-F006",
+    "title": "AudioEngine::prepare() callable from message thread while audio callback runs; scratch/delay buffers resized unsynchronized (safe today only by ordering)",
+    "severity": "Medium",
+    "probability": "Low",
+    "affected_files": [
+      "Source/Core/PluginProcessor.cpp",
+      "Source/Core/AudioEngine.cpp",
+      "Source/Core/Audio/DryWetMixer.h"
+    ],
+    "evidence": [
+      "toggleEngine() -> hardRefreshAudioEngineForCurrentIO() -> audioEngine.prepare() from the UI thread (PluginProcessor.cpp:854-869, 982-1001)",
+      "prepareScratchBuffers resizes DryWetMixer scratch buffers and dryDelay vectors with no synchronization against process() (AudioEngine.cpp:412-418)",
+      "Currently safe because the engine is necessarily off at that moment, so process() takes the early-return path that never touches those buffers - an implicit, untested invariant"
+    ],
+    "recommendation": "Guard prepare(): assert or defer when isEngineOn is true, or gate buffer swaps through the same publish mechanism as graphs. Document the invariant either way.",
+    "suggested_effort": "Claude Sonnet"
+  },
+  {
+    "id": "P13A-F007",
+    "title": "InputChain auto-routing enters mono-copy mode after a single detection block with a hard channel copy and no crossfade",
+    "severity": "Low",
+    "probability": "Medium",
+    "affected_files": [
+      "Source/Core/DSP/Global/InputChain.h"
+    ],
+    "evidence": [
+      "AutoRoutingDetector: transition from Stereo to LeftOnly/RightOnly is immediate (currentMode = detected, InputChain.h:221-227); only subsequent changes need 3 confirmation blocks",
+      "apply() performs FloatVectorOperations::copy of one channel over the other with no ramp (InputChain.h:246-259)",
+      "Asymmetric stereo program material can be collapsed or clicked at the base layer before any pedal"
+    ],
+    "recommendation": "Require confirmation blocks before entering (not just leaving) mono-copy modes and crossfade the channel copy over a few ms. Keep behavior for genuine single-jack guitar input.",
+    "suggested_effort": "Claude Sonnet"
+  },
+  {
+    "id": "P13A-F008",
+    "title": "Engine off/startup paths are zero-latency dry passthrough while engine-on is latent: toggling time-shifts audio with no ramp",
+    "severity": "Low",
+    "probability": "Medium",
+    "affected_files": [
+      "Source/Core/AudioEngine.cpp"
+    ],
+    "evidence": [
+      "Engine-off and startup-counter branches return the input buffer unprocessed (AudioEngine.cpp:504-519)",
+      "Engine-on wet path carries graph latency (>= OutputChain lookahead), so enable/disable jumps timing and level context without crossfade"
+    ],
+    "recommendation": "Optional polish: short gain ramp around engine enable/disable transitions. Low priority for a guitar-processor use case.",
+    "suggested_effort": "Claude Fable"
+  },
+  {
+    "id": "P13A-F009",
+    "title": "Audio-thread control work on engine-enabled parameter change: command-queue lock, deque allocation, SessionLogger string work, triggerAsyncUpdate from processBlock",
+    "severity": "Low",
+    "probability": "Low",
+    "affected_files": [
+      "Source/Core/PluginProcessor.cpp",
+      "Source/Core/AudioEngine.cpp"
+    ],
+    "evidence": [
+      "processBlock -> refreshEngineEnabledIfNeeded(false) -> audioEngine.setEngineEnabled -> enqueueGraphCommand (CriticalSection + std::deque push) + SessionLogger::logEvent (PluginProcessor.cpp:551-558, AudioEngine.cpp:378-385, 241-253)",
+      "First block after prepare: updateGlobalParams triggers an async update because the audio thread ID is not yet latched (AudioEngine.cpp:190-192)",
+      "Steady-state path is clean; policy scan PASS (artifacts/audio-thread-policy-scan.txt)"
+    ],
+    "recommendation": "Defer engine-enable pushes to the control thread (set an atomic flag consumed by AudioEngine::run), keeping processBlock free of locks/allocation/logging on all branches.",
+    "suggested_effort": "Claude Sonnet"
+  },
+  {
+    "id": "P13A-F010",
+    "title": "True oversized-block fallback (wet-only path above 8192-sample scratch capacity) never exercised end-to-end",
+    "severity": "Low",
+    "probability": "Low",
+    "affected_files": [
+      "Source/Core/AudioEngineTests.cpp"
+    ],
+    "evidence": [
+      "kMinimumScratchBlocks = 8192 (AudioEngine.cpp:17); shouldUseOversizedFallback only triggers above scratch capacity",
+      "The 'oversized' engine test uses kBlockSize + 32 = 96 samples (AudioEngineTests.cpp:5399-5444), exercising graph-larger-than-prepared but not the fallback branch",
+      "DryWetMixer fallback boundaries are unit-tested (4514) but not end-to-end through AudioEngine::process"
+    ],
+    "recommendation": "Add an end-to-end test with a >8192-sample block asserting wet-only behavior, finiteness, and no dry-delay state corruption afterward.",
+    "suggested_effort": "Claude Fable"
+  },
+  {
+    "id": "P13A-F011",
+    "title": "Dead safety code: resetRuntimeGraph never called; STARTUP_COUNTER_AUTO_HEAL and RECOVERY_COOLDOWN_SHORT constants unused",
+    "severity": "Low",
+    "probability": "High",
+    "affected_files": [
+      "Source/Core/AudioEngine.cpp",
+      "Source/Core/AudioEngine.h",
+      "Source/Core/Constants.h"
+    ],
+    "evidence": [
+      "resetRuntimeGraph defined at AudioEngine.cpp:442-459 with zero call sites (grep)",
+      "STARTUP_COUNTER_AUTO_HEAL (Constants.h:102) and RECOVERY_COOLDOWN_SHORT (Constants.h:104) referenced nowhere; auto-heal path uses STARTUP_COUNTER_GRAPH_CHANGE via resetAudioRuntimeState(false)"
+    ],
+    "recommendation": "Either wire the auto-heal startup counter as intended or delete the dead members/constants to keep the safety surface honest.",
+    "suggested_effort": "Claude Fable"
+  },
+  {
+    "id": "P13A-F012",
+    "title": "Host parameter ranges exceed sanitizer ranges: bottom 24 dB of input-gain and output-volume knob travel is dead; output volume cannot approach silence",
+    "severity": "Medium",
+    "probability": "High",
+    "affected_files": [
+      "Source/Core/PluginProcessor.cpp",
+      "Source/Core/DSP/Global/InputChain.cpp",
+      "Source/Core/DSP/Global/OutputChain.cpp"
+    ],
+    "evidence": [
+      "Input Gain parameter -60..+24 dB (PluginProcessor.cpp:427-428) vs sanitizeInputGainDb clamp -36..+24 (InputChain.cpp:3-9)",
+      "Output Volume parameter -60..+12 dB (PluginProcessor.cpp:448-449) vs sanitizeOutputVolumeDb clamp -36..+12 (OutputChain.cpp:3-11)",
+      "No test asserts parameter-range/effective-range agreement"
+    ],
+    "recommendation": "Align ranges in one direction (widen sanitizers to -60 dB or narrow parameters to -36 dB) and add a range-agreement test. Consider mapping the volume minimum to true silence.",
+    "suggested_effort": "Claude Sonnet"
+  },
+  {
+    "id": "P13A-F013",
+    "title": "Gate threshold of exactly 0 dB remapped to -100 dB (off): maxing the gate disables it",
+    "severity": "Low",
+    "probability": "Low",
+    "affected_files": [
+      "Source/Core/Audio/GraphBuilder.h"
+    ],
+    "evidence": [
+      "applyRuntimeParamsToGraph: 'if (gateThreshold == 0.0f) gateThreshold = -100.0f;' (GraphBuilder.h:120-123)",
+      "Input Gate parameter range is -100..0 dB, so 0 dB is a reachable host value"
+    ],
+    "recommendation": "Remove the 0.0 special case (the sanitizer and <=-95 off rule already handle defaults) or cap the parameter maximum below 0 dB.",
+    "suggested_effort": "Claude Fable"
+  }
+]

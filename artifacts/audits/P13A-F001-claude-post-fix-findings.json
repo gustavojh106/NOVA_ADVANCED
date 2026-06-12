@@ -1,0 +1,118 @@
+[
+  {
+    "id": "P13A-F001-R001",
+    "title": "PluginProcessor.h and all four Codex F001 deliverable documents are null-byte corrupted on disk; clean rebuild impossible and fix documentation lost",
+    "severity": "Critical",
+    "probability": "High",
+    "affected_files": [
+      "Source/Core/PluginProcessor.h",
+      "docs/reports/P13A-F001-host-pdc-latency-reporting-fix-report.md",
+      "docs/reports/P13A-F001-host-pdc-latency-reporting-fix-summary.md",
+      "artifacts/audits/P13A-F001-host-pdc-latency-reporting-fix-findings.json",
+      "artifacts/audits/P13A-F001-host-pdc-latency-reporting-fix-checklist.md"
+    ],
+    "evidence": [
+      "Byte scan: all five files contain only 0x00 bytes (PluginProcessor.h = 6304 zero bytes); git diff shows the header as binary",
+      "Corrupted files last written 2026-06-10 13:22:11-13:25:35; intact PluginProcessor.cpp written 13:26:23 and passing test report 13:28:10 (268/7543/0) prove a valid header existed at build time",
+      "Full scan of Source/Core, docs/reports, artifacts/audits found no other null-corrupted files"
+    ],
+    "recommendation": "Restore from OneDrive web version history (most likely), Visual Studio local history, or Codex session re-emit. Byte-verify, run a clean rebuild, re-run base validation expecting 268/7543/0. Do not close P13A-F001 until this completes.",
+    "suggested_effort": "Claude Fable"
+  },
+  {
+    "id": "P13A-F001-R002",
+    "title": "Live graph latency policy fires host restartComponent(kLatencyChanged) on every bypass toggle and pedal edit during playback; felt cost in DAWs unvalidated",
+    "severity": "Medium",
+    "probability": "Medium",
+    "affected_files": [
+      "Source/Core/PluginProcessor.cpp",
+      "Source/Core/AudioEngine.cpp"
+    ],
+    "evidence": [
+      "applyHostLatencyIfChanged documents the live-latency policy (PluginProcessor.cpp:507-509)",
+      "Bypassed pedals report 0 latency (ProcessorBase.h:35), so bypass toggles change graph latency and reach setLatencySamples via the dedupe",
+      "Bypass is a core performance gesture for a guitar plugin; many hosts pause or flush audio on latency changes"
+    ],
+    "recommendation": "Manual DAW check (Reaper PDC display + bypass-toggle listening test during playback). If hosts glitch audibly, switch to bypass-invariant reporting (stable per-topology maximum) as the host-facing value while keeping live latency for internal dry/wet compensation.",
+    "suggested_effort": "Codex Medium"
+  },
+  {
+    "id": "P13A-F001-R003",
+    "title": "LatencyListener atomic pointer carries no lifetime guarantee; engine control thread can invoke the listener during the processor destruction window",
+    "severity": "Low",
+    "probability": "Low",
+    "affected_files": [
+      "Source/Core/AudioEngine.cpp",
+      "Source/Core/AudioEngine.h",
+      "Source/Core/PluginProcessor.cpp"
+    ],
+    "evidence": [
+      "notifyLatencyChanged: acquire-load then call (AudioEngine.cpp:245-249); no lock or generation guard",
+      "Processor destructor clears the listener first (PluginProcessor.cpp:410) then cancelPendingUpdate; engine thread stops later in member destruction",
+      "Callee touches only atomics and triggerAsyncUpdate; JUCE AsyncUpdater destructor cancels pending updates - window is theoretical today"
+    ],
+    "recommendation": "Document the destruction-order contract (clear listener -> cancel updates -> engine member destroyed stops control thread) in a comment, or invoke notifications only from under the existing control-plane synchronization.",
+    "suggested_effort": "Claude Fable"
+  },
+  {
+    "id": "P13A-F001-R004",
+    "title": "Async reporting path (control-thread notify -> AsyncUpdater -> handleAsyncUpdate -> host) has no automated test coverage",
+    "severity": "Low",
+    "probability": "Medium",
+    "affected_files": [
+      "Source/Core/AudioEngineTests.cpp"
+    ],
+    "evidence": [
+      "Test at AudioEngineTests.cpp:4514-4552 exercises synchronous paths only (prepareToPlay and synchronizeEngineNow both call updateHostLatencyFromEngineNow directly)",
+      "handleAsyncUpdate/requestHostLatencyRefresh require a pumping message loop, absent in the unit-test harness"
+    ],
+    "recommendation": "Optional: add a test that pumps the message manager (juce::MessageManager::runDispatchLoopUntil) after a control-thread-driven graph publish and asserts the host latency converges. Low priority - the synchronous path dominates real usage.",
+    "suggested_effort": "Claude Sonnet"
+  },
+  {
+    "id": "P13A-F001-R005",
+    "title": "RT policy scan reports overall FAIL solely from stale phase-scoped git-diff guards (P9F-P11C); active audio routes all pass; gate value eroded",
+    "severity": "Low",
+    "probability": "High",
+    "affected_files": [
+      "scripts/check-audio-thread-policy.ps1",
+      "artifacts/audio-thread-policy-scan.txt"
+    ],
+    "evidence": [
+      "Scan 2026-06-10 13:28: status=FAIL, 12 contract failures, all of form 'OutputChain/AudioEngine changed during P9F/P9G/P10C-G/P11A-C'",
+      "Scan line 53: 'No FAIL findings in active audio routes'; all RT-pattern checks over 32 active files pass",
+      "Failures are artifacts of accumulated uncommitted P12D+F001 changes tripping guards scoped to finished phases"
+    ],
+    "recommendation": "Commit the P12D/F001 work, then retire or re-scope completed-phase guards so the scan returns to a meaningful binary signal.",
+    "suggested_effort": "Claude Sonnet"
+  },
+  {
+    "id": "P13A-F001-R006",
+    "title": "Release VST3 build and manual DAW PDC inspection not run for this change",
+    "severity": "Medium",
+    "probability": "High",
+    "affected_files": [
+      "Source/Core/PluginProcessor.cpp"
+    ],
+    "evidence": [
+      "Codex validation summary explicitly lists both as not run",
+      "The latency-reporting path crosses the VST3 wrapper (restartComponent), which Debug Standalone never exercises"
+    ],
+    "recommendation": "Build Release VST3, load in Reaper, verify reported PDC (~96 samples @48 kHz with empty board), verify it updates on pedal add, and evaluate bypass-toggle behavior during playback (feeds R002 decision). Required before any release tag; not blocking P13B start.",
+    "suggested_effort": "Claude Fable"
+  },
+  {
+    "id": "P13A-F001-R007",
+    "title": "Repository lives under OneDrive sync; likely cause of the null-file corruption and a standing risk for any rapid-write burst",
+    "severity": "Medium",
+    "probability": "Medium",
+    "affected_files": [],
+    "evidence": [
+      "Repo path: C:/Users/gusta/OneDrive/Desktop/DEV/ULTIMATE/NOVA",
+      "Five files written in a 3.5-minute burst were zeroed with sizes and timestamps preserved - consistent with sync-client corruption, not editor truncation",
+      "Corruption occurred after a green build, silently"
+    ],
+    "recommendation": "Move the working repo outside OneDrive (or exclude the repo folder from sync) and rely on git push for backup. At minimum, add a null-byte scan to the validation scripts so corruption is caught at gate time.",
+    "suggested_effort": "Claude Fable"
+  }
+]

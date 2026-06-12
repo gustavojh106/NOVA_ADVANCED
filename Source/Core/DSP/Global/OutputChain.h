@@ -215,11 +215,13 @@ private:
                 result.thresholdLinearMin = juce::jmin(result.thresholdLinearMin, thresholdLinear);
                 result.thresholdLinearMax = juce::jmax(result.thresholdLinearMax, thresholdLinear);
 
-                const bool active = thresholdLinear < 0.9885531f; // about -0.1 dB
-                result.active = result.active || active;
+                // Threshold below the transparency line means the limiter is armed
+                // and able to reduce gain. result.active is set below based on
+                // actual gain reduction, not just on the armed state.
+                const bool armed = thresholdLinear < 0.9885531f; // about -0.1 dB
 
                 const float peak = estimateLinkedTruePeak(buffer, sampleIndex, numChannels);
-                updateGainForPeak(peak, thresholdLinear, active);
+                updateGainForPeak(peak, thresholdLinear, armed);
 
                 const int readIndex = (writeIndex + delaySize - lookaheadSamples) % delaySize;
 
@@ -246,6 +248,13 @@ private:
 
             if (result.minGain < 0.999999f)
                 result.maxReductionDb = -juce::Decibels::gainToDecibels(result.minGain, -120.0f);
+
+            // "active" now means the limiter actually reduced gain in this block,
+            // not merely that the threshold is armed. This keeps limiterActiveBlocks
+            // telemetry semantically aligned with audible limiter work and lets
+            // staged signal paths assert "no limiting required" even when the
+            // limiter is always armed at the transparent safety threshold.
+            result.active = result.minGain < 0.999999f || result.touchedSamples > 0;
 
             return result;
         }
@@ -358,11 +367,10 @@ private:
                 result.thresholdLinearMin = juce::jmin(result.thresholdLinearMin, thresholdLinear);
                 result.thresholdLinearMax = juce::jmax(result.thresholdLinearMax, thresholdLinear);
 
-                const bool active = thresholdLinear < 0.9885531f;
-                result.active = result.active || active;
+                const bool armed = thresholdLinear < 0.9885531f;
 
                 const float peak = estimateLinkedTruePeak(buffer, sampleIndex, numChannels);
-                updateGainForPeak(peak, thresholdLinear, active);
+                updateGainForPeak(peak, thresholdLinear, armed);
 
                 for (int ch = 0; ch < numChannels; ++ch)
                 {
@@ -383,6 +391,8 @@ private:
 
             if (result.minGain < 0.999999f)
                 result.maxReductionDb = -juce::Decibels::gainToDecibels(result.minGain, -120.0f);
+
+            result.active = result.minGain < 0.999999f || result.touchedSamples > 0;
 
             return result;
         }
