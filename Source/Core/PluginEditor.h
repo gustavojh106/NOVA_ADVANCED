@@ -22,7 +22,8 @@ class PedalSlotComponent;
 class NOVAAudioProcessorEditor : public juce::AudioProcessorEditor,
     public juce::ValueTree::Listener,
     public juce::AsyncUpdater,
-    public juce::DragAndDropContainer
+    public juce::DragAndDropContainer,
+    private AudioEngine::TopologyListener
 {
 public:
     NOVAAudioProcessorEditor(NOVAAudioProcessor&);
@@ -51,6 +52,8 @@ private:
     void updateMeterState();
     void requestUiRefresh();
     void handleAsyncUpdate() override;
+    void audioEngineTopologyChanged(uint64_t graphGeneration) override;
+    void closeStalePedalEditorOverlay(uint64_t graphGeneration);
 
     // Callbacks de ValueTree (Sincronización de Datos)
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override;

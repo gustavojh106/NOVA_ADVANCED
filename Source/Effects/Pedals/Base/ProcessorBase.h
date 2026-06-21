@@ -48,7 +48,7 @@ public:
     {
         const int safeLatency = juce::jmax(0, newLatencySamples);
         activeLatency.store(safeLatency, std::memory_order_release);
-        setLatencySamples(safeLatency);
+        setLatencySamples(isBypassed.load(std::memory_order_acquire) ? 0 : safeLatency);
 
         // This should normally be called during prepareToPlay(), not from processBlock().
         if (bypassPrepared)

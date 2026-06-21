@@ -1,6 +1,7 @@
 #pragma once
 
 #include <JuceHeader.h>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -24,6 +25,7 @@ namespace Audio
         juce::String pedalID;
         Nova::ZoneID zone = Nova::ZoneID::Pre;
         bool bypassed = false;
+        juce::MemoryBlock processorState;
     };
 
     struct GraphRuntimeSlot
@@ -64,7 +66,7 @@ namespace Audio
         int numOutputs = 2;
         int latencySamples = 0;
         uint64_t generation = 0;
-        uint32_t appliedParamRevision = 0;
+        std::atomic<uint32_t> appliedParamRevision{ 0 };
     };
 
     struct GraphBuildWarning

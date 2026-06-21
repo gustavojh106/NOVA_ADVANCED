@@ -25,6 +25,7 @@
 
 class ProcessorBase;
 struct TempoSyncable;
+struct AudioEngineTestAccess;
 
 class AudioEngine : public juce::Thread,
     private juce::AsyncUpdater
@@ -35,6 +36,40 @@ public:
     public:
         virtual ~LatencyListener() = default;
         virtual void audioEngineLatencyChanged(int latencySamples) = 0;
+    };
+
+    class TopologyListener
+    {
+    public:
+        virtual ~TopologyListener() = default;
+        virtual void audioEngineTopologyChanged(uint64_t graphGeneration) = 0;
+    };
+
+    class PedalProcessorHandle
+    {
+    public:
+        PedalProcessorHandle() = default;
+
+        juce::AudioProcessor* get() const noexcept { return processor; }
+        uint64_t getGraphGeneration() const noexcept { return graphGeneration; }
+        explicit operator bool() const noexcept { return processor != nullptr && runtimeOwner != nullptr; }
+
+    private:
+        friend class AudioEngine;
+        friend struct AudioEngineTestAccess;
+
+        PedalProcessorHandle(std::shared_ptr<void> ownerToKeepAlive,
+            juce::AudioProcessor* processorToEdit,
+            uint64_t generationToTrack) noexcept
+            : runtimeOwner(std::move(ownerToKeepAlive)),
+              processor(processorToEdit),
+              graphGeneration(generationToTrack)
+        {
+        }
+
+        std::shared_ptr<void> runtimeOwner;
+        juce::AudioProcessor* processor = nullptr;
+        uint64_t graphGeneration = 0;
     };
 
     struct ChainNodeView
@@ -90,9 +125,12 @@ public:
     void setEngineEnabled(bool enabled);
     void updateMixer(float gainA, float gainB, Nova::SwitcherMode mode);
     void setLatencyListener(LatencyListener* listener) noexcept;
+    void setTopologyListener(TopologyListener* listener) noexcept;
 
     std::vector<ChainNodeView> getNodes(Nova::ChainID chain) const;
+    PedalProcessorHandle getPedalProcessorHandle(Nova::ChainID chain, int index) const;
     juce::AudioProcessor* getProcessorForPedal(Nova::ChainID chain, int index);
+    uint64_t getActiveGraphGeneration() const noexcept;
 
     double getCpuLoad() const;
     double getLastProcessTimeMs() const;
@@ -137,6 +175,8 @@ public:
         const juce::ValueTree& lineB);
 
 private:
+    friend struct AudioEngineTestAccess;
+
     using ChainNodeSpec = Nova::Audio::GraphChainNodeSpec;
     using ChainRuntimeSlot = Nova::Audio::GraphRuntimeSlot;
     using GraphRuntime = Nova::Audio::GraphRuntime;
@@ -198,6 +238,7 @@ private:
     {
         Nova::Audio::AudioEngineCommandQueue<GraphCommand> commandQueue;
 
+        juce::CriticalSection flushLock;
         mutable juce::CriticalSection modelLock;
         std::vector<ChainNodeSpec> modelChainA;
         std::vector<ChainNodeSpec> modelChainB;
@@ -249,13 +290,14 @@ private:
     void enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe);
     void flushPendingGraphCommands();
 
-    std::shared_ptr<GraphRuntime> buildGraphFromModelLocked(uint64_t generation);
+    std::shared_ptr<GraphRuntime> buildGraphFromModelLocked(uint64_t generation,
+        bool preserveActivePedalState = false);
     void publishGraph(std::shared_ptr<GraphRuntime> newGraph);
     void cleanupRetiredGraphs();
     void requestControlGraphRebuild();
 
     void applyRuntimeParamsToGraph(GraphRuntime& runtime, const RuntimeGlobalParams& snapshot, uint32_t revision);
-    void applyPedalBypassToActiveGraph(Nova::ChainID chain, int index, bool bypassed);
+    bool applyPedalBypassToActiveGraph(Nova::ChainID chain, int index, bool bypassed);
     RuntimeGlobalParams loadRuntimeParams() const noexcept;
 
     void prepareScratchBuffers(double sampleRate, int samplesPerBlock, int numChannels);
@@ -264,6 +306,7 @@ private:
     void resetDryDelayLine();
     void updateDryDelayLatency(int latencySamples) noexcept;
     void notifyLatencyChanged(int latencySamples);
+    void notifyTopologyChangedOnMessageThread();
 
     void processWithSampleAccurateDryWet(GraphRuntime& runtime,
         juce::AudioBuffer<float>& buffer,
@@ -287,5 +330,8 @@ private:
     ControlPlane controlPlane;
     AudioPlane audioPlane;
     std::atomic<LatencyListener*> latencyListener{ nullptr };
+    std::atomic<TopologyListener*> topologyListener{ nullptr };
+    std::atomic<uint64_t> activeGraphGeneration{ 0 };
+    std::atomic<bool> topologyNotificationPending{ false };
     std::atomic<int> diagnosticsMode{ (int)DiagnosticsMode::Production };
 };

@@ -112,7 +112,7 @@ namespace Audio
             const RuntimeGlobalParamsSnapshot& snapshot,
             uint32_t revision)
         {
-            if (runtime.appliedParamRevision == revision)
+            if (runtime.appliedParamRevision.load(std::memory_order_relaxed) == revision)
                 return;
 
             if (runtime.inputChain != nullptr)
@@ -154,7 +154,7 @@ namespace Audio
 
             applyTempo(runtime.chainA);
             applyTempo(runtime.chainB);
-            runtime.appliedParamRevision = revision;
+            runtime.appliedParamRevision.store(revision, std::memory_order_relaxed);
         }
 
     private:
@@ -205,6 +205,10 @@ namespace Audio
                             + "\", pedalID=" + spec.pedalID);
                     continue;
                 }
+
+                if (spec.processorState.getSize() > 0)
+                    pedal->setStateInformation(spec.processorState.getData(),
+                        (int)spec.processorState.getSize());
 
                 auto node = graph.addNode(std::move(pedal));
                 if (node == nullptr)

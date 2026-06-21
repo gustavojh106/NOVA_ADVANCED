@@ -95,7 +95,8 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
 // GRAPH BUILDING / SWAPPING
 // ========================================================== 
 
-std::shared_ptr<AudioEngine::GraphRuntime> AudioEngine::buildGraphFromModelLocked(uint64_t generation)
+std::shared_ptr<AudioEngine::GraphRuntime> AudioEngine::buildGraphFromModelLocked(uint64_t generation,
+    bool preserveActivePedalState)
 {
     Nova::Audio::GraphBuildRequest request;
     request.sampleRate = audioPlane.currentSampleRate;
@@ -108,6 +109,38 @@ std::shared_ptr<AudioEngine::GraphRuntime> AudioEngine::buildGraphFromModelLocke
     request.modelChainA = controlPlane.modelChainA;
     request.modelChainB = controlPlane.modelChainB;
 
+    if (preserveActivePedalState)
+    {
+        const auto active = runtimeGraphs.getActiveOwnerForControl();
+        if (active != nullptr)
+        {
+            const auto captureChainState = [](std::vector<ChainNodeSpec>& specs,
+                const std::vector<ChainRuntimeSlot>& slots)
+            {
+                const size_t count = juce::jmin(specs.size(), slots.size());
+                for (size_t i = 0; i < count; ++i)
+                {
+                    auto& spec = specs[i];
+                    const auto& slot = slots[i];
+                    if (slot.processor == nullptr || spec.pedalType != slot.pedalType)
+                        continue;
+
+                    if (spec.pedalID.isNotEmpty()
+                        && slot.pedalID.isNotEmpty()
+                        && spec.pedalID != slot.pedalID)
+                    {
+                        continue;
+                    }
+
+                    slot.processor->getStateInformation(spec.processorState);
+                }
+            };
+
+            captureChainState(request.modelChainA, active->chainA);
+            captureChainState(request.modelChainB, active->chainB);
+        }
+    }
+
     Nova::Audio::GraphBuilder builder;
     return builder.build(request).runtime;
 }
@@ -118,12 +151,20 @@ void AudioEngine::publishGraph(std::shared_ptr<GraphRuntime> newGraph)
         return;
 
     const int latencySamples = newGraph->latencySamples;
+    const uint64_t graphGeneration = newGraph->generation;
     const uint64_t nowBlock = audioPlane.audioBlockCounter.load(std::memory_order_acquire);
-    runtimeGraphs.publish(std::move(newGraph), nowBlock,
+    const bool published = runtimeGraphs.publish(std::move(newGraph), nowBlock,
         [this](int latencySamples) noexcept
         {
             updateDryDelayLatency(latencySamples);
         });
+
+    if (!published)
+        return;
+
+    activeGraphGeneration.store(graphGeneration, std::memory_order_release);
+    topologyNotificationPending.store(true, std::memory_order_release);
+    triggerAsyncUpdate();
     notifyLatencyChanged(latencySamples);
 
     cleanupRetiredGraphs();
@@ -204,18 +245,18 @@ void AudioEngine::applyRuntimeParamsToGraph(GraphRuntime& runtime, const Runtime
     Nova::Audio::GraphBuilder::applyRuntimeParamsToGraph(runtime, snapshot, revision);
 }
 
-void AudioEngine::applyPedalBypassToActiveGraph(Nova::ChainID chain, int index, bool bypassed)
+bool AudioEngine::applyPedalBypassToActiveGraph(Nova::ChainID chain, int index, bool bypassed)
 {
     GraphRuntime* runtime = runtimeGraphs.getActiveRaw();
     if (runtime == nullptr)
-        return;
+        return false;
 
     auto& list = (chain == Nova::ChainID::LineA) ? runtime->chainA : runtime->chainB;
     if (!juce::isPositiveAndBelow(index, (int)list.size()))
-        return;
+        return false;
 
     auto& slot = list[(size_t)index];
-    slot.bypassed = bypassed;
+    const int previousLatency = slot.processor != nullptr ? slot.processor->getLatencySamples() : 0;
 
     if (slot.baseProcessor != nullptr)
         slot.baseProcessor->setBypassed(bypassed);
@@ -226,20 +267,18 @@ void AudioEngine::applyPedalBypassToActiveGraph(Nova::ChainID chain, int index, 
             slot.processor->reset();
     }
 
-    if (runtime->graph != nullptr)
-    {
-        runtime->graph->rebuild();
-        runtime->latencySamples = juce::jlimit(0,
-            Nova::Config::MAX_GRAPH_LATENCY_SAMPLES,
-            runtime->graph->getLatencySamples());
-        updateDryDelayLatency(runtime->latencySamples);
-        notifyLatencyChanged(runtime->latencySamples);
-    }
+    const int currentLatency = slot.processor != nullptr ? slot.processor->getLatencySamples() : 0;
+    return currentLatency != previousLatency;
 }
 
 void AudioEngine::setLatencyListener(LatencyListener* listener) noexcept
 {
     latencyListener.store(listener, std::memory_order_release);
+}
+
+void AudioEngine::setTopologyListener(TopologyListener* listener) noexcept
+{
+    topologyListener.store(listener, std::memory_order_release);
 }
 
 void AudioEngine::notifyLatencyChanged(int latencySamples)
@@ -268,12 +307,17 @@ void AudioEngine::enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe)
 
 void AudioEngine::flushPendingGraphCommands()
 {
+    const juce::ScopedTryLock flushGuard(controlPlane.flushLock);
+    if (!flushGuard.isLocked())
+        return;
+
     if (!controlPlane.commandQueue.hasPending()
         && !audioPlane.graphResetRequested.load(std::memory_order_acquire))
     {
         const auto revision = params.getRevision();
         GraphRuntime* active = runtimeGraphs.getActiveRaw();
-        if (active != nullptr && active->appliedParamRevision != revision)
+        if (active != nullptr
+            && active->appliedParamRevision.load(std::memory_order_relaxed) != revision)
             applyRuntimeParamsToGraph(*active, params.load(), revision);
 
         cleanupRetiredGraphs();
@@ -285,6 +329,7 @@ void AudioEngine::flushPendingGraphCommands()
     bool topologyChanged = false;
     bool paramsChangedOnly = false;
     bool explicitRebuild = false;
+    bool bypassLatencyRefreshRequired = false;
 
     {
         const juce::ScopedLock modelLock(controlPlane.modelLock);
@@ -296,7 +341,8 @@ void AudioEngine::flushPendingGraphCommands()
                 controlPlane.modelChainB);
 
             if (result.bypassChanged)
-                applyPedalBypassToActiveGraph(cmd.chain, cmd.index, cmd.flag);
+                bypassLatencyRefreshRequired = applyPedalBypassToActiveGraph(cmd.chain, cmd.index, cmd.flag)
+                    || bypassLatencyRefreshRequired;
 
             if (result.engineStateChanged)
             {
@@ -316,9 +362,10 @@ void AudioEngine::flushPendingGraphCommands()
         if (audioPlane.graphResetRequested.exchange(false, std::memory_order_acq_rel))
             explicitRebuild = true;
 
-        if (topologyChanged || explicitRebuild)
+        if (topologyChanged || explicitRebuild || bypassLatencyRefreshRequired)
         {
-            auto rebuilt = buildGraphFromModelLocked(controlPlane.nextGeneration++);
+            auto rebuilt = buildGraphFromModelLocked(controlPlane.nextGeneration++,
+                bypassLatencyRefreshRequired);
             publishGraph(std::move(rebuilt));
             audioPlane.audioRuntimeResetRequested.store(true, std::memory_order_release);
         }
@@ -329,7 +376,7 @@ void AudioEngine::flushPendingGraphCommands()
     if (active != nullptr)
         applyRuntimeParamsToGraph(*active, params.load(), revision);
 
-    if (paramsChangedOnly && !topologyChanged)
+    if (paramsChangedOnly && !topologyChanged && !bypassLatencyRefreshRequired)
         cleanupRetiredGraphs();
 }
 
@@ -682,6 +729,25 @@ std::vector<AudioEngine::ChainNodeView> AudioEngine::getNodes(Nova::ChainID chai
     return result;
 }
 
+AudioEngine::PedalProcessorHandle AudioEngine::getPedalProcessorHandle(Nova::ChainID chain, int index) const
+{
+    auto runtime = runtimeGraphs.getActiveOwnerForControl();
+    if (runtime == nullptr)
+        return {};
+
+    const auto& list = (chain == Nova::ChainID::LineA) ? runtime->chainA : runtime->chainB;
+    if (!juce::isPositiveAndBelow(index, (int)list.size()))
+        return {};
+
+    auto* processor = list[(size_t)index].processor;
+    if (processor == nullptr)
+        return {};
+
+    const uint64_t graphGeneration = runtime->generation;
+    std::shared_ptr<void> runtimeOwner = runtime;
+    return { std::move(runtimeOwner), processor, graphGeneration };
+}
+
 juce::AudioProcessor* AudioEngine::getProcessorForPedal(Nova::ChainID chain, int index)
 {
     GraphRuntime* runtime = runtimeGraphs.getActiveRaw();
@@ -693,6 +759,11 @@ juce::AudioProcessor* AudioEngine::getProcessorForPedal(Nova::ChainID chain, int
         return nullptr;
 
     return list[(size_t)index].processor;
+}
+
+uint64_t AudioEngine::getActiveGraphGeneration() const noexcept
+{
+    return activeGraphGeneration.load(std::memory_order_acquire);
 }
 
 double AudioEngine::getCpuLoad() const
@@ -780,6 +851,14 @@ juce::String AudioEngine::buildDiagnosticReport() const
 
     if (runtime != nullptr)
     {
+        const auto getLiveBypassState = [](const ChainRuntimeSlot& slot) noexcept
+        {
+            if (slot.baseProcessor != nullptr)
+                return slot.baseProcessor->getBypassed();
+
+            return slot.processor != nullptr ? slot.processor->isSuspended() : slot.bypassed;
+        };
+
         reportData.runtimeChainA.reserve(runtime->chainA.size());
         for (const auto& slot : runtime->chainA)
         {
@@ -787,7 +866,7 @@ juce::String AudioEngine::buildDiagnosticReport() const
             entry.pedalType = slot.pedalType;
             entry.pedalID = slot.pedalID;
             entry.zone = slot.zone;
-            entry.bypassed = slot.bypassed;
+            entry.bypassed = getLiveBypassState(slot);
             entry.hasProcessor = (slot.processor != nullptr);
             entry.processorName = entry.hasProcessor ? slot.processor->getName() : juce::String{};
             entry.cachedBase = (slot.baseProcessor != nullptr);
@@ -802,7 +881,7 @@ juce::String AudioEngine::buildDiagnosticReport() const
             entry.pedalType = slot.pedalType;
             entry.pedalID = slot.pedalID;
             entry.zone = slot.zone;
-            entry.bypassed = slot.bypassed;
+            entry.bypassed = getLiveBypassState(slot);
             entry.hasProcessor = (slot.processor != nullptr);
             entry.processorName = entry.hasProcessor ? slot.processor->getName() : juce::String{};
             entry.cachedBase = (slot.baseProcessor != nullptr);
@@ -902,26 +981,26 @@ int AudioEngine::getTuningOffset() const
 void AudioEngine::handleAsyncUpdate()
 {
     flushPendingGraphCommands();
+    notifyTopologyChangedOnMessageThread();
+}
+
+void AudioEngine::notifyTopologyChangedOnMessageThread()
+{
+    if (!topologyNotificationPending.exchange(false, std::memory_order_acq_rel))
+        return;
+
+    auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
+    jassert(messageManager != nullptr && messageManager->isThisTheMessageThread());
+
+    if (auto* listener = topologyListener.load(std::memory_order_acquire))
+        listener->audioEngineTopologyChanged(getActiveGraphGeneration());
 }
 
 void AudioEngine::run()
 {
     while (!threadShouldExit())
     {
-        if (controlPlane.commandQueue.hasPending()
-            || audioPlane.graphResetRequested.load(std::memory_order_acquire))
-        {
-            flushPendingGraphCommands();
-        }
-        else
-        {
-            const auto revision = params.getRevision();
-            GraphRuntime* active = runtimeGraphs.getActiveRaw();
-            if (active != nullptr && active->appliedParamRevision != revision)
-                applyRuntimeParamsToGraph(*active, params.load(), revision);
-
-            cleanupRetiredGraphs();
-        }
+        flushPendingGraphCommands();
 
         if (audioPlane.pendingSilentOutputLog.exchange(false, std::memory_order_acq_rel))
         {

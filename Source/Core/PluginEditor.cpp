@@ -1805,11 +1805,13 @@ class PedalEditorOverlay final : public juce::Component
 public:
     PedalEditorOverlay(juce::String pedalName,
         juce::String pedalSubtitle,
+        AudioEngine::PedalProcessorHandle processorHandleToRetain,
         std::unique_ptr<juce::AudioProcessorEditor> editorToShow,
         std::function<void()> onCloseFn,
         juce::Colour accentCol = juce::Colour::fromString("ffA78BFA"))
         : title(std::move(pedalName)),
           subtitle(std::move(pedalSubtitle)),
+          processorHandle(std::move(processorHandleToRetain)),
           pedalEditor(std::move(editorToShow)),
           onClose(std::move(onCloseFn)),
           accent(accentCol)
@@ -1827,6 +1829,11 @@ public:
             editorCanvas->addAndMakeVisible(pedalEditor.get());
             pedalEditor->setInterceptsMouseClicks(true, true);
         }
+    }
+
+    uint64_t getGraphGeneration() const noexcept
+    {
+        return processorHandle.getGraphGeneration();
     }
 
     bool keyPressed(const juce::KeyPress& key) override
@@ -1949,6 +1956,7 @@ public:
 private:
     juce::String title;
     juce::String subtitle;
+    AudioEngine::PedalProcessorHandle processorHandle;
     std::unique_ptr<juce::AudioProcessorEditor> pedalEditor;
     std::unique_ptr<juce::Component> editorCanvas;
     std::function<void()> onClose;
@@ -2672,6 +2680,7 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     // INIT LOGIC
     // -----------------------
     audioProcessor.pluginState.addListener(this);
+    audioProcessor.getAudioEngine().setTopologyListener(this);
 
     setResizable(true, true);
     setSize(1920, 1080);
@@ -2717,8 +2726,11 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
 
 NOVAAudioProcessorEditor::~NOVAAudioProcessorEditor()
 {
+    statsTimer.reset();
+    audioProcessor.getAudioEngine().setTopologyListener(nullptr);
     audioProcessor.pluginState.removeListener(this);
     cancelPendingUpdate();
+    currentOverlay.reset();
     activePedalEditors.clear();
 
     for (auto* knob : { &inputVolume, &inputGate,
@@ -4306,6 +4318,24 @@ void NOVAAudioProcessorEditor::handleAsyncUpdate()
     updatePedalGui();
 }
 
+void NOVAAudioProcessorEditor::audioEngineTopologyChanged(uint64_t graphGeneration)
+{
+    closeStalePedalEditorOverlay(graphGeneration);
+}
+
+void NOVAAudioProcessorEditor::closeStalePedalEditorOverlay(uint64_t graphGeneration)
+{
+    auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
+    jassert(messageManager != nullptr && messageManager->isThisTheMessageThread());
+
+    auto* pedalOverlay = dynamic_cast<PedalEditorOverlay*>(currentOverlay.get());
+    if (pedalOverlay == nullptr || pedalOverlay->getGraphGeneration() == graphGeneration)
+        return;
+
+    currentOverlay.reset();
+    resized();
+}
+
 void NOVAAudioProcessorEditor::valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier& id)
 {
     if (id == Nova::IDs::PEDAL_ENABLED
@@ -4376,7 +4406,9 @@ void NOVAAudioProcessorEditor::showPedalEditor(Nova::ChainID chain, const juce::
     if (pedalIndex < 0 || !pedalState.isValid())
         return;
 
-    auto* processorForPedal = audioProcessor.getAudioEngine().getProcessorForPedal(chain, pedalIndex);
+    auto& engine = audioProcessor.getAudioEngine();
+    auto processorHandle = engine.getPedalProcessorHandle(chain, pedalIndex);
+    auto* processorForPedal = processorHandle.get();
     if (processorForPedal == nullptr)
         return;
 
@@ -4387,10 +4419,14 @@ void NOVAAudioProcessorEditor::showPedalEditor(Nova::ChainID chain, const juce::
     if (pedalEditor == nullptr)
         return;
 
+    if (processorHandle.getGraphGeneration() != engine.getActiveGraphGeneration())
+        return;
+
     const auto pedalType = pedalState.getProperty(Nova::IDs::PEDAL_TYPE).toString();
     auto overlay = std::make_unique<PedalEditorOverlay>(
         pedalType,
         Nova::PedalCatalog::subtitleForType(pedalType),
+        std::move(processorHandle),
         std::move(pedalEditor),
         [this]()
         {

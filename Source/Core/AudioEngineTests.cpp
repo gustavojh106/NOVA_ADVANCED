@@ -1,9 +1,11 @@
 #include <JuceHeader.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include "AudioEngine.h"
@@ -24,6 +26,47 @@
 #include "DSP/Global/OutputChain.h"
 #include "DSP/Services/TunerService.h"
 #include "../Effects/Cabinets/SyntheticIR.h"
+
+struct AudioEngineTestAccess
+{
+    static uint32_t getRuntimeParamRevision(const AudioEngine& engine) noexcept
+    {
+        return engine.params.getRevision();
+    }
+
+    static uint32_t getAppliedParamRevision(const AudioEngine& engine) noexcept
+    {
+        const auto active = engine.runtimeGraphs.getActiveOwnerForControl();
+        return active != nullptr
+            ? active->appliedParamRevision.load(std::memory_order_relaxed)
+            : 0;
+    }
+
+    static uint64_t getActiveGraphGeneration(const AudioEngine& engine) noexcept
+    {
+        const auto active = engine.runtimeGraphs.getActiveOwnerForControl();
+        return active != nullptr ? active->generation : 0;
+    }
+
+    static std::weak_ptr<void> getRetainedRuntimeWeak(
+        const AudioEngine::PedalProcessorHandle& handle) noexcept
+    {
+        return handle.runtimeOwner;
+    }
+
+    static void dispatchPendingMessageThreadWork(AudioEngine& engine)
+    {
+        engine.handleAsyncUpdate();
+    }
+
+    static void forceRetiredGraphCleanup(AudioEngine& engine)
+    {
+        engine.audioPlane.audioBlockCounter.store(
+            std::numeric_limits<uint64_t>::max(),
+            std::memory_order_release);
+        engine.cleanupRetiredGraphs();
+    }
+};
 
 namespace
 {
@@ -5707,7 +5750,7 @@ public:
                 "Engine re-enable refresh should re-prepare released pedals and restore audible processing");
         }
 
-        beginTest("AudioEngine rebuilds graph latency when bypass changes node latency");
+        beginTest("AudioEngine publishes replacement graph when bypass changes node latency");
         {
             AudioEngine engine;
             engine.prepare(kSampleRate, kBlockSize, 2, 2);
@@ -5725,18 +5768,120 @@ public:
                 "Overdrive should contribute graph latency above the OutputChain baseline");
             auto* activeProcessor = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
             expect(activeProcessor != nullptr, "Expected an active Overdrive processor before bypass");
+            auto* activeOverdrive = dynamic_cast<OverdrivePedal*>(activeProcessor);
+            expect(activeOverdrive != nullptr, "Expected latency test processor to be Overdrive");
+            if (activeOverdrive != nullptr)
+                activeOverdrive->getDriveParam()->setValueNotifyingHost(
+                    activeOverdrive->getDriveParam()->convertTo0to1(73.0f));
+
+            const auto activeGeneration = AudioEngineTestAccess::getActiveGraphGeneration(engine);
 
             engine.setPedalBypassed(Nova::ChainID::LineA, 0, true);
             engine.synchronizeProcessingState();
             expectEquals(engine.getLatencyNumSamples(), outputChainBaselineLatency);
-            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
-                "Bypass latency rebuild should update the active graph in place, not publish a replacement graph");
+            auto* bypassedProcessor = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
+            expect(bypassedProcessor != activeProcessor,
+                "Latency-affecting bypass must publish a replacement graph instead of rebuilding the active graph in place");
+            auto* bypassedOverdrive = dynamic_cast<OverdrivePedal*>(bypassedProcessor);
+            expect(bypassedOverdrive != nullptr
+                    && approximatelyEqual(bypassedOverdrive->getDriveParam()->get(), 73.0f, 1.0e-3f),
+                "Bypass replacement graph must preserve live pedal parameter state");
+            expect(AudioEngineTestAccess::getActiveGraphGeneration(engine) > activeGeneration,
+                "Latency-affecting bypass must advance the published graph generation");
 
+            const auto bypassedGeneration = AudioEngineTestAccess::getActiveGraphGeneration(engine);
             engine.setPedalBypassed(Nova::ChainID::LineA, 0, false);
             engine.synchronizeProcessingState();
             expectEquals(engine.getLatencyNumSamples(), activeLatency);
-            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
-                "Unbypass latency rebuild should keep the same active processor instance");
+            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) != bypassedProcessor,
+                "Latency-affecting unbypass must publish another replacement graph");
+            auto* unbypassedOverdrive = dynamic_cast<OverdrivePedal*>(
+                engine.getProcessorForPedal(Nova::ChainID::LineA, 0));
+            expect(unbypassedOverdrive != nullptr
+                    && approximatelyEqual(unbypassedOverdrive->getDriveParam()->get(), 73.0f, 1.0e-3f),
+                "Unbypass replacement graph must preserve live pedal parameter state");
+            expect(AudioEngineTestAccess::getActiveGraphGeneration(engine) > bypassedGeneration,
+                "Latency-affecting unbypass must advance the published graph generation");
+        }
+
+        beginTest("P13E-P3 pedal editor handle invalidates on graph generation change");
+        {
+            struct OverlayInvalidationProbe final : AudioEngine::TopologyListener
+            {
+                void audioEngineTopologyChanged(uint64_t graphGeneration) override
+                {
+                    ++callbackCount;
+                    auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
+                    callbackWasOnMessageThread = messageManager != nullptr
+                        && messageManager->isThisTheMessageThread();
+
+                    if (visibleProcessor
+                        && visibleProcessor.getGraphGeneration() != graphGeneration)
+                    {
+                        visibleProcessor = {};
+                        invalidated = true;
+                    }
+                }
+
+                AudioEngine::PedalProcessorHandle visibleProcessor;
+                int callbackCount = 0;
+                bool callbackWasOnMessageThread = false;
+                bool invalidated = false;
+            };
+
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre,
+                "p13e-p3-overlay-overdrive");
+            engine.synchronizeProcessingState();
+
+            // Drain initial graph notifications before simulating an open overlay.
+            AudioEngineTestAccess::dispatchPendingMessageThreadWork(engine);
+
+            auto processorHandle = engine.getPedalProcessorHandle(Nova::ChainID::LineA, 0);
+            expect((bool)processorHandle, "Expected a retained processor handle for the open overlay");
+            expectEquals(processorHandle.getGraphGeneration(), engine.getActiveGraphGeneration());
+
+            auto retainedRuntime = AudioEngineTestAccess::getRetainedRuntimeWeak(processorHandle);
+            OverlayInvalidationProbe overlay;
+            overlay.visibleProcessor = std::move(processorHandle);
+            engine.setTopologyListener(&overlay);
+
+            AudioEngine::RuntimeGlobalParams stableParams;
+            stableParams.outputMixRaw = 73.0f;
+            engine.updateGlobalParams(stableParams);
+            engine.synchronizeProcessingState();
+            AudioEngineTestAccess::dispatchPendingMessageThreadWork(engine);
+
+            expect((bool)overlay.visibleProcessor,
+                "A parameter-only update must preserve an overlay on the current graph");
+            expect(!overlay.invalidated,
+                "A stable graph generation must not invalidate the pedal editor overlay");
+
+            const auto openedGeneration = overlay.visibleProcessor.getGraphGeneration();
+            engine.removePedal(Nova::ChainID::LineA, 0);
+            engine.synchronizeProcessingState();
+
+            expect(engine.getActiveGraphGeneration() > openedGeneration,
+                "Removing the edited pedal must publish a newer graph generation");
+            expect(!retainedRuntime.expired(),
+                "The overlay lease must keep the retired graph alive until message-thread invalidation");
+
+            AudioEngineTestAccess::dispatchPendingMessageThreadWork(engine);
+            expect(overlay.invalidated,
+                "A graph generation change must invalidate the simulated pedal editor overlay");
+            expect(!(bool)overlay.visibleProcessor,
+                "Invalidation must release the overlay's processor handle before stale access");
+            expect(overlay.callbackCount > 0,
+                "The graph replacement must emit a topology notification");
+            expect(overlay.callbackWasOnMessageThread,
+                "Topology invalidation must be delivered on the JUCE message thread");
+
+            AudioEngineTestAccess::forceRetiredGraphCleanup(engine);
+            expect(retainedRuntime.expired(),
+                "The retired graph must be reclaimable after the overlay releases its lease");
+
+            engine.setTopologyListener(nullptr);
         }
 
         beginTest("AudioEngine ClearAll followed by add rebuilds to the new topology");
@@ -5973,20 +6118,35 @@ public:
 
             engine.setPedalBypassed(Nova::ChainID::LineA, 0, true);
             engine.synchronizeProcessingState();
+            for (int attempt = 0;
+                 attempt < 500 && engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor;
+                 ++attempt)
+            {
+                juce::Thread::sleep(1);
+            }
+
             const int bypassLatency = engine.getLatencyNumSamples();
             expect(bypassLatency <= baselineLatency,
                 "Bypass should not increase latency unexpectedly, baseline="
                     + juce::String(baselineLatency)
                     + ", bypass="
                     + juce::String(bypassLatency));
-            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
-                "Bypass latency rebuild should keep active processor instance");
+            auto* bypassedProcessor = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
+            expect(bypassedProcessor != activeProcessor,
+                "Latency-affecting bypass should publish a replacement mixed-chain graph");
 
             engine.setPedalBypassed(Nova::ChainID::LineA, 0, false);
             engine.synchronizeProcessingState();
+            for (int attempt = 0;
+                 attempt < 500 && engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == bypassedProcessor;
+                 ++attempt)
+            {
+                juce::Thread::sleep(1);
+            }
+
             expectEquals(engine.getLatencyNumSamples(), baselineLatency);
-            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
-                "Unbypass latency rebuild should keep active processor instance");
+            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) != bypassedProcessor,
+                "Latency-affecting unbypass should publish a replacement mixed-chain graph");
         }
 
         beginTest("AudioEngine global processor path responds after prepare with no pedals");
@@ -6085,13 +6245,14 @@ public:
             auto* activeProcessor = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
             engine.setPedalBypassed(Nova::ChainID::LineA, 0, true);
             engine.synchronizeProcessingState();
-            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
-                "Known ProcessorBase pedal should keep active processor instance across bypass");
+            auto* bypassedProcessor = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
+            expect(bypassedProcessor != activeProcessor,
+                "Latency-affecting ProcessorBase bypass should publish a replacement graph");
 
             engine.setPedalBypassed(Nova::ChainID::LineA, 0, false);
             engine.synchronizeProcessingState();
-            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) == activeProcessor,
-                "Known ProcessorBase pedal should keep active processor instance across unbypass");
+            expect(engine.getProcessorForPedal(Nova::ChainID::LineA, 0) != bypassedProcessor,
+                "Latency-affecting ProcessorBase unbypass should publish a replacement graph");
 
             AudioEngine::RuntimeGlobalParams params;
             params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
@@ -6127,6 +6288,111 @@ public:
             }
             engine.process(buffer, midi);
             expect(bufferHasOnlyFiniteSamples(buffer), "Known ProcessorBase/TempoSyncable chain must process finite output");
+        }
+
+        beginTest("AudioEngine rapid latency-affecting bypass toggles stay finite and converge");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+            engine.synchronizeProcessingState();
+            const int outputChainBaselineLatency = engine.getLatencyNumSamples();
+
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "rapid-bypass-overdrive");
+
+            AudioEngine::RuntimeGlobalParams params;
+            params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            params.outputMixRaw = 100.0f;
+            engine.updateGlobalParams(params);
+            engine.setEngineEnabled(true);
+            engine.synchronizeProcessingState();
+
+            const int activeLatency = engine.getLatencyNumSamples();
+            const auto initialGeneration = AudioEngineTestAccess::getActiveGraphGeneration(engine);
+            expect(activeLatency > outputChainBaselineLatency,
+                "Rapid bypass stress requires a pedal that contributes graph latency");
+
+            std::atomic<bool> startProcessing{ false };
+            std::atomic<bool> controlDone{ false };
+            std::atomic<bool> outputFinite{ true };
+            std::atomic<int> processedBlocks{ 0 };
+
+            std::thread audioThread([&]
+            {
+                juce::AudioBuffer<float> buffer(2, kBlockSize);
+                juce::MidiBuffer midi;
+                double phase = 0.0;
+                const double phaseDelta = juce::MathConstants<double>::twoPi * 220.0 / kSampleRate;
+
+                while (!startProcessing.load(std::memory_order_acquire))
+                    std::this_thread::yield();
+
+                for (int block = 0; block < 4096; ++block)
+                {
+                    for (int i = 0; i < kBlockSize; ++i)
+                    {
+                        const float sample = 0.16f * (float)std::sin(phase);
+                        phase += phaseDelta;
+                        if (phase >= juce::MathConstants<double>::twoPi)
+                            phase -= juce::MathConstants<double>::twoPi;
+
+                        buffer.setSample(0, i, sample);
+                        buffer.setSample(1, i, sample * 0.83f);
+                    }
+
+                    engine.process(buffer, midi);
+                    if (!bufferHasOnlyFiniteSamples(buffer))
+                        outputFinite.store(false, std::memory_order_relaxed);
+
+                    processedBlocks.fetch_add(1, std::memory_order_relaxed);
+
+                    if (block >= 511 && controlDone.load(std::memory_order_acquire))
+                        break;
+
+                    if ((block & 15) == 0)
+                        std::this_thread::yield();
+                }
+            });
+
+            startProcessing.store(true, std::memory_order_release);
+
+            for (int toggle = 0; toggle < 48; ++toggle)
+            {
+                engine.setPedalBypassed(Nova::ChainID::LineA, 0, (toggle & 1) == 0);
+                if ((toggle & 3) == 3)
+                    juce::Thread::sleep(1);
+            }
+
+            engine.setPedalBypassed(Nova::ChainID::LineA, 0, true);
+            controlDone.store(true, std::memory_order_release);
+            audioThread.join();
+
+            ProcessorBase* finalProcessor = nullptr;
+            for (int attempt = 0; attempt < 500; ++attempt)
+            {
+                engine.synchronizeProcessingState();
+                finalProcessor = dynamic_cast<ProcessorBase*>(
+                    engine.getProcessorForPedal(Nova::ChainID::LineA, 0));
+
+                if (finalProcessor != nullptr
+                    && finalProcessor->getBypassed()
+                    && engine.getLatencyNumSamples() == outputChainBaselineLatency)
+                {
+                    break;
+                }
+
+                juce::Thread::sleep(1);
+            }
+
+            expect(processedBlocks.load(std::memory_order_relaxed) >= 512,
+                "Rapid bypass stress should process many audio blocks");
+            expect(outputFinite.load(std::memory_order_relaxed),
+                "Rapid bypass toggles during processing must keep output finite");
+            expect(finalProcessor != nullptr && finalProcessor->getBypassed(),
+                "Final published processor must converge to the requested bypass state");
+            expectEquals(engine.getLatencyNumSamples(), outputChainBaselineLatency,
+                "Graph latency/PDC must converge after the final bypass request");
+            expect(AudioEngineTestAccess::getActiveGraphGeneration(engine) > initialGeneration,
+                "Latency-affecting bypass stress must converge through replacement graph publication");
         }
 
         beginTest("AudioEngine tempo-sync context variants remain stable on Delay");
@@ -6167,6 +6433,94 @@ public:
             verifyTempoContext(91.0f, false, false, "invalid");
         }
 
+        beginTest("AudioEngine concurrent control flushes converge to the latest parameter revision");
+        {
+            AudioEngine engine;
+            engine.prepare(kSampleRate, kBlockSize, 2, 2);
+
+            AudioEngine::RuntimeGlobalParams initialParams;
+            initialParams.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+            initialParams.outputMixRaw = 100.0f;
+            initialParams.outputLimiterDb = 0.0f;
+            engine.updateGlobalParams(initialParams);
+            engine.setEngineEnabled(true);
+            engine.synchronizeProcessingState();
+
+            std::atomic<bool> start{ false };
+            std::thread parameterThread([&]
+                {
+                    while (!start.load(std::memory_order_acquire))
+                        std::this_thread::yield();
+
+                    for (int i = 0; i < 256; ++i)
+                    {
+                        auto updated = initialParams;
+                        updated.outputVolumeDb = -6.0f + (float)(i % 7);
+                        updated.gainA = 0.75f + 0.01f * (float)(i % 20);
+                        updated.panA = -0.25f + 0.05f * (float)(i % 11);
+                        engine.updateGlobalParams(updated);
+
+                        if ((i & 3) == 0)
+                            engine.synchronizeProcessingState();
+                    }
+                });
+
+            start.store(true, std::memory_order_release);
+
+            for (int i = 0; i < 24; ++i)
+            {
+                const auto pedalID = "flush-race-delay-" + juce::String(i);
+                engine.addPedal("Delay", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, pedalID);
+                engine.synchronizeProcessingState();
+                engine.removePedal(Nova::ChainID::LineA, 0);
+                engine.synchronizeProcessingState();
+            }
+
+            parameterThread.join();
+
+            auto finalParams = initialParams;
+            finalParams.outputVolumeDb = -3.0f;
+            finalParams.gainA = 0.91f;
+            finalParams.panA = 0.12f;
+            engine.updateGlobalParams(finalParams);
+            const auto expectedRevision = AudioEngineTestAccess::getRuntimeParamRevision(engine);
+
+            for (int attempt = 0;
+                 attempt < 500 && AudioEngineTestAccess::getAppliedParamRevision(engine) != expectedRevision;
+                 ++attempt)
+            {
+                engine.synchronizeProcessingState();
+                juce::Thread::sleep(1);
+            }
+
+            expectEquals(AudioEngineTestAccess::getAppliedParamRevision(engine), expectedRevision,
+                "Active runtime must converge to the latest parameter revision after concurrent flushes");
+            expectEquals((int)engine.getNodes(Nova::ChainID::LineA).size(), 0,
+                "Concurrent flush serialization must preserve queued add/remove command order");
+
+            juce::AudioBuffer<float> buffer(2, kBlockSize);
+            juce::MidiBuffer midi;
+            bool finite = true;
+
+            for (int blockIndex = 0; blockIndex < 24; ++blockIndex)
+            {
+                for (int i = 0; i < kBlockSize; ++i)
+                {
+                    const int sampleIndex = blockIndex * kBlockSize + i;
+                    const float t = (float)sampleIndex / (float)kSampleRate;
+                    const float sample = 0.08f
+                        * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t);
+                    buffer.setSample(0, i, sample);
+                    buffer.setSample(1, i, sample * 0.97f);
+                }
+
+                engine.process(buffer, midi);
+                finite = finite && bufferHasOnlyFiniteSamples(buffer);
+            }
+
+            expect(finite, "Audio output must remain finite after concurrent control-path flushing");
+        }
+
         beginTest("GraphBuilder builds runtime with global processors and captured latency");
         {
             Nova::Audio::GraphBuildRequest request;
@@ -6200,7 +6554,8 @@ public:
                 expect(runtime.stripA != nullptr, "GraphBuilder should cache strip A processor pointer");
                 expect(runtime.stripB != nullptr, "GraphBuilder should cache strip B processor pointer");
                 expect(runtime.outputChain != nullptr, "GraphBuilder should cache OutputChain processor pointer");
-                expectEquals(runtime.appliedParamRevision, request.runtimeParamRevision);
+                expectEquals(runtime.appliedParamRevision.load(std::memory_order_relaxed),
+                    request.runtimeParamRevision);
 
                 juce::AudioBuffer<float> buffer(2, kBlockSize);
                 juce::MidiBuffer midi;
