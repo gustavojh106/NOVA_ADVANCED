@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <JuceHeader.h>
 #include <array>
@@ -282,7 +282,7 @@ private:
 };
 }
 
-class OctavePedal final : public ProcessorBase
+class OctavePedal final : public NovaPedalProcessor
 {
 public:
     OctavePedal()
@@ -327,12 +327,11 @@ public:
         updateToneModel(toneSmooth.getCurrentValue(), true);
 
         setProcessingLatency(0);
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, juce::jmax(1, samplesPerBlock));
         reset();
-        isPrepared = true;
     }
 
-    void releaseResources() override { isPrepared = false; }
+    void releaseResources() override { releasePedalProcessing(); }
 
     void reset() override
     {
@@ -353,15 +352,8 @@ public:
         updateToneModel(toneSmooth.getCurrentValue(), true);
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        juce::ScopedNoDenormals noDenormals;
-
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
-        scrubInvalidSamples(buffer);
-
         subSmooth.setTargetValue(subParam != nullptr ? snapBlendTarget(subParam->get()) : 0.72f);
         upperSmooth.setTargetValue(upperParam != nullptr ? snapBlendTarget(upperParam->get()) : 0.28f);
         drySmooth.setTargetValue(dryParam != nullptr ? snapBlendTarget(dryParam->get()) : 0.82f);
@@ -450,8 +442,6 @@ public:
                 buffer.setSample(ch, sample, (dry * dryAmt + wet) * level * wetTrim);
             }
         }
-
-        endBypassProcess(buffer);
     }
 
     juce::AudioParameterFloat* subParam = nullptr;
@@ -461,16 +451,6 @@ public:
     juce::AudioParameterFloat* levelParam = nullptr;
 
 private:
-    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
-    {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* data = buffer.getWritePointer(ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                data[i] = Nova::OctaveDSP::sanitizeAudioSample(data[i]);
-        }
-    }
-
     static float snapBlendTarget(float value) noexcept
     {
         if (value <= 1.0e-4f)
@@ -533,7 +513,6 @@ private:
     }
 
     double sr = 44100.0;
-    bool isPrepared = false;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> subSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> upperSmooth;

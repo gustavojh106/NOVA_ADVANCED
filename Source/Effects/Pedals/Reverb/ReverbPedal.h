@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 #include "../../../Core/PedalSignalTelemetry.h"
 
 #include <JuceHeader.h>
@@ -1731,7 +1731,7 @@ namespace Nova {
 // ============================================================================
 //  ReverbPedal — Processor
 // ============================================================================
-class ReverbPedal final : public ProcessorBase
+class ReverbPedal final : public NovaPedalProcessor
 {
 public:
     ReverbPedal()
@@ -1793,7 +1793,7 @@ public:
         mixSmooth.reset(sampleRate, 0.04);
         mixSmooth.setCurrentAndTargetValue(mixParam ? mixParam->get() : 0.28f);
 
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, preparedBlockSize, preparedChannels);
 
         lastMode = -1;
         lastDecay = lastTone = lastSize = lastDamp = -1.0f;
@@ -1801,10 +1801,9 @@ public:
         lastFreeze = false;
         reset();
         signalTelemetry.prepare(sampleRate);
-        isPrepared = true;
     }
 
-    void releaseResources() override { isPrepared = false; }
+    void releaseResources() override { releasePedalProcessing(); }
 
     void reset() override
     {
@@ -1912,12 +1911,8 @@ public:
         if (mixParam) mixSmooth.setCurrentAndTargetValue(mixParam->get());
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
-        juce::ScopedNoDenormals noDenormals;
         signalTelemetry.captureInput(buffer);
 
         // ---- Read parameters ----
@@ -1991,14 +1986,9 @@ public:
         auto* dstL = buffer.getWritePointer(0);
         auto* dstR = numChannels > 1 ? buffer.getWritePointer(1) : nullptr;
 
-        if (numSamples > preparedBlockSize || numChannels > preparedChannels)
-        {
-            // Host sent a larger block/layout than prepareToPlay declared.
-            // Do not allocate here. Leave the dry signal intact.
-            endBypassProcess(buffer);
-            return;
-        }
-
+        // The shared scaffold already guarantees numSamples <= preparedBlockSize and
+        // numChannels <= preparedChannels (oversized blocks take the dry fallback
+        // before reaching here), and has scrubbed NaN/Inf/denormals from the input.
         scrubBuffer(buffer);
 
         // Dry path remains untouched. Wet input is trimmed before entering the feedback network.
@@ -2041,8 +2031,6 @@ public:
 
         if (signalTelemetry.captureOutputAndPublishIfNeeded(buffer))
             engine.resetDebugTelemetryWindow();
-
-        endBypassProcess(buffer);
     }
 
     // Public accessors for the editor
@@ -2243,7 +2231,6 @@ private:
     float  lastBass = -1.0f, lastDiff = -1.0f, lastWidth = -1.0f, lastMod = -1.0f, lastPD = -1.0f, lastDuck = -1.0f;
     float  lastSwell = -1.0f, lastGate = -1.0f, lastReverse = -1.0f;
     bool   lastFreeze = false;
-    bool   isPrepared = false;
     NovaDiagnostics::PedalSignalTelemetry signalTelemetry{ "reverb" };
 };
 

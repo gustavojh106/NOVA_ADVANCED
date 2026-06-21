@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <juce_dsp/juce_dsp.h>
 #include <array>
@@ -495,7 +495,7 @@ inline ModeConfig getModeConfig(int modeIndex) noexcept
 
 }} // namespace Nova::DistortionDSP
 
-class DistortionPedal final : public ProcessorBase
+class DistortionPedal final : public NovaPedalProcessor
 {
 public:
     DistortionPedal()
@@ -560,14 +560,13 @@ public:
         invalidateCachedResponse();
 
         setProcessingLatency((int) std::round(oversampler.getLatencyInSamples()));
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, preparedBlockSize, preparedChannels);
         reset();
-        isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false;
+        releasePedalProcessing();
     }
 
     void reset() override
@@ -580,22 +579,10 @@ public:
         tightSmooth.setCurrentAndTargetValue(tightParam != nullptr ? tightParam->get() : 0.42f);
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
         const int numChannels = juce::jmin(2, buffer.getNumChannels());
         const int numSamples = buffer.getNumSamples();
-
-        scrubInvalidSamples(buffer);
-
-        if (!canProcessBlock(buffer))
-        {
-            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
-            endBypassProcess(buffer);
-            return;
-        }
 
         for (int ch = 0; ch < numChannels; ++ch)
             juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch),
@@ -613,7 +600,6 @@ public:
         {
             mixSmooth.setCurrentAndTargetValue(0.0f);
             currentGateGain = 1.0f;
-            endBypassProcess(buffer);
             return;
         }
 
@@ -728,8 +714,6 @@ public:
                 buffer.setSample(ch, s, containOutputSample(centered));
             }
         }
-
-        endBypassProcess(buffer);
     }
 
     void getStateInformation(juce::MemoryBlock& destData) override
@@ -887,7 +871,7 @@ public:
         invalidateCachedResponse();
         inputGate.reset();
         currentGateGain = 1.0f;
-        if (isPrepared)
+        if (isPedalPrepared())
             reset();
     }
 
@@ -1020,16 +1004,6 @@ public:
     juce::AudioParameterFloat* tightParam = nullptr;
     juce::AudioParameterChoice* modeParam = nullptr;
     float currentGateGain = 1.0f;
-
-    int getRealtimeFallbackCount() const noexcept
-    {
-        return fallbackBlockCount.load(std::memory_order_relaxed);
-    }
-
-    void clearRealtimeFallbackCount() noexcept
-    {
-        fallbackBlockCount.store(0, std::memory_order_relaxed);
-    }
 
 private:
     static void writeFloat(juce::XmlElement& xml, const char* key, juce::AudioParameterFloat* param)
@@ -1267,24 +1241,6 @@ private:
     double innerSr = 352800.0;
     static constexpr int kMaxProcessingChannels = 2;
 
-    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
-    {
-        return buffer.getNumSamples() <= preparedBlockSize
-            && buffer.getNumChannels() <= preparedChannels
-            && buffer.getNumChannels() <= kMaxProcessingChannels;
-    }
-
-    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
-    {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* data = buffer.getWritePointer(ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                if (!std::isfinite(data[i]))
-                    data[i] = 0.0f;
-        }
-    }
-
     juce::dsp::Oversampling<float> oversampler;
 
     std::array<Nova::DistortionDSP::Biquad, 2> inputHP;
@@ -1323,8 +1279,6 @@ private:
     float cachedGain = -999.0f;
     float cachedTight = -999.0f;
     int cachedMode = -1;
-    std::atomic<int> fallbackBlockCount{ 0 };
-    bool isPrepared = false;
 };
 
 #include "DistortionEditor.h"

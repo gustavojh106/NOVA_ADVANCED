@@ -42,7 +42,8 @@ function Get-ProcessRanges {
     for ($i = 0; $i -lt $lines.Count; $i++) {
         $line = $lines[$i]
 
-        $isProcessBlockDecl = $line -match '^\s*void\s+(?:[A-Za-z0-9_:<>]+\s*::\s*)?processBlock\s*\([^;]*\)\s*(?:override)?'
+        $isProcessBlockDecl = $line -match '^\s*void\s+(?:[A-Za-z0-9_:<>]+\s*::\s*)?processBlock\s*\([^;]*\)\s*(?:override|final)?'
+        $isPedalProcessDecl = $line -match '^\s*void\s+(?:[A-Za-z0-9_:<>]+\s*::\s*)?processPedalBlock\s*\([^;]*\)\s*(?:override|final)?'
         $isAudioEngineProcessDecl = $line -match '^\s*void\s+AudioEngine::process\s*\('
         $isAudioEngineDryWetDecl = $line -match '^\s*void\s+AudioEngine::processWithSampleAccurateDryWet\s*\('
         $isCpuMeterBeginBlockDecl = $line -match '^\s*double\s+beginBlock\s*\(\)\s*noexcept'
@@ -55,7 +56,7 @@ function Get-ProcessRanges {
         $isRuntimeParameterRevisionDecl = $isRuntimeParameterFile -and $line -match '^\s*uint32_t\s+getRevision\s*\('
         $isRuntimeParameterOutputMixDecl = $isRuntimeParameterFile -and $line -match '^\s*float\s+getOutputMixNormalized\s*\('
 
-        $isTrackedAudioFunction = $isProcessBlockDecl -or $isAudioEngineProcessDecl -or $isAudioEngineDryWetDecl -or $isCpuMeterBeginBlockDecl -or $isCpuMeterEndBlockDecl -or $isHealthMonitorSanitizeDecl -or $isHealthMonitorAfterBlockDecl -or $isRuntimeParameterStoreDecl -or $isRuntimeParameterLoadDecl -or $isRuntimeParameterRevisionDecl -or $isRuntimeParameterOutputMixDecl
+        $isTrackedAudioFunction = $isProcessBlockDecl -or $isPedalProcessDecl -or $isAudioEngineProcessDecl -or $isAudioEngineDryWetDecl -or $isCpuMeterBeginBlockDecl -or $isCpuMeterEndBlockDecl -or $isHealthMonitorSanitizeDecl -or $isHealthMonitorAfterBlockDecl -or $isRuntimeParameterStoreDecl -or $isRuntimeParameterLoadDecl -or $isRuntimeParameterRevisionDecl -or $isRuntimeParameterOutputMixDecl
         if (-not $isTrackedAudioFunction) {
             continue
         }
@@ -82,7 +83,10 @@ function Get-ProcessRanges {
             }
         }
 
-        $functionName = if ($isAudioEngineDryWetDecl) {
+        $functionName = if ($isPedalProcessDecl) {
+            'processPedalBlock'
+        }
+        elseif ($isAudioEngineDryWetDecl) {
             'AudioEngine::processWithSampleAccurateDryWet'
         }
         elseif ($isAudioEngineProcessDecl) {
@@ -1074,6 +1078,15 @@ $p7cP1PedalFiles = @(
     "Source/Effects/Cabinets/Modern4x12Cabinet.h"
 )
 
+$sharedPedalContractRel = "Source/Effects/Pedals/Base/NovaPedalProcessor.h"
+$sharedPedalContractFull = Join-Path $repoRoot $sharedPedalContractRel
+$sharedPedalProcessRange = $null
+if (Test-Path $sharedPedalContractFull) {
+    $sharedPedalProcessRange = Get-ProcessRanges -FilePath $sharedPedalContractFull -Root $repoRoot |
+        Where-Object { $_.function -eq "processBlock" } |
+        Select-Object -First 1
+}
+
 foreach ($pedalRel in $p7cP1PedalFiles) {
     $pedalFull = Join-Path $repoRoot $pedalRel
     if (-not (Test-Path $pedalFull)) {
@@ -1092,8 +1105,13 @@ foreach ($pedalRel in $p7cP1PedalFiles) {
         continue
     }
 
+    $pedalText = Get-Content -LiteralPath $pedalFull -Raw
+    $usesSharedPedalContract = $pedalText -match 'public\s+NovaPedalProcessor'
     $ranges = Get-ProcessRanges -FilePath $pedalFull -Root $repoRoot
     $processRange = $ranges | Where-Object { $_.function -eq "processBlock" } | Select-Object -First 1
+    if ($null -eq $processRange -and $usesSharedPedalContract) {
+        $processRange = $sharedPedalProcessRange
+    }
 
     if ($null -eq $processRange) {
         $contractChecks += [pscustomobject]@{
@@ -1177,12 +1195,12 @@ foreach ($pedalRel in $p7cP1PedalFiles) {
         }
     }
 
-    $hasCanProcessBlockGuard = $processText -match 'canProcessBlock\s*\(\s*buffer\s*\)'
+    $hasCanProcessBlockGuard = $processText -match 'canProcess(?:Pedal)?Block\s*\(\s*buffer\s*\)'
     $contractChecks += [pscustomobject]@{
         checkId = "p7c_p1_pedal_canprocessblock_guard"
         target = $pedalRel
         passed = $hasCanProcessBlockGuard
-        detail = if ($hasCanProcessBlockGuard) { "canProcessBlock(buffer) guard present" } else { "canProcessBlock(buffer) guard missing" }
+        detail = if ($hasCanProcessBlockGuard) { "local or shared block-size guard present" } else { "local or shared block-size guard missing" }
     }
     if (-not $hasCanProcessBlockGuard) {
         $contractFailures += [pscustomobject]@{
@@ -1656,7 +1674,7 @@ if (Test-Path $p7hReverbPath) {
     }
 
     $p7hRanges = Get-ProcessRanges -FilePath $p7hReverbPath -Root $repoRoot
-    $p7hProcessRange = $p7hRanges | Where-Object { $_.function -eq "processBlock" } | Select-Object -First 1
+    $p7hProcessRange = $p7hRanges | Where-Object { $_.function -eq "processBlock" -or $_.function -eq "processPedalBlock" } | Select-Object -First 1
     if ($null -ne $p7hProcessRange) {
         $p7hProcessText = ($p7hProcessRange.lines[($p7hProcessRange.startLine - 1)..($p7hProcessRange.endLine - 1)] -join "`n")
         $hasProcessLogging = $p7hProcessText -match 'SessionLogger::|juce::String|Logger::|DBG\s*\('
@@ -1823,7 +1841,7 @@ if (Test-Path $p8aDistortionPath) {
     }
 
     $p8aRanges = Get-ProcessRanges -FilePath $p8aDistortionPath -Root $repoRoot
-    $p8aProcessRange = $p8aRanges | Where-Object { $_.function -eq "processBlock" } | Select-Object -First 1
+    $p8aProcessRange = $p8aRanges | Where-Object { $_.function -eq "processBlock" -or $_.function -eq "processPedalBlock" } | Select-Object -First 1
     if ($null -ne $p8aProcessRange) {
         $p8aProcessText = ($p8aProcessRange.lines[($p8aProcessRange.startLine - 1)..($p8aProcessRange.endLine - 1)] -join "`n")
         $hasProcessLogging = $p8aProcessText -match 'SessionLogger::|juce::String|Logger::|DBG\s*\('
@@ -2044,7 +2062,7 @@ if (Test-Path $p8aDistortionPath) {
     }
 
     $p8bRanges = Get-ProcessRanges -FilePath $p8aDistortionPath -Root $repoRoot
-    $p8bProcessRange = $p8bRanges | Where-Object { $_.function -eq "processBlock" } | Select-Object -First 1
+    $p8bProcessRange = $p8bRanges | Where-Object { $_.function -eq "processBlock" -or $_.function -eq "processPedalBlock" } | Select-Object -First 1
     if ($null -ne $p8bProcessRange) {
         $p8bProcessText = ($p8bProcessRange.lines[($p8bProcessRange.startLine - 1)..($p8bProcessRange.endLine - 1)] -join "`n")
         $hasP8bProcessLogging = $p8bProcessText -match 'SessionLogger::|juce::String|Logger::|DBG\s*\('

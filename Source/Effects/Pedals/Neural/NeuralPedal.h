@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <juce_dsp/juce_dsp.h>
 #include <algorithm>
@@ -125,7 +125,7 @@ private:
 
 } // namespace Nova::NeuralDSP
 
-class NeuralPedal final : public ProcessorBase
+class NeuralPedal final : public NovaPedalProcessor
 {
 public:
     NeuralPedal()
@@ -197,14 +197,13 @@ public:
 
         updateToneModel(drive, focus, detail, comp);
         setProcessingLatency((int) std::round(oversampler.getLatencyInSamples()));
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, preparedBlockSize, preparedChannels);
         reset();
-        isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false;
+        releasePedalProcessing();
     }
 
     void reset() override
@@ -235,24 +234,10 @@ public:
         updateToneModel(drive, focus, detail, comp);
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
-        juce::ScopedNoDenormals noDenormals;
-
         const int numChannels = buffer.getNumChannels();
         const int numSamples = buffer.getNumSamples();
-
-        scrubInvalidSamples(buffer);
-
-        if (!canProcessBlock(buffer))
-        {
-            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
-            endBypassProcess(buffer);
-            return;
-        }
 
         for (int ch = 0; ch < numChannels; ++ch)
             juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch), buffer.getReadPointer(ch), numSamples);
@@ -288,11 +273,10 @@ public:
             || !dcBlock.hasChannels(upsampledChannels)
             || !envelopeFollower.hasChannels(upsampledChannels))
         {
-            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
+            noteRealtimeFallback();
             oversampler.processSamplesDown(block);
             for (int ch = 0; ch < numChannels; ++ch)
                 juce::FloatVectorOperations::copy(buffer.getWritePointer(ch), scratchBuffer.getReadPointer(ch), numSamples);
-            endBypassProcess(buffer);
             return;
         }
 
@@ -364,8 +348,6 @@ public:
                 buffer.setSample(ch, sample, ((dry * dryGain) + (wet * wetGain)) * level);
             }
         }
-
-        endBypassProcess(buffer);
     }
 
     juce::AudioParameterFloat* driveParam = nullptr;
@@ -374,16 +356,6 @@ public:
     juce::AudioParameterFloat* compParam = nullptr;
     juce::AudioParameterFloat* mixParam = nullptr;
     juce::AudioParameterFloat* levelParam = nullptr;
-
-    int getRealtimeFallbackCount() const noexcept
-    {
-        return fallbackBlockCount.load(std::memory_order_relaxed);
-    }
-
-    void clearRealtimeFallbackCount() noexcept
-    {
-        fallbackBlockCount.store(0, std::memory_order_relaxed);
-    }
 
     static float computeDisplayCurve(float input, float drive, float detail, float comp)
     {
@@ -444,24 +416,6 @@ private:
         return juce::Decibels::decibelsToGain(compensationDb);
     }
 
-    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
-    {
-        return buffer.getNumSamples() <= preparedBlockSize
-            && buffer.getNumChannels() <= preparedChannels
-            && buffer.getNumChannels() <= kMaxProcessingChannels;
-    }
-
-    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
-    {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* data = buffer.getWritePointer(ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                if (!std::isfinite(data[i]))
-                    data[i] = 0.0f;
-        }
-    }
-
     void updateToneModel(float driveControl, float focusControl, float detailControl, float compControl)
     {
         const float drive = juce::jlimit(0.0f, 1.0f, driveControl * 0.01f);
@@ -513,8 +467,6 @@ private:
     int preparedBlockSize = 0;
     int preparedChannels = 0;
     ToneModel toneModel;
-    std::atomic<int> fallbackBlockCount{ 0 };
-    bool isPrepared = false;
 };
 
 #include "NeuralEditor.h"

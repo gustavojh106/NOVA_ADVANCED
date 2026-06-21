@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <JuceHeader.h>
 #include <array>
@@ -265,7 +265,7 @@ inline ModeConfig getModeConfig(int modeIndex) noexcept
 
 }} // namespace Nova::ChorusDSP
 
-class ChorusPedal final : public ProcessorBase
+class ChorusPedal final : public NovaPedalProcessor
 {
 public:
     ChorusPedal()
@@ -320,14 +320,13 @@ public:
             filter.reset();
 
         updateFilters(true);
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, juce::jmax(1, samplesPerBlock));
         reset();
-        isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false;
+        releasePedalProcessing();
     }
 
     void reset() override
@@ -355,15 +354,8 @@ public:
         lagSmooth.setCurrentAndTargetValue(lagParam != nullptr ? lagParam->get() : 7.8f);
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        juce::ScopedNoDenormals noDenormals;
-
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
-        scrubInvalidSamples(buffer);
-
         rateSmooth.setTargetValue(rateParam != nullptr ? rateParam->get() : 0.85f);
         depthSmooth.setTargetValue(depthParam != nullptr ? depthParam->get() : 0.58f);
         widthSmooth.setTargetValue(widthParam != nullptr ? widthParam->get() : 0.72f);
@@ -496,8 +488,6 @@ public:
             if (driftPhase >= 1.0f)
                 driftPhase -= 1.0f;
         }
-
-        endBypassProcess(buffer);
     }
 
     static float toneToCutoffHz(float tone) noexcept
@@ -534,16 +524,6 @@ public:
     float lfoPhase = 0.0f;
 
 private:
-    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
-    {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* data = buffer.getWritePointer(ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                data[i] = Nova::ChorusDSP::sanitizeAudioSample(data[i]);
-        }
-    }
-
     void updateFilters(bool force = false)
     {
         const float tone = toneParam != nullptr ? toneParam->get() : 0.62f;
@@ -586,7 +566,6 @@ private:
     float driftPhase = 0.0f;
     float cachedTone = -1.0f;
     int cachedMode = -1;
-    bool isPrepared = false;
 };
 
 #include "ChorusEditor.h"

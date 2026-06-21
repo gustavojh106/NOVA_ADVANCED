@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 #include "../../../Core/PedalSignalTelemetry.h"
 
 #include <JuceHeader.h>
@@ -251,7 +251,7 @@ inline ModeConfig getModeConfig(int modeIndex) noexcept
 
 }} // namespace Nova::FlangerDSP
 
-class FlangerPedal final : public ProcessorBase
+class FlangerPedal final : public NovaPedalProcessor
 {
 public:
     FlangerPedal()
@@ -312,16 +312,15 @@ public:
             filter.reset();
 
         updateFilters(true);
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, juce::jmax(1, samplesPerBlock));
         reset();
         signalTelemetry.prepare(sampleRate);
         debugTelemetry.resetWindow();
-        isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false;
+        releasePedalProcessing();
     }
 
     void reset() override
@@ -355,15 +354,9 @@ public:
         debugTelemetry.resetWindow();
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        juce::ScopedNoDenormals noDenormals;
-
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
         signalTelemetry.captureInput(buffer);
-        scrubInvalidSamples(buffer);
 
         rateSmooth.setTargetValue(rateParam != nullptr ? rateParam->get() : 0.32f);
         depthSmooth.setTargetValue(depthParam != nullptr ? depthParam->get() : 0.72f);
@@ -501,8 +494,6 @@ public:
 
         if (signalTelemetry.captureOutputAndPublishIfNeeded(buffer))
             debugTelemetry.resetWindow();
-
-        endBypassProcess(buffer);
     }
 
     static float manualToCentreDelayMs(float manual) noexcept
@@ -532,17 +523,6 @@ public:
     std::array<float, 2> lastDelayMs {};
 
 private:
-    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
-    {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* data = buffer.getWritePointer(ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                if (!std::isfinite(data[i]))
-                    data[i] = 0.0f;
-        }
-    }
-
     struct DebugTelemetry
     {
         std::array<float, 2> delayMsMin{};
@@ -670,7 +650,6 @@ private:
     float driftPhase = 0.0f;
     float cachedTone = -1.0f;
     int cachedMode = -1;
-    bool isPrepared = false;
     NovaDiagnostics::PedalSignalTelemetry signalTelemetry { "flanger" };
     DebugTelemetry debugTelemetry;
 };

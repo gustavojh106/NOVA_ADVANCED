@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 #include "../../../Core/PedalSignalTelemetry.h"
 
 #include <juce_dsp/juce_dsp.h>
@@ -8,7 +8,7 @@
 #include <array>
 #include <vector>
 
-class OverdrivePedal final : public ProcessorBase
+class OverdrivePedal final : public NovaPedalProcessor
 {
 public:
     OverdrivePedal()
@@ -85,17 +85,16 @@ public:
         updateToneModel(drive, tone, texture);
 
         setProcessingLatency((int) oversampler.getLatencyInSamples());
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, preparedBlockSize, preparedChannels);
 
         reset();
         signalTelemetry.prepare(sampleRate);
         debugTelemetry.resetWindow();
-        isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false;
+        releasePedalProcessing();
     }
 
     void reset() override
@@ -128,23 +127,12 @@ public:
         debugTelemetry.resetWindow();
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
-        juce::ScopedNoDenormals noDenormals;
         signalTelemetry.captureInput(buffer);
 
         const int numChannels = buffer.getNumChannels();
         const int numSamples = buffer.getNumSamples();
-
-        if (numChannels > preparedChannels || numSamples > preparedBlockSize)
-        {
-            ++debugTelemetry.blockOverflowCount;
-            endBypassProcess(buffer);
-            return;
-        }
 
         const auto guardStats = scrubBuffer(buffer);
         debugTelemetry.guardInvalidSamples += guardStats.invalidSamples;
@@ -277,8 +265,14 @@ public:
 
         if (signalTelemetry.captureOutputAndPublishIfNeeded(buffer))
             debugTelemetry.resetWindow();
+    }
 
-        endBypassProcess(buffer);
+    // Preserve the legacy oversized-block diagnostic: the shared scaffold takes a
+    // no-allocation dry fallback for blocks larger than prepared, and this hook
+    // keeps the existing telemetry counter in sync.
+    void handleRealtimeFallback() noexcept override
+    {
+        ++debugTelemetry.blockOverflowCount;
     }
 
 private:
@@ -759,7 +753,6 @@ private:
     int preparedBlockSize = 512;
     int preparedChannels = 2;
     ToneModel toneModel;
-    bool isPrepared = false;
     NovaDiagnostics::PedalSignalTelemetry signalTelemetry { "overdrive" };
     DebugTelemetry debugTelemetry;
 };

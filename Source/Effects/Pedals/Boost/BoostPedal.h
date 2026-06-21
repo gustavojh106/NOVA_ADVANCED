@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <JuceHeader.h>
 #include <array>
@@ -89,6 +89,13 @@ struct Biquad
         const float y = b0 * x + z1;
         z1 = b1 * x - a1 * y + z2;
         z2 = b2 * x - a2 * y;
+
+        if (!std::isfinite(y) || !std::isfinite(z1) || !std::isfinite(z2))
+        {
+            reset();
+            return 0.0f;
+        }
+
         return y;
     }
 };
@@ -110,7 +117,7 @@ inline float boostClip(float x, float character) noexcept
 }
 }
 
-class BoostPedal final : public ProcessorBase
+class BoostPedal final : public NovaPedalProcessor
 {
 public:
     BoostPedal()
@@ -137,9 +144,10 @@ public:
 
         sr = sampleRate;
         innerSr = sr * (double) oversamplingFactor();
+        const int safeBlockSize = juce::jmax(1, samplesPerBlock);
 
         oversampler.reset();
-        oversampler.initProcessing((size_t) juce::jmax(1, samplesPerBlock));
+        oversampler.initProcessing((size_t) safeBlockSize);
 
         gainSmooth.reset(sr, 0.04);
         toneSmooth.reset(sr, 0.05);
@@ -159,12 +167,11 @@ public:
         updateFilters(toneSmooth.getCurrentValue(), tightSmooth.getCurrentValue(), midSmooth.getCurrentValue(), true);
 
         setProcessingLatency((int) std::round(oversampler.getLatencyInSamples()));
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, safeBlockSize, kMaxProcessingChannels);
         reset();
-        isPrepared = true;
     }
 
-    void releaseResources() override { isPrepared = false; }
+    void releaseResources() override { releasePedalProcessing(); }
 
     void reset() override
     {
@@ -181,19 +188,15 @@ public:
         updateFilters(toneSmooth.getCurrentValue(), tightSmooth.getCurrentValue(), midSmooth.getCurrentValue(), true);
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+protected:
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
-        juce::ScopedNoDenormals noDenormals;
-
-        gainSmooth.setTargetValue(gainParam != nullptr ? *gainParam : 8.0f);
-        toneSmooth.setTargetValue(toneParam != nullptr ? *toneParam : 0.58f);
-        tightSmooth.setTargetValue(tightParam != nullptr ? *tightParam : 0.24f);
-        charSmooth.setTargetValue(charParam != nullptr ? *charParam : 0.0f);
-        midSmooth.setTargetValue(midParam != nullptr ? *midParam : 0.0f);
-        levelSmooth.setTargetValue(levelParam != nullptr ? *levelParam : 1.0f);
+        gainSmooth.setTargetValue(readParameter(gainParam, 8.0f, 0.0f, 24.0f));
+        toneSmooth.setTargetValue(readParameter(toneParam, 0.58f, 0.0f, 1.0f));
+        tightSmooth.setTargetValue(readParameter(tightParam, 0.24f, 0.0f, 1.0f));
+        charSmooth.setTargetValue(readParameter(charParam, 0.0f, 0.0f, 1.0f));
+        midSmooth.setTargetValue(readParameter(midParam, 0.0f, -6.0f, 6.0f));
+        levelSmooth.setTargetValue(readParameter(levelParam, 1.0f, 0.5f, 2.0f));
 
         juce::dsp::AudioBlock<float> block(buffer);
         auto upsampled = oversampler.processSamplesUp(block);
@@ -259,9 +262,9 @@ public:
                 buffer.setSample(ch, s, containBoostOutput(buffer.getSample(ch, s) * level));
         }
 
-        endBypassProcess(buffer);
     }
 
+public:
     juce::AudioParameterFloat* gainParam  = nullptr;
     juce::AudioParameterFloat* toneParam  = nullptr;
     juce::AudioParameterFloat* tightParam = nullptr;
@@ -270,6 +273,8 @@ public:
     juce::AudioParameterFloat* levelParam = nullptr;
 
 private:
+    static constexpr int kMaxProcessingChannels = 2;
+
     static int oversamplingFactor() noexcept
     {
         return 8;
@@ -342,7 +347,6 @@ private:
 
     double sr = 44100.0;
     double innerSr = 176400.0;
-    bool isPrepared = false;
 
     juce::dsp::Oversampling<float> oversampler;
     std::array<Nova::BoostDSP::Biquad, 2> inputHP, midPeak, presShelf, airLP, dcBlock;

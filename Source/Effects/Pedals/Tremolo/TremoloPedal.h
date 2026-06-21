@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <JuceHeader.h>
 #include <array>
@@ -127,7 +127,7 @@ inline float equalPowerWet(float mix) noexcept
 }
 } // namespace Nova::TremoloDSP
 
-class TremoloPedal final : public ProcessorBase
+class TremoloPedal final : public NovaPedalProcessor
 {
 public:
     TremoloPedal()
@@ -176,14 +176,13 @@ public:
         mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? mixParam->get() : 1.0f);
         levelSmooth.setCurrentAndTargetValue(levelParam != nullptr ? levelParam->get() : 1.0f);
 
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, juce::jmax(1, samplesPerBlock));
         reset();
-        isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false;
+        releasePedalProcessing();
     }
 
     void reset() override
@@ -215,11 +214,8 @@ public:
         coefficientCounter = Nova::TremoloDSP::kCoefficientUpdateInterval;
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
         const float rateTarget = rateParam != nullptr ? rateParam->get() : 4.5f;
         const float depthTarget = depthParam != nullptr ? depthParam->get() : 0.65f;
         const float shapeTarget = shapeParam != nullptr ? shapeParam->get() : 0.30f;
@@ -306,7 +302,6 @@ public:
         }
 
         visualPhase.store(lfoPhase, std::memory_order_relaxed);
-        endBypassProcess(buffer);
     }
 
     juce::AudioParameterFloat* rateParam = nullptr;
@@ -350,8 +345,6 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> crossoverSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> levelSmooth;
-
-    bool isPrepared = false;
 };
 
 #include "TremoloEditor.h"

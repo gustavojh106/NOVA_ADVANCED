@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <JuceHeader.h>
 #include <array>
@@ -162,7 +162,7 @@ static constexpr int kStaticCoefficientUpdateInterval = 8;
 // - sweepable mid band with dedicated Q control
 // - smoothed control path with immediate coefficient refresh while sweeping,
 //   and lighter periodic refresh when static to keep CPU under control
-class EQPedal final : public ProcessorBase
+class EQPedal final : public NovaPedalProcessor
 {
 public:
     EQPedal()
@@ -215,14 +215,13 @@ public:
             highSmooth.getCurrentValue(),
             highCutSmooth.getCurrentValue());
 
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, juce::jmax(1, samplesPerBlock));
         reset();
-        isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false;
+        releasePedalProcessing();
     }
 
     void reset() override
@@ -246,11 +245,8 @@ public:
         coefficientUpdateCounter = 0;
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
         lowCutSmooth.setTargetValue(lowCutParam != nullptr ? lowCutParam->get() : 20.0f);
         lowSmooth.setTargetValue(lowParam != nullptr ? lowParam->get() : 0.0f);
         lowMidSmooth.setTargetValue(lowMidParam != nullptr ? lowMidParam->get() : 0.0f);
@@ -310,8 +306,6 @@ public:
                 buffer.setSample(ch, sample, x * outputGain);
             }
         }
-
-        endBypassProcess(buffer);
     }
 
     juce::AudioParameterFloat* lowCutParam = nullptr;
@@ -415,7 +409,6 @@ private:
     }
 
     double sr = 44100.0;
-    bool isPrepared = false;
     int coefficientUpdateCounter = 0;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> lowCutSmooth;

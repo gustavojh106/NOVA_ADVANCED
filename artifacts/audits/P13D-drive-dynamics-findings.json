@@ -1,0 +1,163 @@
+{
+  "task": "P13D-drive-dynamics-audit",
+  "date": "2026-06-16",
+  "auditor": "Claude (Opus 4.8)",
+  "mode": "audit-only",
+  "code_modified": false,
+  "tests_modified": false,
+  "presets_modified": false,
+  "assumptions": {
+    "global_mix_percent": 100,
+    "line_gain": 1.0
+  },
+  "verdict": "drive/dynamics safe to keep enabled; no hard blocker before full-chain/preset audit",
+  "strongest_effect": "Overdrive",
+  "riskiest_effect": "Boost",
+  "blocks_full_chain_preset_audit": false,
+  "active_effects": [
+    {
+      "name": "Boost", "file": "Source/Effects/Pedals/Boost/BoostPedal.h", "class": "BoostPedal",
+      "oversampling": "8x HalfbandIIR", "latency_reported": true,
+      "oversized_guard": false, "input_scrub": false, "scoped_no_denormals": true, "output_contain": "containBoostOutput"
+    },
+    {
+      "name": "Overdrive", "file": "Source/Effects/Pedals/Overdrive/OverdrivePedal.h", "class": "OverdrivePedal",
+      "oversampling": "8x HalfbandIIR", "latency_reported": true,
+      "oversized_guard": true, "input_scrub": true, "scoped_no_denormals": true, "output_contain": "softCeiling+sanitize"
+    },
+    {
+      "name": "Distortion", "file": "Source/Effects/Pedals/Distortion/DistortionPedal.h", "class": "DistortionPedal",
+      "oversampling": "8x HalfbandIIR", "latency_reported": true,
+      "oversized_guard": true, "input_scrub": "finite-only", "scoped_no_denormals": false, "output_contain": "containOutputSample+sanitize"
+    },
+    {
+      "name": "Fuzz", "file": "Source/Effects/Pedals/Fuzz/FuzzPedal.h", "class": "FuzzPedal",
+      "oversampling": "8x HalfbandIIR", "latency_reported": true,
+      "oversized_guard": true, "input_scrub": "finite-only", "scoped_no_denormals": false, "output_contain": "containFuzzOutput"
+    },
+    {
+      "name": "Neural", "file": "Source/Effects/Pedals/Neural/NeuralPedal.h", "class": "NeuralPedal",
+      "oversampling": "8x HalfbandIIR", "latency_reported": true,
+      "oversized_guard": true, "input_scrub": "finite-only", "scoped_no_denormals": true, "output_contain": "wetTrim+limiter"
+    },
+    {
+      "name": "Compressor", "file": "Source/Effects/Pedals/Compressor/CompressorPedal.h", "class": "CompressorPedal",
+      "oversampling": "none", "latency_reported": true, "latency_samples": 0,
+      "oversized_guard": true, "input_scrub": "finite-only", "scoped_no_denormals": false, "output_contain": "n/a"
+    },
+    {
+      "name": "Noise Gate", "file": "Source/Effects/Pedals/Gate/NoiseGatePedal.h", "class": "NoiseGatePedal",
+      "oversampling": "none", "latency_reported": true, "latency": "lookaheadSamples",
+      "oversized_guard": "n/a-ring-self-bounded", "input_scrub": false, "scoped_no_denormals": false, "output_contain": "n/a"
+    }
+  ],
+  "dead_code": [
+    {
+      "name": "Metal Distortion", "file": "Source/Effects/Pedals/Metal/MetalDistortionPedal.h", "class": "MetalDistortionPedal",
+      "registered": false, "catalog_mapping": "PedalCatalog.h:40 maps 'Metal Distortion' -> 'Distortion'",
+      "note": "Legacy/unreachable; Metal voice now Distortion mode index 3"
+    }
+  ],
+  "scorecard": {
+    "dimensions": ["dsp_safety","gain_staging","aliasing_oversampling","dynamics_envelope_stability","latency_pdc","rt_safety","parameter_safety","test_coverage","release_readiness"],
+    "Overdrive":  [9,9,9,9,9,9,9,9,9],
+    "Neural":     [8,8,9,8,9,9,9,8,8],
+    "Distortion": [8,8,9,8,9,7,9,9,8],
+    "Compressor": [8,8,9,8,9,7,9,9,8],
+    "Fuzz":       [7,8,9,7,9,7,8,8,7],
+    "NoiseGate":  [6,8,9,7,9,6,8,8,7],
+    "Boost":      [5,8,8,8,9,5,9,6,6]
+  },
+  "findings": [
+    {
+      "id": "P13D-F001",
+      "effect": "Boost",
+      "severity": "medium-high",
+      "probability": "medium",
+      "title": "Missing oversized-block capacity guard before JUCE Oversampling",
+      "evidence": "BoostPedal.h:199 calls oversampler.processSamplesUp(block) with no 'numSamples > preparedBlockSize' guard; no preparedBlockSize member; initProcessing sized to prepared block (line 142). Host block larger than prepared can read/write past oversampler capacity (OOB/UB/assert). Parity gap vs P13C amps and Overdrive.",
+      "files": ["Source/Effects/Pedals/Boost/BoostPedal.h"],
+      "recommended_fix": "Capture preparedBlockSize in prepareToPlay; add oversized-block bypass guard + realtime fallback counter before upsampling, mirroring Overdrive/amps.",
+      "implementer": "Codex 5.5 implementation",
+      "blocks_full_chain_preset_audit": false,
+      "fix_before_release": true
+    },
+    {
+      "id": "P13D-F002",
+      "effect": "Boost",
+      "severity": "medium",
+      "probability": "medium",
+      "title": "Missing input NaN/Inf scrub allows biquad state latch",
+      "evidence": "No scrubInvalidSamples at block entry; raw data fed into inputHP/midPeak/presShelf/airLP/dcBlock biquads (BoostPedal.h:236+). NaN/Inf poisons z1/z2 permanently; containBoostOutput zeroes only the current output sample, not filter state -> persistent silence, no recovery.",
+      "files": ["Source/Effects/Pedals/Boost/BoostPedal.h"],
+      "recommended_fix": "Add scrubInvalidSamples (finite->0) at processBlock entry, like Overdrive/Distortion/Fuzz/Neural.",
+      "implementer": "Codex 5.5 implementation",
+      "blocks_full_chain_preset_audit": false
+    },
+    {
+      "id": "P13D-F003",
+      "effect": "Noise Gate",
+      "severity": "medium",
+      "probability": "low-medium",
+      "title": "No NaN/Inf scrub; detector/gateGain/lookahead can latch NaN",
+      "evidence": "NoiseGatePedal.h:253+ processBlock has no input scrub. Non-finite input -> detector envelope NaN -> detectorDb NaN -> gateGain NaN and lookahead ring stores NaN with no reset/recovery path.",
+      "files": ["Source/Effects/Pedals/Gate/NoiseGatePedal.h"],
+      "recommended_fix": "Add input scrub + isfinite reset for detector, gateGain, and lookahead state on non-finite.",
+      "implementer": "Codex 5.5 implementation",
+      "blocks_full_chain_preset_audit": false
+    },
+    {
+      "id": "P13D-F004",
+      "effect": "Distortion, Fuzz, Compressor, Noise Gate",
+      "severity": "low-medium",
+      "probability": "medium",
+      "title": "Missing juce::ScopedNoDenormals in processBlock",
+      "evidence": "grep shows ScopedNoDenormals present only in Boost/Overdrive/Metal/Neural. Distortion, Fuzz, Compressor, Noise Gate lack it -> biquad/envelope decay tails on silence cause denormal CPU spikes; Compressor and Gate operate on silence by design.",
+      "files": [
+        "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+        "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+        "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+        "Source/Effects/Pedals/Gate/NoiseGatePedal.h"
+      ],
+      "recommended_fix": "Add juce::ScopedNoDenormals as first statement of each processBlock (matches P13B/P13C hardening pattern).",
+      "implementer": "Codex 5.5 implementation",
+      "blocks_full_chain_preset_audit": false
+    },
+    {
+      "id": "P13D-F005",
+      "effect": "Metal (dead/legacy)",
+      "severity": "low",
+      "probability": "n/a-unreachable",
+      "title": "Unregistered MetalDistortionPedal lacks guards",
+      "evidence": "Not in PedalRegistry; PedalCatalog.h:40 maps 'Metal Distortion'->'Distortion'. File lacks oversized guard, input scrub, output containment and resizes scratch in processBlock. Latent only.",
+      "files": ["Source/Effects/Pedals/Metal/MetalDistortionPedal.h"],
+      "recommended_fix": "Delete legacy file or bring to parity to prevent accidental re-registration.",
+      "implementer": "Codex 5.5 implementation",
+      "blocks_full_chain_preset_audit": false
+    },
+    {
+      "id": "P13D-F006",
+      "effect": "Tests",
+      "severity": "low",
+      "probability": "n/a",
+      "title": "Test gaps for Boost oversized + drive NaN/Inf + dynamics near-silence",
+      "evidence": "runP1OversizedFallback covers Compressor/Distortion/Fuzz/Neural but not Boost; no NaN/Inf-input recovery test for drives; no denormal/near-silence finite test for Compressor/Gate decay tails.",
+      "files": ["Source/Core/AudioEngineTests.cpp"],
+      "recommended_fix": "After F001-F004 land: add Boost oversized + drive NaN/Inf recovery + Compressor/Gate near-silence finite tests; assert SR-change re-prepare.",
+      "implementer": "Codex 5.5 implementation",
+      "blocks_full_chain_preset_audit": false
+    }
+  ],
+  "test_coverage": {
+    "required_chain_tests_present": [
+      "p10c_boost_highgainamp_modern4x12_nominal",
+      "p10c_distortion_highgainamp_modern4x12_nominal",
+      "p10c_fuzz_classicamp_cabinet_nominal",
+      "p10c_distortion_cleanamp_cabinet_nominal"
+    ],
+    "oversized_fallback_covered": ["Compressor", "Distortion", "Fuzz", "Neural"],
+    "oversized_fallback_missing": ["Boost"],
+    "automation_stress_finite": ["Boost","Overdrive","Neural","Distortion","Fuzz","Compressor","NoiseGate"]
+  },
+  "next_step": "Proceed to full-chain/preset interaction audit; assign Codex 5.5 F001+F002 (Boost) first, then F003 (Gate NaN), then F004 (ScopedNoDenormals x4). Fix Boost before release VST3 build."
+}

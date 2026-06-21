@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <JuceHeader.h>
 #include <array>
@@ -114,7 +114,7 @@ inline float denormaliseValue(float normalised, float minValue, float maxValue) 
 }
 } // namespace Nova::WahDSP
 
-class ClassicWahPedal : public ProcessorBase
+class ClassicWahPedal : public NovaPedalProcessor
 {
 public:
     enum class MotionMode
@@ -199,14 +199,13 @@ public:
             false,
             true);
 
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, preparedBlockSize, preparedChannels);
         reset();
-        isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false;
+        releasePedalProcessing();
     }
 
     void reset() override
@@ -226,22 +225,10 @@ public:
         syncSmoothedTargets(true);
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
         const int numChannels = juce::jmin(2, buffer.getNumChannels());
         const int numSamples = buffer.getNumSamples();
-
-        scrubInvalidSamples(buffer);
-
-        if (!canProcessBlock(buffer))
-        {
-            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
-            endBypassProcess(buffer);
-            return;
-        }
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
@@ -376,8 +363,6 @@ public:
                 buffer.setSample(ch, sampleIndex, dry * dryGain + wet * wetGain);
             }
         }
-
-        endBypassProcess(buffer);
     }
 
     void getStateInformation(juce::MemoryBlock& destData) override
@@ -650,16 +635,6 @@ public:
     float currentManualSweep = 0.46f;
     float currentEnvelope = 0.0f;
 
-    int getRealtimeFallbackCount() const noexcept
-    {
-        return fallbackBlockCount.load(std::memory_order_relaxed);
-    }
-
-    void clearRealtimeFallbackCount() noexcept
-    {
-        fallbackBlockCount.store(0, std::memory_order_relaxed);
-    }
-
 protected:
     static void applyNormalisedValue(juce::RangedAudioParameter* parameter, float normalisedValue)
     {
@@ -698,24 +673,6 @@ private:
         float x1 = 0.0f;
         float y1 = 0.0f;
     };
-
-    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
-    {
-        return buffer.getNumSamples() <= preparedBlockSize
-            && buffer.getNumChannels() <= preparedChannels
-            && buffer.getNumChannels() <= kMaxProcessingChannels;
-    }
-
-    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
-    {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* data = buffer.getWritePointer(ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                if (!std::isfinite(data[i]))
-                    data[i] = 0.0f;
-        }
-    }
 
     void syncSmoothedTargets(bool snap)
     {
@@ -760,12 +717,10 @@ private:
 
     std::atomic<int> controlSource { (int) ExternalControlSource::MouseWheel };
     std::atomic<int> shortcutKeyCode { juce::KeyPress::spaceKey };
-    std::atomic<int> fallbackBlockCount{ 0 };
 
     juce::AudioBuffer<float> scratchBuffer;
     int preparedBlockSize = 0;
     int preparedChannels = 0;
-    bool isPrepared = false;
 };
 
 #include "ClassicWahEditor.h"

@@ -1,0 +1,121 @@
+{
+  "task": "P13D-FIX1-claude-post-fix-review",
+  "date": "2026-06-16",
+  "reviewer": "Claude (Opus 4.8)",
+  "mode": "review-only",
+  "code_modified": false,
+  "verdict": "approve",
+  "p13d_fix1_closeable": true,
+  "safe_to_proceed_full_chain_preset_audit": true,
+  "golden_drift_caused_by_patch": false,
+  "golden_drift_source": "inherited from P12D OutputChain (limiter now runs unconditionally); baseline captured at pre-P12D commit da11290",
+  "patch": {
+    "files_reviewed": [
+      "Source/Effects/Pedals/Boost/BoostPedal.h",
+      "Source/Effects/Pedals/Gate/NoiseGatePedal.h",
+      "Source/Effects/Pedals/Distortion/DistortionPedal.h",
+      "Source/Effects/Pedals/Fuzz/FuzzPedal.h",
+      "Source/Effects/Pedals/Compressor/CompressorPedal.h",
+      "Source/Core/AudioEngineTests.cpp"
+    ],
+    "addresses_p13d_findings": ["F001", "F002", "F003", "F004", "F006"],
+    "metal_f005": "intentionally untouched (legacy/unregistered)"
+  },
+  "review_questions": {
+    "q1_boost_guard_before_oversampler": "pass",
+    "q2_boost_fallback_rt_safe_finite_nonalloc_balanced": "pass",
+    "q3_boost_scrub_prevents_biquad_latch": "pass",
+    "q4_gate_detector_gain_lookahead_nan_safe": "pass",
+    "q5_scopednodenormals_correct_harmless": "pass",
+    "q6_tests_meaningful_not_overfitted": "pass",
+    "q7_no_tone_change_normal_audio": "pass",
+    "q8_do_not_touch_zones_avoided": "pass",
+    "q9_golden_drift_inherited_not_this_patch": "inherited-from-P12D",
+    "q10_golden_action": "ignore-for-this-patch; re-baseline via separate P12D task",
+    "q11_p13d_fix1_closeable": "yes",
+    "q12_safe_proceed_full_chain_preset": "yes"
+  },
+  "verified_mechanics": {
+    "boost_guard_line_order": "ScopedNoDenormals(199) -> scrubInvalidSamples(201) -> canProcessBlock guard(203-207) -> processSamplesUp(218)",
+    "boost_prepared_capacity_matches_init": true,
+    "boost_fallback_is_count_plus_endbypass_return": true,
+    "boost_biquad_self_heal": "reset()+return 0 on non-finite y/z1/z2",
+    "gate_scrub_input": true,
+    "gate_detector_reset_on_nonfinite": true,
+    "gate_detectorDb_fallback_minus120": true,
+    "gate_gain_fallback_targetgain": true,
+    "gate_lookahead_finite_in_and_out": true,
+    "gate_biquad_self_heal": true,
+    "scopednodenormals_first_statement": ["Distortion", "Fuzz", "Compressor", "NoiseGate"]
+  },
+  "findings": [
+    {
+      "id": "P13D-FIX1-CLAUDE-F1",
+      "severity": "info",
+      "title": "Biquad self-heal is strong defense-in-depth",
+      "detail": "Boost and Gate Biquad::process now reset()+return 0 on non-finite state, beyond the minimum input scrub. Tone-neutral (only fires on non-finite). Good.",
+      "blocking": false
+    },
+    {
+      "id": "P13D-FIX1-CLAUDE-F2",
+      "severity": "info",
+      "title": "ScopedNoDenormals precedes bypass early-return in 3 pedals",
+      "detail": "In Distortion/Fuzz/Compressor the scope is entered before isPrepared/beginBypassProcess check. Harmless and consistent with existing Boost/Overdrive ordering.",
+      "blocking": false
+    },
+    {
+      "id": "P13D-FIX1-CLAUDE-F3",
+      "severity": "info",
+      "title": "Golden drift inherited from P12D (out of scope)",
+      "detail": "output_chain_clean_path / impulse_transparency_line_a and output_chain_* are OutputChain-only scenarios with no drive/dynamics pedals. Baseline at commit da11290 predates P12D limiter-always-on change. Track via separate P12D golden-refresh task; do not address in P13D (OutputChain is a do-not-touch zone here).",
+      "blocking": false,
+      "out_of_scope": true
+    },
+    {
+      "id": "P13D-FIX1-CLAUDE-F4",
+      "severity": "info",
+      "title": "Uncommitted P13C-FIX1 carry-forward in working tree",
+      "detail": "Amp/cab P13C-FIX1 changes (7 files) and their tests remain uncommitted, so the AudioEngineTests diff also shows prior-approved P13C blocks. Recommend committing P13C-FIX1 and P13D-FIX1 for a clean future diff/golden reference.",
+      "blocking": false
+    },
+    {
+      "id": "P13D-FIX1-CLAUDE-F5",
+      "severity": "info",
+      "title": "Optional biquad self-heal parity for Distortion/Fuzz/Compressor",
+      "detail": "Those pedals scrub non-finite input to 0 but their internal biquads lack the self-heal branch added to Boost/Gate. Input scrub makes this sufficient today; consider parity later as optional hardening.",
+      "blocking": false,
+      "deferred": true
+    }
+  ],
+  "do_not_touch_zones_respected": [
+    "OutputChain/P12D limiter logic",
+    "Host PDC/P13A-F001",
+    "AudioEngine graph architecture",
+    "RuntimeGraphManager",
+    "DryWetMixer",
+    "RoutingMixer",
+    "PluginStateModel schema",
+    "UI visual design",
+    "amps/cabinets",
+    "delay/reverb/modulation",
+    "Neural",
+    "unrelated refactors"
+  ],
+  "validation_crosscheck": {
+    "method": "static source inspection + golden baseline provenance check",
+    "boost_guard_verified": true,
+    "boost_fallback_safety_verified": true,
+    "gate_nan_coverage_verified": true,
+    "scopednodenormals_verified": true,
+    "test_helpers_exist": true,
+    "golden_baseline_commit": "da11290 (pre-P12D)",
+    "reported_sharedcode_build": "pass",
+    "reported_standalone_build": "pass",
+    "reported_base_validation": "results=281, passes=8103, failures=0",
+    "reported_rt_scenarios": "16/16 pass",
+    "reported_audio_thread_policy_scan": "pass",
+    "reported_full_audio_gate": "partial - stopped at inherited OutputChain golden drift (out of scope)"
+  },
+  "defect_count": 0,
+  "next_step": "Close P13D-FIX1; proceed to full-chain/preset interaction audit; open separate P12D-owned golden re-baseline task; commit P13C-FIX1 + P13D-FIX1."
+}

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <JuceHeader.h>
 #include <array>
@@ -89,6 +89,13 @@ struct Biquad
         const float y = b0 * x + z1;
         z1 = b1 * x - a1 * y + z2;
         z2 = b2 * x - a2 * y;
+
+        if (!std::isfinite(y) || !std::isfinite(z1) || !std::isfinite(z2))
+        {
+            reset();
+            return 0.0f;
+        }
+
         return y;
     }
 };
@@ -114,18 +121,19 @@ struct LookaheadDelay
 
     float process(float input, int delaySamples) noexcept
     {
+        const float safeInput = std::isfinite(input) ? input : 0.0f;
         const int clampedDelay = juce::jlimit(0, size - 1, delaySamples);
         int readPos = writePos - clampedDelay;
         if (readPos < 0)
             readPos += size;
 
         const float output = buffer[(size_t) readPos];
-        buffer[(size_t) writePos] = input;
+        buffer[(size_t) writePos] = safeInput;
 
         if (++writePos >= size)
             writePos = 0;
 
-        return output;
+        return std::isfinite(output) ? output : 0.0f;
     }
 };
 
@@ -146,6 +154,9 @@ struct HybridDetector
         float rmsCoeff,
         float focusAmount) noexcept
     {
+        if (!std::isfinite(inputLevel) || !std::isfinite(peakEnvelope) || !std::isfinite(rmsSquare))
+            reset();
+
         const float absIn = std::abs(inputLevel);
         const float peakCoeff = absIn > peakEnvelope ? peakAttackCoeff : peakReleaseCoeff;
         peakEnvelope = absIn + peakCoeff * (peakEnvelope - absIn);
@@ -162,7 +173,7 @@ struct HybridDetector
 
 }} // namespace Nova::GateDSP
 
-class NoiseGatePedal final : public ProcessorBase
+class NoiseGatePedal final : public NovaPedalProcessor
 {
 public:
     NoiseGatePedal()
@@ -213,14 +224,13 @@ public:
         updateDetectorFilters();
 
         setProcessingLatency(lookaheadSamples);
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, juce::jmax(1, samplesPerBlock));
         reset();
-        isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false;
+        releasePedalProcessing();
     }
 
     void reset() override
@@ -250,11 +260,8 @@ public:
         currentDetectorDbAtomic.store(-96.0f);
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
         thresholdSmooth.setTargetValue(thresholdParam != nullptr ? thresholdParam->get() : -46.0f);
         attackSmooth.setTargetValue(attackParam != nullptr ? attackParam->get() : 0.25f);
         holdSmooth.setTargetValue(holdParam != nullptr ? holdParam->get() : 70.0f);
@@ -307,7 +314,9 @@ public:
                 coeffForMs(juce::jmap(focusAmount, 0.0f, 1.0f, 22.0f, 12.0f)),
                 focusAmount);
 
-            const float detectorDb = juce::Decibels::gainToDecibels(juce::jmax(detectorLin, 1.0e-6f), -120.0f);
+            const float detectorDb = std::isfinite(detectorLin)
+                ? juce::Decibels::gainToDecibels(juce::jmax(detectorLin, 1.0e-6f), -120.0f)
+                : -120.0f;
 
             if (detectorDb >= openThresholdDb)
             {
@@ -363,6 +372,8 @@ public:
                 ? coeffForMs(openAttackMs)
                 : coeffForMs(adaptiveReleaseMs);
             gateGain = targetGain + coeff * (gateGain - targetGain);
+            if (!std::isfinite(gateGain))
+                gateGain = targetGain;
 
             currentGateGainAtomic.store(gateGain);
             currentDetectorDbAtomic.store(detectorDb);
@@ -374,8 +385,6 @@ public:
                 buffer.setSample(ch, sample, delayed * gateGain);
             }
         }
-
-        endBypassProcess(buffer);
     }
 
     static juce::String getFocusDescription(float focusAmount)
@@ -453,7 +462,6 @@ private:
     int holdCounter = 0;
     int lookaheadSamples = 64;
     bool gateOpen = true;
-    bool isPrepared = false;
 };
 
 #include "GateEditor.h"

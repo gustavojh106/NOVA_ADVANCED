@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../../../Core/PedalSignalTelemetry.h"
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <JuceHeader.h>
 #include <atomic>
@@ -254,7 +254,7 @@ inline float renderReverseWindow(const DelayLine& line,
 
 }} // namespace Nova::DelayDSP
 
-class DelayPedal final : public ProcessorBase, public TempoSyncable
+class DelayPedal final : public NovaPedalProcessor, public TempoSyncable
 {
 public:
     DelayPedal()
@@ -497,16 +497,15 @@ public:
         diffusionR[0].setDelay(juce::jmax(1, (int) (17.0 * ratio)));
         diffusionR[1].setDelay(juce::jmax(1, (int) (31.0 * ratio)));
 
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, juce::jmax(1, samplesPerBlock));
         signalTelemetry.prepare(sampleRate);
         debugTelemetry.resetWindow();
         reset();
-        isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false;
+        releasePedalProcessing();
     }
 
     void reset() override
@@ -559,15 +558,9 @@ public:
         debugTelemetry.resetWindow();
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        juce::ScopedNoDenormals noDenormals;
-
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
         signalTelemetry.captureInput(buffer);
-        scrubInvalidSamples(buffer);
 
         setTargetFromParam(feedbackSmooth, feedbackParam, 0.46f);
         setTargetFromParam(lowCutSmooth, lowCutParam, 70.0f);
@@ -823,8 +816,6 @@ public:
 
         if (signalTelemetry.captureOutputAndPublishIfNeeded(buffer))
             debugTelemetry.resetWindow();
-
-        endBypassProcess(buffer);
     }
 
     juce::AudioParameterChoice* modeParam = nullptr;
@@ -1094,17 +1085,6 @@ private:
         smoother.setTargetValue(param != nullptr ? param->get() : fallback);
     }
 
-    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
-    {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* data = buffer.getWritePointer(ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                if (!std::isfinite(data[i]))
-                    data[i] = 0.0f;
-        }
-    }
-
     ModeStyle getModeStyle(int modeIndex, float texture, float reverseAmount) const noexcept
     {
         ModeStyle style;
@@ -1342,7 +1322,6 @@ private:
     std::atomic<bool> hostTempoValid{ false };
     std::atomic<bool> hostTransportPlaying{ false };
     std::atomic<int> lastAppliedFlagshipPreset{ -1 };
-    bool isPrepared = false;
     NovaDiagnostics::PedalSignalTelemetry signalTelemetry { "delay" };
     DebugTelemetry debugTelemetry;
 };

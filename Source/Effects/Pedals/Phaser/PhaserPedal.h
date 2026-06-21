@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <JuceHeader.h>
 #include <array>
@@ -13,7 +13,7 @@
 //  saturation so the pedal reads as a finished product rather than a bare
 //  modulation primitive.
 // ============================================================================
-class PhaserPedal final : public ProcessorBase
+class PhaserPedal final : public NovaPedalProcessor
 {
 public:
     PhaserPedal()
@@ -61,12 +61,11 @@ public:
         for (auto& dcBlock : outputDcBlock)
             dcBlock.prepare(sampleRate, 18.0f);
 
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, preparedBlockSize, preparedChannels);
         reset();
-        isPrepared = true;
     }
 
-    void releaseResources() override { isPrepared = false; }
+    void releaseResources() override { releasePedalProcessing(); }
 
     void reset() override
     {
@@ -89,20 +88,8 @@ public:
         mixSmooth.setCurrentAndTargetValue(mixParam != nullptr ? *mixParam : 0.5f);
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
-        scrubInvalidSamples(buffer);
-
-        if (!canProcessBlock(buffer))
-        {
-            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
-            endBypassProcess(buffer);
-            return;
-        }
-
         rateSmooth.setTargetValue(rateParam != nullptr ? *rateParam : 0.65f);
         depthSmooth.setTargetValue(depthParam != nullptr ? *depthParam : 0.72f);
         feedbackSmooth.setTargetValue(feedbackParam != nullptr ? *feedbackParam : 0.45f);
@@ -213,8 +200,6 @@ public:
 
             lfoPhase = wrapPhase(lfoPhase + rate / (float) sr);
         }
-
-        endBypassProcess(buffer);
     }
 
     juce::AudioParameterFloat* rateParam     = nullptr;
@@ -225,37 +210,9 @@ public:
     juce::AudioParameterChoice* modeParam    = nullptr;
     float lfoPhase = 0.0f;
 
-    int getRealtimeFallbackCount() const noexcept
-    {
-        return fallbackBlockCount.load(std::memory_order_relaxed);
-    }
-
-    void clearRealtimeFallbackCount() noexcept
-    {
-        fallbackBlockCount.store(0, std::memory_order_relaxed);
-    }
-
 private:
     static constexpr int kMaxProcessingChannels = 2;
     static constexpr int kMaxStages = 12;
-
-    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
-    {
-        return buffer.getNumSamples() <= preparedBlockSize
-            && buffer.getNumChannels() <= preparedChannels
-            && buffer.getNumChannels() <= kMaxProcessingChannels;
-    }
-
-    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
-    {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* data = buffer.getWritePointer(ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                if (!std::isfinite(data[i]))
-                    data[i] = 0.0f;
-        }
-    }
 
     struct FeedbackHighPass
     {
@@ -395,8 +352,6 @@ private:
     std::array<float, 2> driftPhase {};
     int preparedBlockSize = 0;
     int preparedChannels = 0;
-    std::atomic<int> fallbackBlockCount{ 0 };
-    bool isPrepared = false;
 };
 
 #include "PhaserEditor.h"

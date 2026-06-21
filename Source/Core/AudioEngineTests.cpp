@@ -26,6 +26,7 @@
 #include "DSP/Global/OutputChain.h"
 #include "DSP/Services/TunerService.h"
 #include "../Effects/Cabinets/SyntheticIR.h"
+#include "../Effects/Pedals/Base/NovaPedalProcessor.h"
 
 struct AudioEngineTestAccess
 {
@@ -12739,12 +12740,22 @@ public:
             runP1PreparedMatrix<CabinetPedal>(*this, "Cabinet");
             runP1PreparedMatrix<Vintage2x12Cabinet>(*this, "Vintage2x12");
             runP1PreparedMatrix<Modern4x12Cabinet>(*this, "Modern4x12");
+            runP1PreparedMatrix<BoostPedal>(*this, "Boost");
             runP1PreparedMatrix<CompressorPedal>(*this, "Compressor");
             runP1PreparedMatrix<DistortionPedal>(*this, "Distortion");
             runP1PreparedMatrix<FuzzPedal>(*this, "Fuzz");
             runP1PreparedMatrix<NeuralPedal>(*this, "Neural");
             runP1PreparedMatrix<ClassicWahPedal>(*this, "Wah");
             runP1PreparedMatrix<PhaserPedal>(*this, "Phaser");
+            runP1PreparedMatrix<OverdrivePedal>(*this, "Overdrive");
+            runP1PreparedMatrix<NoiseGatePedal>(*this, "Noise Gate");
+            runP1PreparedMatrix<EQPedal>(*this, "EQ");
+            runP1PreparedMatrix<OctavePedal>(*this, "Octave");
+            runP1PreparedMatrix<ChorusPedal>(*this, "Chorus");
+            runP1PreparedMatrix<FlangerPedal>(*this, "Flanger");
+            runP1PreparedMatrix<TremoloPedal>(*this, "Tremolo");
+            runP1PreparedMatrix<DelayPedal>(*this, "Delay");
+            runP1PreparedMatrix<ReverbPedal>(*this, "Reverb");
         }
 
         beginTest("P1 pedals use dry no-allocation fallback when host exceeds prepared block size");
@@ -12752,12 +12763,22 @@ public:
             runP1OversizedFallback<CabinetPedal>(*this, "Cabinet");
             runP1OversizedFallback<Vintage2x12Cabinet>(*this, "Vintage2x12");
             runP1OversizedFallback<Modern4x12Cabinet>(*this, "Modern4x12");
+            runP1OversizedFallback<BoostPedal>(*this, "Boost");
             runP1OversizedFallback<CompressorPedal>(*this, "Compressor");
             runP1OversizedFallback<DistortionPedal>(*this, "Distortion");
             runP1OversizedFallback<FuzzPedal>(*this, "Fuzz");
             runP1OversizedFallback<NeuralPedal>(*this, "Neural");
             runP1OversizedFallback<ClassicWahPedal>(*this, "Wah");
             runP1OversizedFallback<PhaserPedal>(*this, "Phaser");
+            runP1OversizedFallback<OverdrivePedal>(*this, "Overdrive");
+            runP1OversizedFallback<NoiseGatePedal>(*this, "Noise Gate");
+            runP1OversizedFallback<EQPedal>(*this, "EQ");
+            runP1OversizedFallback<OctavePedal>(*this, "Octave");
+            runP1OversizedFallback<ChorusPedal>(*this, "Chorus");
+            runP1OversizedFallback<FlangerPedal>(*this, "Flanger");
+            runP1OversizedFallback<TremoloPedal>(*this, "Tremolo");
+            runP1OversizedFallback<DelayPedal>(*this, "Delay");
+            runP1OversizedFallback<ReverbPedal>(*this, "Reverb");
         }
 
         beginTest("P1 pedals keep bypass transitions finite and bounded");
@@ -12765,13 +12786,879 @@ public:
             runP1BypassToggleContinuity<CabinetPedal>(*this, "Cabinet");
             runP1BypassToggleContinuity<Vintage2x12Cabinet>(*this, "Vintage2x12");
             runP1BypassToggleContinuity<Modern4x12Cabinet>(*this, "Modern4x12");
+            runP1BypassToggleContinuity<BoostPedal>(*this, "Boost");
             runP1BypassToggleContinuity<CompressorPedal>(*this, "Compressor");
             runP1BypassToggleContinuity<DistortionPedal>(*this, "Distortion");
             runP1BypassToggleContinuity<FuzzPedal>(*this, "Fuzz");
             runP1BypassToggleContinuity<NeuralPedal>(*this, "Neural");
             runP1BypassToggleContinuity<ClassicWahPedal>(*this, "Wah");
             runP1BypassToggleContinuity<PhaserPedal>(*this, "Phaser");
+            runP1BypassToggleContinuity<OverdrivePedal>(*this, "Overdrive");
+            runP1BypassToggleContinuity<NoiseGatePedal>(*this, "Noise Gate");
+            runP1BypassToggleContinuity<EQPedal>(*this, "EQ");
+            runP1BypassToggleContinuity<OctavePedal>(*this, "Octave");
+            runP1BypassToggleContinuity<ChorusPedal>(*this, "Chorus");
+            runP1BypassToggleContinuity<FlangerPedal>(*this, "Flanger");
+            runP1BypassToggleContinuity<TremoloPedal>(*this, "Tremolo");
+            runP1BypassToggleContinuity<DelayPedal>(*this, "Delay");
+            runP1BypassToggleContinuity<ReverbPedal>(*this, "Reverb");
         }
+    }
+};
+
+class P13EPedalContractProbe final : public NovaPedalProcessor
+{
+public:
+    const juce::String getName() const override { return "P13E Contract Probe"; }
+
+    void prepareToPlay(double sampleRate, int samplesPerBlock) override
+    {
+        preparePedalProcessing(sampleRate, samplesPerBlock, 2);
+        renderCount = 0;
+        fallbackHookCount = 0;
+    }
+
+    void releaseResources() override
+    {
+        releasePedalProcessing();
+    }
+
+    void reset() override
+    {
+    }
+
+    static float mixForTest(float dry, float wet, float mix) noexcept
+    {
+        return mixDryWetEqualPower(dry, wet, mix);
+    }
+
+    static float fallbackParameterForTest(float fallback, float minimum, float maximum) noexcept
+    {
+        return readParameter(nullptr, fallback, minimum, maximum);
+    }
+
+    int renderCount = 0;
+    int fallbackHookCount = 0;
+
+protected:
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    {
+        ++renderCount;
+        buffer.applyGain(0.5f);
+    }
+
+    void handleRealtimeFallback() noexcept override
+    {
+        ++fallbackHookCount;
+    }
+};
+
+class P13ESharedPedalContractTests final : public juce::UnitTest
+{
+public:
+    P13ESharedPedalContractTests()
+        : juce::UnitTest("P13E-P4 Shared Pedal RT-Safety Contract", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        beginTest("P13E-P4 scaffold centralizes input scrub and wet dispatch");
+        {
+            P13EPedalContractProbe probe;
+            probe.prepareToPlay(kSampleRate, kBlockSize);
+
+            juce::AudioBuffer<float> buffer(2, kBlockSize);
+            buffer.clear();
+            buffer.setSample(0, 0, std::numeric_limits<float>::quiet_NaN());
+            buffer.setSample(0, 1, std::numeric_limits<float>::infinity());
+            buffer.setSample(0, 2, -std::numeric_limits<float>::infinity());
+            buffer.setSample(0, 3, 1.0e-35f);
+            buffer.setSample(0, 4, Nova::Config::HARD_ABS_LIMIT_LINEAR * 8.0f);
+            buffer.setSample(1, 5, 0.25f);
+
+            juce::MidiBuffer midi;
+            probe.processBlock(buffer, midi);
+
+            expectEquals(probe.renderCount, 1, "Prepared normal block should dispatch wet DSP once");
+            expectEquals(probe.getRealtimeFallbackCount(), 0,
+                "Prepared normal block must not increment fallback diagnostics");
+            expect(bufferHasOnlyFiniteSamples(buffer), "Shared scrub must remove NaN/Inf before wet DSP");
+            expectWithinAbsoluteError(buffer.getSample(0, 0), 0.0f, 1.0e-7f);
+            expectWithinAbsoluteError(buffer.getSample(0, 1), 0.0f, 1.0e-7f);
+            expectWithinAbsoluteError(buffer.getSample(0, 2), 0.0f, 1.0e-7f);
+            expectWithinAbsoluteError(buffer.getSample(0, 3), 0.0f, 1.0e-7f);
+            expect(std::abs(buffer.getSample(0, 4))
+                    <= Nova::Config::HARD_ABS_LIMIT_LINEAR * 0.75f + 1.0e-4f,
+                "Shared hot-value scrub should bound input before probe gain");
+            expectWithinAbsoluteError(buffer.getSample(1, 5), 0.125f, 1.0e-6f);
+        }
+
+        beginTest("P13E-P4 scaffold oversized block takes dry fallback without wet dispatch");
+        {
+            constexpr int preparedBlockSize = 32;
+            constexpr int oversizedBlockSize = 96;
+
+            P13EPedalContractProbe probe;
+            probe.prepareToPlay(kSampleRate, preparedBlockSize);
+
+            juce::AudioBuffer<float> buffer(2, oversizedBlockSize);
+            fillP1PedalSignal(buffer, P1PedalSignal::Sine1k, kSampleRate, 0x13E4);
+            juce::AudioBuffer<float> dryCopy(buffer);
+
+            juce::MidiBuffer midi;
+            probe.processBlock(buffer, midi);
+
+            expectEquals(probe.renderCount, 0, "Oversized block must not enter derived wet DSP");
+            expectEquals(probe.fallbackHookCount, 1, "Oversized block must invoke the optional fallback hook");
+            expectEquals(probe.getRealtimeFallbackCount(), 1,
+                "Oversized block must increment shared fallback diagnostics");
+            expect(bufferHasOnlyFiniteSamples(buffer), "Oversized dry fallback must remain finite");
+            expect(computeBufferNullRms(buffer, dryCopy) < 1.0e-7,
+                "Oversized finite input must be preserved as dry audio");
+        }
+
+        beginTest("P13E-P4 scaffold scrubs bypass dry scratch before crossfade");
+        {
+            P13EPedalContractProbe probe;
+            probe.prepareToPlay(kSampleRate, kBlockSize);
+            probe.setBypassed(true);
+
+            juce::AudioBuffer<float> buffer(2, kBlockSize);
+            buffer.clear();
+            buffer.setSample(0, 0, std::numeric_limits<float>::quiet_NaN());
+            buffer.setSample(0, 1, std::numeric_limits<float>::infinity());
+            buffer.setSample(1, 2, -std::numeric_limits<float>::infinity());
+            buffer.setSample(1, 3, 1.0e-35f);
+            buffer.setSample(0, 4, Nova::Config::HARD_ABS_LIMIT_LINEAR * 8.0f);
+
+            juce::MidiBuffer midi;
+            probe.processBlock(buffer, midi);
+
+            expect(bufferHasOnlyFiniteSamples(buffer),
+                "Bypass crossfade must not reintroduce corrupt input from dry scratch");
+            expect(p1BufferPeak(buffer) <= Nova::Config::HARD_ABS_LIMIT_LINEAR * 1.5f + 1.0e-4f,
+                "Bypass crossfade must retain the shared hot-value bound");
+            expectEquals(probe.getRealtimeFallbackCount(), 0,
+                "Prepared bypass transition must not enter realtime fallback");
+        }
+
+        beginTest("P13E-P4 parameter and equal-power mix helpers preserve finite behavior");
+        {
+            expectWithinAbsoluteError(
+                P13EPedalContractProbe::fallbackParameterForTest(0.25f, 0.0f, 1.0f),
+                0.25f,
+                1.0e-7f);
+            expectWithinAbsoluteError(
+                P13EPedalContractProbe::fallbackParameterForTest(
+                    std::numeric_limits<float>::quiet_NaN(), 0.0f, 1.0f),
+                0.0f,
+                1.0e-7f);
+            expectWithinAbsoluteError(P13EPedalContractProbe::mixForTest(0.4f, 0.8f, 0.0f),
+                0.4f,
+                1.0e-6f);
+            expectWithinAbsoluteError(P13EPedalContractProbe::mixForTest(0.4f, 0.8f, 1.0f),
+                0.8f,
+                1.0e-6f);
+
+            const float expectedMidMix = (0.4f + 0.8f) * std::sqrt(0.5f);
+            expectWithinAbsoluteError(P13EPedalContractProbe::mixForTest(0.4f, 0.8f, 0.5f),
+                expectedMidMix,
+                1.0e-6f);
+            expect(std::isfinite(P13EPedalContractProbe::mixForTest(
+                std::numeric_limits<float>::infinity(), 0.5f, 0.5f)),
+                "Mix helper must contain invalid operands");
+        }
+
+        beginTest("P13E-P4 migrated pedals preserve normal finite bounded output");
+        {
+            runMigratedPedalNormalSafety<BoostPedal>("Boost");
+            runMigratedPedalNormalSafety<CompressorPedal>("Compressor");
+        }
+
+        beginTest("P13E-P4 migrated pedals survive NaN Inf denormal and hot input");
+        {
+            runMigratedPedalCorruptInputSafety<BoostPedal>("Boost");
+            runMigratedPedalCorruptInputSafety<CompressorPedal>("Compressor");
+        }
+
+        beginTest("P13E-P4 migrated pedals retain oversized dry fallback");
+        {
+            runP1OversizedFallback<BoostPedal>(*this, "P13E-P4 Boost");
+            runP1OversizedFallback<CompressorPedal>(*this, "P13E-P4 Compressor");
+        }
+    }
+
+private:
+    template <typename PedalType>
+    void runMigratedPedalNormalSafety(const juce::String& name)
+    {
+        PedalType pedal;
+        pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+        juce::AudioBuffer<float> block(2, kBlockSize);
+        fillP1PedalSignal(block, P1PedalSignal::Sine1k, kSampleRate, 0x4E50);
+
+        juce::MidiBuffer midi;
+        pedal.processBlock(block, midi);
+
+        expect(bufferHasOnlyFiniteSamples(block), name + " normal output must remain finite");
+        expect(p1BufferPeak(block) < 16.0, name + " normal output must remain bounded");
+        expect(computeWindowRms(block, 0, block.getNumSamples()) > 1.0e-5,
+            name + " normal output must remain audible");
+        expectEquals(pedal.getRealtimeFallbackCount(), 0,
+            name + " normal block must not enter shared fallback");
+    }
+
+    template <typename PedalType>
+    void runMigratedPedalCorruptInputSafety(const juce::String& name)
+    {
+        PedalType pedal;
+        pedal.prepareToPlay(kSampleRate, kBlockSize);
+
+        juce::AudioBuffer<float> block(2, kBlockSize);
+        for (int ch = 0; ch < block.getNumChannels(); ++ch)
+        {
+            for (int sample = 0; sample < block.getNumSamples(); ++sample)
+            {
+                const int selector = (sample + ch) % 11;
+                const float value = selector == 0 ? std::numeric_limits<float>::quiet_NaN()
+                    : selector == 1 ? std::numeric_limits<float>::infinity()
+                    : selector == 2 ? -std::numeric_limits<float>::infinity()
+                    : selector == 3 ? 1.0e-35f
+                    : selector == 4 ? Nova::Config::HARD_ABS_LIMIT_LINEAR * 8.0f
+                    : 0.08f * std::sin(juce::MathConstants<float>::twoPi * 330.0f
+                        * (float) sample / (float) kSampleRate);
+                block.setSample(ch, sample, value);
+            }
+        }
+
+        juce::MidiBuffer midi;
+        pedal.processBlock(block, midi);
+
+        expect(bufferHasOnlyFiniteSamples(block), name + " corrupt-input output must remain finite");
+        expect(p1BufferPeak(block) < Nova::Config::HARD_ABS_LIMIT_LINEAR * 4.0f,
+            name + " corrupt-input output must remain bounded");
+        expectEquals(pedal.getRealtimeFallbackCount(), 0,
+            name + " prepared corrupt-input block must not enter fallback");
+    }
+};
+
+// P13E-P5: registry-wide pedal contract migration coverage plus inter-pedal
+// NaN/Inf corruption containment across real stateful/feedback pedal chains.
+class P13EPedalContractMigrationTests final : public juce::UnitTest
+{
+public:
+    P13EPedalContractMigrationTests()
+        : juce::UnitTest("P13E-P5 Pedal Contract Migration & Corruption Containment", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        const auto pedalTypes = registeredPedalTypes();
+
+        beginTest("P13E-P5 every registered pedal type derives from the shared NovaPedalProcessor contract");
+        {
+            expect(pedalTypes.size() >= 16,
+                "Registry should expose the full migrated pedal set (found "
+                    + juce::String(pedalTypes.size()) + ")");
+
+            for (const auto& type : pedalTypes)
+            {
+                auto processor = PedalRegistry::createPedal(type);
+                expect(processor != nullptr, "Registry must instantiate pedal " + type);
+                if (processor == nullptr)
+                    continue;
+
+                auto* pedal = dynamic_cast<NovaPedalProcessor*>(processor.get());
+                expect(pedal != nullptr,
+                    type + " must derive from NovaPedalProcessor (shared RT-safety contract)");
+            }
+        }
+
+        beginTest("P13E-P5 registry-wide invariant: finite/bounded across signal classes, channels and recovery");
+        {
+            for (const auto& type : pedalTypes)
+                runRegistryInvariantForType(type);
+        }
+
+        beginTest("P13E-P5 registry-wide oversized blocks take a no-allocation dry fallback");
+        {
+            for (const auto& type : pedalTypes)
+                runRegistryOversizedFallbackForType(type);
+        }
+
+        beginTest("P13E-P5 inter-pedal corruption containment: feedback chain stays finite, bounded and decays");
+        {
+            runInterPedalCorruptionChain();
+        }
+
+        beginTest("P13E-P5 Compressor realtime fallback resets the gain-reduction meter");
+        {
+            constexpr int preparedBlockSize = 32;
+            constexpr int oversizedBlockSize = 96;
+
+            CompressorPedal comp;
+            comp.prepareToPlay(kSampleRate, preparedBlockSize);
+            comp.clearRealtimeFallbackCount();
+
+            juce::MidiBuffer midi;
+            for (int b = 0; b < 24; ++b)
+            {
+                juce::AudioBuffer<float> hot(2, preparedBlockSize);
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < preparedBlockSize; ++i)
+                        hot.setSample(ch, i, 0.9f * std::sin(juce::MathConstants<float>::twoPi
+                            * 220.0f * (float) (b * preparedBlockSize + i) / (float) kSampleRate));
+                comp.processBlock(hot, midi);
+            }
+
+            expect(comp.getCurrentGainReductionDb() > 0.0f,
+                "Compressor must register gain reduction under a hot signal");
+
+            juce::AudioBuffer<float> oversized(2, oversizedBlockSize);
+            fillP1PedalSignal(oversized, P1PedalSignal::Sine1k, kSampleRate, 0x6C0);
+            comp.processBlock(oversized, midi);
+
+            expectEquals(comp.getRealtimeFallbackCount(), 1,
+                "Compressor oversized block must increment the realtime fallback counter");
+            expectWithinAbsoluteError(comp.getCurrentGainReductionDb(), 0.0f, 1.0e-6f,
+                "Compressor realtime fallback must reset the gain-reduction meter");
+        }
+
+        beginTest("P13E-P5 clearRealtimeFallbackCount resets the shared diagnostic counter");
+        {
+            BoostPedal boost;
+            boost.prepareToPlay(kSampleRate, 32);
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> oversized(2, 96);
+            fillP1PedalSignal(oversized, P1PedalSignal::Sine1k, kSampleRate, 0x7AB);
+            boost.processBlock(oversized, midi);
+
+            expect(boost.getRealtimeFallbackCount() >= 1,
+                "Oversized block must raise the shared fallback counter");
+            boost.clearRealtimeFallbackCount();
+            expectEquals(boost.getRealtimeFallbackCount(), 0,
+                "clearRealtimeFallbackCount must reset the shared counter to zero");
+        }
+    }
+
+private:
+    static juce::StringArray registeredPedalTypes()
+    {
+        juce::StringArray types;
+        for (auto zone : { Nova::ZoneID::Pre, Nova::ZoneID::FX })
+            for (const auto& t : PedalRegistry::getPedalTypesForZone(zone))
+                types.addIfNotAlreadyThere(t);
+        return types;
+    }
+
+    static void fillCorruptHotSignal(juce::AudioBuffer<float>& buffer, double sampleRate)
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+            {
+                const int selector = (sample + ch) % 11;
+                const float value = selector == 0 ? std::numeric_limits<float>::quiet_NaN()
+                    : selector == 1 ? std::numeric_limits<float>::infinity()
+                    : selector == 2 ? -std::numeric_limits<float>::infinity()
+                    : selector == 3 ? 1.0e-35f
+                    : selector == 4 ? Nova::Config::HARD_ABS_LIMIT_LINEAR * 8.0f
+                    : 0.12f * std::sin(juce::MathConstants<float>::twoPi * 330.0f
+                        * (float) sample / (float) sampleRate);
+                buffer.setSample(ch, sample, value);
+            }
+        }
+    }
+
+    // NaN/Inf/denormal interspersed with a normal-level tone (no extreme hot values),
+    // so the inter-pedal chain stays at normal levels and the test isolates NaN/Inf
+    // containment and feedback-tail decay rather than hot-level handling.
+    static void fillNanInfSignal(juce::AudioBuffer<float>& buffer, double sampleRate)
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+            {
+                const int selector = (sample + ch) % 9;
+                const float value = selector == 0 ? std::numeric_limits<float>::quiet_NaN()
+                    : selector == 1 ? std::numeric_limits<float>::infinity()
+                    : selector == 2 ? -std::numeric_limits<float>::infinity()
+                    : selector == 3 ? 1.0e-35f
+                    : 0.20f * std::sin(juce::MathConstants<float>::twoPi * 196.0f
+                        * (float) sample / (float) sampleRate);
+                buffer.setSample(ch, sample, value);
+            }
+        }
+    }
+
+    void runRegistryInvariantForType(const juce::String& type)
+    {
+        constexpr double sampleRate = kSampleRate;
+        constexpr int blockSize = kBlockSize;
+
+        auto processor = PedalRegistry::createPedal(type);
+        if (processor == nullptr)
+        {
+            expect(false, "createPedal failed for " + type);
+            return;
+        }
+
+        auto* pedal = dynamic_cast<NovaPedalProcessor*>(processor.get());
+        if (pedal == nullptr)
+        {
+            expect(false, type + " is not a NovaPedalProcessor");
+            return;
+        }
+
+        processor->setPlayConfigDetails(2, 2, sampleRate, blockSize);
+        processor->prepareToPlay(sampleRate, blockSize);
+
+        juce::MidiBuffer midi;
+
+        // 1. Normal finite signal (stereo).
+        {
+            pedal->clearRealtimeFallbackCount();
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            fillP1PedalSignal(buffer, P1PedalSignal::Sine1k, sampleRate, 0x6F1);
+            processor->processBlock(buffer, midi);
+            expect(bufferHasOnlyFiniteSamples(buffer), type + " normal signal output must be finite");
+            expect(p1BufferPeak(buffer) < 16.0, type + " normal signal output must be bounded");
+            expectEquals(pedal->getRealtimeFallbackCount(), 0,
+                type + " prepared normal block must not enter fallback");
+        }
+
+        // 2. NaN/Inf/denormal/hot input on a prepared block (scrub, not fallback).
+        {
+            pedal->clearRealtimeFallbackCount();
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            fillCorruptHotSignal(buffer, sampleRate);
+            processor->processBlock(buffer, midi);
+            expect(bufferHasOnlyFiniteSamples(buffer), type + " corrupt/hot input output must be finite");
+            expect(p1BufferPeak(buffer) < Nova::Config::HARD_ABS_LIMIT_LINEAR * 4.0f,
+                type + " corrupt/hot input output must stay bounded");
+            expectEquals(pedal->getRealtimeFallbackCount(), 0,
+                type + " prepared corrupt/hot block must scrub rather than fall back");
+        }
+
+        // 3. Recovery: after corruption, a normal signal must process to finite, bounded, audible output
+        //    (no stale corrupt state latched into the feedback/filter network).
+        {
+            pedal->clearRealtimeFallbackCount();
+            double maxPeak = 0.0;
+            double totalEnergy = 0.0;
+            bool finite = true;
+            for (int b = 0; b < 32; ++b)
+            {
+                juce::AudioBuffer<float> buffer(2, blockSize);
+                fillP1PedalSignal(buffer, P1PedalSignal::Sine1k, sampleRate, 0x1234 + b);
+                processor->processBlock(buffer, midi);
+                finite = finite && bufferHasOnlyFiniteSamples(buffer);
+                const double peak = p1BufferPeak(buffer);
+                maxPeak = juce::jmax(maxPeak, peak);
+                totalEnergy += peak;
+            }
+            expect(finite, type + " must recover to finite output after corruption");
+            // The first recovery blocks may legitimately replay the delay/lookahead tail
+            // of the bounded-but-hot corrupt block (scrubbed to <= ~1.5x the hard limit),
+            // so bound recovery against the no-runaway ceiling rather than the nominal one.
+            expect(maxPeak < Nova::Config::HARD_ABS_LIMIT_LINEAR * 4.0f,
+                type + " must recover to bounded output after corruption");
+            expect(totalEnergy > 0.0, type + " must not latch into NaN/zero after corruption");
+            expectEquals(pedal->getRealtimeFallbackCount(), 0,
+                type + " recovery blocks must not enter fallback");
+        }
+
+        // 4. reset() realtime-safety proxy: bypass on/off cycles call reset() on the audio thread.
+        {
+            pedal->clearRealtimeFallbackCount();
+            bool finite = true;
+            for (int b = 0; b < 8; ++b)
+            {
+                pedal->setBypassed((b % 2) == 0);
+                juce::AudioBuffer<float> buffer(2, blockSize);
+                fillP1PedalSignal(buffer, P1PedalSignal::Sine1k, sampleRate, 0xBEEF + b);
+                processor->processBlock(buffer, midi);
+                finite = finite && bufferHasOnlyFiniteSamples(buffer);
+            }
+            pedal->setBypassed(false);
+            expect(finite, type + " bypass-toggle reset cycles must stay finite");
+            expectEquals(pedal->getRealtimeFallbackCount(), 0,
+                type + " bypass-toggle cycles must not enter fallback");
+        }
+
+        // 5. mono-content / prepared-channel safety: identical L/R content on the prepared
+        //    stereo bus must process to finite, bounded output without falling back.
+        //    (The pedal bus is always stereo; oversampled stages are prepared for two
+        //    channels, so mono compatibility is exercised via mono-summed content.)
+        {
+            pedal->clearRealtimeFallbackCount();
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const float v = 0.30f * std::sin(juce::MathConstants<float>::twoPi
+                    * 440.0f * (float) i / (float) sampleRate);
+                buffer.setSample(0, i, v);
+                buffer.setSample(1, i, v);
+            }
+            processor->processBlock(buffer, midi);
+            expect(bufferHasOnlyFiniteSamples(buffer), type + " mono-content block output must be finite");
+            expect(p1BufferPeak(buffer) < 16.0, type + " mono-content block output must be bounded");
+            expectEquals(pedal->getRealtimeFallbackCount(), 0,
+                type + " mono-content block must not enter fallback");
+        }
+    }
+
+    void runRegistryOversizedFallbackForType(const juce::String& type)
+    {
+        constexpr double sampleRate = kSampleRate;
+        constexpr int preparedBlockSize = 32;
+        constexpr int hostBlockSize = 64;
+
+        auto processor = PedalRegistry::createPedal(type);
+        if (processor == nullptr)
+        {
+            expect(false, "createPedal failed for " + type);
+            return;
+        }
+
+        auto* pedal = dynamic_cast<NovaPedalProcessor*>(processor.get());
+        if (pedal == nullptr)
+        {
+            expect(false, type + " is not a NovaPedalProcessor");
+            return;
+        }
+
+        processor->setPlayConfigDetails(2, 2, sampleRate, preparedBlockSize);
+        processor->prepareToPlay(sampleRate, preparedBlockSize);
+        pedal->clearRealtimeFallbackCount();
+
+        juce::AudioBuffer<float> buffer(2, hostBlockSize);
+        fillP1PedalSignal(buffer, P1PedalSignal::Sine1k, sampleRate, 0x5151);
+        juce::AudioBuffer<float> inputCopy(buffer);
+
+        juce::MidiBuffer midi;
+        processor->processBlock(buffer, midi);
+
+        expect(bufferHasOnlyFiniteSamples(buffer), type + " oversized fallback must stay finite");
+        expectEquals(pedal->getRealtimeFallbackCount(), 1,
+            type + " oversized block must increment the realtime fallback counter");
+        expect(computeBufferNullRms(buffer, inputCopy) < 1.0e-7,
+            type + " oversized fallback must preserve dry audio without allocation");
+    }
+
+    void runInterPedalCorruptionChain()
+    {
+        constexpr double sampleRate = kSampleRate;
+        constexpr int blockSize = kBlockSize;
+
+        // Real registry pedals with feedback/delay/dry-capture state. A corrupting
+        // source upstream must never poison their feedback tails.
+        const juce::StringArray chainTypes { "Delay", "Chorus", "Flanger", "Reverb" };
+
+        std::vector<std::unique_ptr<juce::AudioProcessor>> chain;
+        for (const auto& type : chainTypes)
+        {
+            auto processor = PedalRegistry::createPedal(type);
+            expect(processor != nullptr, "Corruption chain requires registry pedal " + type);
+            if (processor == nullptr)
+                return;
+
+            processor->setPlayConfigDetails(2, 2, sampleRate, blockSize);
+            processor->prepareToPlay(sampleRate, blockSize);
+            chain.push_back(std::move(processor));
+        }
+
+        juce::MidiBuffer midi;
+        auto runChain = [&](juce::AudioBuffer<float>& buffer) -> bool
+        {
+            bool finite = true;
+            for (auto& processor : chain)
+            {
+                processor->processBlock(buffer, midi);
+                finite = finite && bufferHasOnlyFiniteSamples(buffer);
+            }
+            return finite;
+        };
+
+        // Inject NaN/Inf/denormal/hot from the source into the live feedback chain.
+        bool corruptFinite = true;
+        double corruptPeak = 0.0;
+        for (int b = 0; b < 16; ++b)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            fillNanInfSignal(buffer, sampleRate);
+            corruptFinite = corruptFinite && runChain(buffer);
+            corruptPeak = juce::jmax(corruptPeak, p1BufferPeak(buffer));
+        }
+
+        expect(corruptFinite,
+            "Corrupting source must never produce non-finite output downstream in the feedback chain");
+        expect(corruptPeak < Nova::Config::HARD_ABS_LIMIT_LINEAR * 4.0f,
+            "Corrupting source must stay bounded through the feedback chain");
+
+        // Now feed silence: the feedback tails must decay toward silence (no poisoning / self-oscillation),
+        // stay finite and stay bounded the entire time.
+        double maxTailPeak = 0.0;
+        double latePeak = 0.0;
+        bool tailFinite = true;
+        constexpr int tailBlocks = 2048; // ~2.7 s at 48 kHz / 64-sample blocks
+        for (int b = 0; b < tailBlocks; ++b)
+        {
+            juce::AudioBuffer<float> buffer(2, blockSize);
+            buffer.clear();
+            tailFinite = tailFinite && runChain(buffer);
+            const double peak = p1BufferPeak(buffer);
+            maxTailPeak = juce::jmax(maxTailPeak, peak);
+            if (b >= tailBlocks - 16)
+                latePeak = juce::jmax(latePeak, peak);
+        }
+
+        expect(tailFinite, "Feedback chain tail must stay finite after corruption");
+        expect(maxTailPeak < 4.0, "Feedback chain tail must stay bounded after corruption");
+        expect(latePeak < 0.05,
+            "Feedback chain tail must decay toward silence after corruption (latePeak="
+                + juce::String(latePeak) + ")");
+    }
+};
+
+class P13DDriveDynamicsSafetyHardeningTests final : public juce::UnitTest
+{
+public:
+    P13DDriveDynamicsSafetyHardeningTests()
+        : juce::UnitTest("P13D Drive/Dynamics Safety Hardening", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        beginTest("P13D Boost oversized block uses finite dry fallback");
+        {
+            runP1OversizedFallback<BoostPedal>(*this, "P13D Boost");
+        }
+
+        beginTest("P13D Boost recovers after NaN/Inf abuse");
+        {
+            BoostPedal boost;
+            prepare(boost);
+            configureBoost(boost);
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            bool finiteDuringAbuse = true;
+
+            for (int blockIndex = 0; blockIndex < 24; ++blockIndex)
+            {
+                fillDriveDynamicsBlock(block, blockIndex, 0.075f);
+                injectInvalidSamples(block, blockIndex);
+                boost.processBlock(block, midi);
+                finiteDuringAbuse = finiteDuringAbuse && bufferHasOnlyFiniteSamples(block);
+            }
+
+            double recoveryRmsSum = 0.0;
+            int recoveryBlocks = 0;
+            bool finiteDuringRecovery = true;
+
+            for (int blockIndex = 24; blockIndex < 112; ++blockIndex)
+            {
+                fillDriveDynamicsBlock(block, blockIndex, 0.080f);
+                boost.processBlock(block, midi);
+                finiteDuringRecovery = finiteDuringRecovery && bufferHasOnlyFiniteSamples(block);
+
+                if (blockIndex >= 36)
+                {
+                    recoveryRmsSum += computeWindowRms(block, 0, block.getNumSamples());
+                    ++recoveryBlocks;
+                }
+            }
+
+            const double recoveryRms = recoveryBlocks > 0 ? recoveryRmsSum / (double) recoveryBlocks : 0.0;
+            expect(finiteDuringAbuse, "P13D Boost must scrub NaN/Inf input to finite output");
+            expect(finiteDuringRecovery, "P13D Boost must stay finite after invalid input abuse");
+            expect(recoveryRms > 0.0010, "P13D Boost must not latch into silence after invalid input");
+        }
+
+        beginTest("P13D Noise Gate recovers after NaN/Inf abuse");
+        {
+            NoiseGatePedal gate;
+            prepare(gate);
+            configureGate(gate);
+
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> block(2, kBlockSize);
+            bool finiteDuringAbuse = true;
+
+            for (int blockIndex = 0; blockIndex < 24; ++blockIndex)
+            {
+                fillDriveDynamicsBlock(block, blockIndex, 0.090f);
+                injectInvalidSamples(block, blockIndex);
+                gate.processBlock(block, midi);
+                finiteDuringAbuse = finiteDuringAbuse && bufferHasOnlyFiniteSamples(block);
+            }
+
+            double recoveryRmsSum = 0.0;
+            int recoveryBlocks = 0;
+            bool finiteDuringRecovery = true;
+
+            for (int blockIndex = 24; blockIndex < 128; ++blockIndex)
+            {
+                fillDriveDynamicsBlock(block, blockIndex, 0.090f);
+                gate.processBlock(block, midi);
+                finiteDuringRecovery = finiteDuringRecovery && bufferHasOnlyFiniteSamples(block);
+
+                if (blockIndex >= 40)
+                {
+                    recoveryRmsSum += computeWindowRms(block, 0, block.getNumSamples());
+                    ++recoveryBlocks;
+                }
+            }
+
+            const double recoveryRms = recoveryBlocks > 0 ? recoveryRmsSum / (double) recoveryBlocks : 0.0;
+            expect(finiteDuringAbuse, "P13D Noise Gate must scrub NaN/Inf input to finite output");
+            expect(finiteDuringRecovery, "P13D Noise Gate must stay finite after invalid input abuse");
+            expect(recoveryRms > 0.0010, "P13D Noise Gate detector/lookahead must not latch into silence after invalid input");
+        }
+
+        beginTest("P13D drive/dynamics near-silence remains finite");
+        {
+            runNearSilenceFinite<DistortionPedal>("Distortion");
+            runNearSilenceFinite<FuzzPedal>("Fuzz");
+            runNearSilenceFinite<CompressorPedal>("Compressor");
+            runNearSilenceFinite<NoiseGatePedal>("Noise Gate");
+        }
+
+        beginTest("P13D nominal finite input remains audible and bounded");
+        {
+            BoostPedal boost;
+            prepare(boost);
+            configureBoost(boost);
+            expectNominalFiniteAudible(boost, "Boost");
+
+            NoiseGatePedal gate;
+            prepare(gate);
+            configureGate(gate);
+            expectNominalFiniteAudible(gate, "Noise Gate");
+        }
+    }
+
+private:
+    static void prepare(juce::AudioProcessor& processor)
+    {
+        processor.setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+        processor.prepareToPlay(kSampleRate, kBlockSize);
+    }
+
+    static void configureBoost(BoostPedal& boost)
+    {
+        setRangedParamById(boost, "boostGain", 8.0f);
+        setRangedParamById(boost, "boostTone", 0.58f);
+        setRangedParamById(boost, "boostTight", 0.42f);
+        setRangedParamById(boost, "boostChar", 0.18f);
+        setRangedParamById(boost, "boostMid", 1.0f);
+        setRangedParamById(boost, "boostLevel", 1.0f);
+    }
+
+    static void configureGate(NoiseGatePedal& gate)
+    {
+        setRangedParamById(gate, "gateThreshold", -58.0f);
+        setRangedParamById(gate, "gateAttack", 0.20f);
+        setRangedParamById(gate, "gateHold", 45.0f);
+        setRangedParamById(gate, "gateRelease", 90.0f);
+        setRangedParamById(gate, "gateRange", -72.0f);
+        setRangedParamById(gate, "gateHysteresis", 5.0f);
+        setRangedParamById(gate, "gateFocus", 0.55f);
+    }
+
+    static void fillDriveDynamicsBlock(juce::AudioBuffer<float>& block, int blockIndex, float level)
+    {
+        for (int i = 0; i < block.getNumSamples(); ++i)
+        {
+            const int sampleIndex = blockIndex * block.getNumSamples() + i;
+            const float t = (float) sampleIndex / (float) kSampleRate;
+            const float sample = level
+                * (0.70f * std::sin(juce::MathConstants<float>::twoPi * 110.0f * t)
+                    + 0.22f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t)
+                    + 0.08f * std::sin(juce::MathConstants<float>::twoPi * 329.63f * t));
+
+            block.setSample(0, i, sample);
+            block.setSample(1, i, sample * 0.97f);
+        }
+    }
+
+    static void fillNearSilenceBlock(juce::AudioBuffer<float>& block, int blockIndex)
+    {
+        for (int i = 0; i < block.getNumSamples(); ++i)
+        {
+            const int sampleIndex = blockIndex * block.getNumSamples() + i;
+            const float polarity = (sampleIndex & 1) == 0 ? 1.0f : -1.0f;
+            const float sample = polarity * 1.0e-24f;
+            block.setSample(0, i, sample);
+            block.setSample(1, i, -sample);
+        }
+    }
+
+    static void injectInvalidSamples(juce::AudioBuffer<float>& block, int blockIndex)
+    {
+        for (int ch = 0; ch < block.getNumChannels(); ++ch)
+        {
+            for (int i = 0; i < block.getNumSamples(); i += 13)
+            {
+                const int selector = (i + blockIndex + ch) % 3;
+                const float value = selector == 0 ? std::numeric_limits<float>::quiet_NaN()
+                    : selector == 1 ? std::numeric_limits<float>::infinity()
+                    : -std::numeric_limits<float>::infinity();
+                block.setSample(ch, i, value);
+            }
+        }
+    }
+
+    template <typename ProcessorType>
+    void runNearSilenceFinite(const juce::String& processorName)
+    {
+        ProcessorType processor;
+        prepare(processor);
+
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> block(2, kBlockSize);
+        bool finite = true;
+
+        for (int blockIndex = 0; blockIndex < 180; ++blockIndex)
+        {
+            fillNearSilenceBlock(block, blockIndex);
+            processor.processBlock(block, midi);
+            finite = finite && bufferHasOnlyFiniteSamples(block);
+        }
+
+        expect(finite, "P13D " + processorName + " silence/near-silence render must stay finite");
+    }
+
+    void expectNominalFiniteAudible(juce::AudioProcessor& processor, const juce::String& processorName)
+    {
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> block(2, kBlockSize);
+        bool finite = true;
+        double rmsSum = 0.0;
+        int rmsBlocks = 0;
+
+        for (int blockIndex = 0; blockIndex < 96; ++blockIndex)
+        {
+            fillDriveDynamicsBlock(block, blockIndex, 0.075f);
+            processor.processBlock(block, midi);
+            finite = finite && bufferHasOnlyFiniteSamples(block);
+            if (blockIndex >= 12)
+            {
+                rmsSum += computeWindowRms(block, 0, block.getNumSamples());
+                ++rmsBlocks;
+            }
+        }
+
+        const double rms = rmsBlocks > 0 ? rmsSum / (double) rmsBlocks : 0.0;
+        expect(finite, "P13D " + processorName + " nominal finite input must stay finite");
+        expect(rms > 0.0010, "P13D " + processorName + " nominal finite input must remain audible");
+        expect(rms < 1.0, "P13D " + processorName + " nominal finite input must remain bounded");
     }
 };
 
@@ -15322,6 +16209,9 @@ public:
 
 static AudioEngineValidationTests audioEngineValidationTests;
 static P1PedalSafetyTests p1PedalSafetyTests;
+static P13ESharedPedalContractTests p13eSharedPedalContractTests;
+static P13EPedalContractMigrationTests p13ePedalContractMigrationTests;
+static P13DDriveDynamicsSafetyHardeningTests p13dDriveDynamicsSafetyHardeningTests;
 static P10CHighGainProfessionalizationTests p10cHighGainProfessionalizationTests;
 static P10DHighGainArtifactFizzHelicopterTests p10dHighGainArtifactFizzHelicopterTests;
 static P10EHighGainMuteHelicopterReverbTests p10eHighGainMuteHelicopterReverbTests;
@@ -15335,6 +16225,9 @@ void touchAudioEngineValidationTests()
 {
     juce::ignoreUnused(audioEngineValidationTests,
         p1PedalSafetyTests,
+        p13eSharedPedalContractTests,
+        p13ePedalContractMigrationTests,
+        p13dDriveDynamicsSafetyHardeningTests,
         p10cHighGainProfessionalizationTests,
         p10dHighGainArtifactFizzHelicopterTests,
         p10eHighGainMuteHelicopterReverbTests,

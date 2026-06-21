@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <juce_dsp/juce_dsp.h>
 #include <array>
@@ -199,7 +199,7 @@ inline ModeConfig getModeConfig(int modeIndex) noexcept
 
 }} // namespace Nova::FuzzDSP
 
-class FuzzPedal final : public ProcessorBase
+class FuzzPedal final : public NovaPedalProcessor
 {
 public:
     FuzzPedal()
@@ -284,12 +284,11 @@ public:
         cachedBias = -999.0f;
 
         setProcessingLatency((int) std::round(oversampler.getLatencyInSamples()));
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, preparedBlockSize, preparedChannels);
         reset();
-        isPrepared = true;
     }
 
-    void releaseResources() override { isPrepared = false; }
+    void releaseResources() override { releasePedalProcessing(); }
 
     void reset() override
     {
@@ -322,20 +321,8 @@ public:
         biasSmooth.setCurrentAndTargetValue(biasParam != nullptr ? biasParam->get() : 0.56f);
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
-        scrubInvalidSamples(buffer);
-
-        if (!canProcessBlock(buffer))
-        {
-            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
-            endBypassProcess(buffer);
-            return;
-        }
-
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             juce::FloatVectorOperations::copy(scratchBuffer.getWritePointer(ch),
                 buffer.getReadPointer(ch),
@@ -496,8 +483,6 @@ public:
                 buffer.setSample(ch, sample, containFuzzOutput((dry * dryGain + wet * wetGain) * level));
             }
         }
-
-        endBypassProcess(buffer);
     }
 
     static float toneToCutoffHz(float tone) noexcept
@@ -577,16 +562,6 @@ public:
     juce::AudioParameterChoice* modeParam = nullptr;
     float displaySag = 0.0f;
 
-    int getRealtimeFallbackCount() const noexcept
-    {
-        return fallbackBlockCount.load(std::memory_order_relaxed);
-    }
-
-    void clearRealtimeFallbackCount() noexcept
-    {
-        fallbackBlockCount.store(0, std::memory_order_relaxed);
-    }
-
 private:
     static constexpr int kMaxProcessingChannels = 2;
 
@@ -604,24 +579,6 @@ private:
         const float over = ax - knee;
         const float shaped = knee + (ceiling - knee) * std::tanh(over / (ceiling - knee));
         return std::copysign(shaped, x);
-    }
-
-    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
-    {
-        return buffer.getNumSamples() <= preparedBlockSize
-            && buffer.getNumChannels() <= preparedChannels
-            && buffer.getNumChannels() <= kMaxProcessingChannels;
-    }
-
-    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
-    {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* data = buffer.getWritePointer(ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                if (!std::isfinite(data[i]))
-                    data[i] = 0.0f;
-        }
     }
 
     void updateFilters()
@@ -688,8 +645,6 @@ private:
     int cachedMode = -1;
     float driftPhase = 0.0f;
     float sputterPhase = 0.0f;
-    std::atomic<int> fallbackBlockCount{ 0 };
-    bool isPrepared = false;
 };
 
 #include "FuzzEditor.h"

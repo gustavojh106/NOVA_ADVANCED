@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Base/ProcessorBase.h"
+#include "../Base/NovaPedalProcessor.h"
 
 #include <JuceHeader.h>
 #include <array>
@@ -86,7 +86,7 @@ struct HybridDetector
 // - sidechain high-pass focus to avoid low-end pumping
 // - hybrid peak/RMS detection for better transient/body balance
 // - program-dependent release so sustained notes recover naturally
-class CompressorPedal final : public ProcessorBase
+class CompressorPedal final : public NovaPedalProcessor
 {
 public:
     CompressorPedal()
@@ -113,11 +113,13 @@ public:
             return;
 
         currentSampleRate = sampleRate;
-        preparedBlockSize = juce::jmax(1, samplesPerBlock);
-        preparedChannels = juce::jlimit(1, kMaxProcessingChannels, juce::jmax(2, getTotalNumOutputChannels()));
+        const int safeBlockSize = juce::jmax(1, samplesPerBlock);
+        const int processingChannels = juce::jlimit(1,
+            kMaxProcessingChannels,
+            juce::jmax(2, getTotalNumOutputChannels()));
 
-        dryBuffer.setSize(preparedChannels,
-            preparedBlockSize,
+        dryBuffer.setSize(processingChannels,
+            safeBlockSize,
             false,
             false,
             true);
@@ -143,14 +145,13 @@ public:
         cachedFocus = -1.0f;
         updateSidechainFilters(focusParam != nullptr ? focusParam->get() : 0.55f);
 
-        prepareBypassSmoother(sampleRate, samplesPerBlock);
+        preparePedalProcessing(sampleRate, safeBlockSize, processingChannels);
         reset();
-        isPrepared = true;
     }
 
     void releaseResources() override
     {
-        isPrepared = false;
+        releasePedalProcessing();
     }
 
     void reset() override
@@ -172,34 +173,22 @@ public:
         currentGainReductionDb.store(0.0f);
     }
 
-    void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
+protected:
+    void processPedalBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
-        if (!isPrepared || !beginBypassProcess(buffer))
-            return;
-
-        scrubInvalidSamples(buffer);
-
-        if (!canProcessBlock(buffer))
-        {
-            fallbackBlockCount.fetch_add(1, std::memory_order_relaxed);
-            currentGainReductionDb.store(0.0f);
-            endBypassProcess(buffer);
-            return;
-        }
-
         for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             juce::FloatVectorOperations::copy(dryBuffer.getWritePointer(ch),
                 buffer.getReadPointer(ch),
                 buffer.getNumSamples());
 
-        const float thresholdTarget = thresholdParam != nullptr ? thresholdParam->get() : -20.0f;
-        const float ratioTarget = ratioParam != nullptr ? ratioParam->get() : 4.0f;
-        const float attackTarget = attackParam != nullptr ? attackParam->get() : 12.0f;
-        const float releaseTarget = releaseParam != nullptr ? releaseParam->get() : 120.0f;
-        const float kneeTarget = kneeParam != nullptr ? kneeParam->get() : 6.0f;
-        const float focusTarget = focusParam != nullptr ? focusParam->get() : 0.55f;
-        const float blendTarget = blendParam != nullptr ? blendParam->get() : 0.82f;
-        const float makeupTarget = makeupParam != nullptr ? makeupParam->get() : 2.5f;
+        const float thresholdTarget = readParameter(thresholdParam, -20.0f, -42.0f, 0.0f);
+        const float ratioTarget = readParameter(ratioParam, 4.0f, 1.0f, 12.0f);
+        const float attackTarget = readParameter(attackParam, 12.0f, 1.0f, 80.0f);
+        const float releaseTarget = readParameter(releaseParam, 120.0f, 25.0f, 350.0f);
+        const float kneeTarget = readParameter(kneeParam, 6.0f, 1.0f, 12.0f);
+        const float focusTarget = readParameter(focusParam, 0.55f, 0.0f, 1.0f);
+        const float blendTarget = readParameter(blendParam, 0.82f, 0.0f, 1.0f);
+        const float makeupTarget = readParameter(makeupParam, 2.5f, 0.0f, 18.0f);
 
         thresholdSmooth.setTargetValue(thresholdTarget);
         ratioSmooth.setTargetValue(ratioTarget);
@@ -280,21 +269,23 @@ public:
             blockPeakGainReductionDb = juce::jmax(blockPeakGainReductionDb, linkedGainReductionDb);
 
             const float compressionGain = juce::Decibels::decibelsToGain(-linkedGainReductionDb) * makeupGain;
-            const float dryGain = std::cos(blend * juce::MathConstants<float>::halfPi);
-            const float wetGain = std::sin(blend * juce::MathConstants<float>::halfPi);
-
             for (int ch = 0; ch < numChannels; ++ch)
             {
                 const float dry = dryBuffer.getSample(ch, sample);
                 const float wet = buffer.getSample(ch, sample) * compressionGain;
-                buffer.setSample(ch, sample, (dry * dryGain) + (wet * wetGain));
+                buffer.setSample(ch, sample, mixDryWetEqualPower(dry, wet, blend));
             }
         }
 
         currentGainReductionDb.store(blockPeakGainReductionDb);
-        endBypassProcess(buffer);
     }
 
+    void handleRealtimeFallback() noexcept override
+    {
+        currentGainReductionDb.store(0.0f);
+    }
+
+public:
     static float computeGainReductionDb(float inputDb, float thresholdDb, float ratio, float kneeWidthDb) noexcept
     {
         const float overDb = inputDb - thresholdDb;
@@ -316,16 +307,6 @@ public:
         return currentGainReductionDb.load();
     }
 
-    int getRealtimeFallbackCount() const noexcept
-    {
-        return fallbackBlockCount.load(std::memory_order_relaxed);
-    }
-
-    void clearRealtimeFallbackCount() noexcept
-    {
-        fallbackBlockCount.store(0, std::memory_order_relaxed);
-    }
-
     juce::AudioParameterFloat* thresholdParam = nullptr;
     juce::AudioParameterFloat* ratioParam = nullptr;
     juce::AudioParameterFloat* attackParam = nullptr;
@@ -337,24 +318,6 @@ public:
 
 private:
     static constexpr int kMaxProcessingChannels = 2;
-
-    bool canProcessBlock(const juce::AudioBuffer<float>& buffer) const noexcept
-    {
-        return buffer.getNumSamples() <= preparedBlockSize
-            && buffer.getNumChannels() <= preparedChannels
-            && buffer.getNumChannels() <= kMaxProcessingChannels;
-    }
-
-    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
-    {
-        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-        {
-            auto* data = buffer.getWritePointer(ch);
-            for (int i = 0; i < buffer.getNumSamples(); ++i)
-                if (!std::isfinite(data[i]))
-                    data[i] = 0.0f;
-        }
-    }
 
     float coefficientForTime(float milliseconds) const noexcept
     {
@@ -389,13 +352,9 @@ private:
     Nova::CompressorDSP::HybridDetector detector;
 
     double currentSampleRate = 44100.0;
-    int preparedBlockSize = 0;
-    int preparedChannels = 0;
     float linkedGainReductionDb = 0.0f;
     float cachedFocus = -1.0f;
     std::atomic<float> currentGainReductionDb{ 0.0f };
-    std::atomic<int> fallbackBlockCount{ 0 };
-    bool isPrepared = false;
 };
 
 #include "CompressorEditor.h"
