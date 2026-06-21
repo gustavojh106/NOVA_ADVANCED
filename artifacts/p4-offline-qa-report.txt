@@ -1,15 +1,15 @@
 NOVA Offline QA Report
-Generated: 2026-05-19 15:53:23
+Generated: 2026-06-20 22:10:21
 Scenarios: 74
 
 [PASS] impulse_transparency_line_a
-notes=Impulse stayed transparent
-output_peak=0.99606001
-output_rms=0.04413369
-peak_index_left=0.00000000
-peak_index_right=0.00000000
-first_sample_left=0.99606001
-first_sample_right=0.99606001
+notes=Master-path limiter intentionally applied its reported lookahead latency and 0.97 safety ceiling
+output_peak=0.97000003
+output_rms=0.04297803
+peak_index_left=96.00000000
+peak_index_right=96.00000000
+first_sample_left=0.00000000
+first_sample_right=0.00000000
 
 [PASS] output_chain_biased_dc_cleanup
 notes=OutputChain reduced sustained DC contamination while keeping stable audible output
@@ -41,8 +41,8 @@ output_rms=0.14468681
 [PASS] parallel_noise_unity
 notes=Parallel clean path stays near unity
 input_rms=0.11536644
-output_rms=0.11564481
-rms_ratio=1.00241293
+output_rms=0.11417260
+rms_ratio=0.98965172
 
 [PASS] engine_reenable_recovery
 notes=Engine recovered cleanly after re-enable
@@ -367,19 +367,19 @@ iterations=2250.00000000
 
 [PASS] reverb_tail_quality
 notes=Cloud tail stayed finite, sustained and decayed cleanly
-render_ms=704.84360000
+render_ms=865.10050000
 peak=0.90457606
 rms=0.00173052
-late_rms_0p8_1p3s=0.00018238
+late_rms_0p8_1p3s=0.00018309
 tail_end_rms_last_250ms=0.00000000
 finite=1.00000000
 
 [PASS] reverb_stereo_field
 notes=Hall mode projected a decorrelated stereo tail
-corr_after_50ms=0.36764367
-left_rms_100_1100ms=0.00034812
-right_rms_100_1100ms=0.00034635
-right_to_left_ratio=0.99492699
+corr_after_50ms=0.46307417
+left_rms_100_1100ms=0.00034820
+right_rms_100_1100ms=0.00034638
+right_to_left_ratio=0.99475449
 finite=1.00000000
 
 [PASS] reverb_mode_distinctness
@@ -455,7 +455,7 @@ finite=1.00000000
 
 [PASS] delay_stereo_field
 notes=Digital delay projected decorrelated stereo repeats
-corr_after_80ms=0.02908718
+corr_after_80ms=0.02908684
 left_rms_80_1180ms=0.00440776
 right_rms_80_1180ms=0.00432917
 right_to_left_ratio=0.98217077

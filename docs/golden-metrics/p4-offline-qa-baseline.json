@@ -9,14 +9,14 @@
                       "case":  "output_chain_clean_path",
                       "scenario":  "impulse_transparency_line_a",
                       "status":  "PASS",
-                      "notes":  "Impulse stayed transparent",
+                      "notes":  "Master-path limiter intentionally applied its reported lookahead latency and 0.97 safety ceiling",
                       "metrics":  {
-                                      "output_peak":  0.99606001,
-                                      "output_rms":  0.04413369,
-                                      "peak_index_left":  0,
-                                      "peak_index_right":  0,
-                                      "first_sample_left":  0.99606001,
-                                      "first_sample_right":  0.99606001
+                                      "output_peak":  0.97000003,
+                                      "output_rms":  0.04297803,
+                                      "peak_index_left":  96,
+                                      "peak_index_right":  96,
+                                      "first_sample_left":  0,
+                                      "first_sample_right":  0
                                   }
                   },
                   {

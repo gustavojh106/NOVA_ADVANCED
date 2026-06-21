@@ -1335,11 +1335,38 @@ private:
         engine.setEngineEnabled(true);
         warmUpEngine(engine);
 
+        const int expectedLatencySamples = engine.getLatencyNumSamples();
         const auto input = generateImpulse(512, 1.0f);
         const auto output = processBuffer(engine, input);
         const auto metrics = analyseBuffer(output);
         const int peakIndexL = findPeakSampleIndex(output, 0);
         const int peakIndexR = findPeakSampleIndex(output, 1);
+
+        constexpr float limiterCeiling = 0.97f;
+        constexpr float peakTolerance = 1.0e-4f;
+        constexpr float silenceTolerance = 1.0e-7f;
+        constexpr float stereoTolerance = 1.0e-6f;
+
+        const bool latencyIsInRange = expectedLatencySamples > 0
+            && expectedLatencySamples < output.getNumSamples();
+        bool leadingSamplesAreSilent = latencyIsInRange;
+        bool stereoConsistent = output.getNumChannels() == 2;
+
+        for (int sample = 0; sample < output.getNumSamples(); ++sample)
+        {
+            const float left = output.getSample(0, sample);
+            const float right = output.getSample(1, sample);
+
+            stereoConsistent = stereoConsistent && std::abs(left - right) <= stereoTolerance;
+            if (sample < expectedLatencySamples)
+                leadingSamplesAreSilent = leadingSamplesAreSilent
+                    && std::abs(left) <= silenceTolerance
+                    && std::abs(right) <= silenceTolerance;
+        }
+
+        const bool finite = bufferHasOnlyFiniteSamples(output);
+        const bool bounded = metrics.peak <= (double)(limiterCeiling + peakTolerance);
+        const bool limiterCeilingMatched = std::abs(metrics.peak - (double)limiterCeiling) <= peakTolerance;
 
         result.metrics.push_back({ "output_peak", metrics.peak });
         result.metrics.push_back({ "output_rms", metrics.rms });
@@ -1348,11 +1375,16 @@ private:
         result.metrics.push_back({ "first_sample_left", output.getSample(0, 0) });
         result.metrics.push_back({ "first_sample_right", output.getSample(1, 0) });
 
-        result.passed = output.getSample(0, 0) > 0.99f
-            && output.getSample(1, 0) > 0.99f
-            && peakIndexL == 0
-            && peakIndexR == 0;
-        result.notes = result.passed ? "Impulse stayed transparent" : "Impulse response deviated from clean pass-through";
+        result.passed = finite
+            && bounded
+            && stereoConsistent
+            && leadingSamplesAreSilent
+            && limiterCeilingMatched
+            && peakIndexL == expectedLatencySamples
+            && peakIndexR == expectedLatencySamples;
+        result.notes = result.passed
+            ? "Master-path limiter intentionally applied its reported lookahead latency and 0.97 safety ceiling"
+            : "Master-path limiter impulse response deviated from its reported lookahead latency or 0.97 safety ceiling";
         return result;
     }
 
