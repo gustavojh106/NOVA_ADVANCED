@@ -71,8 +71,9 @@ public:
         if (sampleRate <= 0.0)
             return;
 
+        preparedBlockSize = juce::jmax(1, samplesPerBlock);
         oversampler.reset();
-        oversampler.initProcessing((size_t)juce::jmax(1, samplesPerBlock));
+        oversampler.initProcessing((size_t)preparedBlockSize);
 
         innerRate = sampleRate * 8.0;
 
@@ -127,8 +128,18 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
+        juce::ScopedNoDenormals noDenormals;
+
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
+
+        scrubInvalidSamples(buffer);
+
+        if (buffer.getNumSamples() > preparedBlockSize)
+        {
+            endBypassProcess(buffer);
+            return;
+        }
 
         updateVoicingIfNeeded();
         driveSmooth.setTargetValue(driveParam != nullptr ? *driveParam : 1.2f);
@@ -161,19 +172,24 @@ public:
                 for (int ch = 0; ch < channelsToProcess; ++ch)
                 {
                     auto* data = channelData[(size_t) ch];
-                    float x = data[s];
+                    float x = sanitizeAudioSample(data[s]);
 
                     // --- Envelope follower for dynamic response ---
                     // Fast attack (catches pick transient), slow release (sustain)
                     const float absX = std::abs(x * drive);
-                    const float envCoeff = (absX > envelope[(size_t)ch]) ? envAttack : envRelease;
-                    envelope[(size_t)ch] += (absX - envelope[(size_t)ch]) * envCoeff;
+                    auto& env = envelope[(size_t)ch];
+                    if (!std::isfinite(env))
+                        env = 0.0f;
+
+                    const float envCoeff = (absX > env) ? envAttack : envRelease;
+                    env += (absX - env) * envCoeff;
+                    env = sanitizeAudioSample(env);
 
                     // --- Dynamic gain: reduces drive when input is hot ---
                     // This is what makes boutique amps "clean up" with guitar volume
                     // High envelope → less gain → stays clean on hard hits
                     // Low envelope → more gain → breaks up on soft picking
-                    const float dynamicGain = drive * (1.0f / (1.0f + envelope[(size_t)ch] * touchSensitivity));
+                    const float dynamicGain = drive * (1.0f / (1.0f + env * touchSensitivity));
 
                     // --- Stage 1: Preamp tube (high headroom) ---
                     // Soft polynomial curve below threshold, tanh above
@@ -199,7 +215,7 @@ public:
                     const float stage2 = std::tanh(input2 * 0.65f) * 1.35f;
 
                     // --- Mix: mostly stage1 (transparent), stage2 adds body ---
-                    data[s] = (stage1 * 0.55f) + (stage2 * 0.45f);
+                    data[s] = sanitizeAudioSample((stage1 * 0.55f) + (stage2 * 0.45f));
                 }
             }
         }
@@ -224,6 +240,24 @@ public:
 private:
     using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
         juce::dsp::IIR::Coefficients<float>>;
+
+    static float sanitizeAudioSample(float value) noexcept
+    {
+        if (!std::isfinite(value) || std::abs(value) < 1.0e-30f)
+            return 0.0f;
+
+        return value;
+    }
+
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+                data[sample] = sanitizeAudioSample(data[sample]);
+        }
+    }
 
     void updateVoicingIfNeeded()
     {
@@ -294,6 +328,7 @@ private:
     juce::AudioParameterFloat* levelParam   = nullptr;
 
     double innerRate = 352800.0;
+    int preparedBlockSize = 0;
     float cachedWarmth = std::numeric_limits<float>::quiet_NaN();
     float cachedMid    = std::numeric_limits<float>::quiet_NaN();
     float cachedPres   = std::numeric_limits<float>::quiet_NaN();

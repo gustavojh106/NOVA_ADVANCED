@@ -55,8 +55,9 @@ public:
         if (sampleRate <= 0.0)
             return;
 
+        preparedBlockSize = juce::jmax(1, samplesPerBlock);
         oversampler.reset();
-        oversampler.initProcessing((size_t)juce::jmax(1, samplesPerBlock));
+        oversampler.initProcessing((size_t)preparedBlockSize);
 
         currentInnerRate = sampleRate * 8.0;
 
@@ -114,8 +115,18 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
+        juce::ScopedNoDenormals noDenormals;
+
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
+
+        scrubInvalidSamples(buffer);
+
+        if (buffer.getNumSamples() > preparedBlockSize)
+        {
+            endBypassProcess(buffer);
+            return;
+        }
 
         updateVoicingIfNeeded();
         ampCore.setDriveTarget(driveParam != nullptr ? *driveParam : 2.8f);
@@ -195,9 +206,13 @@ private:
                 for (int ch = 0; ch < channelsToProcess; ++ch)
                 {
                     auto* data = channelData[(size_t) ch];
-                    const float x = data[sample];
+                    const float x = sanitizeAudioSample(data[sample]);
 
-                    sagEnvelope[(size_t)ch] = juce::jmax(std::abs(x), sagEnvelope[(size_t)ch] * Nova::Config::AMP_SAG_DECAY);
+                    auto& env = sagEnvelope[(size_t)ch];
+                    if (!std::isfinite(env))
+                        env = 0.0f;
+
+                    env = juce::jmax(std::abs(x), env * Nova::Config::AMP_SAG_DECAY);
                     const float sag = 1.0f / (1.0f + sagEnvelope[(size_t)ch] * sagDepth);
 
                     const float biased = (x * drive * sag) + 0.045f;
@@ -205,7 +220,7 @@ private:
                     const float stage2 = std::tanh((stage1 * stagePush) - 0.035f);
                     const float stage3 = std::tanh((stage2 * 1.35f) + (stage1 * 0.18f));
 
-                    data[sample] = (stage1 * 0.28f) + (stage2 * 0.38f) + (stage3 * 0.64f);
+                    data[sample] = sanitizeAudioSample((stage1 * 0.28f) + (stage2 * 0.38f) + (stage3 * 0.64f));
                 }
             }
         }
@@ -219,6 +234,24 @@ private:
 
     using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
         juce::dsp::IIR::Coefficients<float>>;
+
+    static float sanitizeAudioSample(float value) noexcept
+    {
+        if (!std::isfinite(value) || std::abs(value) < 1.0e-30f)
+            return 0.0f;
+
+        return value;
+    }
+
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+                data[sample] = sanitizeAudioSample(data[sample]);
+        }
+    }
 
     void updateVoicingIfNeeded()
     {
@@ -282,6 +315,7 @@ private:
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentInnerRate = 352800.0;
+    int preparedBlockSize = 0;
     float cachedTone = std::numeric_limits<float>::quiet_NaN();
     float cachedPresence = std::numeric_limits<float>::quiet_NaN();
     float cachedDepth = std::numeric_limits<float>::quiet_NaN();

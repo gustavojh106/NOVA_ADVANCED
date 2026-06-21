@@ -1,0 +1,106 @@
+{
+  "task": "P13C-FIX1-claude-post-fix-review",
+  "date": "2026-06-16",
+  "reviewer": "Claude (Opus 4.8)",
+  "mode": "review-only",
+  "code_modified": false,
+  "verdict": "approve",
+  "p13c_fix1_closeable": true,
+  "safe_to_proceed_drive_dynamics": true,
+  "patch": {
+    "files_reviewed": [
+      "Source/Effects/Amplifiers/ClassicAmp.h",
+      "Source/Effects/Amplifiers/HighGainAmp.h",
+      "Source/Effects/Amplifiers/BoutiqueAmp.h",
+      "Source/Effects/Amplifiers/ChimeAmp.h",
+      "Source/Effects/Cabinets/CabinetPedal.h",
+      "Source/Effects/Cabinets/Modern4x12Cabinet.h",
+      "Source/Effects/Cabinets/Vintage2x12Cabinet.h",
+      "Source/Core/AudioEngineTests.cpp"
+    ],
+    "diff_insertions": 336,
+    "diff_deletions": 23
+  },
+  "review_questions": {
+    "q1_oversized_guard_before_oversampling": "pass",
+    "q2_fallback_safe_finite_nonallocating": "pass",
+    "q3_no_tone_change_normal_audio": "pass",
+    "q4_naninf_scrub_sufficient": "pass",
+    "q5_highgain_gate_env_naninf_silence_safe": "pass",
+    "q6_scopednodenormals_correct_harmless": "pass",
+    "q7_cabinet_near_silence_tail_adequate": "pass",
+    "q8_tests_meaningful_not_overfitted": "pass",
+    "q9_do_not_touch_zones_avoided": "pass",
+    "q10_p13c_fix1_closeable": "yes",
+    "q11_safe_proceed_drive_dynamics": "yes"
+  },
+  "findings": [
+    {
+      "id": "P13C-FIX1-CLAUDE-F1",
+      "severity": "info",
+      "title": "Redundant double scrub (whole-buffer + per-sample input)",
+      "detail": "scrubInvalidSamples runs over the full buffer at block entry, and sanitizeAudioSample also runs on each input sample inside the stage loop. Value-preserving, negligible cost; defense-in-depth.",
+      "blocking": false
+    },
+    {
+      "id": "P13C-FIX1-CLAUDE-F2",
+      "severity": "info",
+      "title": "1e-30 flush applied to input and output",
+      "detail": "sanitizeAudioSample flushes |x| < 1e-30 (approx -600 dBFS) to zero on both input and output. Below denormal-relevance and inaudible; no tone impact.",
+      "blocking": false
+    },
+    {
+      "id": "P13C-FIX1-CLAUDE-F3",
+      "severity": "info",
+      "title": "Cabinet oversized guard pre-existing",
+      "detail": "Cabinets already had scrubInvalidSamples + canProcessBlock oversized guard; patch correctly adds only the missing ScopedNoDenormals. No new cabinet capacity guard required.",
+      "blocking": false
+    },
+    {
+      "id": "P13C-FIX1-CLAUDE-F4",
+      "severity": "low",
+      "title": "Clean Amp not hardened (deferred parity)",
+      "detail": "Clean Amp is unmodified (out of scope) yet included in oversized finite test with null-RMS assertion correctly skipped. Future parity pass could extend same guards to Clean Amp.",
+      "blocking": false,
+      "deferred": true
+    },
+    {
+      "id": "P13C-FIX1-CLAUDE-F5",
+      "severity": "info",
+      "title": "Per-block O(n) scrub pass on hot path",
+      "detail": "Each amp adds a full linear buffer traversal per block. Validation shows 0 failures; acceptable for the safety gain.",
+      "blocking": false
+    }
+  ],
+  "do_not_touch_zones_respected": [
+    "OutputChain/P12D limiter",
+    "Host PDC/P13A-F001",
+    "AudioEngine graph architecture",
+    "RuntimeGraphManager",
+    "DryWetMixer",
+    "RoutingMixer",
+    "PluginStateModel schema",
+    "UI visual design",
+    "Drive pedals",
+    "Dynamics pedals",
+    "Delay/Reverb/Modulation pedals",
+    "SyntheticIR behavior"
+  ],
+  "validation_crosscheck": {
+    "method": "static source inspection + reliance on reported runs",
+    "guard_placement_verified": true,
+    "fallback_safety_verified": true,
+    "scrub_coverage_verified": true,
+    "envelope_naninf_reset_verified": true,
+    "scopednodenormals_scope_verified": true,
+    "test_helpers_exist": true,
+    "reported_sharedcode_build": "pass 0/0",
+    "reported_standalone_build": "pass 0/0",
+    "reported_base_audio_validation": "results=276, passes=7593, failures=0",
+    "reported_rt_policy_scan": "pass",
+    "reported_null_byte_scan": "pass",
+    "reported_git_diff_check": "pass (CRLF only)"
+  },
+  "defect_count": 0,
+  "next_step": "Close P13C-FIX1 and begin the drive/dynamics audit."
+}

@@ -1,0 +1,170 @@
+{
+  "task": "P13C-amps-cabinets-audit",
+  "date": "2026-06-12",
+  "auditor": "Claude Fable (read-only)",
+  "baseline": "post-P12D + P13A-F001 + P13B + P13B-FIX1",
+  "codeModified": false,
+  "verdict": {
+    "ampsCabsSafeToKeepEnabled": true,
+    "strongest": { "amp": "CleanAmp", "cabinet": "CabinetPedal (Atlas 4x12)" },
+    "riskiest": {
+      "overall": "BoutiqueAmp (least tested, discontinuous waveshaper, all guards missing)",
+      "worstSingleFailureMode": "HighGainAmp NaN-latched gate envelope -> persistent silence"
+    },
+    "blockersBeforeDriveDynamicsAudit": [],
+    "carryOver": [
+      "Release VST3 build + manual DAW PDC null test (P13A)",
+      "F-P13B-004 Reverb dead processSample path",
+      "P13B + P13C listening matrices"
+    ]
+  },
+  "inventory": {
+    "amps": [
+      { "type": "Clean Amp", "class": "CleanAmp", "file": "Source/Effects/Amplifiers/CleanAmp.h", "oversampling": "8x", "latencyReport": "ceil(oversampler latency)", "guards": ["input scrub (NaN/clamp8/denormal)", "ScopedNoDenormals", "oversize emergencySafePass", "output softLimit 1.25", "bounded internal room reverb"] },
+      { "type": "Classic Amp", "class": "ClassicAmp", "file": "Source/Effects/Amplifiers/ClassicAmp.h", "oversampling": "8x", "latencyReport": "trunc", "guards": [] },
+      { "type": "High Gain Amp", "class": "HighGainAmp", "file": "Source/Effects/Amplifiers/HighGainAmp.h", "oversampling": "8x", "latencyReport": "trunc", "guards": ["conditionPreampInput finite check (mid-chain only)", "output trim 0.32", "built-in noise-reject gate floor 0.07-0.18"] },
+      { "type": "Boutique Amp", "class": "BoutiqueAmp", "file": "Source/Effects/Amplifiers/BoutiqueAmp.h", "oversampling": "8x (comments claim 4x)", "latencyReport": "trunc", "guards": [] },
+      { "type": "Chime Amp", "class": "ChimeAmp", "file": "Source/Effects/Amplifiers/ChimeAmp.h", "oversampling": "8x (comments claim 4x)", "latencyReport": "trunc", "guards": ["stage weight sum <= 1.0"] }
+    ],
+    "cabinets": [
+      { "type": "Cabinet", "class": "CabinetPedal", "file": "Source/Effects/Cabinets/CabinetPedal.h", "ir": "generateAtlas4x12", "latency": "zero (default JUCE convolution engine)", "guards": ["NaN scrub", "canProcessBlock dry fallback", "containCabinetOutput soft knee 0.97", "post-IR DC blocker"] },
+      { "type": "Modern 4x12", "class": "Modern4x12Cabinet", "file": "Source/Effects/Cabinets/Modern4x12Cabinet.h", "ir": "generateModern4x12", "latency": "zero", "guards": ["NaN scrub", "canProcessBlock dry fallback", "wet trim 0.70", "post-IR DC blocker"] },
+      { "type": "Vintage 2x12", "class": "Vintage2x12Cabinet", "file": "Source/Effects/Cabinets/Vintage2x12Cabinet.h", "ir": "generateVintage2x12", "latency": "zero", "guards": ["NaN scrub", "canProcessBlock dry fallback", "post-IR DC blocker"] }
+    ],
+    "irGenerator": { "file": "Source/Effects/Cabinets/SyntheticIR.h", "design": "delta -> 8-9 cascaded biquads (double-precision design) -> 2 comb reflections (SR-scaled delays) -> exponential decay (per-sample rate) -> normalize 0.85 peak; ~23 ms duration constant across SR (unit-tested)" }
+  },
+  "scorecard": {
+    "CleanAmp":          { "dspSafety": 9, "gainStaging": 9, "toneArch": 8, "highGainStability": 9, "cabinetStability": null, "latencyPdc": 9,  "rtSafety": 9, "paramSafety": 9, "testCoverage": 8, "releaseReadiness": 9 },
+    "ClassicAmp":        { "dspSafety": 6, "gainStaging": 7, "toneArch": 8, "highGainStability": 8, "cabinetStability": null, "latencyPdc": 9,  "rtSafety": 8, "paramSafety": 8, "testCoverage": 8, "releaseReadiness": 7 },
+    "HighGainAmp":       { "dspSafety": 6, "gainStaging": 8, "toneArch": 8, "highGainStability": 9, "cabinetStability": null, "latencyPdc": 9,  "rtSafety": 8, "paramSafety": 8, "testCoverage": 9, "releaseReadiness": 8 },
+    "BoutiqueAmp":       { "dspSafety": 6, "gainStaging": 7, "toneArch": 7, "highGainStability": 7, "cabinetStability": null, "latencyPdc": 9,  "rtSafety": 8, "paramSafety": 8, "testCoverage": 6, "releaseReadiness": 7 },
+    "ChimeAmp":          { "dspSafety": 6, "gainStaging": 8, "toneArch": 8, "highGainStability": 8, "cabinetStability": null, "latencyPdc": 9,  "rtSafety": 8, "paramSafety": 8, "testCoverage": 6, "releaseReadiness": 7 },
+    "CabinetPedal":      { "dspSafety": 8, "gainStaging": 9, "toneArch": 8, "highGainStability": null, "cabinetStability": 9, "latencyPdc": 10, "rtSafety": 9, "paramSafety": 9, "testCoverage": 9, "releaseReadiness": 9 },
+    "Modern4x12Cabinet": { "dspSafety": 7, "gainStaging": 8, "toneArch": 8, "highGainStability": null, "cabinetStability": 9, "latencyPdc": 10, "rtSafety": 9, "paramSafety": 9, "testCoverage": 9, "releaseReadiness": 9 },
+    "Vintage2x12Cabinet":{ "dspSafety": 7, "gainStaging": 7, "toneArch": 8, "highGainStability": null, "cabinetStability": 8, "latencyPdc": 10, "rtSafety": 9, "paramSafety": 9, "testCoverage": 7, "releaseReadiness": 8 }
+  },
+  "findings": [
+    {
+      "id": "F-P13C-001",
+      "affected": ["ClassicAmp", "HighGainAmp", "BoutiqueAmp", "ChimeAmp"],
+      "severity": "Medium-High",
+      "probability": "Low",
+      "title": "No oversize-block guard before oversampler.processSamplesUp",
+      "evidence": "JUCE Oversampling buffers are sized by initProcessing(samplesPerBlock); a larger host block overruns them (assert in debug, heap corruption in release). CleanAmp's emergencySafePass comment (CleanAmp.h:192) names this exact scenario; cabinets and Neural have canProcessBlock guards; the P1 oversized-fallback test covers the three cabinets but no amp.",
+      "affectedFiles": ["Source/Effects/Amplifiers/ClassicAmp.h:115", "Source/Effects/Amplifiers/HighGainAmp.h:120", "Source/Effects/Amplifiers/BoutiqueAmp.h:128", "Source/Effects/Amplifiers/ChimeAmp.h:124"],
+      "recommendedFix": "Add canProcessBlock-style dry fallback (or CleanAmp emergencySafePass) before upsampling; extend runP1OversizedFallback to all five amps.",
+      "implementer": "Codex 5.5",
+      "blocksNextAudit": false
+    },
+    {
+      "id": "F-P13C-002",
+      "affected": ["ClassicAmp", "HighGainAmp", "BoutiqueAmp", "ChimeAmp"],
+      "severity": "Medium",
+      "probability": "Low-Medium",
+      "title": "No NaN/Inf input scrub; HighGainAmp gate envelope latches NaN into persistent silence",
+      "evidence": "CleanAmp scrubs and all cabinets scrub; these four amps do not. NaN latches IIR states and sag/cathode/gate envelopes. HighGainAmp worst case: inputNoiseEnvelope (HighGainAmp.h:217-233) latches NaN, the resulting NaN gain multiplies the signal, conditionPreampInput converts NaN to 0 - output stays silent until reset/auto-heal.",
+      "affectedFiles": ["Source/Effects/Amplifiers/ClassicAmp.h", "Source/Effects/Amplifiers/HighGainAmp.h", "Source/Effects/Amplifiers/BoutiqueAmp.h", "Source/Effects/Amplifiers/ChimeAmp.h"],
+      "recommendedFix": "Add input scrub + finite guards on envelopes (P13B-FIX1 pattern) plus two-phase NaN latch/recovery tests, explicitly covering the HighGainAmp gate case.",
+      "implementer": "Codex 5.5",
+      "blocksNextAudit": false
+    },
+    {
+      "id": "F-P13C-003",
+      "affected": ["ClassicAmp", "HighGainAmp", "BoutiqueAmp", "ChimeAmp", "CabinetPedal", "Modern4x12Cabinet", "Vintage2x12Cabinet"],
+      "severity": "Medium",
+      "probability": "Medium",
+      "title": "Missing ScopedNoDenormals in processBlock (7 processors)",
+      "evidence": "Only CleanAmp guards (plus input denormal flush). IIR tails, sag/cathode envelopes, and convolution tails decay through the denormal range - CPU spikes on hosts without FTZ. Exact P13B F-001 pattern, fixed for stateful FX in P13B-FIX1 but not extended to amps/cabs.",
+      "affectedFiles": ["4 amp headers", "3 cabinet headers"],
+      "recommendedFix": "Seven one-line ScopedNoDenormals additions at top of processBlock.",
+      "implementer": "Codex 5.5",
+      "blocksNextAudit": false
+    },
+    {
+      "id": "F-P13C-004",
+      "affected": ["ClassicAmp", "HighGainAmp", "BoutiqueAmp", "ChimeAmp", "SyntheticIR"],
+      "severity": "Low-Medium",
+      "probability": "Certain (tone consistency, not safety)",
+      "title": "Sample-rate-dependent time constants in envelopes and IR decay",
+      "evidence": "AMP_SAG_DECAY=0.9992 per-sample at inner rate (Constants.h:135); ChimeAmp cathodeBiasCoeff=0.0012 and sag 0.9988 fixed; BoutiqueAmp envAttack/envRelease constexpr with comments claiming 4x/176.4kHz while code runs 8x; SyntheticIR decayRate per-sample so IR tail decay time halves at 96k (IR window length itself is SR-constant and unit-tested).",
+      "affectedFiles": ["Source/Core/Constants.h:135", "amp headers", "Source/Effects/Cabinets/SyntheticIR.h:139"],
+      "recommendedFix": "Derive envelope coefficients from inner rate in prepare; convert IR decay to a per-second constant. A/B by ear first (listening item L13).",
+      "implementer": "Codex 5.5 (after listening confirmation)",
+      "blocksNextAudit": false
+    },
+    {
+      "id": "F-P13C-005",
+      "affected": ["ClassicAmp", "HighGainAmp", "BoutiqueAmp", "ChimeAmp"],
+      "severity": "Low",
+      "probability": "Certain",
+      "title": "Latency rounding inconsistency (truncation vs ceil vs round)",
+      "evidence": "(int)oversampler.getLatencyInSamples() truncates in these four; CleanAmp uses ceil; Neural uses round. Sub-sample under-report only.",
+      "affectedFiles": ["4 amp headers"],
+      "recommendedFix": "Standardize on std::round in the FIX1 pass.",
+      "implementer": "Codex 5.5",
+      "blocksNextAudit": false
+    },
+    {
+      "id": "F-P13C-006",
+      "affected": ["Vintage2x12Cabinet", "ClassicAmp", "BoutiqueAmp"],
+      "severity": "Low",
+      "probability": "Low-Medium",
+      "title": "Output-safety inconsistency across cabinets and uncontained amp masters",
+      "evidence": "Atlas has containCabinetOutput (soft knee to 0.97), Modern has 0.70 wet trim, Vintage2x12 has neither (level up to 2x on IR output whose frequency-domain gain can exceed 1 plus +-12 dB shelves). ClassicAmp/BoutiqueAmp have no output limiter at master <=2 with up to +6-7.6 dB shelf boosts - bounded by tanh stage sums but can push 2-6x theoretical peaks into OutputChain (always-on limiter backstops).",
+      "affectedFiles": ["Source/Effects/Cabinets/Vintage2x12Cabinet.h:154-166", "Source/Effects/Amplifiers/ClassicAmp.h:138-143", "Source/Effects/Amplifiers/BoutiqueAmp.h:214-219"],
+      "recommendedFix": "Harmonize after listening test L7: trim/containment for Vintage2x12; optional CleanAmp-style softLimit on Classic/Boutique masters.",
+      "implementer": "Codex 5.5 (conditional on listening)",
+      "blocksNextAudit": false
+    },
+    {
+      "id": "F-P13C-007",
+      "affected": ["BoutiqueAmp"],
+      "severity": "Low (quality)",
+      "probability": "Medium at edge-of-breakup settings",
+      "title": "Discontinuous piecewise waveshaper at cleanThreshold",
+      "evidence": "At threshold t=0.6: polynomial branch yields 0.557, tanh branch yields 0.526 (~6% step); t=0.52 yields ~5% step. Signal straddling the threshold steps per-sample, producing crackle/spurious harmonics exactly in the amp's signature edge-of-breakup zone.",
+      "affectedFiles": ["Source/Effects/Amplifiers/BoutiqueAmp.h:181-194"],
+      "recommendedFix": "Match branch values/derivatives at the threshold or crossfade between branches. Verify by ear (listening item L12).",
+      "implementer": "Codex 5.5",
+      "blocksNextAudit": false
+    },
+    {
+      "id": "F-P13C-008",
+      "affected": ["BoutiqueAmp", "ChimeAmp"],
+      "severity": "Info",
+      "probability": "Certain",
+      "title": "Header comments claim 4x oversampling; code runs 8x",
+      "evidence": "Oversampling(2, 3) = 2^3 = 8x; innerRate = sr*8. Comments in both headers (and Boutique envelope-coefficient comments) say 4x/176.4 kHz.",
+      "affectedFiles": ["Source/Effects/Amplifiers/BoutiqueAmp.h", "Source/Effects/Amplifiers/ChimeAmp.h"],
+      "recommendedFix": "Fix comments alongside F-004.",
+      "implementer": "Codex 5.5",
+      "blocksNextAudit": false
+    },
+    {
+      "id": "F-P13C-009",
+      "affected": ["all cabinets"],
+      "severity": "Info",
+      "probability": "Certain (first blocks after prepare)",
+      "title": "Async IR install leaves brief EQ-only window",
+      "evidence": "loadImpulseResponse installs on a background thread; getCurrentIRSize()==0 guard skips convolution until ready, so the first block(s) pass with voicing EQ but no IR. Masked by engine startup-silence counters.",
+      "affectedFiles": ["cabinet headers"],
+      "recommendedFix": "None required.",
+      "implementer": "none",
+      "blocksNextAudit": false
+    }
+  ],
+  "latencyPdcSummary": {
+    "amps": "All five report oversampler latency via setProcessingLatency; bypass toggles N<->0 through the verified P13A-F001 listener path (tests AudioEngineTests.cpp:4514, :5710). Rounding convention inconsistent (F-005).",
+    "cabinets": "Zero latency (default JUCE convolution engine) - correctly report nothing.",
+    "mismatches": "none found"
+  },
+  "testGaps": [
+    "No oversize-block test for the five amps (cabinets covered)",
+    "No NaN/Inf injection tests for amps (HighGainAmp gate latch is the key case)",
+    "BoutiqueAmp/ChimeAmp covered only by generic p11a guards - no chain/hot-input/automation tests",
+    "No SR-consistency test for envelope feel (F-004)",
+    "No Vintage2x12 hot-output bound test",
+    "No sustained-limiter-abuse test for ClassicAmp/Boutique at master 2"
+  ],
+  "recommendedNextStep": "Codex 5.5 implements P13C-FIX1 (oversize guards, NaN scrub + envelope guards, ScopedNoDenormals x7, latency rounding, comment fixes) with matching tests; tone-affecting F-004/F-006/F-007 deferred behind the listening matrix. Then proceed to the drive/dynamics audit."
+}

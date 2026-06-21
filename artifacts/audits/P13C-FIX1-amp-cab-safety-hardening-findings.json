@@ -1,0 +1,94 @@
+{
+  "task": "P13C-FIX1-amp-cab-safety-hardening",
+  "date": "2026-06-12",
+  "codeModified": true,
+  "verdict": {
+    "status": "PASS",
+    "summary": "The requested non-tone-affecting amp/cab safety hardening is implemented and validated.",
+    "blockers": []
+  },
+  "fixedFindings": [
+    {
+      "sourceFinding": "F-P13C-001",
+      "title": "Oversized-block guard before oversampler.processSamplesUp",
+      "status": "fixed",
+      "affected": ["ClassicAmp", "HighGainAmp", "BoutiqueAmp", "ChimeAmp"],
+      "implementation": "Prepared block capacity is stored during prepareToPlay and checked before JUCE Oversampling. Oversized blocks use a finite dry fallback through the existing bypass wrapper with no allocation or resize in processBlock.",
+      "tests": ["p13c_amp_oversized_blocks_stay_safe"]
+    },
+    {
+      "sourceFinding": "F-P13C-002",
+      "title": "NaN/Inf scrub and state recovery",
+      "status": "fixed",
+      "affected": ["ClassicAmp", "HighGainAmp", "BoutiqueAmp", "ChimeAmp"],
+      "implementation": "Invalid input samples are replaced with 0.0f before stateful DSP. Sag, cathode, touch, and HighGainAmp gate/envelope state are sanitized before update so invalid values cannot latch.",
+      "tests": ["p13c_amp_nan_inf_recovery"]
+    },
+    {
+      "sourceFinding": "F-P13C-003",
+      "title": "Missing ScopedNoDenormals in amp/cab processBlock",
+      "status": "fixed",
+      "affected": ["ClassicAmp", "HighGainAmp", "BoutiqueAmp", "ChimeAmp", "CabinetPedal", "Modern4x12Cabinet", "Vintage2x12Cabinet"],
+      "implementation": "juce::ScopedNoDenormals is created at the top of each requested processBlock entry.",
+      "tests": ["p13c_cabinets_near_silence_tail_remains_finite", "existing NOVA validation suite"]
+    }
+  ],
+  "deferredFindings": [
+    {
+      "sourceFinding": "F-P13C-004",
+      "title": "Sample-rate-dependent time constants and SyntheticIR decay",
+      "reason": "Tone and feel affecting; deferred to listening matrix."
+    },
+    {
+      "sourceFinding": "F-P13C-006",
+      "title": "Vintage2x12 output trim and broader output containment",
+      "reason": "Gain and voicing affecting; deferred to listening matrix."
+    },
+    {
+      "sourceFinding": "F-P13C-007",
+      "title": "BoutiqueAmp waveshaper discontinuity",
+      "reason": "Tone affecting; deferred to listening matrix."
+    },
+    {
+      "sourceFinding": "P13A-carry-over",
+      "title": "Release VST3 and manual DAW PDC null validation",
+      "reason": "Host integration validation, not part of this source patch."
+    }
+  ],
+  "validation": {
+    "sharedCodeRebuild": {
+      "command": "MSBuild Builds/VisualStudio2022/NOVA_SharedCode.vcxproj /t:Rebuild /p:Configuration=Debug /p:Platform=x64 /m",
+      "status": "PASS",
+      "warnings": 0,
+      "errors": 0
+    },
+    "standaloneBuild": {
+      "command": "MSBuild Builds/VisualStudio2022/NOVA_StandalonePlugin.vcxproj /t:Build /p:Configuration=Debug /p:Platform=x64 /m",
+      "status": "PASS",
+      "warnings": 0,
+      "errors": 0
+    },
+    "baseNovaValidation": {
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/run-base-audio-validation.ps1",
+      "status": "PASS",
+      "results": 276,
+      "passes": 7593,
+      "failures": 0,
+      "failingResults": 0
+    },
+    "audioThreadPolicyScan": {
+      "command": "powershell -ExecutionPolicy Bypass -File scripts/check-audio-thread-policy.ps1 -ReportPath <temp> -JsonReportPath <temp>",
+      "status": "PASS"
+    },
+    "nullByteScan": {
+      "status": "PASS"
+    },
+    "jsonParse": {
+      "status": "PASS"
+    }
+  },
+  "notes": [
+    "SyntheticIR was not modified because this task only required realtime processBlock denormal guards unless SyntheticIR had its own audio entry.",
+    "CleanAmp was not modified; it was included only in the oversized-block comparison test."
+  ]
+}

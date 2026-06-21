@@ -14233,6 +14233,94 @@ public:
             expect(stats.signal.signal.clippedSamples == 0 && stats.signal.signal.nearClipSamples == 0,
                 "P11A Clean Amp path must keep headroom: " + p11aAmpStatsSummary(stats));
         }
+
+        beginTest("p13c_amp_oversized_blocks_stay_safe");
+        {
+            const std::array<juce::String, 5> ampTypes {
+                "Clean Amp", "Classic Amp", "High Gain Amp", "Chime Amp", "Boutique Amp"
+            };
+
+            for (const auto& type : ampTypes)
+            {
+                auto amp = PedalRegistry::createPedal(type);
+                expect(amp != nullptr, "P13C oversized amp should construct " + type);
+                if (amp == nullptr)
+                    continue;
+
+                configureUsableAmpVoice(*amp, type);
+                amp->setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+                amp->prepareToPlay(kSampleRate, kBlockSize);
+
+                juce::AudioBuffer<float> oversized(2, kBlockSize * 4);
+                fillAmpSafetyBlock(oversized, 0, 0.055f);
+                juce::AudioBuffer<float> dryCopy;
+                dryCopy.makeCopyOf(oversized);
+
+                juce::MidiBuffer midi;
+                amp->processBlock(oversized, midi);
+
+                expect(bufferHasOnlyFiniteSamples(oversized), "P13C " + type + " oversized block must stay finite");
+                if (type != "Clean Amp")
+                {
+                    expect(computeBufferNullRms(dryCopy, oversized) <= 1.0e-7,
+                        "P13C " + type + " oversized fallback should leave finite dry input materially unchanged");
+                }
+            }
+        }
+
+        beginTest("p13c_amp_nan_inf_recovery");
+        {
+            const std::array<juce::String, 4> ampTypes {
+                "Classic Amp", "High Gain Amp", "Chime Amp", "Boutique Amp"
+            };
+
+            for (const auto& type : ampTypes)
+            {
+                auto amp = PedalRegistry::createPedal(type);
+                expect(amp != nullptr, "P13C NaN/Inf amp should construct " + type);
+                if (amp == nullptr)
+                    continue;
+
+                configureUsableAmpVoice(*amp, type);
+                amp->setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+                amp->prepareToPlay(kSampleRate, kBlockSize);
+
+                juce::MidiBuffer midi;
+                juce::AudioBuffer<float> block(2, kBlockSize);
+                bool finiteDuringAbuse = true;
+
+                for (int blockIndex = 0; blockIndex < 24; ++blockIndex)
+                {
+                    fillAmpSafetyBlock(block, blockIndex, 0.080f);
+                    injectNanInfSamples(block, blockIndex);
+                    amp->processBlock(block, midi);
+                    finiteDuringAbuse = finiteDuringAbuse && bufferHasOnlyFiniteSamples(block);
+                }
+
+                P11AAmpRenderStats recoveryStats;
+                bool finiteDuringRecovery = true;
+                for (int blockIndex = 24; blockIndex < 112; ++blockIndex)
+                {
+                    fillAmpSafetyBlock(block, blockIndex, 0.085f);
+                    amp->processBlock(block, midi);
+                    finiteDuringRecovery = finiteDuringRecovery && bufferHasOnlyFiniteSamples(block);
+                    if (blockIndex >= 36)
+                        recoveryStats.capture(block);
+                }
+                recoveryStats.finish();
+
+                expect(finiteDuringAbuse, "P13C " + type + " must scrub NaN/Inf input to finite output");
+                expect(finiteDuringRecovery, "P13C " + type + " must recover finite output after NaN/Inf input");
+                expect(recoveryStats.rms > 0.00045,
+                    "P13C " + type + " must not latch into silence after invalid input: " + p11aAmpStatsSummary(recoveryStats));
+
+                if (type == "High Gain Amp")
+                {
+                    expect(recoveryStats.rms > 0.0010,
+                        "P13C HighGainAmp gate/envelope must not latch into persistent silence: " + p11aAmpStatsSummary(recoveryStats));
+                }
+            }
+        }
     }
 
 private:
@@ -14353,6 +14441,37 @@ private:
 
             block.setSample(0, i, sample);
             block.setSample(1, i, sample * 0.985f);
+        }
+    }
+
+    static void fillAmpSafetyBlock(juce::AudioBuffer<float>& block, int blockIndex, float level)
+    {
+        for (int i = 0; i < block.getNumSamples(); ++i)
+        {
+            const int sampleIndex = blockIndex * block.getNumSamples() + i;
+            const float t = (float) sampleIndex / (float) kSampleRate;
+            const float sample = level
+                * (0.70f * std::sin(juce::MathConstants<float>::twoPi * 110.0f * t)
+                    + 0.22f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t)
+                    + 0.08f * std::sin(juce::MathConstants<float>::twoPi * 329.63f * t));
+
+            block.setSample(0, i, sample);
+            block.setSample(1, i, sample * 0.97f);
+        }
+    }
+
+    static void injectNanInfSamples(juce::AudioBuffer<float>& block, int blockIndex)
+    {
+        for (int ch = 0; ch < block.getNumChannels(); ++ch)
+        {
+            for (int i = 0; i < block.getNumSamples(); i += 17)
+            {
+                const int selector = (i + blockIndex + ch) % 3;
+                const float value = selector == 0 ? std::numeric_limits<float>::quiet_NaN()
+                    : selector == 1 ? std::numeric_limits<float>::infinity()
+                    : -std::numeric_limits<float>::infinity();
+                block.setSample(ch, i, value);
+            }
         }
     }
 
@@ -14496,6 +14615,38 @@ public:
             expect(reports.back().signal.signal.clippedSamples == 0 && reports.back().signal.signal.nearClipSamples == 0,
                 "P11B CleanAmp -> Cabinet path must keep headroom: " + p10gMetricsSummary(reports.back()));
         }
+
+        beginTest("p13c_cabinets_near_silence_tail_remains_finite");
+        {
+            const std::array<juce::String, 3> cabinetTypes { "Cabinet", "Vintage 2x12", "Modern 4x12" };
+            for (const auto& type : cabinetTypes)
+            {
+                auto cabinet = PedalRegistry::createPedal(type);
+                expect(cabinet != nullptr, "P13C near-silence cabinet should construct " + type);
+                if (cabinet == nullptr)
+                    continue;
+
+                configureUsableCabinetVoice(*cabinet, type);
+                prepare(*cabinet);
+
+                juce::MidiBuffer midi;
+                juce::AudioBuffer<float> block(2, kBlockSize);
+                bool finite = true;
+                double peak = 0.0;
+
+                for (int blockIndex = 0; blockIndex < 180; ++blockIndex)
+                {
+                    fillCabinetNearSilenceBlock(block, blockIndex);
+                    cabinet->processBlock(block, midi);
+                    finite = finite && bufferHasOnlyFiniteSamples(block);
+                    peak = juce::jmax(peak, computeBufferPeak(block, 0, block.getNumSamples()));
+                }
+
+                expect(finite, "P13C " + type + " near-silence/tail render must stay finite");
+                expect(peak < 1.0e-10,
+                    "P13C " + type + " near-silence/tail render should remain effectively silent");
+            }
+        }
     }
 
 private:
@@ -14621,6 +14772,16 @@ private:
 
             block.setSample(0, i, sample);
             block.setSample(1, i, sample * 0.985f);
+        }
+    }
+
+    static void fillCabinetNearSilenceBlock(juce::AudioBuffer<float>& block, int blockIndex)
+    {
+        block.clear();
+        if (blockIndex == 0)
+        {
+            block.setSample(0, 0, 1.0e-20f);
+            block.setSample(1, 0, -1.0e-20f);
         }
     }
 };

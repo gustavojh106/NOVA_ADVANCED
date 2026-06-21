@@ -55,8 +55,9 @@ public:
         if (sampleRate <= 0.0)
             return;
 
+        preparedBlockSize = juce::jmax(1, samplesPerBlock);
         oversampler.reset();
-        oversampler.initProcessing((size_t)juce::jmax(1, samplesPerBlock));
+        oversampler.initProcessing((size_t)preparedBlockSize);
 
         currentInnerRate = sampleRate * 8.0;
 
@@ -119,8 +120,18 @@ public:
 
     void processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) override
     {
+        juce::ScopedNoDenormals noDenormals;
+
         if (!isPrepared || !beginBypassProcess(buffer))
             return;
+
+        scrubInvalidSamples(buffer);
+
+        if (buffer.getNumSamples() > preparedBlockSize)
+        {
+            endBypassProcess(buffer);
+            return;
+        }
 
         updateVoicingIfNeeded();
         driveSmooth.setTargetValue(driveParam != nullptr ? *driveParam : 5.5f);
@@ -152,15 +163,19 @@ public:
                 for (int ch = 0; ch < channelsToProcess; ++ch)
                 {
                     auto* data = channelData[(size_t) ch];
-                    float x = data[sample];
+                    float x = sanitizeAudioSample(data[sample]);
 
                     x *= computeInputNoiseRejectGain(x, ch, drive, feel);
                     x = conditionPreampInput(x);
 
                     // Power supply sag
-                    sagEnvelope[(size_t)ch] = juce::jmax(std::abs(x), sagEnvelope[(size_t)ch] * Nova::Config::AMP_SAG_DECAY);
+                    auto& sagEnv = sagEnvelope[(size_t)ch];
+                    if (!std::isfinite(sagEnv))
+                        sagEnv = 0.0f;
+
+                    sagEnv = juce::jmax(std::abs(x), sagEnv * Nova::Config::AMP_SAG_DECAY);
                     const float sagDepth = 0.18f + (1.0f - feel) * 0.08f;
-                    const float sag = 1.0f / (1.0f + sagEnvelope[(size_t)ch] * sagDepth);
+                    const float sag = 1.0f / (1.0f + sagEnv * sagDepth);
 
                     // Stage 1: Preamp tube
                     x = std::tanh((x * pushGain * sag) + 0.05f);
@@ -174,7 +189,7 @@ public:
                     // Stage 4: Extra saturation for high gain
                     const float stage4 = std::tanh(stage3 * (1.0f + drive * 0.12f));
 
-                    data[sample] = (x * 0.12f) + (stage2 * 0.25f) + (stage3 * 0.35f) + (stage4 * 0.52f);
+                    data[sample] = sanitizeAudioSample((x * 0.12f) + (stage2 * 0.25f) + (stage3 * 0.35f) + (stage4 * 0.52f));
                 }
             }
         }
@@ -200,6 +215,24 @@ private:
     using Filter = juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>,
         juce::dsp::IIR::Coefficients<float>>;
 
+    static float sanitizeAudioSample(float value) noexcept
+    {
+        if (!std::isfinite(value) || std::abs(value) < 1.0e-30f)
+            return 0.0f;
+
+        return value;
+    }
+
+    static void scrubInvalidSamples(juce::AudioBuffer<float>& buffer) noexcept
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* data = buffer.getWritePointer(ch);
+            for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+                data[sample] = sanitizeAudioSample(data[sample]);
+        }
+    }
+
     static float conditionPreampInput(float x) noexcept
     {
         if (!std::isfinite(x))
@@ -217,10 +250,14 @@ private:
     float computeInputNoiseRejectGain(float input, int channel, float drive, float feel) noexcept
     {
         const size_t index = (size_t) juce::jlimit(0, kMaxAmpChannels - 1, channel);
-        const float absolute = std::abs(input);
+        const float absolute = std::abs(sanitizeAudioSample(input));
         auto& env = inputNoiseEnvelope[index];
+        if (!std::isfinite(env))
+            env = 0.0f;
+
         const float coeff = absolute > env ? 0.08f : 0.0022f;
         env += (absolute - env) * coeff;
+        env = sanitizeAudioSample(env);
 
         const float driveNorm = juce::jlimit(0.0f, 1.0f, (drive - 1.0f) / 9.0f);
         const float feelNorm = juce::jlimit(0.0f, 1.0f, feel);
@@ -308,6 +345,7 @@ private:
     juce::AudioParameterFloat* levelParam = nullptr;
 
     double currentInnerRate = 352800.0;
+    int preparedBlockSize = 0;
     float cachedTone = std::numeric_limits<float>::quiet_NaN();
     float cachedPresence = std::numeric_limits<float>::quiet_NaN();
     float cachedTight = std::numeric_limits<float>::quiet_NaN();
