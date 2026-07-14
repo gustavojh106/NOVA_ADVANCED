@@ -22,6 +22,7 @@ public:
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlockBypassed(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override;
@@ -44,6 +45,7 @@ public:
 
     bool savePresetToFile(const juce::File& file);
     bool loadPresetFromFile(const juce::File& file);
+    void clearSession();
     void clearSessionAndForgetStartupPreset();
 
     // == COMANDOS PÚBLICOS PARA EL EDITOR ==
@@ -104,6 +106,7 @@ private:
     void invalidateEnginePushCaches(bool invalidateEngineEnabled, bool invalidateRuntimeGlobals);
     bool shouldPushEngineEnabled(bool current);
     bool shouldPushRuntimeGlobals(const AudioEngine::RuntimeGlobalParams& current, bool force);
+    void processHostBypassDelay(juce::AudioBuffer<float>& buffer, bool renderDelayedDry) noexcept;
     void resetSessionState(bool forgetStartupPreset);
     bool restoreStartupPresetIfAvailable();
 
@@ -141,6 +144,8 @@ private:
     std::atomic<int> lastReportedHostLatencySamples{ -1 };
     std::atomic<int> hostTransportPollCounter{ 0 };
     RuntimeGlobalParamAtomics lastRuntimeGlobalParams;
+    juce::AudioBuffer<float> hostBypassDelayBuffer;
+    int hostBypassDelayWritePosition = 0;
 
     juce::AudioParameterBool* engineOnParam = nullptr;
     juce::AudioParameterChoice* switchModeParam = nullptr;

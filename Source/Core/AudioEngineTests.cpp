@@ -16,6 +16,7 @@
 #include "Audio/GraphRetirementQueue.h"
 #include "Audio/RuntimeGraphManager.h"
 #include "Audio/RoutingMixer.h"
+#include "NovaSettingsService.h"
 #include "PluginProcessor.h"
 #include "PluginStateModel.h"
 #include "PedalRegistry.h"
@@ -27,6 +28,12 @@
 #include "DSP/Services/TunerService.h"
 #include "../Effects/Cabinets/SyntheticIR.h"
 #include "../Effects/Pedals/Base/NovaPedalProcessor.h"
+
+#ifndef NOVA_ENABLE_RELEASE_DIAGNOSTICS
+#define NOVA_ENABLE_RELEASE_DIAGNOSTICS 0
+#endif
+
+#define NOVA_P14B_MEASUREMENT_HARNESS_ENABLED (JUCE_DEBUG || NOVA_ENABLE_RELEASE_DIAGNOSTICS)
 
 struct AudioEngineTestAccess
 {
@@ -1056,6 +1063,812 @@ bool setRangedParamById(juce::AudioProcessor& processor, const juce::String& par
 
     return false;
 }
+
+#if NOVA_P14B_MEASUREMENT_HARNESS_ENABLED
+namespace P14BMeasurement
+{
+constexpr int kRenderSamples = kBlockSize * 160;
+constexpr int kMeasurementStart = kBlockSize * 32;
+constexpr int kSweepSteps = 9;
+constexpr uint32_t kNoiseSeed = 0x14B10u;
+
+struct Metrics
+{
+    double rms = 0.0;
+    double peak = 0.0;
+    double rmsDbfs = -180.0;
+    double peakDbfs = -180.0;
+    bool finite = true;
+};
+
+struct ReferenceResult
+{
+    juce::String pedal;
+    juce::String signal;
+    juce::String referenceSetting;
+    Metrics input;
+    Metrics bypass;
+    Metrics engaged;
+    double nullRmsDbfs = -180.0;
+    double engagedMinusBypassDb = 0.0;
+    bool finite = true;
+};
+
+struct SweepStep
+{
+    float value = 0.0f;
+    Metrics output;
+};
+
+struct SweepResult
+{
+    juce::String pedal;
+    juce::String controlId;
+    float minimum = 0.0f;
+    float maximum = 0.0f;
+    std::vector<SweepStep> steps;
+    double maxAdjacentJumpDb = 0.0;
+    bool finite = true;
+};
+
+struct SpectralResult
+{
+    juce::String pedal;
+    double sineFrequencyHz = 0.0;
+    juce::String method;
+    Metrics output;
+    double fundamentalDbfs = -180.0;
+    double trackedHarmonicDbfs = -180.0;
+    double inharmonicResidualRatioDb = -180.0;
+    bool robustFftAvailable = false;
+    bool finite = true;
+};
+
+struct GateProbeResult
+{
+    double openAttenuationDb = 0.0;
+    double closedAttenuationDb = 0.0;
+    int observedLookaheadSamples = 0;
+    Metrics output;
+    bool finite = true;
+};
+
+double linearToDbfs(double value)
+{
+    if (!std::isfinite(value) || value <= 0.0)
+        return -180.0;
+
+    return juce::jlimit(-180.0, 60.0,
+        (double) juce::Decibels::gainToDecibels((float) value, -180.0f));
+}
+
+double dbDifference(double numerator, double denominator)
+{
+    return linearToDbfs(numerator) - linearToDbfs(denominator);
+}
+
+Metrics measure(const juce::AudioBuffer<float>& buffer,
+    int startSample = kMeasurementStart,
+    int numSamples = kRenderSamples - kMeasurementStart)
+{
+    Metrics metrics;
+    metrics.rms = computeWindowRms(buffer, startSample, numSamples);
+    metrics.peak = computeBufferPeak(buffer, startSample, numSamples);
+    metrics.rmsDbfs = linearToDbfs(metrics.rms);
+    metrics.peakDbfs = linearToDbfs(metrics.peak);
+    metrics.finite = bufferHasOnlyFiniteSamples(buffer)
+        && std::isfinite(metrics.rms)
+        && std::isfinite(metrics.peak)
+        && std::isfinite(metrics.rmsDbfs)
+        && std::isfinite(metrics.peakDbfs);
+    return metrics;
+}
+
+double computeWindowNullRms(const juce::AudioBuffer<float>& a,
+    const juce::AudioBuffer<float>& b,
+    int startSample = kMeasurementStart,
+    int numSamples = kRenderSamples - kMeasurementStart)
+{
+    const int channels = juce::jmin(a.getNumChannels(), b.getNumChannels());
+    const int safeStart = juce::jlimit(0,
+        juce::jmin(a.getNumSamples(), b.getNumSamples()),
+        startSample);
+    const int safeLength = juce::jlimit(0,
+        juce::jmin(a.getNumSamples(), b.getNumSamples()) - safeStart,
+        numSamples);
+
+    if (channels <= 0 || safeLength <= 0)
+        return 0.0;
+
+    double sumSquares = 0.0;
+    int count = 0;
+
+    for (int ch = 0; ch < channels; ++ch)
+    {
+        for (int sample = 0; sample < safeLength; ++sample)
+        {
+            const double diff = (double) a.getSample(ch, safeStart + sample)
+                - (double) b.getSample(ch, safeStart + sample);
+            sumSquares += diff * diff;
+            ++count;
+        }
+    }
+
+    return count > 0 ? std::sqrt(sumSquares / (double) count) : 0.0;
+}
+
+void fillSine(juce::AudioBuffer<float>& buffer, double frequencyHz, float amplitude)
+{
+    buffer.clear();
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+    {
+        const float channelTrim = ch == 0 ? 1.0f : 0.997f;
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        {
+            const double phase = juce::MathConstants<double>::twoPi
+                * frequencyHz
+                * (double) sample
+                / kSampleRate;
+            buffer.setSample(ch, sample, amplitude * channelTrim * (float) std::sin(phase));
+        }
+    }
+}
+
+void fillDeterministicNoise(juce::AudioBuffer<float>& buffer, uint32_t seed, float amplitude)
+{
+    juce::Random rng((int64_t) seed);
+
+    for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+            buffer.setSample(ch, sample, amplitude * ((rng.nextFloat() * 2.0f) - 1.0f));
+}
+
+juce::AudioBuffer<float> createReferenceSignal()
+{
+    juce::AudioBuffer<float> buffer(2, kRenderSamples);
+    juce::Random rng((int64_t) kNoiseSeed);
+
+    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+    {
+        const double t = (double) sample / kSampleRate;
+        const float envelope = sample < kBlockSize * 6
+            ? (float) sample / (float) (kBlockSize * 6)
+            : 1.0f;
+        const float deterministicNoise = 0.0015f * ((rng.nextFloat() * 2.0f) - 1.0f);
+        const float source = envelope
+            * (0.083f * (float) std::sin(juce::MathConstants<double>::twoPi * 110.0 * t)
+                + 0.034f * (float) std::sin(juce::MathConstants<double>::twoPi * 220.0 * t)
+                + 0.014f * (float) std::sin(juce::MathConstants<double>::twoPi * 1000.0 * t)
+                + deterministicNoise);
+
+        buffer.setSample(0, sample, source);
+        buffer.setSample(1, sample, source * 0.985f);
+    }
+
+    return buffer;
+}
+
+juce::AudioBuffer<float> createSineSignal(double frequencyHz)
+{
+    juce::AudioBuffer<float> buffer(2, kRenderSamples);
+    fillSine(buffer, frequencyHz, frequencyHz >= 5000.0 ? 0.080f : 0.120f);
+    return buffer;
+}
+
+void prepare(juce::AudioProcessor& processor)
+{
+    processor.setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+    processor.prepareToPlay(kSampleRate, kBlockSize);
+}
+
+juce::AudioBuffer<float> render(juce::AudioProcessor& processor,
+    const juce::AudioBuffer<float>& input)
+{
+    juce::MidiBuffer midi;
+    juce::AudioBuffer<float> output(input.getNumChannels(), input.getNumSamples());
+    output.clear();
+
+    for (int offset = 0; offset < input.getNumSamples(); offset += kBlockSize)
+    {
+        juce::AudioBuffer<float> block(input.getNumChannels(), kBlockSize);
+        block.clear();
+
+        const int samplesThisBlock = juce::jmin(kBlockSize, input.getNumSamples() - offset);
+        for (int ch = 0; ch < input.getNumChannels(); ++ch)
+            block.copyFrom(ch, 0, input, ch, offset, samplesThisBlock);
+
+        processor.processBlock(block, midi);
+
+        for (int ch = 0; ch < output.getNumChannels(); ++ch)
+            output.copyFrom(ch, offset, block, ch, 0, samplesThisBlock);
+    }
+
+    return output;
+}
+
+juce::String referenceSettingFor(const juce::String& pedal)
+{
+    if (pedal == "Boost")
+        return "boostGain=0, boostTone=0.58, boostTight=0.24, boostChar=0, boostMid=0, boostLevel=1";
+    if (pedal == "Compressor")
+        return "compThreshold=-20 dB, compRatio=4:1, compAttack=12 ms, compRelease=120 ms, compKnee=6 dB, compFocus=0.55, compBlend=0.82, compMakeup=2.5 dB";
+    if (pedal == "Noise Gate")
+        return "gateThreshold=-46 dB, gateAttack=0.25 ms, gateHold=70 ms, gateRelease=115 ms, gateRange=-96 dB, gateHysteresis=8 dB, gateFocus=0.55";
+    if (pedal == "Overdrive")
+        return "drive=30, tone=0.58, texture=0.42, mix=1, level=0.74";
+    if (pedal == "Distortion")
+        return "distGain=58, distTone=0.54, distBody=0.52, distMix=1, distLevel=0.64, distTight=0.42, distMode=Vintage";
+    if (pedal == "Fuzz")
+        return "fuzzAmount=67, fuzzTone=0.48, fuzzGate=0.28, fuzzMix=1, fuzzLevel=0.58, fuzzBias=0.56, fuzzMode=Vintage";
+    if (pedal == "Neural")
+        return "neuralDrive=54, neuralFocus=0.58, neuralDetail=0.54, neuralComp=0.42, neuralMix=1, neuralLevel=0.75";
+
+    return {};
+}
+
+void configureReference(juce::AudioProcessor& processor, const juce::String& pedal)
+{
+    if (pedal == "Boost")
+    {
+        setRangedParamById(processor, "boostGain", 0.0f);
+        setRangedParamById(processor, "boostTone", 0.58f);
+        setRangedParamById(processor, "boostTight", 0.24f);
+        setRangedParamById(processor, "boostChar", 0.0f);
+        setRangedParamById(processor, "boostMid", 0.0f);
+        setRangedParamById(processor, "boostLevel", 1.0f);
+        return;
+    }
+
+    if (pedal == "Compressor")
+    {
+        setRangedParamById(processor, "compThreshold", -20.0f);
+        setRangedParamById(processor, "compRatio", 4.0f);
+        setRangedParamById(processor, "compAttack", 12.0f);
+        setRangedParamById(processor, "compRelease", 120.0f);
+        setRangedParamById(processor, "compKnee", 6.0f);
+        setRangedParamById(processor, "compFocus", 0.55f);
+        setRangedParamById(processor, "compBlend", 0.82f);
+        setRangedParamById(processor, "compMakeup", 2.5f);
+        return;
+    }
+
+    if (pedal == "Noise Gate")
+    {
+        setRangedParamById(processor, "gateThreshold", -46.0f);
+        setRangedParamById(processor, "gateAttack", 0.25f);
+        setRangedParamById(processor, "gateHold", 70.0f);
+        setRangedParamById(processor, "gateRelease", 115.0f);
+        setRangedParamById(processor, "gateRange", -96.0f);
+        setRangedParamById(processor, "gateHysteresis", 8.0f);
+        setRangedParamById(processor, "gateFocus", 0.55f);
+        return;
+    }
+
+    if (pedal == "Overdrive")
+    {
+        setRangedParamById(processor, "drive", 30.0f);
+        setRangedParamById(processor, "tone", 0.58f);
+        setRangedParamById(processor, "texture", 0.42f);
+        setRangedParamById(processor, "mix", 1.0f);
+        setRangedParamById(processor, "level", 0.74f);
+        return;
+    }
+
+    if (pedal == "Distortion")
+    {
+        setRangedParamById(processor, "distGain", 58.0f);
+        setRangedParamById(processor, "distTone", 0.54f);
+        setRangedParamById(processor, "distBody", 0.52f);
+        setRangedParamById(processor, "distMix", 1.0f);
+        setRangedParamById(processor, "distLevel", 0.64f);
+        setRangedParamById(processor, "distTight", 0.42f);
+        setRangedParamById(processor, "distMode", 0.0f);
+        return;
+    }
+
+    if (pedal == "Fuzz")
+    {
+        setRangedParamById(processor, "fuzzAmount", 67.0f);
+        setRangedParamById(processor, "fuzzTone", 0.48f);
+        setRangedParamById(processor, "fuzzGate", 0.28f);
+        setRangedParamById(processor, "fuzzMix", 1.0f);
+        setRangedParamById(processor, "fuzzLevel", 0.58f);
+        setRangedParamById(processor, "fuzzBias", 0.56f);
+        setRangedParamById(processor, "fuzzMode", 0.0f);
+        return;
+    }
+
+    if (pedal == "Neural")
+    {
+        setRangedParamById(processor, "neuralDrive", 54.0f);
+        setRangedParamById(processor, "neuralFocus", 0.58f);
+        setRangedParamById(processor, "neuralDetail", 0.54f);
+        setRangedParamById(processor, "neuralComp", 0.42f);
+        setRangedParamById(processor, "neuralMix", 1.0f);
+        setRangedParamById(processor, "neuralLevel", 0.75f);
+    }
+}
+
+std::vector<juce::String> targetPedals()
+{
+    return { "Boost", "Compressor", "Noise Gate", "Overdrive", "Distortion", "Fuzz", "Neural" };
+}
+
+struct SweepSpec
+{
+    juce::String pedal;
+    juce::String controlId;
+    float minimum = 0.0f;
+    float maximum = 1.0f;
+};
+
+std::vector<SweepSpec> sweepSpecs()
+{
+    return {
+        { "Boost", "boostGain", 0.0f, 24.0f },
+        { "Boost", "boostLevel", 0.5f, 2.0f },
+        { "Compressor", "compMakeup", 0.0f, 18.0f },
+        { "Compressor", "compBlend", 0.0f, 1.0f },
+        { "Noise Gate", "gateThreshold", -80.0f, 0.0f },
+        { "Noise Gate", "gateRange", -96.0f, 0.0f },
+        { "Overdrive", "drive", 0.0f, 100.0f },
+        { "Overdrive", "level", 0.0f, 1.0f },
+        { "Overdrive", "mix", 0.0f, 1.0f },
+        { "Distortion", "distGain", 0.0f, 100.0f },
+        { "Distortion", "distLevel", 0.0f, 1.0f },
+        { "Distortion", "distMix", 0.0f, 1.0f },
+        { "Fuzz", "fuzzAmount", 0.0f, 100.0f },
+        { "Fuzz", "fuzzLevel", 0.0f, 1.0f },
+        { "Fuzz", "fuzzMix", 0.0f, 1.0f },
+        { "Neural", "neuralDrive", 0.0f, 100.0f },
+        { "Neural", "neuralLevel", 0.0f, 1.0f },
+        { "Neural", "neuralMix", 0.0f, 1.0f }
+    };
+}
+
+ReferenceResult renderReference(const juce::String& pedal)
+{
+    ReferenceResult result;
+    result.pedal = pedal;
+    result.signal = "p14b_reference_program_fixed_seed_0x14B10";
+    result.referenceSetting = referenceSettingFor(pedal);
+
+    const auto input = createReferenceSignal();
+    result.input = measure(input);
+
+    auto bypassed = PedalRegistry::createPedal(pedal);
+    auto engaged = PedalRegistry::createPedal(pedal);
+    if (bypassed == nullptr || engaged == nullptr)
+    {
+        result.finite = false;
+        return result;
+    }
+
+    configureReference(*bypassed, pedal);
+    if (auto* base = dynamic_cast<ProcessorBase*>(bypassed.get()))
+        base->setBypassed(true);
+    prepare(*bypassed);
+    const auto bypassOutput = render(*bypassed, input);
+    result.bypass = measure(bypassOutput);
+
+    configureReference(*engaged, pedal);
+    prepare(*engaged);
+    const auto engagedOutput = render(*engaged, input);
+    result.engaged = measure(engagedOutput);
+
+    result.nullRmsDbfs = linearToDbfs(computeWindowNullRms(engagedOutput, bypassOutput));
+    result.engagedMinusBypassDb = dbDifference(result.engaged.rms, result.bypass.rms);
+    result.finite = result.input.finite && result.bypass.finite && result.engaged.finite
+        && std::isfinite(result.nullRmsDbfs)
+        && std::isfinite(result.engagedMinusBypassDb);
+    return result;
+}
+
+SweepResult renderSweep(const SweepSpec& spec)
+{
+    SweepResult result;
+    result.pedal = spec.pedal;
+    result.controlId = spec.controlId;
+    result.minimum = spec.minimum;
+    result.maximum = spec.maximum;
+    result.steps.reserve((size_t) kSweepSteps);
+
+    const auto input = createReferenceSignal();
+    double previousRmsDbfs = 0.0;
+    bool havePrevious = false;
+
+    for (int step = 0; step < kSweepSteps; ++step)
+    {
+        const float t = kSweepSteps <= 1 ? 0.0f : (float) step / (float) (kSweepSteps - 1);
+        const float value = spec.minimum + t * (spec.maximum - spec.minimum);
+
+        auto processor = PedalRegistry::createPedal(spec.pedal);
+        SweepStep sweepStep;
+        sweepStep.value = value;
+
+        if (processor == nullptr)
+        {
+            result.finite = false;
+            result.steps.push_back(sweepStep);
+            continue;
+        }
+
+        configureReference(*processor, spec.pedal);
+        if (!setRangedParamById(*processor, spec.controlId, value))
+            result.finite = false;
+        prepare(*processor);
+
+        const auto output = render(*processor, input);
+        sweepStep.output = measure(output);
+        result.finite = result.finite && sweepStep.output.finite;
+
+        if (havePrevious)
+            result.maxAdjacentJumpDb = juce::jmax(result.maxAdjacentJumpDb,
+                std::abs(sweepStep.output.rmsDbfs - previousRmsDbfs));
+
+        previousRmsDbfs = sweepStep.output.rmsDbfs;
+        havePrevious = true;
+        result.steps.push_back(sweepStep);
+    }
+
+    return result;
+}
+
+SpectralResult renderSpectral(const juce::String& pedal, double frequencyHz)
+{
+    SpectralResult result;
+    result.pedal = pedal;
+    result.sineFrequencyHz = frequencyHz;
+    result.method = "goertzel_tracked_harmonic_proxy_no_fft_no_aliasing_claim";
+
+    const auto input = createSineSignal(frequencyHz);
+    auto processor = PedalRegistry::createPedal(pedal);
+    if (processor == nullptr)
+    {
+        result.finite = false;
+        return result;
+    }
+
+    configureReference(*processor, pedal);
+    prepare(*processor);
+    const auto output = render(*processor, input);
+
+    result.output = measure(output);
+    const int measureSamples = kRenderSamples - kMeasurementStart;
+    const double fundamentalMagnitude = computeFrequencyMagnitude(output,
+        kSampleRate,
+        (float) frequencyHz,
+        kMeasurementStart,
+        measureSamples);
+
+    double harmonicPower = 0.0;
+    for (int harmonic = 2; harmonic <= 10; ++harmonic)
+    {
+        const double harmonicHz = frequencyHz * (double) harmonic;
+        if (harmonicHz >= kSampleRate * 0.45)
+            break;
+
+        const double magnitude = computeFrequencyMagnitude(output,
+            kSampleRate,
+            (float) harmonicHz,
+            kMeasurementStart,
+            measureSamples);
+        harmonicPower += magnitude * magnitude;
+    }
+
+    const double totalPower = result.output.rms * result.output.rms;
+    const double trackedPower = fundamentalMagnitude * fundamentalMagnitude + harmonicPower;
+    const double residualRatio = totalPower > 1.0e-16
+        ? juce::jlimit(0.0, 1.0e6, (totalPower - juce::jmin(totalPower, trackedPower)) / totalPower)
+        : 0.0;
+
+    result.fundamentalDbfs = linearToDbfs(fundamentalMagnitude);
+    result.trackedHarmonicDbfs = linearToDbfs(std::sqrt(harmonicPower));
+    result.inharmonicResidualRatioDb = linearToDbfs(std::sqrt(residualRatio));
+    result.finite = result.output.finite
+        && std::isfinite(result.fundamentalDbfs)
+        && std::isfinite(result.trackedHarmonicDbfs)
+        && std::isfinite(result.inharmonicResidualRatioDb);
+    return result;
+}
+
+std::vector<ReferenceResult> buildReferenceBaselines()
+{
+    std::vector<ReferenceResult> results;
+    for (const auto& pedal : targetPedals())
+        results.push_back(renderReference(pedal));
+    return results;
+}
+
+std::vector<SweepResult> buildSweepBaselines()
+{
+    std::vector<SweepResult> results;
+    for (const auto& spec : sweepSpecs())
+        results.push_back(renderSweep(spec));
+    return results;
+}
+
+std::vector<SpectralResult> buildSpectralBaselines()
+{
+    std::vector<SpectralResult> results;
+    for (const auto& pedal : { juce::String("Overdrive"), juce::String("Distortion"), juce::String("Fuzz"), juce::String("Neural") })
+    {
+        results.push_back(renderSpectral(pedal, 1000.0));
+        results.push_back(renderSpectral(pedal, 5000.0));
+    }
+    return results;
+}
+
+int findFirstAbove(const juce::AudioBuffer<float>& buffer, float threshold)
+{
+    for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            if (std::abs(buffer.getSample(ch, sample)) >= threshold)
+                return sample;
+
+    return -1;
+}
+
+GateProbeResult runGateProbe()
+{
+    constexpr int probeSamples = kBlockSize * 220;
+    constexpr int activeStart = kBlockSize * 32;
+    constexpr int activeEnd = kBlockSize * 128;
+
+    juce::AudioBuffer<float> input(2, probeSamples);
+    input.clear();
+
+    for (int sample = activeStart; sample < activeEnd; ++sample)
+    {
+        const int local = sample - activeStart;
+        const float ramp = juce::jlimit(0.0f, 1.0f, (float) local / (float) (kBlockSize * 8));
+        const double phase = juce::MathConstants<double>::twoPi * 1000.0 * (double) sample / kSampleRate;
+        const float value = 0.16f * ramp * (float) std::sin(phase);
+        input.setSample(0, sample, value);
+        input.setSample(1, sample, value * 0.98f);
+    }
+
+    NoiseGatePedal gate;
+    configureReference(gate, "Noise Gate");
+    setRangedParamById(gate, "gateThreshold", -48.0f);
+    setRangedParamById(gate, "gateRange", -72.0f);
+    setRangedParamById(gate, "gateAttack", 0.20f);
+    setRangedParamById(gate, "gateHold", 60.0f);
+    setRangedParamById(gate, "gateRelease", 95.0f);
+    prepare(gate);
+
+    const auto output = render(gate, input);
+
+    GateProbeResult result;
+    result.output = measure(output, 0, output.getNumSamples());
+    result.finite = result.output.finite;
+
+    const int firstInput = findFirstAbove(input, 0.025f);
+    const int firstOutput = findFirstAbove(output, 0.025f);
+    result.observedLookaheadSamples = firstInput >= 0 && firstOutput >= 0 ? firstOutput - firstInput : -1;
+
+    const int lookahead = juce::jlimit(0, 256, result.observedLookaheadSamples);
+    const int openStart = activeStart + lookahead + kBlockSize * 20;
+    const int openLength = kBlockSize * 48;
+    const int closeStart = activeEnd + lookahead + kBlockSize * 56;
+    const int closeLength = kBlockSize * 32;
+
+    const double activeInputRms = computeWindowRms(input, activeStart + kBlockSize * 20, openLength);
+    const double activeOutputRms = computeWindowRms(output, openStart, openLength);
+    const double closedOutputRms = computeWindowRms(output, closeStart, closeLength);
+
+    result.openAttenuationDb = dbDifference(activeOutputRms, activeInputRms);
+    result.closedAttenuationDb = dbDifference(closedOutputRms, activeInputRms);
+    result.finite = result.finite
+        && std::isfinite(result.openAttenuationDb)
+        && std::isfinite(result.closedAttenuationDb)
+        && result.observedLookaheadSamples >= 0;
+    return result;
+}
+
+juce::String jsonEscape(juce::String text)
+{
+    text = text.replace("\\", "\\\\");
+    text = text.replace("\"", "\\\"");
+    text = text.replace("\r", "\\r");
+    text = text.replace("\n", "\\n");
+    return text;
+}
+
+juce::String quoted(const juce::String& text)
+{
+    return "\"" + jsonEscape(text) + "\"";
+}
+
+juce::String number(double value, int decimals = 6)
+{
+    if (!std::isfinite(value))
+        return "null";
+
+    return juce::String(value, decimals);
+}
+
+juce::String envOrFallback(const char* name, const juce::String& fallback)
+{
+    const auto value = juce::SystemStats::getEnvironmentVariable(name, {});
+    return value.isNotEmpty() ? value : fallback;
+}
+
+juce::String buildConfigurationName()
+{
+#if JUCE_DEBUG
+    return "Debug";
+#else
+    return "Release";
+#endif
+}
+
+juce::String compilerDescription()
+{
+#if defined(_MSC_FULL_VER)
+    return "MSVC " + juce::String(_MSC_VER) + "." + juce::String(_MSC_FULL_VER);
+#elif defined(__clang__)
+    return "Clang " + juce::String(__clang_major__) + "." + juce::String(__clang_minor__) + "." + juce::String(__clang_patchlevel__);
+#elif defined(__GNUC__)
+    return "GCC " + juce::String(__GNUC__) + "." + juce::String(__GNUC_MINOR__) + "." + juce::String(__GNUC_PATCHLEVEL__);
+#else
+    return "unknown";
+#endif
+}
+
+juce::String platformDescription()
+{
+#if JUCE_WINDOWS
+    const juce::String os = "Windows";
+#elif JUCE_MAC
+    const juce::String os = "macOS";
+#elif JUCE_LINUX
+    const juce::String os = "Linux";
+#else
+    const juce::String os = "unknown";
+#endif
+
+    return os + " " + juce::String((int) (sizeof(void*) * 8)) + "-bit";
+}
+
+void appendMetadataJson(juce::String& json, bool includeVolatileMetadata)
+{
+    json << "  \"metadata\": {" << juce::newLine;
+    json << "    \"generatedAt\": " << quoted(includeVolatileMetadata
+        ? juce::Time::getCurrentTime().toISO8601(true)
+        : juce::String("<volatile>")) << "," << juce::newLine;
+    json << "    \"commitHash\": " << quoted(envOrFallback("NOVA_BUILD_COMMIT", "unknown")) << "," << juce::newLine;
+    json << "    \"branch\": " << quoted(envOrFallback("NOVA_BUILD_BRANCH", "unknown")) << "," << juce::newLine;
+    json << "    \"buildConfiguration\": "
+        << quoted(envOrFallback("NOVA_BUILD_CONFIGURATION", buildConfigurationName())) << "," << juce::newLine;
+    json << "    \"buildPlatform\": "
+        << quoted(envOrFallback("NOVA_BUILD_PLATFORM", platformDescription())) << "," << juce::newLine;
+    json << "    \"compiler\": " << quoted(compilerDescription()) << "," << juce::newLine;
+    json << "    \"osName\": " << quoted(juce::SystemStats::getOperatingSystemName()) << "," << juce::newLine;
+    json << "    \"sampleRate\": " << number(kSampleRate, 1) << "," << juce::newLine;
+    json << "    \"blockSize\": " << kBlockSize << "," << juce::newLine;
+    json << "    \"renderSamples\": " << kRenderSamples << "," << juce::newLine;
+    json << "    \"measurementStartSample\": " << kMeasurementStart << "," << juce::newLine;
+    json << "    \"noiseSeedHex\": \"0x14B10\"," << juce::newLine;
+    json << "    \"sweepSteps\": " << kSweepSteps << juce::newLine;
+    json << "  }," << juce::newLine;
+}
+
+void appendMetricsJson(juce::String& json, const Metrics& metrics)
+{
+    json << "{"
+        << "\"rms\":" << number(metrics.rms, 9) << ","
+        << "\"peak\":" << number(metrics.peak, 9) << ","
+        << "\"rmsDbfs\":" << number(metrics.rmsDbfs, 4) << ","
+        << "\"peakDbfs\":" << number(metrics.peakDbfs, 4) << ","
+        << "\"finite\":" << (metrics.finite ? "true" : "false")
+        << "}";
+}
+
+juce::String buildReportJson(const std::vector<ReferenceResult>& references,
+    const std::vector<SweepResult>& sweeps,
+    const std::vector<SpectralResult>& spectrals,
+    const GateProbeResult& gateProbe,
+    bool includeVolatileMetadata = true)
+{
+    juce::String json;
+    json << "{" << juce::newLine;
+    json << "  \"schema\": \"nova.p14b_p1.drive_dynamics_measurement.v1\"," << juce::newLine;
+    appendMetadataJson(json, includeVolatileMetadata);
+    json << "  \"sampleRate\": " << number(kSampleRate, 1) << "," << juce::newLine;
+    json << "  \"blockSize\": " << kBlockSize << "," << juce::newLine;
+    json << "  \"renderSamples\": " << kRenderSamples << "," << juce::newLine;
+    json << "  \"measurementStartSample\": " << kMeasurementStart << "," << juce::newLine;
+    json << "  \"normalUnitTestsWriteFiles\": false," << juce::newLine;
+    json << "  \"spectralLimitation\": \"Goertzel harmonic proxy only; no robust FFT and no aliasing claim.\"," << juce::newLine;
+
+    json << "  \"referenceBaselines\": [" << juce::newLine;
+    for (size_t i = 0; i < references.size(); ++i)
+    {
+        const auto& r = references[i];
+        json << "    {"
+            << "\"pedal\":" << quoted(r.pedal) << ","
+            << "\"signal\":" << quoted(r.signal) << ","
+            << "\"referenceSetting\":" << quoted(r.referenceSetting) << ","
+            << "\"input\":";
+        appendMetricsJson(json, r.input);
+        json << ",\"bypass\":";
+        appendMetricsJson(json, r.bypass);
+        json << ",\"engaged\":";
+        appendMetricsJson(json, r.engaged);
+        json << ",\"nullRmsDbfs\":" << number(r.nullRmsDbfs, 4)
+            << ",\"engagedMinusBypassDb\":" << number(r.engagedMinusBypassDb, 4)
+            << ",\"finite\":" << (r.finite ? "true" : "false")
+            << "}" << (i + 1 == references.size() ? "" : ",") << juce::newLine;
+    }
+    json << "  ]," << juce::newLine;
+
+    json << "  \"sweeps\": [" << juce::newLine;
+    for (size_t i = 0; i < sweeps.size(); ++i)
+    {
+        const auto& s = sweeps[i];
+        json << "    {"
+            << "\"pedal\":" << quoted(s.pedal) << ","
+            << "\"controlId\":" << quoted(s.controlId) << ","
+            << "\"minimum\":" << number(s.minimum, 4) << ","
+            << "\"maximum\":" << number(s.maximum, 4) << ","
+            << "\"maxAdjacentJumpDb\":" << number(s.maxAdjacentJumpDb, 4)
+            << ",\"finite\":" << (s.finite ? "true" : "false")
+            << ",\"steps\":[";
+
+        for (size_t stepIndex = 0; stepIndex < s.steps.size(); ++stepIndex)
+        {
+            const auto& step = s.steps[stepIndex];
+            json << "{\"value\":" << number(step.value, 4) << ",\"output\":";
+            appendMetricsJson(json, step.output);
+            json << "}" << (stepIndex + 1 == s.steps.size() ? "" : ",");
+        }
+
+        json << "]}" << (i + 1 == sweeps.size() ? "" : ",") << juce::newLine;
+    }
+    json << "  ]," << juce::newLine;
+
+    json << "  \"spectralProxies\": [" << juce::newLine;
+    for (size_t i = 0; i < spectrals.size(); ++i)
+    {
+        const auto& s = spectrals[i];
+        json << "    {"
+            << "\"pedal\":" << quoted(s.pedal) << ","
+            << "\"sineFrequencyHz\":" << number(s.sineFrequencyHz, 1) << ","
+            << "\"method\":" << quoted(s.method) << ","
+            << "\"robustFftAvailable\":" << (s.robustFftAvailable ? "true" : "false")
+            << ",\"output\":";
+        appendMetricsJson(json, s.output);
+        json << ",\"fundamentalDbfs\":" << number(s.fundamentalDbfs, 4)
+            << ",\"trackedHarmonicDbfs\":" << number(s.trackedHarmonicDbfs, 4)
+            << ",\"inharmonicResidualRatioDb\":" << number(s.inharmonicResidualRatioDb, 4)
+            << ",\"finite\":" << (s.finite ? "true" : "false")
+            << "}" << (i + 1 == spectrals.size() ? "" : ",") << juce::newLine;
+    }
+    json << "  ]," << juce::newLine;
+
+    json << "  \"gateProbe\": {"
+        << "\"observedLookaheadSamples\":" << gateProbe.observedLookaheadSamples
+        << ",\"openAttenuationDb\":" << number(gateProbe.openAttenuationDb, 4)
+        << ",\"closedAttenuationDb\":" << number(gateProbe.closedAttenuationDb, 4)
+        << ",\"output\":";
+    appendMetricsJson(json, gateProbe.output);
+    json << ",\"finite\":" << (gateProbe.finite ? "true" : "false") << "}" << juce::newLine;
+    json << "}" << juce::newLine;
+    return json;
+}
+
+juce::String buildReportJson()
+{
+    return buildReportJson(buildReferenceBaselines(),
+        buildSweepBaselines(),
+        buildSpectralBaselines(),
+        runGateProbe(),
+        true);
+}
+} // namespace P14BMeasurement
+#endif
 
 void prepareP10CProcessor(juce::AudioProcessor& processor)
 {
@@ -2765,6 +3578,7 @@ juce::String p9dBuildReportJson(const juce::String& status,
     return json;
 }
 
+#if JUCE_DEBUG || NOVA_ENABLE_RELEASE_DIAGNOSTICS
 bool runP9DDraftPresetBuilderTool()
 {
     const auto enabled = juce::SystemStats::getEnvironmentVariable("NOVA_RUN_P9D_DRAFT_BUILDER", {});
@@ -2904,6 +3718,7 @@ bool runP9DDraftPresetBuilderTool()
         manifestPath, outputDirectory, results, failures));
     return true;
 }
+#endif
 
 class AudioEngineValidationTests final : public juce::UnitTest
 {
@@ -4595,6 +5410,176 @@ public:
             expectEquals(processor.getLatencySamples(), activeLatency);
         }
 
+        beginTest("P13A global host bypass preserves reported latency alignment");
+        {
+            auto verifyBypassAlignment = [this](NOVAAudioProcessor& processor,
+                int expectedLatency,
+                const juce::String& context)
+            {
+                expect(expectedLatency > 0, context + " must report positive latency");
+
+                const int totalSamples = expectedLatency + kBlockSize * 3;
+                int firstOutputSample = -1;
+                int renderedSamples = 0;
+                juce::MidiBuffer midi;
+
+                while (renderedSamples < totalSamples)
+                {
+                    juce::AudioBuffer<float> block(2, kBlockSize);
+                    block.clear();
+                    if (renderedSamples == 0)
+                    {
+                        block.setSample(0, 0, 0.5f);
+                        block.setSample(1, 0, 0.5f);
+                    }
+
+                    processor.processBlockBypassed(block, midi);
+                    for (int sample = 0; sample < block.getNumSamples(); ++sample)
+                    {
+                        if (firstOutputSample < 0
+                            && std::abs(block.getSample(0, sample)) > 1.0e-5f)
+                        {
+                            firstOutputSample = renderedSamples + sample;
+                        }
+                    }
+                    renderedSamples += block.getNumSamples();
+                }
+
+                expectEquals(firstOutputSample, expectedLatency,
+                    context + " bypassed impulse must arrive at the reported host latency");
+            };
+
+            int baselineLatency = 0;
+            {
+                auto baselineProcessor = std::make_unique<NOVAAudioProcessor>();
+                baselineProcessor->setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+                baselineProcessor->prepareToPlay(kSampleRate, kBlockSize);
+                baselineLatency = baselineProcessor->getLatencySamples();
+                verifyBypassAlignment(*baselineProcessor,
+                    baselineLatency,
+                    "OutputChain baseline");
+            }
+
+            {
+                auto oversampledProcessor = std::make_unique<NOVAAudioProcessor>();
+                oversampledProcessor->setPlayConfigDetails(2, 2, kSampleRate, kBlockSize);
+                oversampledProcessor->prepareToPlay(kSampleRate, kBlockSize);
+                oversampledProcessor->requestAddPedal(
+                    "Overdrive", Nova::ChainID::LineA, Nova::ZoneID::Pre, 0);
+                const int oversampledLatency = oversampledProcessor->getLatencySamples();
+                expect(oversampledLatency > baselineLatency,
+                    "Enabled Overdrive must increase latency for the global bypass test");
+                verifyBypassAlignment(*oversampledProcessor,
+                    oversampledLatency,
+                    "Oversampled Overdrive graph");
+            }
+        }
+
+        beginTest("P13A preset restore preserves latency and bypass latency state");
+        {
+            StartupPresetPointerGuard startupPointerGuard;
+
+            AudioEngine baselineEngine;
+            baselineEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+            const int baselineLatency = baselineEngine.getLatencyNumSamples();
+            expect(baselineLatency > 0, "Baseline engine should report OutputChain lookahead latency");
+
+            auto state = makeP7DState();
+            if (auto settings = Nova::PluginStateModel::getSettingsTree(state); settings.isValid())
+            {
+                settings.setProperty(Nova::IDs::ENGINE_ON, true, nullptr);
+                settings.setProperty(Nova::IDs::SWITCH_MODE, (int) Nova::SwitcherMode::LineA_Only, nullptr);
+                settings.setProperty(Nova::IDs::OUTPUT_MIX, 100.0f, nullptr);
+                settings.setProperty(Nova::IDs::OUTPUT_LIMITER, 0.0f, nullptr);
+            }
+            appendP7DPedal(state, Nova::ChainID::LineA, "Overdrive", Nova::ZoneID::Pre, "p13a-pdc-overdrive", true);
+            Nova::PluginStateModel::canonicalizeStateTree(state);
+
+            SessionStore sourceStore;
+            expect(sourceStore.applyCommand(SessionStore::Command::makeRestoreState(state)).changed,
+                "Latency source state should restore into SessionStore");
+
+            AudioEngine sourceEngine;
+            sourceEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+            SessionPersistence::rebuildEngineFromState(sourceEngine, sourceStore.state());
+            const int sourceLatency = sourceEngine.getLatencyNumSamples();
+            expect(sourceLatency > baselineLatency,
+                "Enabled Overdrive preset should report latency above OutputChain baseline");
+
+            const auto presetFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                .getChildFile("nova-p13a-pdc-latency-roundtrip.nova-preset");
+            presetFile.deleteFile();
+
+            expect(SessionPersistence::savePresetToFile(presetFile, sourceStore, sourceEngine),
+                "Latency preset save should succeed");
+
+            SessionStore restoredStore;
+            AudioEngine restoredEngine;
+            restoredEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+            expect(SessionPersistence::loadPresetFromFile(presetFile, restoredStore, restoredEngine),
+                "Latency preset load should succeed");
+            expectEquals(restoredEngine.getLatencyNumSamples(), sourceLatency);
+
+            expect(restoredStore.applyCommand(
+                SessionStore::Command::makeSetPedalEnabled(Nova::ChainID::LineA, 0, false)).changed,
+                "Disabling restored latency pedal should mutate state");
+            SessionPersistence::rebuildEngineFromState(restoredEngine, restoredStore.state());
+            expectEquals(restoredEngine.getLatencyNumSamples(), baselineLatency,
+                "Bypassed restored Overdrive should return to OutputChain baseline latency");
+
+            presetFile.deleteFile();
+        }
+
+        beginTest("P13A sample-rate reprepare refreshes limiter and graph latency");
+        {
+            OutputChainProcessor output48;
+            output48.prepareToPlay(48000.0, kBlockSize);
+            const int outputLatency48 = output48.getLatencySamples();
+
+            OutputChainProcessor output96;
+            output96.prepareToPlay(96000.0, kBlockSize);
+            const int outputLatency96 = output96.getLatencySamples();
+
+            expect(outputLatency48 > 0 && outputLatency96 > outputLatency48,
+                "OutputChain lookahead latency should scale with sample rate");
+
+            AudioEngine baseline96;
+            baseline96.prepare(96000.0, kBlockSize, 2, 2);
+            const int baselineLatency96 = baseline96.getLatencyNumSamples();
+            expectEquals(baselineLatency96, outputLatency96);
+
+            AudioEngine engine;
+            engine.prepare(48000.0, kBlockSize, 2, 2);
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "p13a-sr-overdrive");
+            engine.synchronizeProcessingState();
+            const int activeLatency48 = engine.getLatencyNumSamples();
+            expect(activeLatency48 > outputLatency48,
+                "48 kHz latency chain should exceed OutputChain baseline");
+
+            engine.prepare(96000.0, kBlockSize, 2, 2);
+            engine.synchronizeProcessingState();
+            const int activeLatency96 = engine.getLatencyNumSamples();
+            expect(activeLatency96 > baselineLatency96,
+                "96 kHz latency chain should exceed refreshed OutputChain baseline");
+            expect(activeLatency96 != activeLatency48,
+                "Sample-rate reprepare should refresh reported graph latency");
+
+            juce::AudioBuffer<float> buffer(2, kBlockSize);
+            juce::MidiBuffer midi;
+            for (int i = 0; i < kBlockSize; ++i)
+            {
+                const float t = (float)i / 96000.0f;
+                buffer.setSample(0, i, 0.08f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * t));
+                buffer.setSample(1, i, 0.07f * std::sin(juce::MathConstants<float>::twoPi * 330.0f * t));
+            }
+
+            engine.setEngineEnabled(true);
+            warmUpEngine(engine, kBlockSize, 8);
+            engine.process(buffer, midi);
+            expect(bufferHasOnlyFiniteSamples(buffer),
+                "Sample-rate-reprepared latency graph should process finite audio");
+        }
+
         beginTest("DryWetMixer scratch preparation and fallback boundaries remain canonical");
         {
             Nova::Audio::DryWetMixer mixer;
@@ -4970,7 +5955,7 @@ public:
             {
                 auto engine = makeConfiguredEngine();
                 engine->updateGlobalParams(modeParams);
-                engine->synchronizeProcessingState();
+                AudioEngineTestAccess::dispatchPendingMessageThreadWork(*engine);
                 warmUpEngine(*engine, kBlockSize, 6);
 
                 juce::MidiBuffer settleMidi;
@@ -11673,9 +12658,137 @@ public:
             expectEquals(lineA.getChild(2).getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Reverb"));
         }
 
+        beginTest("NovaSettingsService editor settings round-trip and sanitize safely");
+        {
+            const auto settingsFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                .getChildFile("nova-editor-settings-service-test.xml");
+            settingsFile.deleteFile();
+
+            auto missing = Nova::SettingsService::loadEditorSettingsFromFile(settingsFile);
+            expect(!missing.loadedFromDisk && !missing.usedFallback,
+                "Missing editor settings should fall back to defaults without marking corrupt fallback");
+            expect(Nova::SettingsService::getBool(missing, Nova::SettingsService::Keys::showStats, false),
+                "Default editor settings should show performance stats");
+            expectEquals(Nova::SettingsService::getSwitcherModes(missing), 7);
+
+            auto settings = Nova::SettingsService::makeDefaultEditorSettings();
+            Nova::SettingsService::setString(settings, Nova::SettingsService::Keys::showStats, "not-a-bool");
+            Nova::SettingsService::setString(settings, Nova::SettingsService::Keys::startupMode, "Mystery startup");
+            Nova::SettingsService::setString(settings, Nova::SettingsService::Keys::tunerReference, "A = 999 Hz");
+            Nova::SettingsService::setString(settings, Nova::SettingsService::Keys::libraryView, "Cloud");
+            Nova::SettingsService::setString(settings, Nova::SettingsService::Keys::switcherShortcut, "-42");
+            Nova::SettingsService::setString(settings, Nova::SettingsService::Keys::switcherModes, "1");
+            Nova::SettingsService::setString(settings, "user.displayName", "Ada");
+
+            expect(Nova::SettingsService::saveEditorSettingsToFile(settingsFile, settings),
+                "Editor settings save should succeed");
+
+            const auto restored = Nova::SettingsService::loadEditorSettingsFromFile(settingsFile);
+            expect(restored.loadedFromDisk && !restored.usedFallback,
+                "Valid editor settings should load from disk without corrupt fallback");
+            expect(Nova::SettingsService::getBool(restored, Nova::SettingsService::Keys::showStats, false),
+                "Invalid bool should sanitize to default");
+            expectEquals(Nova::SettingsService::getString(restored,
+                Nova::SettingsService::Keys::startupMode, {}),
+                juce::String(Nova::SettingsService::StartupModes::rememberLastContext));
+            expectEquals(Nova::SettingsService::parseTunerReference(restored), 440.0f);
+            expectEquals(Nova::SettingsService::getString(restored,
+                Nova::SettingsService::Keys::libraryView, {}),
+                juce::String("All presets"));
+            expectEquals(Nova::SettingsService::getSwitcherKeyCode(restored), juce::KeyPress::spaceKey);
+            expectEquals(Nova::SettingsService::getSwitcherModes(restored), 7);
+            expectEquals(Nova::SettingsService::getString(restored, "user.displayName", {}), juce::String("Ada"));
+
+            settingsFile.replaceWithText("<NOVA_EDITOR_SETTINGS><SETTING");
+            const auto corrupt = Nova::SettingsService::loadEditorSettingsFromFile(settingsFile);
+            expect(corrupt.loadedFromDisk && corrupt.usedFallback,
+                "Corrupt editor settings XML should fall back safely");
+            expectEquals(Nova::SettingsService::getSwitcherModes(corrupt), 7);
+
+            const auto invalidTarget = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                .getChildFile("nova-editor-settings-invalid-target");
+            invalidTarget.deleteRecursively();
+            invalidTarget.createDirectory();
+            expect(!Nova::SettingsService::saveEditorSettingsToFile(invalidTarget, settings),
+                "Editor settings persistence should report a failed write");
+            invalidTarget.deleteRecursively();
+
+            settingsFile.deleteFile();
+        }
+
+        beginTest("NovaSettingsService startup preset pointer helpers are explicit and bounded");
+        {
+            const auto pointerFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                .getChildFile("nova-startup-pointer-service-test.txt");
+            const auto presetFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                .getChildFile("nova-startup-pointer-service-test.nova-preset");
+            pointerFile.deleteFile();
+            presetFile.deleteFile();
+            presetFile.replaceWithText("placeholder");
+
+            expect(Nova::SettingsService::writeStartupPresetPointer(pointerFile, presetFile),
+                "Explicit startup pointer write should succeed for an existing preset file");
+
+            juce::File resolved;
+            expect(Nova::SettingsService::readStartupPresetPointer(pointerFile, resolved, false),
+                "Existing startup pointer should resolve");
+            expectEquals(resolved.getFullPathName(), presetFile.getFullPathName());
+
+            presetFile.deleteFile();
+            expect(!Nova::SettingsService::readStartupPresetPointer(pointerFile, resolved, true),
+                "Invalid startup pointer should fail resolution");
+            expect(!pointerFile.existsAsFile(),
+                "Invalid startup pointer should be removed when requested");
+
+            pointerFile.deleteFile();
+        }
+
+        beginTest("Editor settings drafts remain isolated until explicitly committed");
+        {
+            auto committed = Nova::SettingsService::makeDefaultEditorSettings();
+            auto firstDraft = committed;
+            auto secondDraft = committed;
+
+            Nova::SettingsService::setBool(firstDraft,
+                Nova::SettingsService::Keys::showStats,
+                false);
+            Nova::SettingsService::setString(secondDraft,
+                Nova::SettingsService::Keys::startupMode,
+                Nova::SettingsService::StartupModes::openCleanRig);
+
+            expect(Nova::SettingsService::getBool(committed,
+                Nova::SettingsService::Keys::showStats,
+                false),
+                "Editing one draft must not mutate committed settings");
+            expect(Nova::SettingsService::getBool(secondDraft,
+                Nova::SettingsService::Keys::showStats,
+                false),
+                "Editing one settings window must not mutate another window's draft");
+            expectEquals(Nova::SettingsService::getString(firstDraft,
+                Nova::SettingsService::Keys::startupMode,
+                {}),
+                juce::String(Nova::SettingsService::StartupModes::rememberLastContext));
+
+            Nova::SettingsService::sanitize(firstDraft);
+            committed = firstDraft;
+
+            expect(!Nova::SettingsService::getBool(committed,
+                Nova::SettingsService::Keys::showStats,
+                true),
+                "An explicit commit should publish the selected draft");
+            expectEquals(Nova::SettingsService::getString(secondDraft,
+                Nova::SettingsService::Keys::startupMode,
+                {}),
+                juce::String(Nova::SettingsService::StartupModes::openCleanRig));
+        }
+
         beginTest("SessionPersistence saves and restores a canonical preset");
         {
             StartupPresetPointerGuard startupPointerGuard;
+            constexpr const char* sentinelPointerText = "sentinel-startup-pointer";
+            startupPointerGuard.pointerFile.getParentDirectory().createDirectory();
+            startupPointerGuard.pointerFile.replaceWithText(sentinelPointerText);
+
             SessionStore store;
             store.applyCommand(SessionStore::Command::makeAddPedal(
                 "Overdrive", Nova::ChainID::LineA, Nova::ZoneID::Pre, -1));
@@ -11692,6 +12805,8 @@ public:
 
             expect(SessionPersistence::savePresetToFile(presetFile, store, sourceEngine),
                 "Preset save should succeed");
+            expectEquals(startupPointerGuard.pointerFile.loadFileAsString(), juce::String(sentinelPointerText),
+                "Saving a preset must not mutate the startup preset pointer");
 
             SessionStore restoredStore;
             AudioEngine restoredEngine;
@@ -11699,6 +12814,8 @@ public:
 
             expect(SessionPersistence::loadPresetFromFile(presetFile, restoredStore, restoredEngine),
                 "Preset load should succeed");
+            expectEquals(startupPointerGuard.pointerFile.loadFileAsString(), juce::String(sentinelPointerText),
+                "Loading a preset must not mutate the startup preset pointer");
 
             const auto restoredLineA = Nova::PluginStateModel::getLineTree(restoredStore.state(), Nova::ChainID::LineA);
             const auto restoredLineB = Nova::PluginStateModel::getLineTree(restoredStore.state(), Nova::ChainID::LineB);
@@ -11708,6 +12825,17 @@ public:
             expectEquals(restoredLineB.getChild(0).getProperty(Nova::IDs::PEDAL_TYPE).toString(), juce::String("Chorus"));
             expectEquals((int)restoredEngine.getNodes(Nova::ChainID::LineA).size(), 1);
             expectEquals((int)restoredEngine.getNodes(Nova::ChainID::LineB).size(), 1);
+
+            expect(Nova::SettingsService::writeStartupPresetPointer(startupPointerGuard.pointerFile, presetFile),
+                "Explicit startup preset assignment should write the pointer");
+
+            SessionStore startupStore;
+            AudioEngine startupEngine;
+            startupEngine.prepare(kSampleRate, kBlockSize, 2, 2);
+            expect(SessionPersistence::restoreStartupPresetIfAvailable(startupStore, startupEngine),
+                "Existing explicit startup preset file should restore");
+            expectEquals(startupPointerGuard.pointerFile.loadFileAsString(), presetFile.getFullPathName(),
+                "Successful startup restore should preserve the explicit pointer");
 
             presetFile.deleteFile();
         }
@@ -13661,6 +14789,212 @@ private:
         expect(rms < 1.0, "P13D " + processorName + " nominal finite input must remain bounded");
     }
 };
+
+#if NOVA_P14B_MEASUREMENT_HARNESS_ENABLED
+class P14BDriveDynamicsMeasurementHarnessTests final : public juce::UnitTest
+{
+public:
+    P14BDriveDynamicsMeasurementHarnessTests()
+        : juce::UnitTest("P14B-P1 Drive/Dynamics Measurement Harness", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        std::vector<P14BMeasurement::ReferenceResult> references;
+        std::vector<P14BMeasurement::SweepResult> sweeps;
+        std::vector<P14BMeasurement::SpectralResult> spectrals;
+        P14BMeasurement::GateProbeResult gateProbe;
+
+        beginTest("P14B helpers are deterministic and finite");
+        {
+            juce::AudioBuffer<float> noiseA(2, 256);
+            juce::AudioBuffer<float> noiseB(2, 256);
+            juce::AudioBuffer<float> noiseC(2, 256);
+            P14BMeasurement::fillDeterministicNoise(noiseA, 0x1421u, 0.05f);
+            P14BMeasurement::fillDeterministicNoise(noiseB, 0x1421u, 0.05f);
+            P14BMeasurement::fillDeterministicNoise(noiseC, 0x1422u, 0.05f);
+
+            expect(computeBufferNullRms(noiseA, noiseB) <= 1.0e-9,
+                "Fixed-seed noise must reproduce exactly");
+            expect(computeBufferNullRms(noiseA, noiseC) > 1.0e-5,
+                "Different fixed seeds should produce different deterministic noise");
+
+            juce::AudioBuffer<float> sine(2, 512);
+            P14BMeasurement::fillSine(sine, 1000.0, 0.25f);
+            const auto metrics = P14BMeasurement::measure(sine, 0, sine.getNumSamples());
+            expect(metrics.finite, "1 kHz sine metrics must be finite");
+            expect(metrics.rmsDbfs < -6.0 && metrics.rmsDbfs > -20.0,
+                "1 kHz sine RMS should land in a plausible dBFS range");
+        }
+
+        beginTest("P14B neutral/reference renders complete and finite");
+        {
+            references = P14BMeasurement::buildReferenceBaselines();
+            expectEquals((int) references.size(), 7, "All seven Drive/Dynamics targets must be measured");
+
+            for (const auto& r : references)
+            {
+                expect(r.referenceSetting.isNotEmpty(), r.pedal + " must document its reference setting");
+                expect(r.finite, r.pedal + " reference metrics must be finite");
+                expect(r.input.rms > 0.0, r.pedal + " reference input must contain signal");
+                expect(r.engaged.peak < Nova::Config::HARD_ABS_LIMIT_LINEAR,
+                    r.pedal + " reference peak must stay below the hard absolute limit");
+                expect(r.engaged.rmsDbfs > -180.0 && r.engaged.rmsDbfs < 48.0,
+                    r.pedal + " reference RMS dBFS must stay in a possible range");
+                expect(std::isfinite(r.engagedMinusBypassDb),
+                    r.pedal + " unity delta must be reportable");
+            }
+        }
+
+        beginTest("P14B bypass measurement preserves dry behavior on all targets");
+        {
+            const auto input = P14BMeasurement::createReferenceSignal();
+
+            for (const auto& pedal : P14BMeasurement::targetPedals())
+            {
+                auto processor = PedalRegistry::createPedal(pedal);
+                expect(processor != nullptr, "P14B bypass check must construct " + pedal);
+                if (processor == nullptr)
+                    continue;
+
+                P14BMeasurement::configureReference(*processor, pedal);
+                if (auto* base = dynamic_cast<ProcessorBase*>(processor.get()))
+                    base->setBypassed(true);
+                P14BMeasurement::prepare(*processor);
+
+                const auto output = P14BMeasurement::render(*processor, input);
+                const double nullRms = P14BMeasurement::computeWindowNullRms(output, input);
+                expect(bufferHasOnlyFiniteSamples(output), pedal + " bypass output must stay finite");
+                expect(nullRms < 1.0e-7,
+                    pedal + " bypass render should preserve current dry behavior");
+            }
+        }
+
+        beginTest("P14B single-control sweeps cover intended controls");
+        {
+            sweeps = P14BMeasurement::buildSweepBaselines();
+            const auto expected = P14BMeasurement::sweepSpecs();
+            expectEquals((int) sweeps.size(), (int) expected.size(),
+                "Sweep report count must match the intended control matrix");
+
+            juce::StringArray seen;
+            for (const auto& sweep : sweeps)
+            {
+                seen.addIfNotAlreadyThere(sweep.pedal + ":" + sweep.controlId);
+                expectEquals((int) sweep.steps.size(), P14BMeasurement::kSweepSteps,
+                    sweep.pedal + " " + sweep.controlId + " must render every sweep step");
+                expect(sweep.finite,
+                    sweep.pedal + " " + sweep.controlId + " sweep metrics must stay finite");
+                expect(std::isfinite(sweep.maxAdjacentJumpDb) && sweep.maxAdjacentJumpDb < 120.0,
+                    sweep.pedal + " " + sweep.controlId + " adjacent level jump must stay broadly sane");
+
+                for (const auto& step : sweep.steps)
+                {
+                    expect(step.output.finite,
+                        sweep.pedal + " " + sweep.controlId + " step must be finite");
+                    expect(step.output.peak < Nova::Config::HARD_ABS_LIMIT_LINEAR,
+                        sweep.pedal + " " + sweep.controlId + " step peak must stay below hard absolute limit");
+                }
+            }
+
+            for (const auto& spec : expected)
+                expect(seen.contains(spec.pedal + ":" + spec.controlId),
+                    "Sweep report must include " + spec.pedal + ":" + spec.controlId);
+        }
+
+        beginTest("P14B drive spectral proxy renders finite values without aliasing claims");
+        {
+            spectrals = P14BMeasurement::buildSpectralBaselines();
+            expectEquals((int) spectrals.size(), 8,
+                "Four drive pedals must each report 1 kHz and 5 kHz spectral proxies");
+
+            for (const auto& spectral : spectrals)
+            {
+                expect(spectral.finite,
+                    spectral.pedal + " " + juce::String(spectral.sineFrequencyHz, 0)
+                        + " Hz spectral proxy must be finite");
+                expect(!spectral.robustFftAvailable,
+                    "P14B spectral baseline must explicitly report no robust FFT path");
+                expect(spectral.method.contains("no_aliasing_claim"),
+                    "P14B spectral method must avoid aliasing claims");
+            }
+        }
+
+        beginTest("P14B Compressor computeGainReductionDb analytic cases");
+        {
+            struct Case
+            {
+                float inputDb;
+                float thresholdDb;
+                float ratio;
+                float kneeDb;
+                float expectedDb;
+            };
+
+            const std::array<Case, 5> cases {{
+                { -30.0f, -20.0f, 4.0f, 6.0f, 0.0f },
+                { -10.0f, -20.0f, 4.0f, 6.0f, 7.5f },
+                { -20.0f, -20.0f, 4.0f, 6.0f, 0.5625f },
+                { -6.0f, -18.0f, 1.0f, 6.0f, 0.0f },
+                { 0.0f, -24.0f, 12.0f, 1.0f, 22.0f }
+            }};
+
+            for (const auto& c : cases)
+            {
+                const float actual = CompressorPedal::computeGainReductionDb(
+                    c.inputDb,
+                    c.thresholdDb,
+                    c.ratio,
+                    c.kneeDb);
+
+                expectWithinAbsoluteError(actual, c.expectedDb, 1.0e-4f,
+                    "Compressor static gain-reduction law must match the documented analytic case");
+            }
+        }
+
+        beginTest("P14B Noise Gate ramp/sustain probe records attenuation and lookahead");
+        {
+            gateProbe = P14BMeasurement::runGateProbe();
+            expect(gateProbe.finite, "Gate ramp/sustain probe must stay finite");
+            expect(gateProbe.observedLookaheadSamples >= 16 && gateProbe.observedLookaheadSamples <= 192,
+                "Gate observed lookahead should stay within the processor's documented clamp");
+            expect(gateProbe.openAttenuationDb > -12.0 && gateProbe.openAttenuationDb < 6.0,
+                "Gate sustain/open attenuation should remain broadly plausible");
+            expect(gateProbe.closedAttenuationDb < -20.0,
+                "Gate closed attenuation should be clearly below active sustain");
+        }
+
+        beginTest("P14B structured report output is deterministic and complete");
+        {
+            if (references.empty())
+                references = P14BMeasurement::buildReferenceBaselines();
+            if (sweeps.empty())
+                sweeps = P14BMeasurement::buildSweepBaselines();
+            if (spectrals.empty())
+                spectrals = P14BMeasurement::buildSpectralBaselines();
+            if (!gateProbe.finite)
+                gateProbe = P14BMeasurement::runGateProbe();
+
+            const auto report = P14BMeasurement::buildReportJson(references, sweeps, spectrals, gateProbe, false);
+            const auto reportAgain = P14BMeasurement::buildReportJson(references, sweeps, spectrals, gateProbe, false);
+
+            expect(report == reportAgain, "P14B report JSON must be deterministic for the same measurements");
+            expect(report.contains("nova.p14b_p1.drive_dynamics_measurement.v1"),
+                "P14B report JSON must include a stable schema id");
+            expect(report.contains("\"metadata\""), "P14B report JSON must include build/run metadata");
+            expect(report.contains("\"generatedAt\": \"<volatile>\""),
+                "P14B deterministic report mode must replace volatile timestamps");
+            expect(report.contains("\"referenceBaselines\""), "P14B report JSON must include reference baselines");
+            expect(report.contains("\"sweeps\""), "P14B report JSON must include parameter sweeps");
+            expect(report.contains("\"spectralProxies\""), "P14B report JSON must include spectral proxy results");
+            expect(report.contains("\"gateProbe\""), "P14B report JSON must include the gate probe");
+            expect(report.contains("\"normalUnitTestsWriteFiles\": false"),
+                "P14B report JSON must document that normal unit tests do not write artifacts");
+        }
+    }
+};
+#endif
 
 class P10CHighGainProfessionalizationTests final : public juce::UnitTest
 {
@@ -16212,6 +17546,9 @@ static P1PedalSafetyTests p1PedalSafetyTests;
 static P13ESharedPedalContractTests p13eSharedPedalContractTests;
 static P13EPedalContractMigrationTests p13ePedalContractMigrationTests;
 static P13DDriveDynamicsSafetyHardeningTests p13dDriveDynamicsSafetyHardeningTests;
+#if NOVA_P14B_MEASUREMENT_HARNESS_ENABLED
+static P14BDriveDynamicsMeasurementHarnessTests p14bDriveDynamicsMeasurementHarnessTests;
+#endif
 static P10CHighGainProfessionalizationTests p10cHighGainProfessionalizationTests;
 static P10DHighGainArtifactFizzHelicopterTests p10dHighGainArtifactFizzHelicopterTests;
 static P10EHighGainMuteHelicopterReverbTests p10eHighGainMuteHelicopterReverbTests;
@@ -16228,6 +17565,9 @@ void touchAudioEngineValidationTests()
         p13eSharedPedalContractTests,
         p13ePedalContractMigrationTests,
         p13dDriveDynamicsSafetyHardeningTests,
+#if NOVA_P14B_MEASUREMENT_HARNESS_ENABLED
+        p14bDriveDynamicsMeasurementHarnessTests,
+#endif
         p10cHighGainProfessionalizationTests,
         p10dHighGainArtifactFizzHelicopterTests,
         p10eHighGainMuteHelicopterReverbTests,
@@ -16246,8 +17586,17 @@ void ensureAudioEngineValidationTestsLinked()
     touchAudioEngineValidationTests();
 }
 
+#if NOVA_P14B_MEASUREMENT_HARNESS_ENABLED
+juce::String buildP14BDriveDynamicsMeasurementReportJson()
+{
+    return P14BMeasurement::buildReportJson();
+}
+#endif
+
+#if JUCE_DEBUG || NOVA_ENABLE_RELEASE_DIAGNOSTICS
 bool runP9DDraftPresetBuilderFromEnvironment()
 {
     return runP9DDraftPresetBuilderTool();
 }
+#endif
 }

@@ -19,7 +19,16 @@ if (Test-Path $reportPath) {
 }
 
 Write-Host "Building NOVA Standalone for base audio validation..."
-& (Join-Path $PSScriptRoot "build-nova.ps1") -Configuration $Configuration -Platform $Platform -Target "NOVA_StandalonePlugin"
+$buildArgs = @{
+    Configuration = $Configuration
+    Platform = $Platform
+    Target = "NOVA_StandalonePlugin"
+}
+if ($Configuration -eq "Release") {
+    Write-Host "Release validation requires an explicit diagnostic build flag."
+    $buildArgs.EnableReleaseDiagnostics = $true
+}
+& (Join-Path $PSScriptRoot "build-nova.ps1") @buildArgs
 
 $exePath = Join-Path $repoRoot "Builds/VisualStudio2022/$Platform/$Configuration/Standalone Plugin/NOVA.exe"
 if (-not (Test-Path $exePath)) {
@@ -30,7 +39,7 @@ $env:NOVA_RUN_AUDIO_TESTS = "1"
 $env:NOVA_TEST_REPORT_PATH = $reportPath
 
 Write-Host "Running NOVA validation suite..."
-$process = Start-Process -FilePath $exePath -PassThru
+$process = Start-Process -FilePath $exePath -PassThru -WindowStyle Hidden
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 
 while ((Get-Date) -lt $deadline -and -not (Test-Path $reportPath) -and -not $process.HasExited) {

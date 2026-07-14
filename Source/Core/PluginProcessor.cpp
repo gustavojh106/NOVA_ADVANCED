@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "NovaSettingsService.h"
 #include "PluginStateModel.h"
 #include "OfflineQADiagnostics.h"
 #include "PedalRegistry.h"
@@ -8,10 +9,24 @@
 
 #include <cmath>
 
+#ifndef NOVA_ENABLE_RELEASE_DIAGNOSTICS
+#define NOVA_ENABLE_RELEASE_DIAGNOSTICS 0
+#endif
+
+#ifndef NOVA_ENABLE_RELEASE_SESSION_LOGGING
+#define NOVA_ENABLE_RELEASE_SESSION_LOGGING 0
+#endif
+
+#define NOVA_DIAGNOSTIC_ENV_HOOKS_ENABLED (JUCE_DEBUG || NOVA_ENABLE_RELEASE_DIAGNOSTICS)
+#define NOVA_SESSION_LOGGING_ENABLED (JUCE_DEBUG || NOVA_ENABLE_RELEASE_DIAGNOSTICS || NOVA_ENABLE_RELEASE_SESSION_LOGGING)
+
 namespace NovaDiagnostics
 {
+#if NOVA_DIAGNOSTIC_ENV_HOOKS_ENABLED
 void ensureAudioEngineValidationTestsLinked();
 bool runP9DDraftPresetBuilderFromEnvironment();
+juce::String buildP14BDriveDynamicsMeasurementReportJson();
+#endif
 }
 
 namespace
@@ -19,7 +34,7 @@ namespace
 namespace PluginState = Nova::PluginStateModel;
 constexpr int kHostTransportPollIntervalBlocks = 8;
 
-#if JUCE_DEBUG
+#if NOVA_DIAGNOSTIC_ENV_HOOKS_ENABLED
 juce::String buildUnitTestReport(const juce::UnitTestRunner& runner)
 {
     juce::String report;
@@ -97,9 +112,27 @@ void maybeRunAudioValidationTestsOnce()
     maybeWriteUnitTestReport(report);
     NovaDiagnostics::SessionLogger::logEvent("tests", "Finished NOVA validation suite");
 }
+
+void maybeWriteP14BMeasurementReportOnce()
+{
+    static bool hasRun = false;
+
+    if (hasRun)
+        return;
+
+    const auto reportPath = juce::SystemStats::getEnvironmentVariable(
+        "NOVA_P14B_MEASUREMENT_REPORT_PATH", {});
+    if (reportPath.isEmpty())
+        return;
+
+    hasRun = true;
+    const auto reportFile = juce::File(reportPath);
+    reportFile.getParentDirectory().createDirectory();
+    reportFile.replaceWithText(NovaDiagnostics::buildP14BDriveDynamicsMeasurementReportJson());
+}
 #endif
 
-#if JUCE_DEBUG
+#if NOVA_DIAGNOSTIC_ENV_HOOKS_ENABLED
 void maybeRunOfflineQADiagnosticsOnce()
 {
     static bool hasRun = false;
@@ -118,6 +151,7 @@ void maybeRunOfflineQADiagnosticsOnce()
 }
 #endif
 
+#if NOVA_DIAGNOSTIC_ENV_HOOKS_ENABLED
 void maybeRunRtProfileDiagnosticsOnce()
 {
     static bool hasRun = false;
@@ -134,6 +168,7 @@ void maybeRunRtProfileDiagnosticsOnce()
     NovaDiagnostics::OfflineQADiagnostics::runRtProfileAndWriteReport();
     NovaDiagnostics::SessionLogger::logEvent("rt.profile", "Finished RT profile scenarios");
 }
+#endif
 
 juce::String boolToText(bool value)
 {
@@ -363,15 +398,20 @@ NOVAAudioProcessor::NOVAAudioProcessor()
         .withOutput("Out", juce::AudioChannelSet::stereo()))
     , pluginState(sessionCoordinator.state())
 {
+#if NOVA_DIAGNOSTIC_ENV_HOOKS_ENABLED
     if (NovaDiagnostics::runP9DDraftPresetBuilderFromEnvironment())
     {
         juce::JUCEApplicationBase::quit();
         return;
     }
+#endif
 
+#if NOVA_SESSION_LOGGING_ENABLED
     NovaDiagnostics::SessionLogger::attachOwner("NOVAAudioProcessor");
-#if JUCE_DEBUG
+#endif
+#if NOVA_DIAGNOSTIC_ENV_HOOKS_ENABLED
     maybeRunAudioValidationTestsOnce();
+    maybeWriteP14BMeasurementReportOnce();
     maybeRunOfflineQADiagnosticsOnce();
 #endif
 
@@ -400,9 +440,18 @@ NOVAAudioProcessor::NOVAAudioProcessor()
 
     seedBundledDelayPresetsIfMissing();
     resetSessionState(false);
-    restoreStartupPresetIfAvailable();
+
+    const auto editorSettings = Nova::SettingsService::loadEditorSettings();
+    const auto startupMode = Nova::SettingsService::getString(editorSettings,
+        Nova::SettingsService::Keys::startupMode,
+        Nova::SettingsService::StartupModes::rememberLastContext);
+    if (startupMode == Nova::SettingsService::StartupModes::openStartupPreset)
+        restoreStartupPresetIfAvailable();
+
     logStateSnapshot("processor.constructed");
+#if NOVA_DIAGNOSTIC_ENV_HOOKS_ENABLED
     maybeRunRtProfileDiagnosticsOnce();
+#endif
 }
 
 NOVAAudioProcessor::~NOVAAudioProcessor()
@@ -415,7 +464,9 @@ NOVAAudioProcessor::~NOVAAudioProcessor()
     for (auto* parameter : getParameters())
         parameter->removeListener(this);
 
+#if NOVA_SESSION_LOGGING_ENABLED
     NovaDiagnostics::SessionLogger::detachOwner("NOVAAudioProcessor");
+#endif
 }
 
 void NOVAAudioProcessor::createGlobalParameters()
@@ -585,6 +636,14 @@ void NOVAAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         samplesPerBlock,
         getTotalNumInputChannels(),
         getTotalNumOutputChannels());
+    hostBypassDelayBuffer.setSize(
+        juce::jmax(1, juce::jmax(getTotalNumInputChannels(), getTotalNumOutputChannels())),
+        Nova::Config::MAX_GRAPH_LATENCY_SAMPLES + 1,
+        false,
+        true,
+        false);
+    hostBypassDelayBuffer.clear();
+    hostBypassDelayWritePosition = 0;
     audioEnginePreparedForHostLatency.store(true, std::memory_order_release);
     updateHostLatencyFromEngineNow();
 
@@ -598,16 +657,68 @@ void NOVAAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 void NOVAAudioProcessor::releaseResources()
 {
     audioEnginePreparedForHostLatency.store(false, std::memory_order_release);
+    hostBypassDelayBuffer.clear();
+    hostBypassDelayWritePosition = 0;
     NovaDiagnostics::SessionLogger::logEvent("processor.release", "releaseResources called");
 }
 
 void NOVAAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
+    processHostBypassDelay(buffer, false);
     refreshEngineEnabledIfNeeded(false);
     refreshEngineGlobalParamsIfNeeded(false, false);
     audioEngine.process(buffer, midi);
     audioVisualizer.pushBuffer(buffer);
+}
+
+void NOVAAudioProcessor::processBlockBypassed(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+{
+    juce::ScopedNoDenormals noDenormals;
+    processHostBypassDelay(buffer, true);
+    audioVisualizer.pushBuffer(buffer);
+}
+
+void NOVAAudioProcessor::processHostBypassDelay(juce::AudioBuffer<float>& buffer,
+    bool renderDelayedDry) noexcept
+{
+    const int delayBufferSize = hostBypassDelayBuffer.getNumSamples();
+    const int numChannels = juce::jmin(buffer.getNumChannels(), hostBypassDelayBuffer.getNumChannels());
+    const int numSamples = buffer.getNumSamples();
+
+    if (delayBufferSize <= 0 || numChannels <= 0 || numSamples <= 0)
+    {
+        if (renderDelayedDry)
+            buffer.clear();
+        return;
+    }
+
+    const int latency = juce::jlimit(0, delayBufferSize - 1, getLatencySamples());
+    int writePosition = juce::jlimit(0, delayBufferSize - 1, hostBypassDelayWritePosition);
+
+    for (int sample = 0; sample < numSamples; ++sample)
+    {
+        int readPosition = writePosition - latency;
+        if (readPosition < 0)
+            readPosition += delayBufferSize;
+
+        for (int channel = 0; channel < numChannels; ++channel)
+        {
+            const float input = buffer.getSample(channel, sample);
+            hostBypassDelayBuffer.setSample(channel, writePosition, input);
+            if (renderDelayedDry)
+                buffer.setSample(channel, sample, hostBypassDelayBuffer.getSample(channel, readPosition));
+        }
+
+        if (++writePosition == delayBufferSize)
+            writePosition = 0;
+    }
+
+    if (renderDelayedDry)
+        for (int channel = numChannels; channel < buffer.getNumChannels(); ++channel)
+            buffer.clear(channel, 0, numSamples);
+
+    hostBypassDelayWritePosition = writePosition;
 }
 
 // ==============================================================================
@@ -666,14 +777,14 @@ void NOVAAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
     if (!loaded.isValid() || !loaded.hasType(Nova::IDs::MAIN_STATE))
     {
         NovaDiagnostics::SessionLogger::logEvent("state.restore", "Invalid state payload; resetting to clean state");
-        clearSessionAndForgetStartupPreset();
+        clearSession();
         return;
     }
 
     if (!sessionCoordinator.restoreStateTree(loaded))
     {
         NovaDiagnostics::SessionLogger::logEvent("state.restore", "State restore failed; resetting to clean state");
-        clearSessionAndForgetStartupPreset();
+        clearSession();
         return;
     }
 
@@ -722,6 +833,11 @@ bool NOVAAudioProcessor::loadPresetFromFile(const juce::File& file)
         + " from preset: " + file.getFullPathName());
     logStateSnapshot("state.applied");
     return restored;
+}
+
+void NOVAAudioProcessor::clearSession()
+{
+    resetSessionState(false);
 }
 
 void NOVAAudioProcessor::clearSessionAndForgetStartupPreset()
@@ -1004,6 +1120,7 @@ void NOVAAudioProcessor::toggleTuner()
 
 void NOVAAudioProcessor::logRuntimeSnapshot(const juce::String& context, const AudioEngine::RuntimeGlobalParams& snapshot) const
 {
+#if NOVA_SESSION_LOGGING_ENABLED
     juce::String message;
     message << "context=" << context
         << ", engineOn=" << boolToText(isEngineOn())
@@ -1022,14 +1139,21 @@ void NOVAAudioProcessor::logRuntimeSnapshot(const juce::String& context, const A
         << ", outputMixRaw=" << snapshot.outputMixRaw;
 
     NovaDiagnostics::SessionLogger::logEvent("runtime.snapshot", message);
+#else
+    juce::ignoreUnused(context, snapshot);
+#endif
 }
 
 void NOVAAudioProcessor::logStateSnapshot(const juce::String& context) const
 {
+#if NOVA_SESSION_LOGGING_ENABLED
     NovaDiagnostics::SessionLogger::logEvent("state.snapshot",
         "context=" + context + juce::newLine + NovaDiagnostics::SessionLogger::dumpValueTree(pluginState));
     NovaDiagnostics::SessionLogger::logEvent("engine.snapshot",
         "context=" + context + juce::newLine + audioEngine.buildDiagnosticReport());
+#else
+    juce::ignoreUnused(context);
+#endif
 }
 
 void NOVAAudioProcessor::hardRefreshAudioEngineForCurrentIO()

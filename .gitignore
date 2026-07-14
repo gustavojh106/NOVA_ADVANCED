@@ -10,3 +10,7 @@ Builds/*/Release/
 .vs/
 *.ipch
 /JuceLibraryCode/
+/artifacts/*.log
+/artifacts/p14b-*.json
+/artifacts/p14b-*.txt
+/artifacts/release-vst3-*.json

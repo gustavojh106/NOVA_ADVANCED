@@ -3,6 +3,7 @@
 #include <JuceHeader.h>
 
 #include "AudioEngine.h"
+#include "NovaSettingsService.h"
 #include "SessionStore.h"
 
 class SessionPersistence
@@ -143,11 +144,7 @@ public:
         if (auto parent = target.getParentDirectory(); !parent.exists())
             parent.createDirectory();
 
-        const bool ok = target.replaceWithData(stream.getData(), stream.getDataSize());
-        if (ok)
-            writeStartupPresetPointer(target);
-
-        return ok;
+        return target.replaceWithData(stream.getData(), stream.getDataSize());
     }
 
     static bool loadPresetFromFile(const juce::File& file, SessionStore& store, AudioEngine& engine)
@@ -191,36 +188,29 @@ public:
             return false;
 
         rebuildEngineFromState(engine, store.state());
-        writeStartupPresetPointer(file);
         return true;
     }
 
     static bool restoreStartupPresetIfAvailable(SessionStore& store, AudioEngine& engine)
     {
-        auto pointerFile = getStartupPresetPointerFile();
+        auto pointerFile = Nova::SettingsService::getStartupPresetPointerFile();
         if (!pointerFile.existsAsFile())
             return false;
 
-        const auto presetPath = pointerFile.loadFileAsString().trim();
-        const auto presetFile = juce::File(presetPath);
-        if (!presetFile.existsAsFile())
-        {
-            pointerFile.deleteFile();
+        juce::File presetFile;
+        if (!Nova::SettingsService::readStartupPresetPointer(pointerFile, presetFile, true))
             return false;
-        }
 
         const bool restored = loadPresetFromFile(presetFile, store, engine);
         if (!restored && pointerFile.existsAsFile())
-            pointerFile.deleteFile();
+            Nova::SettingsService::clearStartupPresetPointer(pointerFile);
 
         return restored;
     }
 
     static void forgetStartupPreset()
     {
-        auto pointerFile = getStartupPresetPointerFile();
-        if (pointerFile.existsAsFile())
-            pointerFile.deleteFile();
+        Nova::SettingsService::clearStartupPresetPointer();
     }
 
 private:
@@ -259,20 +249,4 @@ private:
         }
     }
 
-    static juce::File getStartupPresetPointerFile()
-    {
-        auto appDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-            .getChildFile("NOVA");
-
-        if (!appDir.exists())
-            appDir.createDirectory();
-
-        return appDir.getChildFile("startup-preset.txt");
-    }
-
-    static void writeStartupPresetPointer(const juce::File& presetFile)
-    {
-        auto pointerFile = getStartupPresetPointerFile();
-        pointerFile.replaceWithText(presetFile.getFullPathName());
-    }
 };

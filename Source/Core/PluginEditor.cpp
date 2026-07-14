@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 
+#include "NovaSettingsService.h"
 #include "PedalCatalog.h"
 #include "PluginStateModel.h"
 #include "../GUI/Widgets/ChainLane.h"
@@ -20,125 +21,108 @@ namespace
 {
     namespace EditorPrefs
     {
-        constexpr const char* showStatsKey = "editor.showPerformanceStats";
-        constexpr const char* openBrowserOnStartupKey = "editor.openBrowserOnStartup";
-        constexpr const char* openPresetsOnStartupKey = "editor.openPresetsOnStartup";
-        constexpr const char* startupModeKey = "editor.startupMode";
-        constexpr const char* confirmBeforeClearKey = "editor.confirmBeforeClear";
-        constexpr const char* tunerReferenceKey = "editor.tunerReference";
-        constexpr const char* showLatencyTipsKey = "editor.showLatencyTips";
-        constexpr const char* libraryViewKey = "editor.libraryView";
-        constexpr const char* favoritesFirstKey = "editor.libraryFavoritesFirst";
-        constexpr const char* switcherShortcutKey = "editor.switcherShortcut";
-        constexpr const char* switcherModesKey = "editor.switcherModes";
-        constexpr const char* rootTag = "NOVA_EDITOR_SETTINGS";
-        constexpr const char* itemTag = "SETTING";
-        constexpr const char* nameAttr = "name";
-        constexpr const char* valueAttr = "value";
+        constexpr const char* showStatsKey = Nova::SettingsService::Keys::showStats;
+        constexpr const char* openBrowserOnStartupKey = Nova::SettingsService::Keys::openBrowserOnStartup;
+        constexpr const char* openPresetsOnStartupKey = Nova::SettingsService::Keys::openPresetsOnStartup;
+        constexpr const char* startupModeKey = Nova::SettingsService::Keys::startupMode;
+        constexpr const char* confirmBeforeClearKey = Nova::SettingsService::Keys::confirmBeforeClear;
+        constexpr const char* tunerReferenceKey = Nova::SettingsService::Keys::tunerReference;
+        constexpr const char* showLatencyTipsKey = Nova::SettingsService::Keys::showLatencyTips;
+        constexpr const char* switcherShortcutKey = Nova::SettingsService::Keys::switcherShortcut;
+        constexpr const char* switcherModesKey = Nova::SettingsService::Keys::switcherModes;
 
-        juce::File getSettingsFile()
+        Nova::SettingsService::EditorSettings& committedSettings()
         {
-            auto directory = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-                .getChildFile("NOVA");
-
-            if (!directory.exists())
-                directory.createDirectory();
-
-            return directory.getChildFile("editor-settings.xml");
+            static auto settings = Nova::SettingsService::loadEditorSettings();
+            return settings;
         }
 
-        juce::StringPairArray& cache()
+        Nova::SettingsService::EditorSettings makeDraft()
         {
-            static bool loaded = false;
-            static juce::StringPairArray values;
-
-            if (!loaded)
-            {
-                const auto file = getSettingsFile();
-
-                if (file.existsAsFile())
-                {
-                    auto xml = juce::parseXML(file);
-                    if (xml != nullptr && xml->hasTagName(rootTag))
-                    {
-                        for (auto* child = xml->getFirstChildElement(); child != nullptr; child = child->getNextElement())
-                        {
-                            if (!child->hasTagName(itemTag))
-                                continue;
-                            const auto key = child->getStringAttribute(nameAttr);
-                            if (key.isNotEmpty())
-                                values.set(key, child->getStringAttribute(valueAttr));
-                        }
-                    }
-                }
-
-                loaded = true;
-            }
-
-            return values;
+            return committedSettings();
         }
 
-        void flushToDisk()
+        bool commitDraft(Nova::SettingsService::EditorSettings& draft)
         {
-            juce::XmlElement root(rootTag);
-            const auto& values = cache();
+            Nova::SettingsService::sanitize(draft);
+            if (!Nova::SettingsService::saveEditorSettings(draft))
+                return false;
 
-            for (int i = 0; i < values.size(); ++i)
-            {
-                auto* child = root.createNewChildElement(itemTag);
-                child->setAttribute(nameAttr, values.getAllKeys()[i]);
-                child->setAttribute(valueAttr, values.getAllValues()[i]);
-            }
-
-            root.writeTo(getSettingsFile(), {});
+            committedSettings() = draft;
+            return true;
         }
 
-        bool getBool(const char* key, bool defaultValue)
+        bool resetCommittedToDefaults()
         {
-            const auto& values = cache();
-            return values.containsKey(key)
-                ? values[key].equalsIgnoreCase("true") || values[key] == "1"
-                : defaultValue;
+            auto defaults = Nova::SettingsService::makeDefaultEditorSettings();
+            if (!Nova::SettingsService::saveEditorSettings(defaults))
+                return false;
+
+            committedSettings() = std::move(defaults);
+            return true;
         }
 
-        void setBool(const char* key, bool value)
+        bool setPersistentString(const char* key, const juce::String& value)
         {
-            cache().set(key, value ? "true" : "false");
-            flushToDisk();
-        }
+            auto updated = committedSettings();
+            Nova::SettingsService::setString(updated, key, value);
+            Nova::SettingsService::sanitize(updated);
 
-        juce::String getString(const char* key, const juce::String& defaultValue)
-        {
-            const auto& values = cache();
-            return values.containsKey(key) ? values[key] : defaultValue;
+            if (!Nova::SettingsService::saveEditorSettings(updated))
+                return false;
+
+            committedSettings() = std::move(updated);
+            return true;
         }
 
         void setString(const char* key, const juce::String& value)
         {
-            cache().set(key, value);
-            flushToDisk();
+            juce::ignoreUnused(setPersistentString(key, value));
+        }
+
+        bool getBool(const char* key, bool defaultValue)
+        {
+            return Nova::SettingsService::getBool(committedSettings(), key, defaultValue);
+        }
+
+        bool getBool(const Nova::SettingsService::EditorSettings& settings,
+            const char* key,
+            bool defaultValue)
+        {
+            return Nova::SettingsService::getBool(settings, key, defaultValue);
+        }
+
+        juce::String getString(const char* key, const juce::String& defaultValue)
+        {
+            return Nova::SettingsService::getString(committedSettings(), key, defaultValue);
+        }
+
+        juce::String getString(const Nova::SettingsService::EditorSettings& settings,
+            const char* key,
+            const juce::String& defaultValue)
+        {
+            return Nova::SettingsService::getString(settings, key, defaultValue);
         }
 
         float parseTunerReference()
         {
-            const auto val = getString(tunerReferenceKey, "A = 440 Hz");
-            if (val.contains("442")) return 442.0f;
-            if (val.contains("432")) return 432.0f;
-            return 440.0f;
+            return Nova::SettingsService::parseTunerReference(committedSettings());
         }
 
         // Switcher shortcut key — stored as keyCode, default=space
         int getSwitcherKeyCode()
         {
-            const auto val = getString(switcherShortcutKey, "");
-            if (val.isNotEmpty())
-                return val.getIntValue();
-            return juce::KeyPress::spaceKey;
+            return Nova::SettingsService::getSwitcherKeyCode(committedSettings());
         }
 
-        void setSwitcherKeyCode(int keyCode)
+        int getSwitcherKeyCode(const Nova::SettingsService::EditorSettings& settings)
         {
-            setString(switcherShortcutKey, juce::String(keyCode));
+            return Nova::SettingsService::getSwitcherKeyCode(settings);
+        }
+
+        void setSwitcherKeyCode(Nova::SettingsService::EditorSettings& settings, int keyCode)
+        {
+            Nova::SettingsService::setString(settings, switcherShortcutKey, juce::String(keyCode));
         }
 
         juce::String keyCodeToDisplayName(int keyCode)
@@ -170,18 +154,17 @@ namespace
         // Default: all three enabled (7 = 0b111)
         int getSwitcherModes()
         {
-            const auto val = getString(switcherModesKey, "7");
-            int modes = val.getIntValue();
-            // Must have at least 2 modes enabled
-            int count = ((modes >> 0) & 1) + ((modes >> 1) & 1) + ((modes >> 2) & 1);
-            if (count < 2)
-                return 7;
-            return modes & 7;
+            return Nova::SettingsService::getSwitcherModes(committedSettings());
         }
 
-        void setSwitcherModes(int bitmask)
+        int getSwitcherModes(const Nova::SettingsService::EditorSettings& settings)
         {
-            setString(switcherModesKey, juce::String(bitmask & 7));
+            return Nova::SettingsService::getSwitcherModes(settings);
+        }
+
+        void setSwitcherModes(Nova::SettingsService::EditorSettings& settings, int bitmask)
+        {
+            Nova::SettingsService::setString(settings, switcherModesKey, juce::String(bitmask & 7));
         }
 
         bool isModeEnabled(int bitmask, Nova::SwitcherMode mode)
@@ -192,23 +175,12 @@ namespace
 
     juce::File getStartupPresetPointerFile()
     {
-        auto directory = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
-            .getChildFile("NOVA");
-
-        if (!directory.exists())
-            directory.createDirectory();
-
-        return directory.getChildFile("startup-preset.txt");
+        return Nova::SettingsService::getStartupPresetPointerFile();
     }
 
     juce::String getStartupPresetName()
     {
-        const auto pointerFile = getStartupPresetPointerFile();
-        if (!pointerFile.existsAsFile())
-            return {};
-
-        const auto presetFile = juce::File(pointerFile.loadFileAsString().trim());
-        return presetFile.existsAsFile() ? presetFile.getFileNameWithoutExtension() : juce::String{};
+        return Nova::SettingsService::getStartupPresetName();
     }
 
     juce::String sanitiseFactoryPresetStem(const juce::String& presetName)
@@ -453,86 +425,11 @@ namespace
         g.drawFittedText(subtitle, header.removeFromTop(30), juce::Justification::centredLeft, 2);
     }
 
-    class PlaceholderSettingsPage final : public juce::Component
-    {
-    public:
-        PlaceholderSettingsPage(juce::String pageTitle,
-            juce::String description,
-            juce::String footerText)
-            : title(std::move(pageTitle)),
-              body(std::move(description)),
-              footer(std::move(footerText))
-        {
-        }
-
-        void paint(juce::Graphics& g) override
-        {
-            auto area = getLocalBounds().reduced(10);
-            const int gap = 14;
-            const int topHeight = juce::jmax(140, (int)std::round((double)area.getHeight() * 0.44));
-            auto hero = area.removeFromTop(topHeight);
-            area.removeFromTop(gap);
-            auto details = area;
-
-            drawCard(g, hero, title, body,
-                "This category is already wired into the NOVA settings architecture.");
-            drawCard(g, details, "What Will Live Here", footer,
-                "For now it acts as a visible placeholder instead of a dead end.");
-        }
-
-    private:
-        static void drawCard(juce::Graphics& g,
-            juce::Rectangle<int> bounds,
-            const juce::String& heading,
-            const juce::String& paragraph,
-            const juce::String& note)
-        {
-            auto rect = bounds.toFloat();
-            juce::ColourGradient fill(juce::Colour::fromString("ff172131"),
-                rect.getCentreX(), rect.getY(),
-                juce::Colour::fromString("ff0F1622"),
-                rect.getCentreX(), rect.getBottom(), false);
-            g.setGradientFill(fill);
-            g.fillRoundedRectangle(rect, 18.0f);
-
-            g.setColour(Nova::Colors::Border.withAlpha(0.65f));
-            g.drawRoundedRectangle(rect.reduced(0.5f), 18.0f, 1.0f);
-
-            auto content = bounds.reduced(24, 22);
-            g.setColour(Nova::Colors::Accent);
-            g.setFont(juce::Font(juce::FontOptions(16.5f, juce::Font::bold)));
-            g.drawText(heading, content.removeFromTop(26), juce::Justification::centredLeft);
-
-            content.removeFromTop(10);
-            g.setColour(Nova::Colors::Text.withAlpha(0.86f));
-            g.setFont(juce::Font(juce::FontOptions(13.0f)));
-            const int paragraphHeight = juce::jmax(54, juce::jmin(88, bounds.getHeight() / 3));
-            g.drawFittedText(paragraph, content.removeFromTop(paragraphHeight), juce::Justification::topLeft, 5);
-
-            content.removeFromTop(12);
-            g.setColour(Nova::Colors::TextDim);
-            g.setFont(juce::Font(juce::FontOptions(11.5f, juce::Font::italic)));
-            g.drawFittedText(note, content, juce::Justification::topLeft, 4);
-        }
-
-        juce::String title;
-        juce::String body;
-        juce::String footer;
-    };
-
     class GeneralSettingsPage final : public juce::Component
     {
     public:
-        struct Callbacks
-        {
-            std::function<void(bool)> onShowStatsChanged;
-            std::function<void(bool)> onOpenBrowserOnStartupChanged;
-            std::function<void(bool)> onOpenPresetsOnStartupChanged;
-            std::function<void()> onSwitcherConfigChanged;
-        };
-
-        explicit GeneralSettingsPage(Callbacks pageCallbacks)
-            : callbacks(std::move(pageCallbacks))
+        explicit GeneralSettingsPage(Nova::SettingsService::EditorSettings& settingsToEdit)
+            : settings(settingsToEdit)
         {
             setLookAndFeel(&lookAndFeel);
 
@@ -558,14 +455,14 @@ namespace
             btnResetShortcut.setColour(juce::TextButton::textColourOffId, Nova::Colors::TextDim);
             btnResetShortcut.onClick = [this]
             {
-                EditorPrefs::setSwitcherKeyCode(juce::KeyPress::spaceKey);
+                EditorPrefs::setSwitcherKeyCode(settings, juce::KeyPress::spaceKey);
                 recordingKey = false;
                 refreshShortcutKeyLabel();
                 repaint();
             };
 
             // Mode toggle chips
-            switcherModes = EditorPrefs::getSwitcherModes();
+            switcherModes = EditorPrefs::getSwitcherModes(settings);
             for (int i = 0; i < 3; ++i)
             {
                 addAndMakeVisible(modeChips[i]);
@@ -596,46 +493,36 @@ namespace
             addAndMakeVisible(startupModeBox);
 
             // Load state
-            showStatsToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::showStatsKey, true), juce::dontSendNotification);
-            openBrowserToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::openBrowserOnStartupKey, false), juce::dontSendNotification);
-            openPresetsToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::openPresetsOnStartupKey, false), juce::dontSendNotification);
-            confirmClearToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::confirmBeforeClearKey, true), juce::dontSendNotification);
-            startupModeBox.setText(EditorPrefs::getString(EditorPrefs::startupModeKey, "Remember last context"),
-                juce::dontSendNotification);
+            showStatsToggle.setToggleState(EditorPrefs::getBool(settings, EditorPrefs::showStatsKey, true), juce::dontSendNotification);
+            openBrowserToggle.setToggleState(EditorPrefs::getBool(settings, EditorPrefs::openBrowserOnStartupKey, false), juce::dontSendNotification);
+            openPresetsToggle.setToggleState(EditorPrefs::getBool(settings, EditorPrefs::openPresetsOnStartupKey, false), juce::dontSendNotification);
+            confirmClearToggle.setToggleState(EditorPrefs::getBool(settings, EditorPrefs::confirmBeforeClearKey, true), juce::dontSendNotification);
+            refreshStartupMode();
 
             // Wire callbacks
             showStatsToggle.onClick = [this]
             {
-                const bool enabled = showStatsToggle.getToggleState();
-                EditorPrefs::setBool(EditorPrefs::showStatsKey, enabled);
-                if (callbacks.onShowStatsChanged)
-                    callbacks.onShowStatsChanged(enabled);
+                Nova::SettingsService::setBool(settings, EditorPrefs::showStatsKey, showStatsToggle.getToggleState());
             };
 
             openBrowserToggle.onClick = [this]
             {
-                const bool enabled = openBrowserToggle.getToggleState();
-                EditorPrefs::setBool(EditorPrefs::openBrowserOnStartupKey, enabled);
-                if (callbacks.onOpenBrowserOnStartupChanged)
-                    callbacks.onOpenBrowserOnStartupChanged(enabled);
+                Nova::SettingsService::setBool(settings, EditorPrefs::openBrowserOnStartupKey, openBrowserToggle.getToggleState());
             };
 
             openPresetsToggle.onClick = [this]
             {
-                const bool enabled = openPresetsToggle.getToggleState();
-                EditorPrefs::setBool(EditorPrefs::openPresetsOnStartupKey, enabled);
-                if (callbacks.onOpenPresetsOnStartupChanged)
-                    callbacks.onOpenPresetsOnStartupChanged(enabled);
+                Nova::SettingsService::setBool(settings, EditorPrefs::openPresetsOnStartupKey, openPresetsToggle.getToggleState());
             };
 
             confirmClearToggle.onClick = [this]
             {
-                EditorPrefs::setBool(EditorPrefs::confirmBeforeClearKey, confirmClearToggle.getToggleState());
+                Nova::SettingsService::setBool(settings, EditorPrefs::confirmBeforeClearKey, confirmClearToggle.getToggleState());
             };
 
             startupModeBox.onChange = [this]
             {
-                EditorPrefs::setString(EditorPrefs::startupModeKey, startupModeBox.getText());
+                Nova::SettingsService::setString(settings, EditorPrefs::startupModeKey, startupModeBox.getText());
             };
 
             setTab(Tab::Interface);
@@ -644,6 +531,25 @@ namespace
         ~GeneralSettingsPage() override
         {
             setLookAndFeel(nullptr);
+        }
+
+        void refreshStartupMode()
+        {
+            const bool hasStartupPreset = getStartupPresetName().isNotEmpty();
+            startupModeBox.setItemEnabled(3, hasStartupPreset);
+
+            auto startupMode = EditorPrefs::getString(settings,
+                EditorPrefs::startupModeKey,
+                Nova::SettingsService::StartupModes::rememberLastContext);
+
+            if (startupMode == Nova::SettingsService::StartupModes::openStartupPreset
+                && !hasStartupPreset)
+            {
+                startupMode = Nova::SettingsService::StartupModes::rememberLastContext;
+                Nova::SettingsService::setString(settings, EditorPrefs::startupModeKey, startupMode);
+            }
+
+            startupModeBox.setText(startupMode, juce::dontSendNotification);
         }
 
         bool keyPressed(const juce::KeyPress& key) override
@@ -659,11 +565,10 @@ namespace
                     return true;
                 }
 
-                EditorPrefs::setSwitcherKeyCode(code);
+                EditorPrefs::setSwitcherKeyCode(settings, code);
                 recordingKey = false;
                 refreshShortcutKeyLabel();
                 repaint();
-                fireSwitcherConfigChanged();
                 return true;
             }
             return false;
@@ -914,7 +819,7 @@ namespace
 
         void refreshShortcutKeyLabel()
         {
-            const int code = EditorPrefs::getSwitcherKeyCode();
+            const int code = EditorPrefs::getSwitcherKeyCode(settings);
             btnShortcutKey.setButtonText(EditorPrefs::keyCodeToDisplayName(code));
             btnShortcutKey.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff101722"));
             btnShortcutKey.setColour(juce::TextButton::textColourOffId, Nova::Colors::Text.withAlpha(0.92f));
@@ -938,10 +843,9 @@ namespace
             }
 
             switcherModes = tempModes;
-            EditorPrefs::setSwitcherModes(switcherModes);
+            EditorPrefs::setSwitcherModes(settings, switcherModes);
             updateModeChipColors();
             repaint();
-            fireSwitcherConfigChanged();
         }
 
         void updateModeChipColors()
@@ -961,19 +865,13 @@ namespace
             }
         }
 
-        void fireSwitcherConfigChanged()
-        {
-            if (callbacks.onSwitcherConfigChanged)
-                callbacks.onSwitcherConfigChanged();
-        }
-
         static void setupToggle(juce::ToggleButton& toggle, const juce::String& text)
         {
             toggle.setButtonText(text);
             toggle.setColour(juce::ToggleButton::textColourId, Nova::Colors::Text.withAlpha(0.9f));
         }
 
-        Callbacks callbacks;
+        Nova::SettingsService::EditorSettings& settings;
         SettingsLookAndFeel lookAndFeel;
         juce::TextButton btnInterfaceTab;
         juce::TextButton btnStartupTab;
@@ -1005,8 +903,10 @@ namespace
         private juce::Timer
     {
     public:
-        explicit AudioSettingsPage(NOVAAudioProcessor& processor)
-            : audioProcessor(processor)
+        AudioSettingsPage(NOVAAudioProcessor& processor,
+            Nova::SettingsService::EditorSettings& settingsToEdit)
+            : audioProcessor(processor),
+              settings(settingsToEdit)
         {
             setLookAndFeel(&lookAndFeel);
 
@@ -1037,21 +937,19 @@ namespace
             tunerReferenceBox.addItem("A = 440 Hz", 1);
             tunerReferenceBox.addItem("A = 442 Hz", 2);
             tunerReferenceBox.addItem("A = 432 Hz", 3);
-            tunerReferenceBox.setText(EditorPrefs::getString(EditorPrefs::tunerReferenceKey, "A = 440 Hz"),
+            tunerReferenceBox.setText(EditorPrefs::getString(settings, EditorPrefs::tunerReferenceKey, "A = 440 Hz"),
                 juce::dontSendNotification);
             tunerReferenceBox.onChange = [this]
             {
-                const auto text = tunerReferenceBox.getText();
-                EditorPrefs::setString(EditorPrefs::tunerReferenceKey, text);
-                audioProcessor.getAudioEngine().setTunerReferencePitch(EditorPrefs::parseTunerReference());
+                Nova::SettingsService::setString(settings, EditorPrefs::tunerReferenceKey, tunerReferenceBox.getText());
             };
             addAndMakeVisible(tunerReferenceBox);
 
             latencyTipsToggle.setButtonText("Warn about high-latency audio setup");
-            latencyTipsToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::showLatencyTipsKey, true), juce::dontSendNotification);
+            latencyTipsToggle.setToggleState(EditorPrefs::getBool(settings, EditorPrefs::showLatencyTipsKey, true), juce::dontSendNotification);
             latencyTipsToggle.onClick = [this]
             {
-                EditorPrefs::setBool(EditorPrefs::showLatencyTipsKey, latencyTipsToggle.getToggleState());
+                Nova::SettingsService::setBool(settings, EditorPrefs::showLatencyTipsKey, latencyTipsToggle.getToggleState());
             };
             addAndMakeVisible(latencyTipsToggle);
             latencyTipsToggle.setTooltip("Warn when buffer size or device settings may hurt live playability.");
@@ -1216,7 +1114,7 @@ namespace
                     const auto bufferSize = juce::String(currentDevice->getCurrentBufferSizeSamples());
                     const auto inputName = setup.inputDeviceName.isNotEmpty() ? setup.inputDeviceName : "Default Input";
                     const auto outputName = setup.outputDeviceName.isNotEmpty() ? setup.outputDeviceName : "Default Output";
-                    const auto tunerReference = EditorPrefs::getString(EditorPrefs::tunerReferenceKey, "A = 440 Hz");
+                    const auto tunerReference = EditorPrefs::getString(settings, EditorPrefs::tunerReferenceKey, "A = 440 Hz");
 
                     summaryLabel.setText(
                         "Driver: " + currentDevice->getTypeName()
@@ -1247,6 +1145,7 @@ namespace
         }
 
         NOVAAudioProcessor& audioProcessor;
+        Nova::SettingsService::EditorSettings& settings;
         SettingsLookAndFeel lookAndFeel;
         juce::TextButton btnSessionTab;
         juce::TextButton btnDefaultsTab;
@@ -1270,17 +1169,17 @@ namespace
             std::function<juce::String()> getCurrentPresetName;
             std::function<juce::String()> getStartupPresetName;
             std::function<juce::File()> getPresetDirectory;
-            std::function<void()> onSetCurrentPresetAsStartup;
+            std::function<bool()> onSetCurrentPresetAsStartup;
             std::function<void()> onClearStartupPreset;
+            std::function<void()> onStartupAssignmentChanged;
         };
 
-        explicit LibrarySettingsPage(Callbacks pageCallbacks)
-            : callbacks(std::move(pageCallbacks))
+        LibrarySettingsPage(Nova::SettingsService::EditorSettings& settingsToEdit,
+            Callbacks pageCallbacks)
+            : settings(settingsToEdit),
+              callbacks(std::move(pageCallbacks))
         {
             setLookAndFeel(&lookAndFeel);
-
-            configureTabButton(btnStatusTab, "Status", [this] { setTab(Tab::Status); });
-            configureTabButton(btnDefaultsTab, "Defaults", [this] { setTab(Tab::Defaults); });
 
             styleSettingsLabel(currentPresetLabel, 13.0f, Nova::Colors::Text.withAlpha(0.88f));
             styleSettingsLabel(startupPresetLabel, 13.0f, Nova::Colors::Text.withAlpha(0.88f));
@@ -1289,31 +1188,18 @@ namespace
             addAndMakeVisible(currentPresetLabel);
             addAndMakeVisible(startupPresetLabel);
 
-            libraryViewBox.addItem("All presets", 1);
-            libraryViewBox.addItem("Favorites first", 2);
-            libraryViewBox.addItem("Recent first", 3);
-            libraryViewBox.setText(EditorPrefs::getString(EditorPrefs::libraryViewKey, "All presets"),
-                juce::dontSendNotification);
-            libraryViewBox.onChange = [this]
-            {
-                EditorPrefs::setString(EditorPrefs::libraryViewKey, libraryViewBox.getText());
-            };
-            addAndMakeVisible(libraryViewBox);
-
-            favoritesFirstToggle.setButtonText("Show favorites first");
-            favoritesFirstToggle.setToggleState(EditorPrefs::getBool(EditorPrefs::favoritesFirstKey, false), juce::dontSendNotification);
-            favoritesFirstToggle.onClick = [this]
-            {
-                EditorPrefs::setBool(EditorPrefs::favoritesFirstKey, favoritesFirstToggle.getToggleState());
-            };
-            addAndMakeVisible(favoritesFirstToggle);
-            favoritesFirstToggle.setTooltip("Prefer favorite presets near the top of the browser.");
-
             styleSettingsActionButton(btnSetStartup, "Use Current on Start");
             btnSetStartup.onClick = [this]
             {
-                if (callbacks.onSetCurrentPresetAsStartup)
-                    callbacks.onSetCurrentPresetAsStartup();
+                if (callbacks.onSetCurrentPresetAsStartup
+                    && callbacks.onSetCurrentPresetAsStartup())
+                {
+                    Nova::SettingsService::setString(settings,
+                        EditorPrefs::startupModeKey,
+                        Nova::SettingsService::StartupModes::openStartupPreset);
+                    if (callbacks.onStartupAssignmentChanged)
+                        callbacks.onStartupAssignmentChanged();
+                }
                 refreshSummary();
             };
             addAndMakeVisible(btnSetStartup);
@@ -1324,6 +1210,11 @@ namespace
             {
                 if (callbacks.onClearStartupPreset)
                     callbacks.onClearStartupPreset();
+                Nova::SettingsService::setString(settings,
+                    EditorPrefs::startupModeKey,
+                    Nova::SettingsService::StartupModes::rememberLastContext);
+                if (callbacks.onStartupAssignmentChanged)
+                    callbacks.onStartupAssignmentChanged();
                 refreshSummary();
             };
             addAndMakeVisible(btnClearStartup);
@@ -1339,7 +1230,6 @@ namespace
             btnOpenFolder.setTooltip("Open the local preset folder in the file explorer.");
 
             refreshSummary();
-            setTab(Tab::Status);
         }
 
         ~LibrarySettingsPage() override
@@ -1349,103 +1239,34 @@ namespace
 
         void paint(juce::Graphics& g) override
         {
-            juce::String title;
-            juce::String subtitle;
-
-            switch (selectedTab)
-            {
-                case Tab::Status:
-                    title = "Library Status";
-                    subtitle = "Quick access to the current preset, startup preset and local preset folder.";
-                    break;
-                case Tab::Defaults:
-                    title = "Library Defaults";
-                    subtitle = "Behavior that shapes how presets are surfaced and remembered.";
-                    break;
-            }
-
-            paintSettingsContentSurface(g, contentBounds, title, subtitle);
+            paintSettingsContentSurface(g, contentBounds,
+                "Preset Library",
+                "Manage the explicit startup preset and open the local preset folder.");
         }
 
         void resized() override
         {
             auto area = getLocalBounds().reduced(10);
-            tabsBounds = area.removeFromTop(34);
-            area.removeFromTop(12);
             contentBounds = area;
-
-            auto tabRow = tabsBounds;
-            const int gap = 8;
-            const int tabW = (tabRow.getWidth() - gap) / 2;
-            btnStatusTab.setBounds(tabRow.removeFromLeft(tabW));
-            tabRow.removeFromLeft(gap);
-            btnDefaultsTab.setBounds(tabRow);
 
             auto content = contentBounds.reduced(22, 18);
             content.removeFromTop(44);
 
-            if (selectedTab == Tab::Status)
-            {
-                currentPresetLabel.setBounds(content.removeFromTop(28));
-                content.removeFromTop(8);
-                startupPresetLabel.setBounds(content.removeFromTop(28));
-                content.removeFromTop(12);
-                auto topButtons = content.removeFromTop(34);
-                const int buttonGap = 10;
-                const int buttonW = (topButtons.getWidth() - buttonGap) / 2;
-                btnSetStartup.setBounds(topButtons.removeFromLeft(buttonW));
-                topButtons.removeFromLeft(buttonGap);
-                btnClearStartup.setBounds(topButtons);
-                content.removeFromTop(12);
-                btnOpenFolder.setBounds(content.removeFromTop(34));
-            }
-            else
-            {
-                favoritesFirstToggle.setBounds(content.removeFromTop(34));
-                content.removeFromTop(12);
-                libraryViewBox.setBounds(content.removeFromTop(34));
-            }
+            currentPresetLabel.setBounds(content.removeFromTop(28));
+            content.removeFromTop(8);
+            startupPresetLabel.setBounds(content.removeFromTop(28));
+            content.removeFromTop(12);
+            auto topButtons = content.removeFromTop(34);
+            const int buttonGap = 10;
+            const int buttonW = (topButtons.getWidth() - buttonGap) / 2;
+            btnSetStartup.setBounds(topButtons.removeFromLeft(buttonW));
+            topButtons.removeFromLeft(buttonGap);
+            btnClearStartup.setBounds(topButtons);
+            content.removeFromTop(12);
+            btnOpenFolder.setBounds(content.removeFromTop(34));
         }
 
     private:
-        enum class Tab
-        {
-            Status,
-            Defaults
-        };
-
-        void configureTabButton(juce::TextButton& button,
-            const juce::String& text,
-            std::function<void()> onClick)
-        {
-            addAndMakeVisible(button);
-            styleSettingsTabButton(button, text);
-            button.onClick = std::move(onClick);
-        }
-
-        void setTab(Tab newTab)
-        {
-            selectedTab = newTab;
-
-            setSettingsTabButtonActive(btnStatusTab, selectedTab == Tab::Status);
-            setSettingsTabButtonActive(btnDefaultsTab, selectedTab == Tab::Defaults);
-
-            const bool statusVisible = selectedTab == Tab::Status;
-            const bool defaultsVisible = selectedTab == Tab::Defaults;
-
-            currentPresetLabel.setVisible(statusVisible);
-            startupPresetLabel.setVisible(statusVisible);
-            btnSetStartup.setVisible(statusVisible);
-            btnClearStartup.setVisible(statusVisible);
-            btnOpenFolder.setVisible(statusVisible);
-
-            favoritesFirstToggle.setVisible(defaultsVisible);
-            libraryViewBox.setVisible(defaultsVisible);
-
-            resized();
-            repaint();
-        }
-
         void refreshSummary()
         {
             const auto currentPreset = callbacks.getCurrentPresetName ? callbacks.getCurrentPresetName() : juce::String{};
@@ -1462,42 +1283,34 @@ namespace
             startupPresetLabel.setTooltip(startupText);
         }
 
+        Nova::SettingsService::EditorSettings& settings;
         Callbacks callbacks;
         SettingsLookAndFeel lookAndFeel;
-        juce::TextButton btnStatusTab;
-        juce::TextButton btnDefaultsTab;
         juce::Label currentPresetLabel;
         juce::Label startupPresetLabel;
-        juce::ComboBox libraryViewBox;
-        juce::ToggleButton favoritesFirstToggle;
         juce::TextButton btnSetStartup;
         juce::TextButton btnClearStartup;
         juce::TextButton btnOpenFolder;
-        juce::Rectangle<int> tabsBounds;
         juce::Rectangle<int> contentBounds;
-        Tab selectedTab = Tab::Status;
     };
-
-    // Controllers, Profile and Cloud are planned features — show clean placeholders
 
     class SettingsOverlay final : public juce::Component
     {
     public:
         SettingsOverlay(NOVAAudioProcessor& processor,
-            std::function<void(bool)> onShowStatsChanged,
-            std::function<void(bool)> onOpenBrowserOnStartupChanged,
-            std::function<void(bool)> onOpenPresetsOnStartupChanged,
-            std::function<void()> onSwitcherConfigChangedFn,
             LibrarySettingsPage::Callbacks libraryCallbacks,
+            std::function<void()> onSettingsAppliedFn,
             std::function<void(int)> onLaunchWizardFn,
             std::function<void()> onCloseFn)
-            : onClose(std::move(onCloseFn)),
+            : draftSettings(EditorPrefs::makeDraft()),
+              onClose(std::move(onCloseFn)),
+              onSettingsApplied(std::move(onSettingsAppliedFn)),
               onLaunchWizard(std::move(onLaunchWizardFn))
         {
             setWantsKeyboardFocus(true);
 
             addAndMakeVisible(closeButton);
-            closeButton.setButtonText("CLOSE");
+            closeButton.setButtonText("CANCEL");
             closeButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff2A1418"));
             closeButton.setColour(juce::TextButton::textColourOffId, Nova::Colors::Text.withAlpha(0.88f));
             closeButton.onClick = [this]
@@ -1506,58 +1319,44 @@ namespace
                     onClose();
             };
 
+            addAndMakeVisible(applyButton);
+            applyButton.setButtonText("APPLY / SAVE");
+            applyButton.setColour(juce::TextButton::buttonColourId, Nova::Colors::Accent.withAlpha(0.22f));
+            applyButton.setColour(juce::TextButton::textColourOffId, Nova::Colors::Text);
+            applyButton.onClick = [this] { commitAndClose(); };
+
+            addAndMakeVisible(resetDefaultsButton);
+            resetDefaultsButton.setButtonText("RESTORE DEFAULTS");
+            resetDefaultsButton.setColour(juce::TextButton::buttonColourId, juce::Colour::fromString("ff1A1420"));
+            resetDefaultsButton.setColour(juce::TextButton::textColourOffId, Nova::Colors::TextDim);
+            resetDefaultsButton.onClick = [this] { confirmRestoreDefaults(); };
+
             configureCategoryButton(btnGeneral, "GENERAL", [this] { setCategory(Category::General); });
             configureCategoryButton(btnAudio, "AUDIO", [this] { setCategory(Category::Audio); });
             configureCategoryButton(btnLibrary, "LIBRARY", [this] { setCategory(Category::Library); });
-            configureCategoryButton(btnControllers, "CONTROLLERS", [this] { setCategory(Category::Controllers); });
-            configureCategoryButton(btnProfile, "PROFILE", [this] { setCategory(Category::Profile); });
-            configureCategoryButton(btnCloud, "CLOUD", [this] { setCategory(Category::Cloud); });
 
             // --- Wizard launch buttons in the rail ---
             configureWizardButton(btnWizardAudio, "Audio Setup", [this] { fireWizard(0); });
             configureWizardButton(btnWizardStart, "Start Wizard", [this] { fireWizard(1); });
             configureWizardButton(btnWizardPreset, "Preset Finder", [this] { fireWizard(2); });
 
-            generalPage = std::make_unique<GeneralSettingsPage>(GeneralSettingsPage::Callbacks{
-                std::move(onShowStatsChanged),
-                std::move(onOpenBrowserOnStartupChanged),
-                std::move(onOpenPresetsOnStartupChanged),
-                std::move(onSwitcherConfigChangedFn)
-            });
-
-            audioPage = std::make_unique<AudioSettingsPage>(processor);
-            libraryPage = std::make_unique<LibrarySettingsPage>(std::move(libraryCallbacks));
-
-            controllersPage = std::make_unique<PlaceholderSettingsPage>(
-                "Controllers & MIDI",
-                "MIDI learn, footswitch mapping, expression pedal configuration and scene switching "
-                "will live here once the controller subsystem ships.",
-                "Setup wizards for MIDI, footswitches and expression pedals will guide "
-                "first-time configuration when this section becomes active.");
-
-            profilePage = std::make_unique<PlaceholderSettingsPage>(
-                "Player Profile",
-                "Player identity, skill level, genre preferences and personalized tone "
-                "recommendations will live here once the recommendation engine ships.",
-                "Personalization and tone preference wizards will help build a profile "
-                "tailored to each player's style and needs.");
-
-            cloudPage = std::make_unique<PlaceholderSettingsPage>(
-                "Cloud & Account",
-                "Account login, preset sync, cloud backup and multi-device restore "
-                "will live here once online services are available.",
-                "Login, sync and restore wizards will guide account setup and "
-                "cloud operations when the backend ships.");
+            generalPage = std::make_unique<GeneralSettingsPage>(draftSettings);
+            audioPage = std::make_unique<AudioSettingsPage>(processor, draftSettings);
+            libraryCallbacks.onStartupAssignmentChanged = [this]
+            {
+                if (generalPage != nullptr)
+                    generalPage->refreshStartupMode();
+            };
+            libraryPage = std::make_unique<LibrarySettingsPage>(draftSettings, std::move(libraryCallbacks));
 
             addAndMakeVisible(*generalPage);
             addAndMakeVisible(*audioPage);
             addAndMakeVisible(*libraryPage);
-            addAndMakeVisible(*controllersPage);
-            addAndMakeVisible(*profilePage);
-            addAndMakeVisible(*cloudPage);
 
             setCategory(Category::General);
         }
+
+        ~SettingsOverlay() override = default;
 
         bool keyPressed(const juce::KeyPress& key) override
         {
@@ -1617,7 +1416,7 @@ namespace
 
             g.setColour(Nova::Colors::TextDim);
             g.setFont(juce::Font(juce::FontOptions(11.0f)));
-            g.drawFittedText("One home for audio, workflow, library, control and future account setup.",
+            g.drawFittedText("One home for local editor preferences, audio setup, presets and startup behavior.",
                 titleArea, juce::Justification::centredLeft, 2);
 
             // "WIZARDS" label above wizard buttons in rail
@@ -1660,6 +1459,8 @@ namespace
             contentBounds = contentAreaBounds;
 
             closeButton.setBounds(panelBounds.getRight() - 100, panelBounds.getY() + 18, 82, 28);
+            applyButton.setBounds(panelBounds.getRight() - 238, panelBounds.getBottom() - 48, 124, 30);
+            resetDefaultsButton.setBounds(panelBounds.getRight() - 402, panelBounds.getBottom() - 48, 150, 30);
 
             auto nav = leftRailBounds.reduced(14, 16);
             auto brand = nav.removeFromTop(56);
@@ -1671,12 +1472,6 @@ namespace
             btnAudio.setBounds(nav.removeFromTop(buttonH));
             nav.removeFromTop(buttonGap);
             btnLibrary.setBounds(nav.removeFromTop(buttonH));
-            nav.removeFromTop(buttonGap);
-            btnControllers.setBounds(nav.removeFromTop(buttonH));
-            nav.removeFromTop(buttonGap);
-            btnProfile.setBounds(nav.removeFromTop(buttonH));
-            nav.removeFromTop(buttonGap);
-            btnCloud.setBounds(nav.removeFromTop(buttonH));
 
             // Wizard buttons at bottom of rail
             {
@@ -1695,9 +1490,6 @@ namespace
             if (generalPage != nullptr) generalPage->setBounds(contentBounds);
             if (audioPage != nullptr) audioPage->setBounds(contentBounds);
             if (libraryPage != nullptr) libraryPage->setBounds(contentBounds);
-            if (controllersPage != nullptr) controllersPage->setBounds(contentBounds);
-            if (profilePage != nullptr) profilePage->setBounds(contentBounds);
-            if (cloudPage != nullptr) cloudPage->setBounds(contentBounds);
         }
 
     private:
@@ -1705,10 +1497,7 @@ namespace
         {
             General,
             Audio,
-            Library,
-            Controllers,
-            Profile,
-            Cloud
+            Library
         };
 
         void configureCategoryButton(juce::TextButton& button,
@@ -1754,21 +1543,67 @@ namespace
             setButtonState(btnGeneral, selectedCategory == Category::General);
             setButtonState(btnAudio, selectedCategory == Category::Audio);
             setButtonState(btnLibrary, selectedCategory == Category::Library);
-            setButtonState(btnControllers, selectedCategory == Category::Controllers);
-            setButtonState(btnProfile, selectedCategory == Category::Profile);
-            setButtonState(btnCloud, selectedCategory == Category::Cloud);
 
             if (generalPage != nullptr) generalPage->setVisible(selectedCategory == Category::General);
             if (audioPage != nullptr) audioPage->setVisible(selectedCategory == Category::Audio);
             if (libraryPage != nullptr) libraryPage->setVisible(selectedCategory == Category::Library);
-            if (controllersPage != nullptr) controllersPage->setVisible(selectedCategory == Category::Controllers);
-            if (profilePage != nullptr) profilePage->setVisible(selectedCategory == Category::Profile);
-            if (cloudPage != nullptr) cloudPage->setVisible(selectedCategory == Category::Cloud);
 
             repaint();
         }
 
+        void commitAndClose()
+        {
+            if (!EditorPrefs::commitDraft(draftSettings))
+            {
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                    "Settings Save Failed",
+                    "NOVA could not write editor-settings.xml. Your changes remain open and have not been committed.");
+                return;
+            }
+
+            if (onSettingsApplied)
+                onSettingsApplied();
+
+            if (onClose)
+                onClose();
+        }
+
+        void confirmRestoreDefaults()
+        {
+            auto* alert = new juce::AlertWindow("Restore Settings Defaults",
+                "This will reset local editor preferences. Audio parameters, presets and sessions are not changed.",
+                juce::AlertWindow::WarningIcon);
+            alert->addButton("Restore", 1, juce::KeyPress(juce::KeyPress::returnKey));
+            alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+            juce::Component::SafePointer<SettingsOverlay> safeThis(this);
+            alert->enterModalState(true, juce::ModalCallbackFunction::create(
+                [safeThis, alert](int result)
+                {
+                    juce::ignoreUnused(alert);
+
+                    if (safeThis == nullptr || result != 1)
+                        return;
+
+                    if (!EditorPrefs::resetCommittedToDefaults())
+                    {
+                        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                            "Settings Save Failed",
+                            "NOVA could not write editor-settings.xml. Existing settings were left unchanged.");
+                        return;
+                    }
+
+                    if (safeThis->onSettingsApplied)
+                        safeThis->onSettingsApplied();
+
+                    if (safeThis->onClose)
+                        safeThis->onClose();
+                }), true);
+        }
+
+        Nova::SettingsService::EditorSettings draftSettings;
         std::function<void()> onClose;
+        std::function<void()> onSettingsApplied;
         std::function<void(int)> onLaunchWizard;
         juce::Rectangle<int> panelBounds;
         juce::Rectangle<int> leftRailBounds;
@@ -1776,21 +1611,17 @@ namespace
         juce::Rectangle<int> contentAreaBounds;
         juce::Rectangle<int> contentBounds;
         juce::TextButton closeButton;
+        juce::TextButton applyButton;
+        juce::TextButton resetDefaultsButton;
         juce::TextButton btnGeneral;
         juce::TextButton btnAudio;
         juce::TextButton btnLibrary;
-        juce::TextButton btnControllers;
-        juce::TextButton btnProfile;
-        juce::TextButton btnCloud;
         juce::TextButton btnWizardAudio;
         juce::TextButton btnWizardStart;
         juce::TextButton btnWizardPreset;
         std::unique_ptr<GeneralSettingsPage> generalPage;
         std::unique_ptr<AudioSettingsPage> audioPage;
         std::unique_ptr<LibrarySettingsPage> libraryPage;
-        std::unique_ptr<PlaceholderSettingsPage> controllersPage;
-        std::unique_ptr<PlaceholderSettingsPage> profilePage;
-        std::unique_ptr<PlaceholderSettingsPage> cloudPage;
         Category selectedCategory = Category::General;
     };
 }
@@ -2691,11 +2522,12 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     const auto startupMode = EditorPrefs::getString(EditorPrefs::startupModeKey, "Remember last context");
     const auto startupPointer = getStartupPresetPointerFile();
 
-    if (startupMode == "Open clean rig")
+    if (startupMode == Nova::SettingsService::StartupModes::openCleanRig)
     {
         setCurrentPreset("No Preset");
     }
-    else if (startupPointer.existsAsFile())
+    else if (startupMode == Nova::SettingsService::StartupModes::openStartupPreset
+        && startupPointer.existsAsFile())
     {
         const auto presetPath = startupPointer.loadFileAsString().trim();
         const auto startupPreset = juce::File(presetPath);
@@ -2999,7 +2831,7 @@ void NOVAAudioProcessorEditor::clearPresetAndSession()
 {
     const auto performClear = [this]()
     {
-        audioProcessor.clearSessionAndForgetStartupPreset();
+        audioProcessor.clearSession();
 
         setCurrentPreset("No Preset");
         presetSelector.setSelectedId(0, juce::dontSendNotification);
@@ -3754,27 +3586,77 @@ void NOVAAudioProcessorEditor::openSettingsOverlay()
 {
     auto overlay = std::make_unique<SettingsOverlay>(
         audioProcessor,
-        [this](bool enabled)
-        {
-            showPerformanceStats = enabled;
-            applyEditorPreferences(false);
-        },
-        [this](bool enabled)
-        {
-            openQuickAddOnStartup = enabled;
-        },
-        [this](bool enabled)
-        {
-            openPresetsOnStartup = enabled;
+        LibrarySettingsPage::Callbacks{
+            [this]()
+            {
+                return currentPresetName == "No Preset" ? juce::String{} : currentPresetName;
+            },
+            []()
+            {
+                return getStartupPresetName();
+            },
+            [this]()
+            {
+                return getPresetDirectory();
+            },
+            [this]() -> bool
+            {
+                if (currentPresetName == "No Preset")
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                        "Startup Preset",
+                        "Load or save a preset first before setting a startup preset.");
+                    return false;
+                }
+
+                const auto presetFile = getPresetFileForName(currentPresetName);
+                if (!presetFile.existsAsFile())
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                        "Startup Preset",
+                        "The current preset has not been saved to disk yet.");
+                    return false;
+                }
+
+                if (Nova::SettingsService::writeStartupPresetPointer(presetFile))
+                {
+                    if (EditorPrefs::setPersistentString(EditorPrefs::startupModeKey,
+                        Nova::SettingsService::StartupModes::openStartupPreset))
+                    {
+                        return true;
+                    }
+
+                    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                        "Startup Preset",
+                        "The preset pointer was written, but NOVA could not persist the startup mode. Check folder permissions and try again.");
+                    return false;
+                }
+
+                return false;
+            },
+            []()
+            {
+                Nova::SettingsService::clearStartupPresetPointer();
+                if (!EditorPrefs::setPersistentString(EditorPrefs::startupModeKey,
+                    Nova::SettingsService::StartupModes::rememberLastContext))
+                {
+                    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                        "Startup Preset",
+                        "The startup preset was cleared, but NOVA could not persist the startup mode. Apply settings again after checking folder permissions.");
+                }
+            }
         },
         [this]()
         {
-            // Switcher config changed — update route info tooltip and force relayout
+            showPerformanceStats = EditorPrefs::getBool(EditorPrefs::showStatsKey, true);
+            openQuickAddOnStartup = EditorPrefs::getBool(EditorPrefs::openBrowserOnStartupKey, false);
+            openPresetsOnStartup = EditorPrefs::getBool(EditorPrefs::openPresetsOnStartupKey, false);
+            audioProcessor.getAudioEngine().setTunerReferencePitch(EditorPrefs::parseTunerReference());
+
             const int keyCode = EditorPrefs::getSwitcherKeyCode();
             routeInfoText = "Shortcut: " + EditorPrefs::keyCodeToDisplayName(keyCode)
                 + ". Configure in Settings > General > Interface.";
 
-            // If current mode is now disabled, switch to first enabled mode
             const int modes = EditorPrefs::getSwitcherModes();
             const int current = (int)audioProcessor.getSwitcherMode();
             if (!((modes >> current) & 1))
@@ -3789,49 +3671,7 @@ void NOVAAudioProcessorEditor::openSettingsOverlay()
                 }
             }
 
-            resized();
-            repaint();
-        },
-        LibrarySettingsPage::Callbacks{
-            [this]()
-            {
-                return currentPresetName == "No Preset" ? juce::String{} : currentPresetName;
-            },
-            []()
-            {
-                return getStartupPresetName();
-            },
-            [this]()
-            {
-                return getPresetDirectory();
-            },
-            [this]()
-            {
-                if (currentPresetName == "No Preset")
-                {
-                    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                        "Startup Preset",
-                        "Load or save a preset first before setting a startup preset.");
-                    return;
-                }
-
-                const auto presetFile = getPresetFileForName(currentPresetName);
-                if (!presetFile.existsAsFile())
-                {
-                    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                        "Startup Preset",
-                        "The current preset has not been saved to disk yet.");
-                    return;
-                }
-
-                getStartupPresetPointerFile().replaceWithText(presetFile.getFullPathName());
-            },
-            []()
-            {
-                const auto pointerFile = getStartupPresetPointerFile();
-                if (pointerFile.existsAsFile())
-                    pointerFile.deleteFile();
-            }
+            applyEditorPreferences(false);
         },
         [this](int wizardID)
         {
@@ -4325,8 +4165,10 @@ void NOVAAudioProcessorEditor::audioEngineTopologyChanged(uint64_t graphGenerati
 
 void NOVAAudioProcessorEditor::closeStalePedalEditorOverlay(uint64_t graphGeneration)
 {
+#if JUCE_DEBUG
     auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
     jassert(messageManager != nullptr && messageManager->isThisTheMessageThread());
+#endif
 
     auto* pedalOverlay = dynamic_cast<PedalEditorOverlay*>(currentOverlay.get());
     if (pedalOverlay == nullptr || pedalOverlay->getGraphGeneration() == graphGeneration)

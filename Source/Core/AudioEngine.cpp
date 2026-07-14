@@ -989,8 +989,10 @@ void AudioEngine::notifyTopologyChangedOnMessageThread()
     if (!topologyNotificationPending.exchange(false, std::memory_order_acq_rel))
         return;
 
+#if JUCE_DEBUG
     auto* messageManager = juce::MessageManager::getInstanceWithoutCreating();
     jassert(messageManager != nullptr && messageManager->isThisTheMessageThread());
+#endif
 
     if (auto* listener = topologyListener.load(std::memory_order_acquire))
         listener->audioEngineTopologyChanged(getActiveGraphGeneration());
