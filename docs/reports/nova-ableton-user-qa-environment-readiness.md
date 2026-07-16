@@ -2,17 +2,18 @@
 
 ## Executive Summary
 
-* Status: BLOCKED
+* Status: ENVIRONMENT BLOCKER
 * Can start final human-assisted User QA: NO
-* Main blockers: Ableton Live 12 Trial crashed twice while replacing or opening Live Sets. Windows recorded matching `APPCRASH` events in `KERNELBASE.dll` with exception `0xe06d7363`, and Ableton logged a licensing network callback exception. Human confirmation of audible UR12 output is also still pending.
+* Main blockers: A targeted no-NOVA matrix reproduced an Ableton exit crash with an empty Set at the required 64-sample buffer. The dump is an Ableton-internal `0xc0000005` software-NX fault with no NOVA or JUCE module loaded. The two earlier crashes remain Ableton-main-thread `std::out_of_range` exceptions; the second also occurred with no NOVA module loaded. Higher-buffer checks were clean but were not expanded into the single- or multiple-NOVA matrices, so they are not yet a safe final-QA workaround. Human confirmation of audible UR12 output is also still pending.
 
 ## NOVA Pinned State
 
 * Branch: `master`
 * Expected NOVA commit: `d3dcc1d8b205829d17ca7f6067e1e0860ebdfd4b`
-* Current HEAD before this report update: `699ad9b4bbf9e631d7ac81177151b2677b4f9c0f`
+* Expected crash-isolation starting HEAD: `348c79d13a0e7c2167d73f2ea9a9291e7aa175a8`
+* Current HEAD before this addendum: `348c79d13a0e7c2167d73f2ea9a9291e7aa175a8`
 * Working tree: Clean before this report update.
-* HEAD explanation: Current HEAD is the previous documentation-only environment report commit. Excluding this report, the repository has no differences from the expected NOVA commit and contains no source changes.
+* HEAD explanation: The targeted run started at the exact expected documentation HEAD. Excluding this report, the repository has no differences from the validated NOVA source content and contains no source changes.
 * VST3 source path: `C:\Users\gusta\OneDrive\Desktop\DEV\ULTIMATE\NOVA\Builds\VisualStudio2022\x64\Release\VST3\NOVA.vst3`
 * VST3 installed path: Ableton scans the source bundle in place through its dedicated custom VST3 folder. `C:\Program Files\Common Files\VST3\NOVA.vst3` is absent because Windows denied the unelevated copy.
 * VST3 source hash: `BB1E00696DD1CB94EFB13298DA09C4EF47F06BA3FE16B8E9362886EF7C658567` for `Contents\x86_64-win\NOVA.vst3`
@@ -114,3 +115,80 @@
 ## Next Recommended Step
 
 Environment remains blocked.
+
+## Ableton Crash Isolation Addendum
+
+### Existing Crash Evidence
+
+* Crash timestamps: `2026-07-16 13:43:32` (PID `28208`, `0x6E30`), `2026-07-16 13:48:37` (PID `4628`, `0x1214`), and the targeted no-NOVA baseline crash at `2026-07-16 14:42:42` (PID `17972`, `0x4634`). The corresponding dumps were written at `13:43:36`, `13:48:40`, and `14:42:45`.
+* Faulting modules: Windows named `KERNELBASE.dll` for the first two events. Local dump analysis resolves both to `msvcp140!std::_Xout_of_range` called from Ableton main/UI-thread frames. Windows named an unknown module/`StackHash_ac46` for the no-NOVA event; local dump analysis resolves it to an attempted execute at address zero on an Ableton worker thread, with `Ableton Live 12 Trial.exe` frames immediately below it.
+* Exception codes: The first two crashes are C++ exceptions `0xe06d7363` at offset `0x00000000000c1ada`, with dump bucket `CPP_EXCEPTION_e06d7363_msvcp140.dll!std::_Xout_of_range`. The no-NOVA baseline crash is `0xc0000005`, exception data `0x8`, with dump bucket `SOFTWARE_NX_FAULT_c0000005_Ableton Live 12 Trial.exe!Unknown`.
+* Dumps/logs: Full local dumps remain uncommitted at `%LOCALAPPDATA%\CrashDumps\Ableton Live 12 Trial.exe.28208.dmp` SHA-256 `A1580874F68E511DB52F575E905160B81AA711429EE73C547FEA43295DFC6A8D`, `...4628.dmp` SHA-256 `D7635ADCAEB3629EE5C188381C28DCCE2DB545AC8E8F08D7A98DA2445F7B8570`, and `...17972.dmp` SHA-256 `BDDAB0DB36EF3048BA6022C93C7A680D63CACF0C8C4C5E53B79F9A8F3B065A17`. Small debugger and WER text evidence is preserved under `C:\Users\Public\Documents\NOVA-QA\Ableton-Final-QA\Crash-Isolation-20260716\Evidence`.
+* NOVA/JUCE evidence: NOVA was loaded in the first crash process but is absent from the faulting stack. NOVA is not loaded at all in the second or third crash process. No JUCE frame or separately loaded JUCE module appears in any faulting stack. The third crash was reproduced with the saved empty baseline Set and no plug-in device.
+* Ableton evidence: The first two stacks are identical through Ableton main/UI-thread frames and `std::_Xout_of_range`. The second Live log also records `Licensing: Network timer callback failed` and `Python exception: invalid unordered_map<K, T> key` immediately before termination. The third stack is an Ableton worker-thread software-NX fault after a successful empty-Set reopen and application-exit request.
+* ASIO/driver evidence: `ysusb_asio64.dll` was loaded in all three processes but is absent from every faulting stack. The first dump also contains Ableton's own ASIO support module outside the fault stack. This establishes driver presence, not driver causality.
+* Assessment: The crashes are not attributable to NOVA on the available evidence. Ableton Live 12.4.3 Trial is demonstrably unstable without NOVA at the original 44.1 kHz/64-sample configuration. The three crashes span two Ableton-internal failure signatures, so the environment is not sufficiently isolated for final QA.
+
+### Baseline Without NOVA
+
+* Empty Set cycles: Five complete save/new-Set/reopen/application-exit cycles at 44.1 kHz/64 samples. Four passed; cycle 3 crashed on exit after the reopen succeeded. The two earlier preparation crashes are not counted in these five cycles.
+* Stock-device cycles: Five complete cycles at 44.1 kHz/64 samples with one Ableton Utility device. All five passed.
+* Buffers tested: 64, 256, and 1024 samples with Yamaha Steinberg USB ASIO. Three complete empty-Set cycles passed at 256 and three passed at 1024. One extra 1024 procedural attempt was excluded because the reopen action did not occur.
+* Crashes: One crash in 5 empty-Set cycles at 64 samples; 0 in 5 stock-device cycles at 64; 0 in 3 empty-Set cycles at 256; 0 in 3 empty-Set cycles at 1024. Total counted matrix: 16 complete cycles, 1 crash.
+* Exit timing: Empty/64 clean and crash exits ranged from `0.90` to `3.81` seconds; stock/64 from `0.90` to `1.27` seconds; empty/256 from `1.05` to `1.32` seconds; empty/1024 from `1.22` to `1.73` seconds. Transition and reopen actions normally completed below two seconds after the application was ready.
+* Result: FAIL at the required original configuration. The no-NOVA baseline reproduces an Ableton crash, which blocks NOVA-specific attribution and final User QA.
+
+### Single NOVA Instance
+
+* Scenarios: The controlled Phase 4 scenario matrix was not started after the no-NOVA baseline produced a new dump-backed crash. The prior environment-preparation sanity check remains valid only as a single successful load/editor/settings/automation observation, not as a repeated stability matrix.
+* Total cycles: 0 targeted Phase 4 cycles.
+* Crashes: Not tested in this matrix.
+* Reproducible scenario: None established for NOVA.
+* Editor/settings relationship: Unknown; neither original faulting stack contains NOVA/JUCE editor code, and the second and third crash processes did not load NOVA.
+* Automation relationship: Unknown; the earlier one-lane Input Gain check passed, but it was not repeated here.
+* Result: BLOCKED BY BASELINE. No NOVA-specific crash is established.
+
+### Multiple NOVA Instances
+
+* Two-instance result: Not run because the Ableton-only baseline failed first.
+* Three-instance result: Not run because the Ableton-only baseline failed first.
+* Open-editor result: Not run.
+* Total cycles: 0 targeted Phase 5 cycles.
+* Crashes: Not tested.
+* Result: BLOCKED BY BASELINE. Multiple-instance readiness remains unproven.
+
+### Driver/Buffer Isolation
+
+* Driver configurations: Yamaha Steinberg USB ASIO with Steinberg UR12 throughout; 2 inputs/2 outputs at 44.1 kHz. No new driver was installed and no alternate driver was required by the Phase 6 trigger.
+* Buffer configurations: 64 samples for five empty and five stock-device cycles; 256 samples for three empty cycles; 1024 samples for three counted empty cycles.
+* Crash frequency: Empty/64 `1/5`; stock/64 `0/5`; empty/256 `0/3`; empty/1024 `0/3`. Both earlier preparation crashes also occurred at 64 samples.
+* Faulting modules: Ableton/`msvcp140` for the two earlier failures and Ableton executable frames for the no-NOVA software-NX failure. `ysusb_asio64.dll` is loaded but not present on any faulting stack.
+* Stable configuration: 256 and 1024 samples are clean candidates in this limited baseline matrix. Neither is accepted as a safe final-QA configuration because the single- and multiple-NOVA matrices and human audio-path confirmation were not run there.
+* Result: There is material 64-sample sensitivity evidence, but not enough stack evidence to classify the Yamaha driver as the cause or to downgrade the gate to CONDITIONAL.
+
+### Human Audio Path Sanity
+
+* Human present: NO response was available during this run.
+* Test tone audible: PENDING; the earlier preparation run toggled Ableton's test tone successfully but received no human confirmation.
+* Imported audio audible: PENDING; the earlier demo playback ran but received no human confirmation.
+* NOVA audio audible: PENDING; the earlier NOVA activator toggle passed as a routing action but received no human-audibility confirmation.
+* Immediate crackling/dropouts: PENDING.
+* Stable audio configuration: Automation observed clean host operation at 256 and 1024 samples, but no human-audible configuration is claimed.
+* Result: PENDING; no listening judgment was inferred.
+
+### State Restoration
+
+* Ableton settings restored: YES. The pre-test Ableton Preferences and Unlock snapshot at `C:\Users\Public\Documents\NOVA-QA\Ableton-Final-QA\Crash-Isolation-20260716\Backups\BeforeTesting-20260716-142811` was restored after Live closed.
+* NOVA settings restored: NOT REQUIRED; all NOVA user-state hashes remained identical to baseline throughout the run.
+* Hash verification: PASS. The pre-test manifest covers 42 Ableton/NOVA files; post-restoration mismatches are `0`. Yamaha `PeriodFrames` was restored from the tested 256/1024 values to the original `64`.
+* Temporary files removed: Test Sets, cycle logs, and summaries are intentionally retained only in the external `Crash-Isolation-20260716` QA workspace. Full dumps remain in the Windows crash-dump directory and are not copied into the repository.
+* Repository contamination: NONE before this documentation update. No source, binary, database, preference, dump, or machine-local test artifact was added to the repository.
+
+### Updated Environment Gate
+
+* Status: ENVIRONMENT BLOCKER
+* Can start final human-assisted User QA: NO
+* NOVA-specific crash established: NO
+* Main evidence: A fresh empty-Set/no-NOVA crash at 64 samples produced a full dump with an Ableton-only software-NX stack. The second original crash also had no NOVA module loaded, and both original faulting stacks resolve to Ableton-main-thread `std::out_of_range` exceptions.
+* Remaining blockers: Ableton does not pass the required no-NOVA 64-sample baseline; the cleaner 256/1024 candidates have not passed the single- and multiple-NOVA matrices; human audio-path confirmation is pending.
+* Required next step: Repair or replace the Ableton Live 12.4.3 Trial environment, then pass five no-NOVA save/new/reopen/exit cycles at 256 samples before running the single- and multiple-NOVA matrices and requesting human audio-path confirmation.
