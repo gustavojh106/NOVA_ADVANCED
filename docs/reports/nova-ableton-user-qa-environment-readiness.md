@@ -192,3 +192,111 @@ Environment remains blocked.
 * Main evidence: A fresh empty-Set/no-NOVA crash at 64 samples produced a full dump with an Ableton-only software-NX stack. The second original crash also had no NOVA module loaded, and both original faulting stacks resolve to Ableton-main-thread `std::out_of_range` exceptions.
 * Remaining blockers: Ableton does not pass the required no-NOVA 64-sample baseline; the cleaner 256/1024 candidates have not passed the single- and multiple-NOVA matrices; human audio-path confirmation is pending.
 * Required next step: Repair or replace the Ableton Live 12.4.3 Trial environment, then pass five no-NOVA save/new/reopen/exit cycles at 256 samples before running the single- and multiple-NOVA matrices and requesting human audio-path confirmation.
+
+## Ableton Environment Remediation Addendum
+
+### Pinned State
+
+* Branch: `master`.
+* HEAD: `60d79d2d28a6c655f48602d6b2eebbf87cb041c5`, matching the pinned commit.
+* Working tree: Clean before remediation and before this report-only update; no modified or untracked source files existed.
+* NOVA artifact hashes: VST3 binary `BB1E00696DD1CB94EFB13298DA09C4EF47F06BA3FE16B8E9362886EF7C658567`; Standalone `742C84A1679DE45693FFB4E38020E225DADC27F799D076438A110BEEAF19420B`; `moduleinfo.json` `16BE1AD9756D9ED5B7F7616ED3B0EDEE95E2FB97F88CCA0AA5CE8D12DCB75298`. All match the previous readiness report.
+* Result: PASS. No NOVA source change, rebuild, binary replacement, or source-code commit occurred.
+
+### Backups
+
+* Ableton settings backed up: YES. The entire roaming `Live 12.4.3` tree, local Cache, local Live Database, Live Reports, and Yamaha driver registry key were copied before isolation.
+* NOVA settings backed up: YES. The complete `%APPDATA%\NOVA` directory was copied.
+* Backup paths: `C:\Users\Public\Documents\NOVA-QA\Ableton-Final-QA\Environment-Remediation-20260716-164813\Backups\BeforeCleanProfile-20260716-164813`; original live profile directories are also retained under `...\Isolated-Originals`.
+* Baseline hashes: Verified backup manifest contains `423` entries and hashes to `0AAFED7C2DC6A3CCC37F9FD70E6C314D384B08E96E240278F8735A8D8768B`; copy mismatches `0`. Key originals: `Preferences.cfg` `8444ACA8FD98DC7F590C8075B753D70DB9B894A34EC31125ABD7439EB013F7AE`; `Live-files-12300.db` `7D62D12536EE3ADFF844980551D6A3541724C3718F3D1C0DEA04DDDD464A529F`; `Live-plugins-1.db` `601F85BF25929AAACC10F285C51E29D5296038AD20D82887D5BBDFA42D3823FC`; `Unlock.json` `548B1800B51B56CFA3CAB435735C0EEEEEBA6721978203E95FB5F53A92718AEE`; NOVA `editor-settings.xml` `629196E949D05BC39858B380A741C7D1A3E6F032B2FA5060107A2AF1080D3419`; `NOVA.settings` `347DC8FBC2B4C700A4921D1E6C64FC877422F5035AE51580A24FAB554D7B78F2`.
+* Restore plan: `...\Backups\BeforeCleanProfile-20260716-164813\restore-plan.md` describes closing Live, restoring the isolated roaming Preferences and local Live Database, restoring NOVA state if needed, importing the Yamaha registry snapshot, and verifying the manifest.
+
+### Installation Health
+
+* Ableton version: Live 12 Trial `12.4.3`; executable SHA-256 `BC59BAB1DD4745D3EED8245E66C75D8168661440F0B6075803DE1706959DF192`; Ableton signature valid.
+* Installation findings: `49,115` files occupying about `5.84 GiB`; no obvious missing application payload. Microsoft Visual C++ x64 runtime `v14.44.35211.00` is installed and the inspected runtime DLL signatures are valid. System drive free space remained above `103 GiB`.
+* Log findings: No repeated preference-parse, database-corruption, missing-file, permission, or audio-device restoration error was found in the clean-profile run. The final plug-in database passes SQLite `quick_check` and contains exactly one enabled plug-in entry, NOVA. Across all `86` valid cycles, new Ableton fatal Application events: `0`.
+* Permission findings: Ableton user configuration directories are owned by the current user and writable with full control; no access-denied condition was reproduced.
+* Repair/reinstall availability: Installed entry exposes only `"C:\ProgramData\Ableton\Live 12 Trial\unins000.exe" /LOG`; no `ModifyPath`, `RepairPath`, or cached installer source is registered. No uninstall, repair, or reinstall was executed.
+* Assessment: PASS. No installation corruption indicator justifies destructive remediation. A reversible clean user profile plus a 256-sample buffer isolates the prior 64-sample instability, so reinstall is not required.
+
+### Clean Profile
+
+* Files isolated: Entire `%APPDATA%\Ableton\Live 12.4.3\Preferences` and `%LOCALAPPDATA%\Ableton\Live Database` directories, moved intact to the external run workspace. Unlock/license state and the local Cache were retained; nothing was deleted.
+* Fresh files generated: Live regenerated clean Preferences and Live Database trees. The first-launch manifest had `13` entries and SHA-256 `687859769D838723236EE4BC70501AC5B950FB0D04FFC0CD737073AE7692E2C8`; the final retained-profile manifest has `32` entries and SHA-256 `8F97BE9B03B658BEA8C048145DF74C7DDB95ECA0C5E0A74FFF6909D733A7F10B`.
+* Audio configuration: Yamaha Steinberg USB ASIO, Steinberg UR12, `2` inputs / `2` outputs, `44.1 kHz`, `256` samples; Live reported approximately `18.3 ms` overall latency.
+* Plugin configuration: System VST3 scan disabled for isolation; dedicated custom VST3 path points only to the validated NOVA Release bundle. Clean database contains one module and one enabled `NOVA Audio / NOVA / 1.0.0` entry.
+* Launch result: PASS. First clean launch, Yamaha configuration, save, and orderly exit completed without a fatal event; exit took `1.03 s`.
+* Risks: The original profile is intentionally not active during final QA. The clean profile has a deliberately narrow plug-in scan scope, and the previously unstable `64`-sample configuration must not be restored before QA.
+
+### No-NOVA Baseline at 256 Samples
+
+* Empty Set cycles: `5` complete launch/save/new/reopen/close/application-exit cycles.
+* Empty Set passes: `5/5`.
+* Empty Set crashes: `0`; hangs `0`; forced terminations `0`.
+* Stock Utility cycles: `5` complete cycles with one audio track and one Ableton Utility.
+* Stock Utility passes: `5/5`.
+* Stock Utility crashes: `0`; hangs `0`; forced terminations `0`.
+* Exit-duration range: `0.88-1.02 s` across the combined mandatory baseline.
+* New logs/events: Every counted cycle logged `GlobalExit(): End (0)`; new fatal Application events `0`. NOVA was absent from both saved Sets and the counted cycle logs.
+* Result: PASS, `10/10`. The mandatory clean-profile gate passed before NOVA was enabled.
+
+### Additional Buffer Baseline
+
+* 128 samples: Not run; optional after 256 passed decisively.
+* 256 samples: Mandatory empty and stock baseline `10/10` passed.
+* 512 samples: Empty-to-stock transition matrix `3/3` passed; exit range `0.99-1.06 s`.
+* 1024 samples: Empty-to-stock transition matrix `3/3` passed; exit range `1.17-1.19 s`.
+* Selected stable buffer: `256` samples at `44.1 kHz`.
+* Result: PASS. The Yamaha buffer remains `256`; `64` was not reused and is excluded from readiness because the earlier no-NOVA matrix crashed there.
+
+### Single NOVA Matrix
+
+* Scan result: PASS. Clean scan found NOVA exactly once from the isolated custom path; module and plug-in scan states are valid, and the plug-in database `quick_check` is `ok`.
+* Parameters: `15/15` host parameters exposed. Editor and Settings opened successfully. No unexpected NOVA diagnostic artifact was generated, and both NOVA user-state hashes remained identical to baseline.
+* Scenarios: A editor never opened; B editor opened/closed; C editor open through transition/exit; D Settings opened/closed; E Settings open through transition/exit; F Input Gain changed/saved; G Input Gain automation saved; H automated Set close/reopen. Each scenario ran `5` complete cycles.
+* Total cycles: `40`.
+* Passes: `40/40`; exit range `0.59-4.21 s`, with the longer exits limited to intentionally open editor/Settings cases.
+* Crashes: `0`; hangs `0`; forced terminations `0`; fatal events `0`.
+* Reproducible NOVA scenario: None.
+* Result: PASS. No scenario met or approached the NOVA blocker threshold.
+
+### Multiple NOVA Matrix
+
+* Two-instance cycles: Required Test A editors closed `5/5`; required Test B both editors opened plus Settings opened/closed on one instance `5/5`.
+* Three-instance cycles: Required Test C editors closed with independent states and automation `5/5`; required Test D all three editors open through transition/exit `5/5`.
+* Open-editor cycles: Required open-editor coverage `10/10`; an additional two-editor opened/closed matrix `5/5` and two-editor-open-through-exit matrix `5/5` also passed.
+* Automation coverage: Three-instance Set contains three NOVA instances with independent normalized Input Gain values `0.55`, `0.90`, and `0.72`. Each Input Gain automation target has its own saved envelope; automation coverage is therefore `3/3` instances, exceeding the two-instance minimum.
+* Crashes: Required matrix `0/20`; supplemental matrix `0/10`; hangs `0`; forced terminations `0`; fatal events `0`.
+* State independence: PASS. Saved XML confirms distinct parameter values and distinct automation target IDs after repeated reopen cycles; no shared-state corruption was observed.
+* Result: PASS, required `20/20`, supplemental `10/10`.
+
+### Human Audio-Path Sanity
+
+* Human present: NO response received during this run.
+* Test tone: PENDING; no audible result inferred.
+* Imported audio: PENDING; no audible result inferred.
+* NOVA audio: PENDING; no audible result inferred.
+* Global bypass: PENDING; no audible result inferred.
+* Crackling/dropout: PENDING; no audible result inferred.
+* Safe level: PENDING; the prepared listening Set used input monitoring and approximately `-12 dB` track gain, but safety was not human-confirmed.
+* Result: PENDING. This prevents a `READY` classification and prevents starting final human-assisted User QA.
+
+### State After Run
+
+* Stable profile retained: YES. The clean Ableton Preferences and Live Database remain active for final QA.
+* Original profile restored: NO, intentionally. It remains intact under `...\Isolated-Originals` and has a separately verified backup.
+* Yamaha buffer: `256` samples retained; original `64`-sample registry state is preserved in the backup `.reg` file.
+* NOVA settings restored: Not required. Final `editor-settings.xml` hash `629196E949D05BC39858B380A741C7D1A3E6F032B2FA5060107A2AF1080D3419` and `NOVA.settings` hash `347DC8FBC2B4C700A4921D1E6C64FC877422F5035AE51580A24FAB554D7B78F2` exactly match the pre-run baseline.
+* Hash verification: Backup copy mismatches `0/423`; final retained-profile manifest SHA-256 `8F97BE9B03B658BEA8C048145DF74C7DDB95ECA0C5E0A74FFF6909D733A7F10B`. Final clean-profile `Preferences.cfg` hash `A75F18D44F7A9CA11B8E873C3F2B6169E08B123AE3B74B92632330300F1EB8B0`; plug-in database hash `434FD38EA095402CAFD15895765AFE18AB40270E5A357E610B2B72EC0CA65557`.
+* Temporary files: Sets, screenshots, manifests, per-cycle JSON, logs, harness, and quarantined procedural retries remain only in `C:\Users\Public\Documents\NOVA-QA\Ableton-Final-QA\Environment-Remediation-20260716-164813`. Setup/focus retries are excluded from counted matrices; Live remained responsive and produced no fatal event in those retries.
+* Repository contamination: NONE before this report update. No dump, Set, database, preference, binary, or external evidence file was added to the repository.
+
+### Updated Environment Gate
+
+* Status: CONDITIONAL
+* Can start final human-assisted User QA: NO
+* Stable configuration: Clean Ableton Live 12 Trial `12.4.3` profile; Yamaha Steinberg USB ASIO / Steinberg UR12; `2 in / 2 out`; `44.1 kHz`; `256` samples; isolated validated NOVA custom VST3 path; original profile and `64`-sample state preserved but inactive.
+* NOVA-specific crash established: NO
+* Remaining blockers: Human audio-path confirmation only: Ableton test tone, imported audio, NOVA-routed audio, global bypass audibility, absence of constant crackling/dropout, and safe monitoring level.
+* Required next step: A human tester must confirm all six audio-path items at the retained 256-sample configuration. If they pass, record them in this addendum and permit final human-assisted User QA under the documented 256-sample workaround. Do not restore `64` samples before that QA.
