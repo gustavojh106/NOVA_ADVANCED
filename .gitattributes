@@ -1,0 +1,7 @@
+# Projucer writes native line endings, so a resave on macOS would otherwise
+# rewrite every generated Visual Studio file. Normalising here keeps the
+# committed projects stable no matter which platform regenerates them.
+Builds/VisualStudio2022/** text eol=crlf
+*.jucer text eol=lf
+*.ps1  text eol=crlf
+*.sh   text eol=lf

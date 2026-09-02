@@ -418,44 +418,47 @@ NOVAAudioProcessor::~NOVAAudioProcessor()
     NovaDiagnostics::SessionLogger::detachOwner("NOVAAudioProcessor");
 }
 
+// AU hosts (Logic, GarageBand) use parameter version hints to keep automation
+// stable when parameters are added in later releases; bump the hint for any
+// parameter introduced after this version. Ignored by VST3 and Standalone.
 void NOVAAudioProcessor::createGlobalParameters()
 {
     addParameter(engineOnParam = new juce::AudioParameterBool(
-        Nova::IDs::ENGINE_ON.toString(), "Engine", false));
+        juce::ParameterID{ Nova::IDs::ENGINE_ON.toString(), 1 }, "Engine", false));
 
     addParameter(switchModeParam = new juce::AudioParameterChoice(
-        Nova::IDs::SWITCH_MODE.toString(),
+        juce::ParameterID{ Nova::IDs::SWITCH_MODE.toString(), 1 },
         "Switcher",
         juce::StringArray{ "Line A", "Line B", "Dual" },
         (int)Nova::SwitcherMode::LineA_Only));
 
     addParameter(inputGainParam = new juce::AudioParameterFloat(
-        Nova::IDs::INPUT_GAIN.toString(), "Input Gain", -60.0f, 24.0f, 0.0f));
+        juce::ParameterID{ Nova::IDs::INPUT_GAIN.toString(), 1 }, "Input Gain", -60.0f, 24.0f, 0.0f));
     addParameter(inputGateParam = new juce::AudioParameterFloat(
-        Nova::IDs::INPUT_GATE.toString(), "Input Gate", -100.0f, 0.0f, -100.0f));
+        juce::ParameterID{ Nova::IDs::INPUT_GATE.toString(), 1 }, "Input Gate", -100.0f, 0.0f, -100.0f));
     addParameter(forceMonoParam = new juce::AudioParameterBool(
-        Nova::IDs::FORCE_MONO.toString(), "Force Mono", false));
+        juce::ParameterID{ Nova::IDs::FORCE_MONO.toString(), 1 }, "Force Mono", false));
 
     addParameter(gainAParam = new juce::AudioParameterFloat(
-        Nova::IDs::MIXER_GAIN_A.toString(), "Level A", 0.0f, 2.0f, 1.0f));
+        juce::ParameterID{ Nova::IDs::MIXER_GAIN_A.toString(), 1 }, "Level A", 0.0f, 2.0f, 1.0f));
     addParameter(panAParam = new juce::AudioParameterFloat(
-        Nova::IDs::MIXER_PAN_A.toString(), "Pan A", -1.0f, 1.0f, 0.0f));
+        juce::ParameterID{ Nova::IDs::MIXER_PAN_A.toString(), 1 }, "Pan A", -1.0f, 1.0f, 0.0f));
     addParameter(widthAParam = new juce::AudioParameterFloat(
-        Nova::IDs::MIXER_WIDTH_A.toString(), "Width A", 0.0f, 2.0f, 1.0f));
+        juce::ParameterID{ Nova::IDs::MIXER_WIDTH_A.toString(), 1 }, "Width A", 0.0f, 2.0f, 1.0f));
 
     addParameter(gainBParam = new juce::AudioParameterFloat(
-        Nova::IDs::MIXER_GAIN_B.toString(), "Level B", 0.0f, 2.0f, 1.0f));
+        juce::ParameterID{ Nova::IDs::MIXER_GAIN_B.toString(), 1 }, "Level B", 0.0f, 2.0f, 1.0f));
     addParameter(panBParam = new juce::AudioParameterFloat(
-        Nova::IDs::MIXER_PAN_B.toString(), "Pan B", -1.0f, 1.0f, 0.0f));
+        juce::ParameterID{ Nova::IDs::MIXER_PAN_B.toString(), 1 }, "Pan B", -1.0f, 1.0f, 0.0f));
     addParameter(widthBParam = new juce::AudioParameterFloat(
-        Nova::IDs::MIXER_WIDTH_B.toString(), "Width B", 0.0f, 2.0f, 1.0f));
+        juce::ParameterID{ Nova::IDs::MIXER_WIDTH_B.toString(), 1 }, "Width B", 0.0f, 2.0f, 1.0f));
 
     addParameter(outputVolParam = new juce::AudioParameterFloat(
-        Nova::IDs::OUTPUT_VOL.toString(), "Output Volume", -60.0f, 12.0f, 0.0f));
+        juce::ParameterID{ Nova::IDs::OUTPUT_VOL.toString(), 1 }, "Output Volume", -60.0f, 12.0f, 0.0f));
     addParameter(outputLimiterParam = new juce::AudioParameterFloat(
-        Nova::IDs::OUTPUT_LIMITER.toString(), "Output Limiter", -12.0f, 0.0f, 0.0f));
+        juce::ParameterID{ Nova::IDs::OUTPUT_LIMITER.toString(), 1 }, "Output Limiter", -12.0f, 0.0f, 0.0f));
     addParameter(outputMixParam = new juce::AudioParameterFloat(
-        Nova::IDs::OUTPUT_MIX.toString(), "Output Mix", 0.0f, 100.0f, 100.0f));
+        juce::ParameterID{ Nova::IDs::OUTPUT_MIX.toString(), 1 }, "Output Mix", 0.0f, 100.0f, 100.0f));
 }
 
 void NOVAAudioProcessor::parameterValueChanged(int parameterIndex, float newValue)

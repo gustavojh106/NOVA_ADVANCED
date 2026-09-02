@@ -10,3 +10,9 @@ Builds/*/Release/
 .vs/
 *.ipch
 /JuceLibraryCode/
+
+# Xcode build output (macOS)
+Builds/MacOSX/build/
+Builds/MacOSX/*.xcodeproj/project.xcworkspace/
+Builds/MacOSX/*.xcodeproj/xcuserdata/
+.DS_Store

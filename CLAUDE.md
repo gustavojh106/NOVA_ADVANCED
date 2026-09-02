@@ -4,11 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-NOVA is a **guitar multi-effects processor** built as a JUCE audio plugin (VST3 + Standalone). It features a dual-chain signal routing architecture with 25 effect units (17 pedals, 5 amplifiers, 3 cabinets), drag-and-drop pedalboard GUI, preset system, and built-in tuner.
+NOVA is a **guitar multi-effects processor** built as a JUCE audio plugin (VST3 + AU + Standalone). It features a dual-chain signal routing architecture with 25 effect units (17 pedals, 5 amplifiers, 3 cabinets), drag-and-drop pedalboard GUI, preset system, and built-in tuner.
 
 ## Build Commands
 
-Build scripts are PowerShell in `scripts/`. All commands run from the repo root.
+NOVA builds on **Windows and macOS from the same source**. `NOVA.jucer` is the single
+source of truth; each platform has its own exporter and its own build script in `scripts/`.
+All commands run from the repo root.
+
+### Windows
+
+PowerShell scripts, MSBuild, Visual Studio 2022.
 
 ```powershell
 # Build Standalone (debug, default — use this for dev/test)
@@ -27,10 +33,43 @@ powershell -ExecutionPolicy Bypass -File scripts/quick-validate.ps1
 powershell -ExecutionPolicy Bypass -File scripts/context-bootstrap.ps1
 ```
 
-- **IDE**: Visual Studio 2022 (solution at `Builds/VisualStudio2022/NOVA.sln`)
-- **Project manager**: Projucer (`NOVA.jucer` at repo root)
-- **Build targets**: `NOVA_StandalonePlugin` (debug/test), `NOVA_VST3` (production)
-- **When adding/removing source files**: Edit `NOVA.jucer` in Projucer, re-export to regenerate VS projects. Do NOT edit `.vcxproj` files directly.
+### macOS
+
+Bash scripts, xcodebuild, Xcode. Requires **JUCE 8.0.12** at `~/JUCE` (or set `JUCE_PATH`).
+
+```bash
+# One-time after cloning, and after any source-file change in Projucer:
+# regenerates Builds/* and JuceLibraryCode/ from NOVA.jucer
+./scripts/resave-nova.sh
+
+# Build Standalone (debug, host arch — use this for dev/test)
+./scripts/build-nova.sh
+
+# Build VST3 (release, universal binary)
+./scripts/build-nova.sh -c Release -t NOVA_VST3
+
+# Build every plugin format (Standalone + VST3 + AU)
+./scripts/build-nova.sh -t All
+```
+
+Products land in `Builds/MacOSX/build/<Configuration>/`: `NOVA.app`, `NOVA.vst3`, `NOVA.component`.
+Debug builds target the host architecture for speed; Release builds are universal (arm64 + x86_64).
+
+### Shared
+
+- **Project manager**: Projucer (`NOVA.jucer` at repo root) — the only file to edit for project structure
+- **Build targets**: `NOVA_StandalonePlugin` (debug/test), `NOVA_VST3` (production), `NOVA_AU` (macOS only)
+- **When adding/removing source files**: Edit `NOVA.jucer` in Projucer, then re-export / run `resave-nova.sh`. Do NOT edit `.vcxproj` or `.xcodeproj` files directly.
+- **Module paths**: all modules use `useGlobalPath`, so each machine resolves JUCE from its own Projucer global setting. A resave rewrites the *other* platform's project with that machine's paths — check `git diff` after resaving and keep only your platform's changes if you did not intend to touch both.
+
+### Cross-platform constraints
+
+The codebase contains no platform-specific `#ifdef`s and must stay that way. Two things
+that compile under MSVC but not clang, worth remembering when writing new code:
+
+- `juce::String::operator<<` has no exact `unsigned int` overload, so `expectEquals` on a
+  `uint32_t` is ambiguous under clang — cast to `juce::int64` at the call site.
+- AU parameters need version hints (`juce::ParameterID{ id, hint }`); JUCE asserts without them.
 
 ## Running Tests
 

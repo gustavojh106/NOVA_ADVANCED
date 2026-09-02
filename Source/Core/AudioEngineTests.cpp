@@ -6200,7 +6200,9 @@ public:
                 expect(runtime.stripA != nullptr, "GraphBuilder should cache strip A processor pointer");
                 expect(runtime.stripB != nullptr, "GraphBuilder should cache strip B processor pointer");
                 expect(runtime.outputChain != nullptr, "GraphBuilder should cache OutputChain processor pointer");
-                expectEquals(runtime.appliedParamRevision, request.runtimeParamRevision);
+                // Cast to int64: juce::String::operator<< has no exact unsigned-int overload,
+                // which makes expectEquals<uint32_t> ambiguous under clang.
+                expectEquals<juce::int64>(runtime.appliedParamRevision, request.runtimeParamRevision);
 
                 juce::AudioBuffer<float> buffer(2, kBlockSize);
                 juce::MidiBuffer midi;
