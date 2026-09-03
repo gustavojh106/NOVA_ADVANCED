@@ -2,6 +2,7 @@
 #include "WizardBase.h"
 #include "../../Core/PluginProcessor.h"
 #include "../../Core/Audio/AudioAutoConfig.h"
+#include "../../Core/Audio/LatencyCalibration.h"
 
 #if JucePlugin_Build_Standalone
  #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
@@ -112,6 +113,7 @@ public:
                 {
                     useCaseSelected = true;
                     Nova::Audio::AudioAutoConfig::chooseBufferForUseCase(recommendation, i);
+                    btnMeasure.setEnabled(true);
                     setNextEnabled(true);
                     repaint();
                 };
@@ -119,7 +121,13 @@ public:
             }
             juce::ignoreUnused(useCaseDescs);
 
-            styleAccentButton(btnApplyBuffer, "APPLY RECOMMENDED BUFFER");
+            styleAccentButton(btnMeasure, "MEASURE MY SYSTEM");
+            btnMeasure.onClick = [this] { toggleMeasurement(); };
+            page->addAndMakeVisible(btnMeasure);
+
+            calibration.onUpdate = [this] { onCalibrationUpdate(); };
+
+            styleSecondaryButton(btnApplyBuffer, "APPLY RECOMMENDED BUFFER");
             btnApplyBuffer.onClick = [this] { applyRecommendedBuffer(); };
             btnApplyBuffer.setVisible(false);
             page->addAndMakeVisible(btnApplyBuffer);
@@ -263,6 +271,9 @@ public:
                 break;
 
             case 2:
+                calibration.cancel();
+                btnMeasure.setButtonText("MEASURE MY SYSTEM");
+                btnMeasure.setEnabled(false);
                 useCaseSelected = false;
                 for (auto& b : useCaseButtons)
                     b.setToggleState(false, juce::dontSendNotification);
@@ -293,6 +304,7 @@ public:
 
     void onStepLeaving(int step) override
     {
+        if (step == 2) calibration.cancel();
         if (step == 3 && calibrationPage) calibrationPage->stopCalibration();
     }
 
@@ -341,7 +353,10 @@ public:
                 useCaseButtons[i].setBounds(cx, y, btnW, btnH);
                 y += btnH + gap;
             }
-            btnApplyBuffer.setBounds(cx, y + 120, 260, 36);
+            // Clear the recommendation panel and the latency bar below it,
+            // both painted from panelY in paintLatencyStep.
+            btnMeasure.setBounds(cx, y + 170, 250, 36);
+            btnApplyBuffer.setBounds(cx + 262, y + 170, 258, 36);
         }
 
         // Step 4: Tuner cards + custom Hz
@@ -728,6 +743,134 @@ private:
         return Nova::Audio::AudioAutoConfig::bufferTargetForUseCase(uc);
     }
 
+    // The sweep reopens the device several times, so it is only started on an
+    // explicit click and can be stopped from the same button.
+    void toggleMeasurement()
+    {
+#if JucePlugin_Build_Standalone
+        if (calibration.isRunning())
+        {
+            calibration.cancel();
+            restoreEngineAfterMeasurement();
+            btnMeasure.setButtonText("MEASURE MY SYSTEM");
+            setNextEnabled(useCaseSelected);
+            repaint();
+            return;
+        }
+
+        if (auto* holder = juce::StandalonePluginHolder::getInstance())
+        {
+            // Measure with the engine running: a bypassed graph costs almost
+            // nothing and would report a floor the real chain cannot hold.
+            if (auto* engineParam = findEngineOnParameter())
+            {
+                engineWasOnBeforeMeasure = engineParam->get();
+                if (!engineWasOnBeforeMeasure)
+                    engineParam->setValueNotifyingHost(1.0f);
+            }
+
+            const int uc = getSelectedUseCase();
+            calibration.start(holder->deviceManager, recommendation, uc < 0 ? 1 : uc);
+            btnMeasure.setButtonText("STOP");
+            setNextEnabled(false);
+            repaint();
+            return;
+        }
+#endif
+        applyStatus = "Audio device is managed by the host.";
+        repaint();
+    }
+
+    void onCalibrationUpdate()
+    {
+        using CalState = Nova::Audio::LatencyCalibration::State;
+        const auto state = calibration.getState();
+
+        if (state == CalState::Finished || state == CalState::Failed)
+        {
+            restoreEngineAfterMeasurement();
+            btnMeasure.setButtonText("MEASURE AGAIN");
+            setNextEnabled(true);
+            // The sweep applied its own result, so the manual apply is moot.
+            bufferApplied = true;
+            runSystemScan();
+        }
+
+        repaint();
+    }
+
+    void restoreEngineAfterMeasurement()
+    {
+        if (engineWasOnBeforeMeasure)
+            return;
+
+        if (auto* engineParam = findEngineOnParameter())
+            engineParam->setValueNotifyingHost(0.0f);
+    }
+
+    juce::AudioParameterBool* findEngineOnParameter() const
+    {
+        for (auto* parameter : processor.getParameters())
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(parameter))
+                if (ranged->paramID == Nova::IDs::ENGINE_ON.toString())
+                    return dynamic_cast<juce::AudioParameterBool*>(parameter);
+
+        return nullptr;
+    }
+
+    juce::String buildCalibrationSummary() const
+    {
+        using CalState = Nova::Audio::LatencyCalibration::State;
+        const auto state = calibration.getState();
+
+        if (state == CalState::Settling || state == CalState::Measuring)
+            return "Testing " + juce::String(calibration.getCurrentCandidate())
+                 + " samples on your real device, with your current chain. "
+                   "Clicks while this runs are expected.";
+
+        if (state == CalState::Failed)
+            return "Measurement stopped: " + calibration.getFailureReason();
+
+        if (state != CalState::Finished)
+            return {};
+
+        juce::String trialLine;
+        for (const auto& trial : calibration.getTrials())
+        {
+            if (trialLine.isNotEmpty())
+                trialLine << "   ";
+            trialLine << juce::String(trial.bufferSize) << ": "
+                      << (trial.passed ? "clean" : "failed");
+        }
+
+        juce::String out;
+        out << "Measured floor with your current chain: "
+            << juce::String(calibration.getMeasuredFloor()) << " samples. Applied "
+            << juce::String(calibration.getChosenBufferSize()) << " for this profile."
+            << juce::newLine << trialLine;
+
+        if (!calibration.wasXRunCountingAvailable())
+            out << juce::newLine << "This driver reports no dropout counter, so only CPU headroom was measured.";
+
+        return out;
+    }
+
+    void paintCalibrationProgress(juce::Graphics& g, juce::Rectangle<int> bounds) const
+    {
+        g.setColour(juce::Colour::fromString("ff0A0F18"));
+        g.fillRoundedRectangle(bounds.toFloat(), 6.0f);
+
+        const auto filled = bounds.toFloat()
+            .withWidth((float) bounds.getWidth() * (float) calibration.getProgress());
+        g.setColour(Nova::Colors::Accent.withAlpha(0.55f));
+        g.fillRoundedRectangle(filled, 6.0f);
+
+        g.setColour(Nova::Colors::Text.withAlpha(0.9f));
+        g.setFont(juce::Font(juce::FontOptions(10.5f, juce::Font::bold)));
+        g.drawText("MEASURING " + juce::String(calibration.getCurrentCandidate()) + " SAMPLES",
+            bounds, juce::Justification::centred);
+    }
+
     void applyRecommendedBuffer()
     {
 #if JucePlugin_Build_Standalone
@@ -859,15 +1002,29 @@ private:
         g.setColour(badgeCol2);
         g.fillRoundedRectangle(row2.removeFromLeft(8).toFloat().reduced(1.0f, 5.0f), 3.0f);
 
-        // Description
+        // Description, replaced by what the sweep found once it has run.
         inner.removeFromTop(4);
-        g.setColour(Nova::Colors::TextDim);
-        g.setFont(juce::Font(juce::FontOptions(10.5f)));
-        g.drawFittedText(descriptions[uc], inner, juce::Justification::centredLeft, 3);
+        const auto calibrationSummary = buildCalibrationSummary();
 
-        // Latency bar
+        if (calibrationSummary.isEmpty())
+        {
+            g.setColour(Nova::Colors::TextDim);
+            g.setFont(juce::Font(juce::FontOptions(10.5f)));
+            g.drawFittedText(descriptions[uc], inner, juce::Justification::centredLeft, 3);
+        }
+        else
+        {
+            g.setColour(Nova::Colors::Text.withAlpha(0.88f));
+            g.setFont(juce::Font(juce::FontOptions(10.5f)));
+            g.drawFittedText(calibrationSummary, inner, juce::Justification::centredLeft, 3);
+        }
+
+        // Latency bar, or sweep progress while it runs.
         auto barArea = juce::Rectangle<int>(cx, panelY + panelH + 10, btnW, 24);
-        paintLatencyBar(g, barArea, currentLatencyMs);
+        if (calibration.isRunning())
+            paintCalibrationProgress(g, barArea);
+        else
+            paintLatencyBar(g, barArea, currentLatencyMs);
 
         // Show apply button if buffer differs
         const_cast<AudioSetupWizard*>(this)->btnApplyBuffer.setVisible(
@@ -1734,6 +1891,11 @@ private:
     Nova::Audio::AudioAutoConfig::Recommendation recommendation;
     juce::String applyStatus;
     juce::TextButton btnApplyBest;
+
+    // Step 2 empirical sweep
+    Nova::Audio::LatencyCalibration calibration;
+    juce::TextButton btnMeasure;
+    bool engineWasOnBeforeMeasure = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioSetupWizard)
 };

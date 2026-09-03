@@ -14,6 +14,7 @@
 #include "Audio/GraphRetirementQueue.h"
 #include "Audio/RuntimeGraphManager.h"
 #include "Audio/AudioAutoConfig.h"
+#include "Audio/LatencyCalibration.h"
 #include "Audio/RoutingMixer.h"
 #include "PluginProcessor.h"
 #include "PluginStateModel.h"
@@ -4874,6 +4875,72 @@ public:
             Config::Recommendation empty;
             Config::chooseBufferForUseCase(empty, 0);
             expectEquals(empty.bufferSize, 0, "No probed sizes should yield no buffer choice");
+        }
+
+        beginTest("LatencyCalibration never recommends below the buffer it measured");
+        {
+            using Calibration = Nova::Audio::LatencyCalibration;
+            const juce::Array<int> sizes { 32, 64, 128, 256, 512 };
+
+            // A floor below the profile's target leaves room for the profile to
+            // ask for margin above it.
+            expectEquals(Calibration::applySafetyMargin(32, 0, sizes), 64,
+                "Live profile should keep its 64-sample target when the floor is lower");
+            expectEquals(Calibration::applySafetyMargin(32, 2, sizes), 256,
+                "Recording profile should keep its larger target when the floor is lower");
+
+            // A floor above the target wins: the target was measured to break up.
+            expectEquals(Calibration::applySafetyMargin(256, 0, sizes), 256,
+                "A measured floor above the target must override the target");
+            expectEquals(Calibration::applySafetyMargin(512, 1, sizes), 512,
+                "The measured floor is a hard lower bound for every profile");
+
+            // The result must be a size the device actually offers.
+            const juce::Array<int> coarse { 96, 192, 384 };
+            expectEquals(Calibration::applySafetyMargin(96, 0, coarse), 96,
+                "Should snap up to an offered size rather than invent one");
+            expectEquals(Calibration::applySafetyMargin(96, 1, coarse), 192,
+                "Should snap up to the nearest offered size at or above the target");
+
+            // Nothing on offer at or above the target: the floor still stands.
+            expectEquals(Calibration::applySafetyMargin(512, 2, juce::Array<int>{ 64, 128 }), 512,
+                "Falls back to the measured floor when no offered size clears the target");
+        }
+
+        beginTest("LatencyCalibration candidate sweep stays inside a useful range");
+        {
+            using Calibration = Nova::Audio::LatencyCalibration;
+            Nova::Audio::AudioAutoConfig::Recommendation rec;
+
+            // Unsorted input, plus sizes too small and too large to be worth testing.
+            rec.availableBufferSizes = { 2048, 64, 8, 256, 32, 4096, 128 };
+            const auto candidates = Calibration::buildCandidates(rec, 6);
+
+            expect(!candidates.empty(), "A device with usable sizes should yield candidates");
+            for (auto size : candidates)
+            {
+                expect(size >= 16, "Sizes below 16 are not worth sweeping");
+                expect(size <= 1024, "Sizes above 1024 are not a stability question");
+            }
+
+            // Smallest first: the sweep stops at the first pass, so that ordering is
+            // what makes the first success the floor.
+            for (size_t i = 1; i < candidates.size(); ++i)
+                expect(candidates[i] > candidates[i - 1], "Candidates must ascend");
+            expectEquals(candidates.front(), 32, "The smallest usable size should be tried first");
+
+            // The cap bounds how long the sweep can take.
+            rec.availableBufferSizes = { 16, 32, 64, 128, 256, 512, 1024 };
+            expectEquals((int) Calibration::buildCandidates(rec, 3).size(), 3,
+                "The candidate cap should bound the sweep length");
+            expect(!Calibration::buildCandidates(rec, 0).empty(),
+                "A zero cap should still try one candidate rather than nothing");
+
+            // A device that offers nothing usable yields nothing to sweep.
+            Nova::Audio::AudioAutoConfig::Recommendation unusable;
+            unusable.availableBufferSizes = { 4, 8192 };
+            expect(Calibration::buildCandidates(unusable, 6).empty(),
+                "Out-of-range sizes should not become candidates");
         }
 
         beginTest("RoutingMixer LineA_Only targets preserve current GraphBuilder policy");
