@@ -62,6 +62,16 @@ Debug builds target the host architecture for speed; Release builds are universa
 - **When adding/removing source files**: Edit `NOVA.jucer` in Projucer, then re-export / run `resave-nova.sh`. Do NOT edit `.vcxproj` or `.xcodeproj` files directly.
 - **Module paths**: all modules use `useGlobalPath`, so each machine resolves JUCE from its own Projucer global setting. A resave rewrites the *other* platform's project with that machine's paths — check `git diff` after resaving and keep only your platform's changes if you did not intend to touch both.
 
+### Branching and CI
+
+- `master` is the single trunk and must build on both platforms from the same source. Work on
+  short-lived branches (`fix/...`, `feature/...`) and merge through a PR — there are no
+  per-platform branches, so a change is made once and lands on both systems together.
+- `.github/workflows/build.yml` compiles the Debug Standalone on `windows-latest` and
+  `macos-latest` for every PR and every push to `master`. That is the answer to "did this change
+  break the other platform?" — check it before merging when you only built locally on one OS.
+- After verifying a build by hand on a platform, tag it: `verified-<windows|macos>-<YYYY-MM-DD>`.
+
 ### Cross-platform constraints
 
 The codebase contains no platform-specific `#ifdef`s and must stay that way. Two things
@@ -70,6 +80,18 @@ that compile under MSVC but not clang, worth remembering when writing new code:
 - `juce::String::operator<<` has no exact `unsigned int` overload, so `expectEquals` on a
   `uint32_t` is ambiguous under clang — cast to `juce::int64` at the call site.
 - AU parameters need version hints (`juce::ParameterID{ id, hint }`); JUCE asserts without them.
+
+Two behaviours that only showed up as macOS test failures, and the rules they left behind:
+
+- Biquads with low cutoffs at the oversampled rate (e.g. an 18 Hz DC blocker at 8x) must keep
+  coefficients and state in `double`. In `float` the poles sit close enough to the unit circle
+  that silence turns into rounding-noise limit cycles whose level depends on the compiler's
+  rounding (FMA contraction on arm64 clang, none on MSVC), so tests comparing idle tails become
+  platform-dependent. See `FuzzDSP::Biquad`.
+- `AudioEngine::synchronizeProcessingState()` flushes whenever it is not called from *inside*
+  `process()`. Tests and offline renders drive audio synchronously from the message thread, so a
+  guard based only on "which thread last ran process()" silently skips the flush and leaves
+  parameter application to the control thread's 5–20 ms poll — which is timing luck.
 
 ## Running Tests
 

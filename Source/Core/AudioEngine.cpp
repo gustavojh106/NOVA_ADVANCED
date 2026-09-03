@@ -31,6 +31,22 @@ namespace
 #endif
     }
 
+    // Marks the realtime callback as active for the duration of AudioEngine::process().
+    struct ScopedProcessCallbackFlag
+    {
+        explicit ScopedProcessCallbackFlag(std::atomic<bool>& flagToSet) noexcept : flag(flagToSet)
+        {
+            flag.store(true, std::memory_order_relaxed);
+        }
+
+        ~ScopedProcessCallbackFlag() noexcept
+        {
+            flag.store(false, std::memory_order_relaxed);
+        }
+
+        std::atomic<bool>& flag;
+    };
+
 }
 
 // ========================================================== 
@@ -189,8 +205,7 @@ void AudioEngine::updateGlobalParams(const RuntimeGlobalParams& snapshot)
 
     // Parameter application to processors is control-thread work. The audio callback only reads atomics
     // and uses the sample-accurate wet/dry ramp.
-    if (audioPlane.audioThreadID == juce::Thread::ThreadID()
-        || juce::Thread::getCurrentThreadId() != audioPlane.audioThreadID)
+    if (!isCalledFromRealtimeCallback())
         triggerAsyncUpdate();
 }
 
@@ -407,14 +422,21 @@ void AudioEngine::updateMixer(float gainA, float gainB, Nova::SwitcherMode mode)
     updateGlobalParams(snapshot);
 }
 
+bool AudioEngine::isCalledFromRealtimeCallback() const noexcept
+{
+    return audioPlane.insideProcessCallback.load(std::memory_order_relaxed)
+        && audioPlane.audioThreadID != juce::Thread::ThreadID()
+        && juce::Thread::getCurrentThreadId() == audioPlane.audioThreadID;
+}
+
 void AudioEngine::synchronizeProcessingState()
 {
-    // Do not ever lock or flush from the realtime callback.
-    if (audioPlane.audioThreadID != juce::Thread::ThreadID()
-        && juce::Thread::getCurrentThreadId() == audioPlane.audioThreadID)
-    {
+    // Do not ever lock or flush from the realtime callback. Outside of process() this is
+    // safe even on the audio thread itself: offline renders and the test harness drive
+    // audio synchronously from the message thread and rely on a deterministic flush here
+    // instead of waiting for the control thread to poll.
+    if (isCalledFromRealtimeCallback())
         return;
-    }
 
     flushPendingGraphCommands();
 }
@@ -490,6 +512,8 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
 {
     if (audioPlane.audioThreadID == juce::Thread::ThreadID())
         audioPlane.audioThreadID = juce::Thread::getCurrentThreadId();
+
+    const ScopedProcessCallbackFlag callbackScope(audioPlane.insideProcessCallback);
 
     audioPlane.audioBlockCounter.fetch_add(1, std::memory_order_release);
 

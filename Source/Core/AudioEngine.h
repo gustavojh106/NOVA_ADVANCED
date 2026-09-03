@@ -219,6 +219,11 @@ private:
         int numOutputChannels = 2;
 
         juce::Thread::ThreadID audioThreadID = {};
+        // True only while process() is executing on audioThreadID. Combined with the
+        // thread ID this distinguishes "inside the realtime callback" from "on the
+        // thread that happens to drive the audio": offline renders and the test
+        // harness process audio synchronously from the message thread.
+        std::atomic<bool> insideProcessCallback{ false };
 
         juce::MidiBuffer emptyMidi;
 
@@ -248,6 +253,7 @@ private:
 
     void enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe);
     void flushPendingGraphCommands();
+    bool isCalledFromRealtimeCallback() const noexcept;
 
     std::shared_ptr<GraphRuntime> buildGraphFromModelLocked(uint64_t generation);
     void publishGraph(std::shared_ptr<GraphRuntime> newGraph);
