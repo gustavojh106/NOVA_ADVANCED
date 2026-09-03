@@ -1,0 +1,29 @@
+{
+  "problemMatcher": [
+    {
+      "owner": "msvc",
+      "pattern": [
+        {
+          "regexp": "^\\s*(?:\\d+>)?([^\\s].*?)\\((\\d+)(?:,(\\d+))?\\)\\s*:\\s+(?:fatal )?(error|warning)\\s+([A-Za-z]+\\d+)\\s*:\\s*(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "code": 5,
+          "message": 6
+        }
+      ]
+    },
+    {
+      "owner": "msbuild-noloc",
+      "pattern": [
+        {
+          "regexp": "^\\s*(?:\\d+>)?MSBUILD\\s*:\\s*(error|warning)\\s+(MSB\\d+)\\s*:\\s*(.*)$",
+          "severity": 1,
+          "code": 2,
+          "message": 3
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+# Cross-platform build check. master must build on both platforms from the same
+# source, so every PR and every push to master compiles the Debug Standalone target
+# (the one that carries the unit tests) on Windows and macOS. Each job follows the
+# documented developer workflow: download JUCE, regenerate the project with Projucer,
+# then run the platform's build script from scripts/.
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  JUCE_VERSION: 8.0.12
+
+jobs:
+  macos:
+    name: macOS Standalone (Debug)
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache JUCE
+        id: juce-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/JUCE
+          key: juce-${{ env.JUCE_VERSION }}-osx
+
+      - name: Download JUCE
+        if: steps.juce-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sSL -o /tmp/juce.zip "https://github.com/juce-framework/JUCE/releases/download/${JUCE_VERSION}/juce-${JUCE_VERSION}-osx.zip"
+          unzip -q /tmp/juce.zip -d "$HOME"
+
+      - name: Generate Xcode project
+        run: ./scripts/resave-nova.sh
+
+      - name: Build
+        run: ./scripts/build-nova.sh
+
+  windows:
+    name: Windows Standalone (Debug)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache JUCE
+        id: juce-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\JUCE
+          key: juce-${{ env.JUCE_VERSION }}-windows
+
+      - name: Download JUCE
+        if: steps.juce-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/juce-framework/JUCE/releases/download/$env:JUCE_VERSION/juce-$env:JUCE_VERSION-windows.zip" -OutFile "$env:TEMP\juce.zip"
+          Expand-Archive -Path "$env:TEMP\juce.zip" -DestinationPath "C:\"
+
+      # The project's modules use Projucer's per-machine global path. Rather than
+      # depend on that setting being applied inside the runner, point the runner's
+      # copy of NOVA.jucer straight at C:\JUCE\modules (this edit is never
+      # committed), then verify the regenerated project actually references it.
+      # Projucer.exe is a GUI-subsystem executable, so a plain call returns before
+      # it finishes; Start-Process -Wait makes the CLI invocation block.
+      - name: Generate Visual Studio project
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "C:\JUCE\modules\juce_core")) {
+            Write-Host "::error::JUCE modules not found under C:\JUCE\modules"
+            Get-ChildItem "C:\JUCE" | Select-Object -First 20 | Format-Table -AutoSize | Out-String | Write-Host
+            exit 1
+          }
+
+          $jucer = "NOVA.jucer"
+          $xml = Get-Content $jucer -Raw
+          $xml = $xml -replace 'useGlobalPath="1"', 'useGlobalPath="0"'
+          $xml = $xml -replace '\.\./\.\./\.\./\.\./Downloads/juce-8\.0\.12-windows/JUCE/modules', 'C:/JUCE/modules'
+          Set-Content -Path $jucer -Value $xml -NoNewline
+
+          $p = Start-Process -FilePath "C:\JUCE\Projucer.exe" -ArgumentList @("--resave", "$PWD\NOVA.jucer") -Wait -NoNewWindow -PassThru
+          if ($p.ExitCode -ne 0) { Write-Host "::error::Projucer --resave failed with exit code $($p.ExitCode)"; exit 1 }
+
+          $proj = Get-Content "Builds\VisualStudio2022\NOVA_SharedCode.vcxproj" -Raw
+          if ($proj -notmatch 'C:[\\/]JUCE[\\/]modules') {
+            $inc = [regex]::Match($proj, '<AdditionalIncludeDirectories>[^<]*').Value
+            Write-Host "::error::Regenerated NOVA_SharedCode.vcxproj does not reference C:\JUCE\modules. First include path: $inc"
+            exit 1
+          }
+          Write-Host "Regenerated project references C:\JUCE\modules"
+
+      - uses: microsoft/setup-msbuild@v2
+
+      # Turn compiler/MSBuild errors into annotations so a failure is diagnosable
+      # from the public checks API without opening the log.
+      - name: Register MSBuild problem matcher
+        shell: bash
+        run: echo "::add-matcher::.github/matchers/msbuild.json"
+
+      - name: Build
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 | Tee-Object -FilePath msbuild.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Select-String -Path msbuild.log -Pattern '\berror\b' | Select-Object -First 20 |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }

@@ -14,89 +14,96 @@ inline float blend(float a, float b, float t) noexcept
     return a + (b - a) * t;
 }
 
+// Coefficients and state live in double precision. These filters run at the 8x
+// oversampled rate, where cutoffs as low as 18 Hz place the poles within ~2e-4 of
+// the unit circle. In single precision that conditioning turns silence into
+// rounding-noise limit cycles (around -70 dBFS once the fuzz gain stages amplify
+// them) whose level depends on the compiler's rounding, so the idle tail differed
+// between platforms. Double precision removes the noise floor entirely.
 struct Biquad
 {
-    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f;
-    float a1 = 0.0f, a2 = 0.0f;
-    float z1 = 0.0f, z2 = 0.0f;
+    double b0 = 1.0, b1 = 0.0, b2 = 0.0;
+    double a1 = 0.0, a2 = 0.0;
+    double z1 = 0.0, z2 = 0.0;
 
     void reset() noexcept
     {
-        z1 = 0.0f;
-        z2 = 0.0f;
+        z1 = 0.0;
+        z2 = 0.0;
     }
 
     void setHighPass(float freq, float q, double sr) noexcept
     {
-        const float clamped = juce::jlimit(20.0f, (float) (sr * 0.45), freq);
-        const float w0 = juce::MathConstants<float>::twoPi * clamped / (float) sr;
-        const float sinW0 = std::sin(w0);
-        const float cosW0 = std::cos(w0);
-        const float alpha = sinW0 / (2.0f * q);
-        const float a0inv = 1.0f / (1.0f + alpha);
+        const double clamped = juce::jlimit(20.0, sr * 0.45, (double) freq);
+        const double w0 = juce::MathConstants<double>::twoPi * clamped / sr;
+        const double sinW0 = std::sin(w0);
+        const double cosW0 = std::cos(w0);
+        const double alpha = sinW0 / (2.0 * (double) q);
+        const double a0inv = 1.0 / (1.0 + alpha);
 
-        b0 = (1.0f + cosW0) * 0.5f * a0inv;
-        b1 = -(1.0f + cosW0) * a0inv;
+        b0 = (1.0 + cosW0) * 0.5 * a0inv;
+        b1 = -(1.0 + cosW0) * a0inv;
         b2 = b0;
-        a1 = -2.0f * cosW0 * a0inv;
-        a2 = (1.0f - alpha) * a0inv;
+        a1 = -2.0 * cosW0 * a0inv;
+        a2 = (1.0 - alpha) * a0inv;
     }
 
     void setLowPass(float freq, float q, double sr) noexcept
     {
-        const float clamped = juce::jlimit(20.0f, (float) (sr * 0.45), freq);
-        const float w0 = juce::MathConstants<float>::twoPi * clamped / (float) sr;
-        const float sinW0 = std::sin(w0);
-        const float cosW0 = std::cos(w0);
-        const float alpha = sinW0 / (2.0f * q);
-        const float a0inv = 1.0f / (1.0f + alpha);
+        const double clamped = juce::jlimit(20.0, sr * 0.45, (double) freq);
+        const double w0 = juce::MathConstants<double>::twoPi * clamped / sr;
+        const double sinW0 = std::sin(w0);
+        const double cosW0 = std::cos(w0);
+        const double alpha = sinW0 / (2.0 * (double) q);
+        const double a0inv = 1.0 / (1.0 + alpha);
 
-        b0 = (1.0f - cosW0) * 0.5f * a0inv;
-        b1 = (1.0f - cosW0) * a0inv;
+        b0 = (1.0 - cosW0) * 0.5 * a0inv;
+        b1 = (1.0 - cosW0) * a0inv;
         b2 = b0;
-        a1 = -2.0f * cosW0 * a0inv;
-        a2 = (1.0f - alpha) * a0inv;
+        a1 = -2.0 * cosW0 * a0inv;
+        a2 = (1.0 - alpha) * a0inv;
     }
 
     void setLowShelf(float freq, float gainDb, float q, double sr) noexcept
     {
-        const float A = std::pow(10.0f, gainDb / 40.0f);
-        const float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float) (sr * 0.45), freq) / (float) sr;
-        const float sinW0 = std::sin(w0);
-        const float cosW0 = std::cos(w0);
-        const float alpha = sinW0 / (2.0f * q);
-        const float twoSqrtAalpha = 2.0f * std::sqrt(A) * alpha;
-        const float a0inv = 1.0f / ((A + 1.0f) + (A - 1.0f) * cosW0 + twoSqrtAalpha);
+        const double A = std::pow(10.0, (double) gainDb / 40.0);
+        const double w0 = juce::MathConstants<double>::twoPi * juce::jlimit(20.0, sr * 0.45, (double) freq) / sr;
+        const double sinW0 = std::sin(w0);
+        const double cosW0 = std::cos(w0);
+        const double alpha = sinW0 / (2.0 * (double) q);
+        const double twoSqrtAalpha = 2.0 * std::sqrt(A) * alpha;
+        const double a0inv = 1.0 / ((A + 1.0) + (A - 1.0) * cosW0 + twoSqrtAalpha);
 
-        b0 = A * ((A + 1.0f) - (A - 1.0f) * cosW0 + twoSqrtAalpha) * a0inv;
-        b1 = 2.0f * A * ((A - 1.0f) - (A + 1.0f) * cosW0) * a0inv;
-        b2 = A * ((A + 1.0f) - (A - 1.0f) * cosW0 - twoSqrtAalpha) * a0inv;
-        a1 = -2.0f * ((A - 1.0f) + (A + 1.0f) * cosW0) * a0inv;
-        a2 = ((A + 1.0f) + (A - 1.0f) * cosW0 - twoSqrtAalpha) * a0inv;
+        b0 = A * ((A + 1.0) - (A - 1.0) * cosW0 + twoSqrtAalpha) * a0inv;
+        b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cosW0) * a0inv;
+        b2 = A * ((A + 1.0) - (A - 1.0) * cosW0 - twoSqrtAalpha) * a0inv;
+        a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cosW0) * a0inv;
+        a2 = ((A + 1.0) + (A - 1.0) * cosW0 - twoSqrtAalpha) * a0inv;
     }
 
     void setPeak(float freq, float gainDb, float q, double sr) noexcept
     {
-        const float A = std::pow(10.0f, gainDb / 40.0f);
-        const float w0 = juce::MathConstants<float>::twoPi * juce::jlimit(20.0f, (float) (sr * 0.45), freq) / (float) sr;
-        const float sinW0 = std::sin(w0);
-        const float cosW0 = std::cos(w0);
-        const float alpha = sinW0 / (2.0f * q);
-        const float a0inv = 1.0f / (1.0f + alpha / A);
+        const double A = std::pow(10.0, (double) gainDb / 40.0);
+        const double w0 = juce::MathConstants<double>::twoPi * juce::jlimit(20.0, sr * 0.45, (double) freq) / sr;
+        const double sinW0 = std::sin(w0);
+        const double cosW0 = std::cos(w0);
+        const double alpha = sinW0 / (2.0 * (double) q);
+        const double a0inv = 1.0 / (1.0 + alpha / A);
 
-        b0 = (1.0f + alpha * A) * a0inv;
-        b1 = -2.0f * cosW0 * a0inv;
-        b2 = (1.0f - alpha * A) * a0inv;
+        b0 = (1.0 + alpha * A) * a0inv;
+        b1 = -2.0 * cosW0 * a0inv;
+        b2 = (1.0 - alpha * A) * a0inv;
         a1 = b1;
-        a2 = (1.0f - alpha / A) * a0inv;
+        a2 = (1.0 - alpha / A) * a0inv;
     }
 
     float process(float x) noexcept
     {
-        const float y = b0 * x + z1;
-        z1 = b1 * x - a1 * y + z2;
-        z2 = b2 * x - a2 * y;
-        return y;
+        const double in = (double) x;
+        const double y = b0 * in + z1;
+        z1 = b1 * in - a1 * y + z2;
+        z2 = b2 * in - a2 * y;
+        return (float) y;
     }
 };
 

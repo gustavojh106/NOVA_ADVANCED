@@ -5009,8 +5009,10 @@ public:
 
             expect(rmsA > 1.0e-4 && rmsB > 1.0e-4 && rmsDual > 1.0e-4,
                 "Routing modes should remain audible in nominal conditions." + routingMetrics);
-            expect(computeBufferNullRms(outA, outB) > 8.0e-4,
-                "LineA-only and LineB-only should remain mode-distinct with different chains");
+            const double modeNullRms = computeBufferNullRms(outA, outB);
+            expect(modeNullRms > 8.0e-4,
+                "LineA-only and LineB-only should remain mode-distinct with different chains, nullRms="
+                + juce::String(modeNullRms, 8));
             expect(dualToSingleRatio > 0.40,
                 "Dual-parallel should not collapse to near-silence." + routingMetrics);
             expect(dualToSingleRatio < 1.65,
@@ -5064,8 +5066,10 @@ public:
             expect(bufferHasOnlyFiniteSamples(outWidthMono), "WidthA=0 output must stay finite");
             expect(bufferHasOnlyFiniteSamples(outWidthWide), "WidthA=1 output must stay finite");
 
-            expect(computeBufferNullRms(outWidthMono, outWidthWide) > 5.0e-4,
-                "WidthA changes should produce an observable but finite output difference");
+            const double widthNullRms = computeBufferNullRms(outWidthMono, outWidthWide);
+            expect(widthNullRms > 5.0e-4,
+                "WidthA changes should produce an observable but finite output difference, nullRms="
+                + juce::String(widthNullRms, 8));
 
             AudioEngine cleanEngine;
             cleanEngine.prepare(kSampleRate, kBlockSize, 2, 2);
@@ -10611,7 +10615,9 @@ public:
             const double looseTail = computeWindowRms(loose, (int) (kSampleRate * 0.86), (int) (kSampleRate * 0.18));
             const double velcroTail = computeWindowRms(velcro, (int) (kSampleRate * 0.86), (int) (kSampleRate * 0.18));
 
-            expect(velcroTail < looseTail * 0.78, "High gate with low bias should clamp the late velcro tail more strongly");
+            expect(velcroTail < looseTail * 0.78,
+                "High gate with low bias should clamp the late velcro tail more strongly, velcroTail="
+                + juce::String(velcroTail, 8) + " looseTail=" + juce::String(looseTail, 8));
         }
 
         beginTest("FuzzPedal automation stress remains finite under aggressive changes");
