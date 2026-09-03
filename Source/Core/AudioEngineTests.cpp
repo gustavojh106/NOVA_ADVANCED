@@ -13,6 +13,7 @@
 #include "Audio/GraphBuilder.h"
 #include "Audio/GraphRetirementQueue.h"
 #include "Audio/RuntimeGraphManager.h"
+#include "Audio/AudioAutoConfig.h"
 #include "Audio/RoutingMixer.h"
 #include "PluginProcessor.h"
 #include "PluginStateModel.h"
@@ -4797,6 +4798,82 @@ public:
             mixer.resetMix(1.0f);
             mixer.processWetEndpoint(64);
             expect(approximatelyEqual(mixer.getCurrentMix(), 1.0f, 1.0e-7f));
+        }
+
+        beginTest("AudioAutoConfig ranks back-ends by how directly they reach the hardware");
+        {
+            using Config = Nova::Audio::AudioAutoConfig;
+
+            // Windows: a vendor ASIO driver beats every OS path, and an exclusive
+            // path beats a mixed one.
+            expect(Config::rankDeviceType("ASIO") > Config::rankDeviceType("Windows Audio (Exclusive Mode)"),
+                "ASIO should outrank WASAPI exclusive");
+            expect(Config::rankDeviceType("Windows Audio (Exclusive Mode)")
+                > Config::rankDeviceType("Windows Audio (Low Latency Mode)"),
+                "WASAPI exclusive should outrank WASAPI low-latency shared");
+            expect(Config::rankDeviceType("Windows Audio (Low Latency Mode)")
+                > Config::rankDeviceType("Windows Audio"),
+                "WASAPI low-latency shared should outrank plain shared mode");
+            expect(Config::rankDeviceType("Windows Audio") > Config::rankDeviceType("DirectSound"),
+                "Legacy DirectSound should rank last");
+
+            // macOS has a single back-end, so it must outrank anything unknown to
+            // stop a stray type from being preferred over it.
+            expect(Config::rankDeviceType("CoreAudio") > Config::rankDeviceType("Some Future Backend"),
+                "CoreAudio should outrank unrecognised back-ends");
+
+            expect(Config::describeDeviceType("CoreAudio").isNotEmpty(),
+                "Every ranked back-end should carry a human-readable reason");
+            expect(Config::describeDeviceType("ASIO").isNotEmpty(),
+                "Every ranked back-end should carry a human-readable reason");
+        }
+
+        beginTest("AudioAutoConfig buffer choice honours the use case and the device's real limits");
+        {
+            using Config = Nova::Audio::AudioAutoConfig;
+
+            expectEquals(Config::bufferTargetForUseCase(0), 64);
+            expectEquals(Config::bufferTargetForUseCase(1), 128);
+            expectEquals(Config::bufferTargetForUseCase(2), 256);
+            expectEquals(Config::bufferTargetForUseCase(-1), 128,
+                "An unselected use case should fall back to the balanced profile");
+
+            Config::Recommendation rec;
+            rec.sampleRate = 48000.0;
+            rec.availableBufferSizes = { 32, 64, 128, 256, 512, 1024 };
+
+            // Smallest offered size that still meets the target, never below it.
+            Config::chooseBufferForUseCase(rec, 0);
+            expectEquals(rec.bufferSize, 64, "Live profile should take 64 when offered");
+            expectEquals(rec.hardwareFloorBufferSize, 32, "Floor should be the device minimum");
+            expect(rec.bufferReason.isNotEmpty(), "The buffer choice should explain itself");
+
+            Config::chooseBufferForUseCase(rec, 2);
+            expectEquals(rec.bufferSize, 256, "Recording profile should take 256 when offered");
+
+            // A device whose sizes straddle the target must round up, not down:
+            // rounding down would promise a latency the device cannot sustain.
+            rec.availableBufferSizes = { 96, 192, 384 };
+            Config::chooseBufferForUseCase(rec, 0);
+            expectEquals(rec.bufferSize, 96, "Should round up to the nearest offered size");
+            Config::chooseBufferForUseCase(rec, 1);
+            expectEquals(rec.bufferSize, 192, "Should round up rather than undershoot the target");
+
+            // When everything on offer is below target, the largest is the best available.
+            rec.availableBufferSizes = { 16, 32 };
+            Config::chooseBufferForUseCase(rec, 2);
+            expectEquals(rec.bufferSize, 32, "Should take the largest size when all are below target");
+
+            // Latency is derived, so it must stay consistent with the chosen buffer.
+            rec.availableBufferSizes = { 64, 128 };
+            Config::chooseBufferForUseCase(rec, 0);
+            expect(std::abs(rec.latencyMs() - (64.0 / 48000.0) * 1000.0) < 1.0e-6,
+                "Reported latency should follow the chosen buffer and sample rate");
+
+            // An empty list must not fabricate a configuration.
+            Config::Recommendation empty;
+            Config::chooseBufferForUseCase(empty, 0);
+            expectEquals(empty.bufferSize, 0, "No probed sizes should yield no buffer choice");
         }
 
         beginTest("RoutingMixer LineA_Only targets preserve current GraphBuilder policy");

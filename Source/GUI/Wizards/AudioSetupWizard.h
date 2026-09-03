@@ -1,6 +1,7 @@
 #pragma once
 #include "WizardBase.h"
 #include "../../Core/PluginProcessor.h"
+#include "../../Core/Audio/AudioAutoConfig.h"
 
 #if JucePlugin_Build_Standalone
  #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
@@ -42,7 +43,7 @@ public:
             auto* page = new juce::Component();
             addPage(0, page);
 
-            styleAccentButton(btnAcknowledge, "GOT IT");
+            styleSecondaryButton(btnAcknowledge, "GOT IT");
             btnAcknowledge.onClick = [this]
             {
                 scanAcknowledged = true;
@@ -52,6 +53,10 @@ public:
                 repaint();
             };
             page->addAndMakeVisible(btnAcknowledge);
+
+            styleAccentButton(btnApplyBest, "APPLY BEST CONFIG");
+            btnApplyBest.onClick = [this] { applyRecommendation(); };
+            page->addAndMakeVisible(btnApplyBest);
         }
 
         // =================================================================
@@ -103,9 +108,10 @@ public:
                 useCaseButtons[i].setColour(juce::TextButton::buttonOnColourId, Nova::Colors::Accent.withAlpha(0.22f));
                 useCaseButtons[i].setColour(juce::TextButton::textColourOffId, Nova::Colors::Text.withAlpha(0.70f));
                 useCaseButtons[i].setColour(juce::TextButton::textColourOnId, Nova::Colors::Text);
-                useCaseButtons[i].onClick = [this]
+                useCaseButtons[i].onClick = [this, i]
                 {
                     useCaseSelected = true;
+                    Nova::Audio::AudioAutoConfig::chooseBufferForUseCase(recommendation, i);
                     setNextEnabled(true);
                     repaint();
                 };
@@ -240,6 +246,10 @@ public:
         {
             case 0:
                 runSystemScan();
+                refreshRecommendation();
+                applyStatus = {};
+                btnApplyBest.setEnabled(recommendation.valid);
+                btnApplyBest.setButtonText("APPLY BEST CONFIG");
                 scanAcknowledged = false;
                 btnAcknowledge.setEnabled(true);
                 btnAcknowledge.setButtonText("GOT IT");
@@ -298,11 +308,21 @@ public:
     void resized() override
     {
         WizardBase::resized();
-        auto area = getContentArea().withTrimmedTop(60);
+
+        // Every control below is a child of its step's page component, and
+        // WizardBase places that page at the content area. Laying them out in
+        // wizard coordinates would offset them by the page origin and push them
+        // out of view, so work in page-local coordinates.
+        auto area = getContentArea().withTrimmedTop(60).withZeroOrigin();
         if (area.isEmpty()) return;
 
         // Step 0: Acknowledge button
-        btnAcknowledge.setBounds(area.getCentreX() - 100, area.getBottom() - 48, 200, 38);
+        {
+            const int bw = 200, bh = 38, gap = 12;
+            const int sx = area.getCentreX() - (bw * 2 + gap) / 2;
+            btnApplyBest.setBounds(sx, area.getBottom() - 48, bw, bh);
+            btnAcknowledge.setBounds(sx + bw + gap, area.getBottom() - 48, bw, bh);
+        }
 
         // Step 1: Device selector
         if (deviceSelector)
@@ -448,106 +468,168 @@ private:
 #endif
     }
 
+    // Recomputes the best configuration this machine can run. The use case, when
+    // already chosen, decides the buffer target; before that the balanced profile
+    // is assumed so step 0 has something concrete to show.
+    void refreshRecommendation()
+    {
+#if JucePlugin_Build_Standalone
+        if (auto* holder = juce::StandalonePluginHolder::getInstance())
+        {
+            const int uc = getSelectedUseCase();
+            recommendation = Nova::Audio::AudioAutoConfig::compute(holder->deviceManager,
+                uc < 0 ? 1 : uc);
+            return;
+        }
+#endif
+        recommendation = {};
+    }
+
+    void applyRecommendation()
+    {
+#if JucePlugin_Build_Standalone
+        if (auto* holder = juce::StandalonePluginHolder::getInstance())
+        {
+            const auto error = Nova::Audio::AudioAutoConfig::apply(holder->deviceManager,
+                recommendation);
+
+            if (error.isNotEmpty())
+            {
+                applyStatus = error;
+            }
+            else
+            {
+                applyStatus = {};
+                btnApplyBest.setButtonText("APPLIED");
+                btnApplyBest.setEnabled(false);
+                // The device selector on step 1 mirrors the device manager, so it
+                // picks the change up on its own; the scan rows do not.
+                runSystemScan();
+            }
+
+            repaint();
+            return;
+        }
+#endif
+        applyStatus = "Audio device is managed by the host.";
+        repaint();
+    }
+
     void paintSystemScan(juce::Graphics& g, juce::Rectangle<int> area) const
     {
         const int cardW = juce::jmin(560, area.getWidth() - 20);
         const int cx = area.getCentreX() - cardW / 2;
+        int y = area.getY();
 
-        // --- Status icon ---
-        auto iconArea = juce::Rectangle<int>(area.getCentreX() - 26, area.getY(), 52, 52);
-        g.setColour(Nova::Colors::Accent.withAlpha(0.12f));
-        g.fillRoundedRectangle(iconArea.toFloat(), 14.0f);
-        g.setColour(Nova::Colors::Accent);
-        g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
-        g.drawText(juce::CharPointer_UTF8("\xe2\x9a\x99"), iconArea, juce::Justification::centred);
+        // ---- What is running right now -------------------------------------
+        g.setColour(Nova::Colors::TextDim);
+        g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
+        g.drawText("CURRENTLY ACTIVE", cx, y, cardW, 14, juce::Justification::centredLeft);
+        y += 18;
 
-        int y = area.getY() + 64;
-
-        // --- Scan rows ---
-        struct Row { const char* label; juce::String value; bool ok; };
+        struct Row { juce::String label; juce::String value; bool ok; };
         std::vector<Row> rows;
 
         if (scan.deviceActive)
         {
-            rows.push_back({ "Audio Driver",  scan.driverType, true });
-            rows.push_back({ "Input Device",  scan.inputDevice, scan.numInputs > 0 });
-            rows.push_back({ "Output Device", scan.outputDevice, scan.numOutputs > 0 });
-            rows.push_back({ "Sample Rate",   juce::String(scan.sampleRate, 0) + " Hz", scan.sampleRate >= 44100.0 });
-            rows.push_back({ "Buffer Size",   juce::String(scan.bufferSize) + " samples", true });
-            rows.push_back({ "Latency",       juce::String(scan.latencyMs, 1) + " ms one-way", scan.latencyMs <= 12.0 });
-            rows.push_back({ "Channels",      juce::String(scan.numInputs) + " in / " + juce::String(scan.numOutputs) + " out", true });
+            rows.push_back({ "Driver", scan.driverType, true });
+            rows.push_back({ "Device", scan.outputDevice, scan.numOutputs > 0 });
+            rows.push_back({ "Format", juce::String(scan.sampleRate, 0) + " Hz  |  "
+                + juce::String(scan.bufferSize) + " samples", true });
+            rows.push_back({ "Latency", juce::String(scan.latencyMs, 1) + " ms one-way",
+                scan.latencyMs <= 12.0 });
         }
         else
         {
             rows.push_back({ "Audio Device", "No active device detected", false });
         }
 
-        if (scan.asioAvailable)
-            rows.push_back({ "ASIO", "Available" + juce::String(scan.driverType.containsIgnoreCase("ASIO") ? " (active)" : ""), true });
-        else
-            rows.push_back({ "ASIO", "Not detected", false });
-
-        const int rowH = 28;
+        const int rowH = 24;
         for (size_t i = 0; i < rows.size(); ++i)
         {
-            const auto& row = rows[i];
             auto rowRect = juce::Rectangle<int>(cx, y, cardW, rowH);
-
             if (i % 2 == 0)
             {
                 g.setColour(juce::Colour::fromString("ff0E1520"));
                 g.fillRoundedRectangle(rowRect.toFloat(), 6.0f);
             }
 
-            g.setColour(row.ok ? Nova::Colors::Success : juce::Colour::fromString("ffF59E0B"));
+            g.setColour(rows[i].ok ? Nova::Colors::Success : juce::Colour::fromString("ffF59E0B"));
             g.fillEllipse((float)(cx + 10), (float)(y + rowH / 2 - 4), 8.0f, 8.0f);
 
             g.setColour(Nova::Colors::TextDim);
             g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
-            g.drawText(row.label, cx + 28, y, 130, rowH, juce::Justification::centredLeft);
+            g.drawText(rows[i].label, cx + 28, y, 90, rowH, juce::Justification::centredLeft);
 
             g.setColour(Nova::Colors::Text.withAlpha(0.9f));
-            g.setFont(juce::Font(juce::FontOptions(12.0f)));
-            g.drawText(row.value, cx + 165, y, cardW - 175, rowH, juce::Justification::centredLeft);
+            g.setFont(juce::Font(juce::FontOptions(11.5f)));
+            g.drawText(rows[i].value, cx + 124, y, cardW - 134, rowH, juce::Justification::centredLeft);
             y += rowH;
         }
 
-        // --- Recommendations ---
+        // ---- Best configuration available ----------------------------------
         y += 14;
 
+        const bool active = isRecommendationActive();
+        const int boxH = 120;
+        auto box = juce::Rectangle<int>(cx, y, cardW, boxH);
+
         g.setColour(Nova::Colors::Accent.withAlpha(0.08f));
-        auto recBg = juce::Rectangle<int>(cx, y, cardW, 60);
-        g.fillRoundedRectangle(recBg.toFloat(), 10.0f);
+        g.fillRoundedRectangle(box.toFloat(), 10.0f);
         g.setColour(Nova::Colors::Accent.withAlpha(0.35f));
-        g.drawRoundedRectangle(recBg.toFloat().reduced(0.5f), 10.0f, 1.0f);
+        g.drawRoundedRectangle(box.toFloat().reduced(0.5f), 10.0f, 1.0f);
 
         g.setColour(Nova::Colors::Accent);
         g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
-        g.drawText("RECOMMENDATIONS", cx + 14, y + 6, cardW, 14, juce::Justification::centredLeft);
+        g.drawText("BEST AVAILABLE ON THIS SYSTEM", cx + 14, y + 6, cardW - 120, 14,
+            juce::Justification::centredLeft);
 
-        juce::String advice;
-        if (!scan.deviceActive)
-            advice = "No audio device found. Go to the next step to configure one.";
-        else if (scan.asioAvailable && !scan.driverType.containsIgnoreCase("ASIO"))
-            advice = "ASIO driver available but not active. Switch to ASIO in the next step for the lowest latency.";
-        else if (scan.latencyMs > 15.0)
-            advice = "Your latency is high (" + juce::String(scan.latencyMs, 1) + " ms). We'll help you reduce it in Step 3.";
-        else if (scan.numInputs == 0)
-            advice = "No input channels detected. Check your audio interface connection.";
-        else
-            advice = "Your system looks ready. Proceed to review device settings.";
-
-        g.setColour(Nova::Colors::Text.withAlpha(0.85f));
-        g.setFont(juce::Font(juce::FontOptions(11.5f)));
-        g.drawFittedText(advice, cx + 14, y + 22, cardW - 28, 32, juce::Justification::centredLeft, 2);
-
-        // Acknowledge badge
-        if (scanAcknowledged)
+        if (active)
         {
             g.setColour(Nova::Colors::Success);
             g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
-            g.drawText("REVIEWED", cx + cardW - 90, y + 6, 80, 14, juce::Justification::centredRight);
+            g.drawText("ACTIVE", cx + cardW - 100, y + 6, 86, 14, juce::Justification::centredRight);
         }
+
+        if (!recommendation.valid)
+        {
+            g.setColour(Nova::Colors::Text.withAlpha(0.85f));
+            g.setFont(juce::Font(juce::FontOptions(11.5f)));
+            g.drawFittedText(applyStatus.isNotEmpty() ? applyStatus
+                    : "No audio device could be inspected. Connect an interface and reopen this step.",
+                cx + 14, y + 26, cardW - 28, 40, juce::Justification::topLeft, 2);
+            return;
+        }
+
+        // Headline: the configuration itself.
+        g.setColour(Nova::Colors::Text);
+        g.setFont(juce::Font(juce::FontOptions(13.0f, juce::Font::bold)));
+        g.drawText(recommendation.deviceTypeName + "  |  "
+            + juce::String(recommendation.sampleRate, 0) + " Hz  |  "
+            + juce::String(recommendation.bufferSize) + " samples  |  "
+            + juce::String(recommendation.latencyMs(), 1) + " ms",
+            cx + 14, y + 24, cardW - 28, 18, juce::Justification::centredLeft);
+
+        g.setColour(Nova::Colors::TextDim);
+        g.setFont(juce::Font(juce::FontOptions(11.0f)));
+        g.drawText(recommendation.outputDeviceName, cx + 14, y + 42, cardW - 28, 16,
+            juce::Justification::centredLeft);
+
+        // Why this is the ceiling — the part that tells the user what to upgrade.
+        g.setColour(Nova::Colors::Text.withAlpha(0.82f));
+        g.setFont(juce::Font(juce::FontOptions(11.0f)));
+        g.drawFittedText(applyStatus.isNotEmpty() ? applyStatus : recommendation.ceilingReason,
+            cx + 14, y + 62, cardW - 28, 50, juce::Justification::topLeft, 3);
+    }
+
+    bool isRecommendationActive() const
+    {
+#if JucePlugin_Build_Standalone
+        if (auto* holder = juce::StandalonePluginHolder::getInstance())
+            return Nova::Audio::AudioAutoConfig::matchesCurrentDevice(holder->deviceManager,
+                recommendation);
+#endif
+        return false;
     }
 
     // =================================================================
@@ -556,8 +638,9 @@ private:
 
     void paintDeviceStatus(juce::Graphics& g, juce::Rectangle<int> area) const
     {
-        // Recommendation banner at top
-        if (scan.asioAvailable && !scan.driverType.containsIgnoreCase("ASIO"))
+        // Recommendation banner at top: only shown while the manual selection below
+        // is still short of what this machine can reach.
+        if (recommendation.valid && !isRecommendationActive())
         {
             auto banner = juce::Rectangle<int>(area.getX(), area.getY() - 56, area.getWidth(), 32);
             g.setColour(juce::Colour::fromString("ff1A1408").withAlpha(0.9f));
@@ -566,7 +649,11 @@ private:
             g.drawRoundedRectangle(banner.toFloat().reduced(0.5f), 8.0f, 1.0f);
             g.setColour(juce::Colour::fromString("ffF59E0B"));
             g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
-            g.drawText("TIP: Switch to ASIO driver for lowest latency", banner, juce::Justification::centred);
+            g.drawText("RECOMMENDED: " + recommendation.deviceTypeName + "  |  "
+                + juce::String(recommendation.sampleRate, 0) + " Hz  |  "
+                + juce::String(recommendation.bufferSize) + " samples  ("
+                + juce::String(recommendation.latencyMs(), 1) + " ms)",
+                banner, juce::Justification::centred);
         }
 
         // Live status strip at bottom
@@ -633,24 +720,12 @@ private:
     {
         const int uc = getSelectedUseCase();
         if (uc < 0) return 0;
-        static const int targets[] = { 64, 128, 256 };
-        int target = targets[uc];
 
-#if JucePlugin_Build_Standalone
-        if (auto* holder = juce::StandalonePluginHolder::getInstance())
-        {
-            if (auto* dev = holder->deviceManager.getCurrentAudioDevice())
-            {
-                auto available = dev->getAvailableBufferSizes();
-                for (int size : available)
-                    if (size >= target)
-                        return size;
-                if (!available.isEmpty())
-                    return available.getLast();
-            }
-        }
-#endif
-        return target;
+        // The recommendation already reflects what this device actually offers.
+        if (recommendation.valid && recommendation.bufferSize > 0)
+            return recommendation.bufferSize;
+
+        return Nova::Audio::AudioAutoConfig::bufferTargetForUseCase(uc);
     }
 
     void applyRecommendedBuffer()
@@ -1654,6 +1729,11 @@ private:
 
     // Step 3
     CalibrationPage* calibrationPage = nullptr;
+
+    // Best configuration this machine can run, recomputed when step 0 opens.
+    Nova::Audio::AudioAutoConfig::Recommendation recommendation;
+    juce::String applyStatus;
+    juce::TextButton btnApplyBest;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioSetupWizard)
 };
