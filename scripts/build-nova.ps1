@@ -45,6 +45,16 @@ $projectMap = @{
     "NOVA_VST3ManifestHelper" = "Builds/VisualStudio2022/NOVA_VST3ManifestHelper.vcxproj"
 }
 
+# The Projucer-generated projects only declare these dependencies at solution level,
+# which MSBuild ignores when handed a bare .vcxproj. Without building them first, a
+# clean clone fails to link with "LNK1104: cannot open file NOVA.lib".
+$dependencyMap = @{
+    "NOVA_StandalonePlugin"   = @("NOVA_SharedCode")
+    "NOVA_VST3"               = @("NOVA_SharedCode", "NOVA_VST3ManifestHelper")
+    "NOVA_SharedCode"         = @()
+    "NOVA_VST3ManifestHelper" = @()
+}
+
 $msbuild = Resolve-MSBuild
 Write-Host "Using MSBuild: $msbuild"
 Write-Host "Solution: $solution"
@@ -53,13 +63,18 @@ if ($Target -eq "Solution") {
     Write-Host "Target: $Target -> Build | Configuration: $Configuration | Platform: $Platform"
     & $msbuild $solution "/t:Build" "/p:Configuration=$Configuration" "/p:Platform=$Platform" "/m"
 } else {
-    $project = Join-Path (Get-Location) $projectMap[$Target]
-    if (-not (Test-Path $project)) {
-        throw "Project file not found at $project"
-    }
+    foreach ($name in ($dependencyMap[$Target] + @($Target))) {
+        $project = Join-Path (Get-Location) $projectMap[$name]
+        if (-not (Test-Path $project)) {
+            throw "Project file not found at $project"
+        }
 
-    Write-Host "Target: $Target -> $project | Configuration: $Configuration | Platform: $Platform"
-    & $msbuild $project "/t:Build" "/p:Configuration=$Configuration" "/p:Platform=$Platform" "/m"
+        Write-Host "Target: $name -> $project | Configuration: $Configuration | Platform: $Platform"
+        & $msbuild $project "/t:Build" "/p:Configuration=$Configuration" "/p:Platform=$Platform" "/m"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Build of $name failed with exit code $LASTEXITCODE"
+        }
+    }
 }
 
 if ($LASTEXITCODE -ne 0) {
