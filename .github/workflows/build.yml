@@ -1,0 +1,82 @@
+# Cross-platform build check. master must build on both platforms from the same
+# source, so every PR and every push to master compiles the Debug Standalone target
+# (the one that carries the unit tests) on Windows and macOS. Each job follows the
+# documented developer workflow: download JUCE, regenerate the project with Projucer,
+# then run the platform's build script from scripts/.
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  JUCE_VERSION: 8.0.12
+
+jobs:
+  macos:
+    name: macOS Standalone (Debug)
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache JUCE
+        id: juce-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/JUCE
+          key: juce-${{ env.JUCE_VERSION }}-osx
+
+      - name: Download JUCE
+        if: steps.juce-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -sSL -o /tmp/juce.zip "https://github.com/juce-framework/JUCE/releases/download/${JUCE_VERSION}/juce-${JUCE_VERSION}-osx.zip"
+          unzip -q /tmp/juce.zip -d "$HOME"
+
+      - name: Generate Xcode project
+        run: ./scripts/resave-nova.sh
+
+      - name: Build
+        run: ./scripts/build-nova.sh
+
+  windows:
+    name: Windows Standalone (Debug)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache JUCE
+        id: juce-cache
+        uses: actions/cache@v4
+        with:
+          path: C:\JUCE
+          key: juce-${{ env.JUCE_VERSION }}-windows
+
+      - name: Download JUCE
+        if: steps.juce-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/juce-framework/JUCE/releases/download/$env:JUCE_VERSION/juce-$env:JUCE_VERSION-windows.zip" -OutFile "$env:TEMP\juce.zip"
+          Expand-Archive -Path "$env:TEMP\juce.zip" -DestinationPath "C:\"
+
+      # Projucer.exe is a GUI-subsystem executable, so a plain call returns before
+      # it finishes; Start-Process -Wait makes each CLI invocation block.
+      - name: Generate Visual Studio project
+        shell: pwsh
+        run: |
+          $projucer = "C:\JUCE\Projucer.exe"
+          foreach ($cliArgs in @(
+              @("--set-global-search-path", "windows", "defaultJuceModulePath", "C:\JUCE\modules"),
+              @("--resave", "$PWD\NOVA.jucer"))) {
+            $p = Start-Process -FilePath $projucer -ArgumentList $cliArgs -Wait -NoNewWindow -PassThru
+            if ($p.ExitCode -ne 0) { throw "Projucer $($cliArgs[0]) failed with exit code $($p.ExitCode)" }
+          }
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1
