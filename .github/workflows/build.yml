@@ -62,21 +62,53 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/juce-framework/JUCE/releases/download/$env:JUCE_VERSION/juce-$env:JUCE_VERSION-windows.zip" -OutFile "$env:TEMP\juce.zip"
           Expand-Archive -Path "$env:TEMP\juce.zip" -DestinationPath "C:\"
 
+      # The project's modules use Projucer's per-machine global path. Rather than
+      # depend on that setting being applied inside the runner, point the runner's
+      # copy of NOVA.jucer straight at C:\JUCE\modules (this edit is never
+      # committed), then verify the regenerated project actually references it.
       # Projucer.exe is a GUI-subsystem executable, so a plain call returns before
-      # it finishes; Start-Process -Wait makes each CLI invocation block.
+      # it finishes; Start-Process -Wait makes the CLI invocation block.
       - name: Generate Visual Studio project
         shell: pwsh
         run: |
-          $projucer = "C:\JUCE\Projucer.exe"
-          foreach ($cliArgs in @(
-              @("--set-global-search-path", "windows", "defaultJuceModulePath", "C:\JUCE\modules"),
-              @("--resave", "$PWD\NOVA.jucer"))) {
-            $p = Start-Process -FilePath $projucer -ArgumentList $cliArgs -Wait -NoNewWindow -PassThru
-            if ($p.ExitCode -ne 0) { throw "Projucer $($cliArgs[0]) failed with exit code $($p.ExitCode)" }
+          if (-not (Test-Path "C:\JUCE\modules\juce_core")) {
+            Write-Host "::error::JUCE modules not found under C:\JUCE\modules"
+            Get-ChildItem "C:\JUCE" | Select-Object -First 20 | Format-Table -AutoSize | Out-String | Write-Host
+            exit 1
           }
+
+          $jucer = "NOVA.jucer"
+          $xml = Get-Content $jucer -Raw
+          $xml = $xml -replace 'useGlobalPath="1"', 'useGlobalPath="0"'
+          $xml = $xml -replace '\.\./\.\./\.\./\.\./Downloads/juce-8\.0\.12-windows/JUCE/modules', 'C:/JUCE/modules'
+          Set-Content -Path $jucer -Value $xml -NoNewline
+
+          $p = Start-Process -FilePath "C:\JUCE\Projucer.exe" -ArgumentList @("--resave", "$PWD\NOVA.jucer") -Wait -NoNewWindow -PassThru
+          if ($p.ExitCode -ne 0) { Write-Host "::error::Projucer --resave failed with exit code $($p.ExitCode)"; exit 1 }
+
+          $proj = Get-Content "Builds\VisualStudio2022\NOVA_SharedCode.vcxproj" -Raw
+          if ($proj -notmatch 'C:[\\/]JUCE[\\/]modules') {
+            $inc = [regex]::Match($proj, '<AdditionalIncludeDirectories>[^<]*').Value
+            Write-Host "::error::Regenerated NOVA_SharedCode.vcxproj does not reference C:\JUCE\modules. First include path: $inc"
+            exit 1
+          }
+          Write-Host "Regenerated project references C:\JUCE\modules"
 
       - uses: microsoft/setup-msbuild@v2
 
+      # Turn compiler/MSBuild errors into annotations so a failure is diagnosable
+      # from the public checks API without opening the log.
+      - name: Register MSBuild problem matcher
+        shell: bash
+        run: echo "::add-matcher::.github/matchers/msbuild.json"
+
       - name: Build
         shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 | Tee-Object -FilePath msbuild.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Select-String -Path msbuild.log -Pattern '\berror\b' | Select-Object -First 20 |
+              ForEach-Object { Write-Host "::error::$($_.Line.Trim())" }
+            exit $code
+          }
