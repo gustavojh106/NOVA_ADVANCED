@@ -9,6 +9,7 @@
 
 // --- MÓDULOS DE UI ---
 #include "../GUI/Overlays/TunerOverlay.h"
+#include "../GUI/Widgets/AdviceOverlay.h"
 #include "../GUI/Widgets/DraggableButton.h" // Necesitamos la definición completa aquí porque lo usamos como miembro directo
 
 // Forward Declarations (Para punteros inteligentes)
@@ -216,6 +217,16 @@ private:
 
     int lastKnownAutoHealCount = 0;
     int autoHealFlashFrames    = 0;
+
+    // Plain-language feedback about what the engine is doing. The advisor holds
+    // the hysteresis, the overlay just draws what it hands over.
+    Nova::Audio::UserAdvisor advisor;
+    std::unique_ptr<AdviceOverlay> adviceOverlay;
+    int chainFingerprint = 0;
+    int chainRevisionCounter = 0;
+
+    void updateAdvice(double cpuPercent, double latencyMs);
+    int computeChainFingerprint() const;
     bool showPerformanceStats = true;
     bool openQuickAddOnStartup = false;
     bool openPresetsOnStartup = false;

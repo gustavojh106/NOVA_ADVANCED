@@ -15,6 +15,7 @@
 #include "Audio/RuntimeGraphManager.h"
 #include "Audio/AudioAutoConfig.h"
 #include "Audio/LatencyCalibration.h"
+#include "Audio/UserAdvisor.h"
 #include "Audio/RoutingMixer.h"
 #include "PluginProcessor.h"
 #include "PluginStateModel.h"
@@ -4875,6 +4876,225 @@ public:
             Config::Recommendation empty;
             Config::chooseBufferForUseCase(empty, 0);
             expectEquals(empty.bufferSize, 0, "No probed sizes should yield no buffer choice");
+        }
+
+        beginTest("UserAdvisor speaks up on events, not on the state it inherits");
+        {
+            using Advisor = Nova::Audio::UserAdvisor;
+            Advisor advisor;
+
+            Advisor::Snapshot snap;
+            snap.engineOn = true;
+            snap.inputChannels = 2;
+            snap.inputPeak = 0.2f;
+            snap.autoHealCount = 7;      // already happened before the UI opened
+            snap.chainRevision = 3;
+
+            // The first update establishes a baseline: history is not news.
+            expect(advisor.update(snap, 0.0).empty(),
+                "Counters inherited on the first update must not raise advice");
+
+            // A genuine glitch after that is worth saying, once.
+            snap.autoHealCount = 8;
+            const auto glitch = advisor.update(snap, 1.0);
+            expectEquals((int) glitch.size(), 1, "A new recovery should raise exactly one advice");
+            expect(glitch[0].id == Advisor::idGlitch, "Should raise the glitch advice");
+            expect(glitch[0].message.isNotEmpty(), "Advice must carry an explanation");
+
+            expect(advisor.update(snap, 2.0).empty(),
+                "A condition that merely persists must not be raised again");
+        }
+
+        beginTest("UserAdvisor waits for a load to be sustained before warning");
+        {
+            using Advisor = Nova::Audio::UserAdvisor;
+            Advisor advisor;
+
+            Advisor::Snapshot snap;
+            snap.engineOn = true;
+            snap.inputChannels = 2;
+            snap.inputPeak = 0.2f;
+            advisor.update(snap, 0.0);
+
+            // A momentary spike is not worth interrupting anyone for.
+            snap.cpuPercent = 92.0;
+            expect(advisor.update(snap, 10.0).empty(), "An instantaneous peak should not warn");
+            expect(advisor.update(snap, 10.5).empty(), "A brief peak should not warn");
+
+            const auto sustained = advisor.update(snap, 12.0);
+            expectEquals((int) sustained.size(), 1, "A sustained load should warn once");
+            expect(sustained[0].id == Advisor::idHeadroom,
+                "With no recent chain change the machine is the subject");
+
+            // Still loaded, but already said.
+            expect(advisor.update(snap, 13.0).empty(), "The warning must not repeat while it holds");
+        }
+
+        beginTest("UserAdvisor blames the pedal only when the user just changed the chain");
+        {
+            using Advisor = Nova::Audio::UserAdvisor;
+            Advisor advisor;
+
+            Advisor::Snapshot snap;
+            snap.engineOn = true;
+            snap.inputChannels = 2;
+            snap.inputPeak = 0.2f;
+            snap.chainRevision = 1;
+            advisor.update(snap, 0.0);
+
+            // The user adds a pedal, and the load climbs right after.
+            snap.chainRevision = 2;
+            snap.cpuPercent = 90.0;
+            advisor.update(snap, 20.0);
+            const auto afterChange = advisor.update(snap, 22.0);
+
+            expectEquals((int) afterChange.size(), 1, "The sustained load should warn");
+            expect(afterChange[0].id == Advisor::idHeadroomAfterChange,
+                "A warning right after a change should name the change, not the machine");
+        }
+
+        beginTest("UserAdvisor keeps quiet until a condition has cleared for a while");
+        {
+            using Advisor = Nova::Audio::UserAdvisor;
+            Advisor advisor;
+            Advisor::Thresholds t;
+            t.rearmSeconds = 20.0;
+            advisor.setThresholds(t);
+
+            Advisor::Snapshot snap;
+            snap.engineOn = true;
+            snap.inputChannels = 2;
+            snap.inputPeak = 0.2f;
+            snap.autoHealCount = 0;
+            advisor.update(snap, 0.0);
+
+            snap.autoHealCount = 1;
+            expectEquals((int) advisor.update(snap, 1.0).size(), 1, "First glitch should be raised");
+
+            // Another glitch immediately afterwards: the user already knows.
+            snap.autoHealCount = 2;
+            expect(advisor.update(snap, 5.0).empty(), "Repeat glitches should not nag");
+
+            // Well after the cooldown it is news again.
+            snap.autoHealCount = 3;
+            expectEquals((int) advisor.update(snap, 40.0).size(), 1,
+                "After the cooldown the same condition may be raised again");
+        }
+
+        beginTest("UserAdvisor reports silence, a filling zone and a slow setup in plain words");
+        {
+            using Advisor = Nova::Audio::UserAdvisor;
+
+            // Silence has to last: putting the guitar down must not trigger it.
+            {
+                Advisor advisor;
+                Advisor::Snapshot snap;
+                snap.engineOn = true;
+                snap.inputChannels = 2;
+                snap.inputPeak = 0.0f;
+                advisor.update(snap, 0.0);
+                expect(advisor.update(snap, 3.0).empty(), "A short pause is not a problem");
+
+                const auto quiet = advisor.update(snap, 30.0);
+                expectEquals((int) quiet.size(), 1, "Sustained silence should be reported");
+                expect(quiet[0].id == Advisor::idSilence, "Should raise the silence advice");
+            }
+
+            // A filling zone is only worth saying right after the user added something.
+            {
+                Advisor advisor;
+                Advisor::Snapshot snap;
+                snap.engineOn = true;
+                snap.inputChannels = 2;
+                snap.inputPeak = 0.2f;
+                snap.maxPedalsPerZone = 12;
+                snap.pedalsInBusiestZone = 11;
+                snap.chainRevision = 1;
+                advisor.update(snap, 0.0);
+
+                expect(advisor.update(snap, 60.0).empty(),
+                    "A full zone the user is not touching should stay quiet");
+
+                snap.chainRevision = 2;
+                const auto filling = advisor.update(snap, 61.0);
+                expectEquals((int) filling.size(), 1, "Adding into a nearly full zone should say so");
+                expect(filling[0].id == Advisor::idZoneFilling, "Should raise the zone advice");
+                expect(filling[0].message.contains("1 more pedal"),
+                    "The message should say how much room is left, in plain words");
+            }
+
+            // The latency tip honours the preference that switches it off.
+            {
+                Advisor advisor;
+                Advisor::Snapshot snap;
+                snap.engineOn = true;
+                snap.inputChannels = 2;
+                snap.inputPeak = 0.2f;
+                snap.latencyMs = 40.0;
+                snap.latencyTipsEnabled = false;
+                advisor.update(snap, 0.0);
+                expect(advisor.update(snap, 1.0).empty(),
+                    "The latency tip must respect the preference that disables it");
+
+                snap.latencyTipsEnabled = true;
+                const auto slow = advisor.update(snap, 2.0);
+                expectEquals((int) slow.size(), 1, "A slow setup should be reported when enabled");
+                expect(slow[0].id == Advisor::idLatency, "Should raise the latency advice");
+            }
+        }
+
+        beginTest("UserAdvisor messages stay free of engineering jargon");
+        {
+            using Advisor = Nova::Audio::UserAdvisor;
+
+            // The whole point of this layer is that a guitarist can read it, so
+            // the vocabulary is part of the contract rather than a style note.
+            static const char* banned[] = {
+                "buffer", "sample rate", "CPU", "xrun", "dropout", "latency",
+                "callback", "DSP", "oversampl", "thread"
+            };
+
+            Advisor advisor;
+            Advisor::Snapshot snap;
+            snap.engineOn = true;
+            snap.inputChannels = 2;
+            snap.inputPeak = 0.0f;
+            snap.latencyMs = 40.0;
+            snap.maxPedalsPerZone = 12;
+            snap.pedalsInBusiestZone = 12;
+            snap.chainRevision = 1;
+            snap.autoHealCount = 0;
+            advisor.update(snap, 0.0);
+
+            std::vector<Advisor::Advice> everything;
+            double clock = 0.0;
+            for (int i = 0; i < 8; ++i)
+            {
+                clock += 30.0;
+                snap.autoHealCount += 1;
+                snap.chainRevision += 1;
+                snap.cpuPercent = (i % 2 == 0) ? 95.0 : 10.0;
+                for (auto& advice : advisor.update(snap, clock))
+                    everything.push_back(advice);
+                for (auto& advice : advisor.update(snap, clock + 2.0))
+                    everything.push_back(advice);
+            }
+
+            expect(!everything.empty(), "The sweep should have produced advice to inspect");
+
+            for (const auto& advice : everything)
+            {
+                expect(advice.title.isNotEmpty(), "Every advice needs a title");
+                expect(advice.message.isNotEmpty(), "Every advice needs a message");
+
+                for (auto* term : banned)
+                {
+                    const juce::String haystack = advice.title + " " + advice.message;
+                    expect(!haystack.containsIgnoreCase(term),
+                        "Advice '" + advice.id + "' should not use the word '"
+                            + juce::String(term) + "': " + haystack);
+                }
+            }
         }
 
         beginTest("LatencyCalibration never recommends below the buffer it measured");

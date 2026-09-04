@@ -2712,7 +2712,15 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     audioProcessor.getAudioEngine().setTunerReferencePitch(EditorPrefs::parseTunerReference());
     applyEditorPreferences(true);
 
+    // Created after the editor's own setSize(), so it needs its bounds now;
+    // resized() keeps them in step from here on.
+    adviceOverlay = std::make_unique<AdviceOverlay>();
+    addAndMakeVisible(adviceOverlay.get());
+    adviceOverlay->toFront(false);
+    resized();   // the editor was already sized, so lay the overlay out now
+
     statsTimer = std::make_unique<StatsTimer>(*this);
+
 }
 
 NOVAAudioProcessorEditor::~NOVAAudioProcessorEditor()
@@ -3453,6 +3461,9 @@ void NOVAAudioProcessorEditor::resized()
 
     constexpr int headerH = 80;
     constexpr int footerH = 100;
+
+    // Advice sits above the footer meters rather than covering them.
+    if (adviceOverlay) adviceOverlay->setBounds(getLocalBounds().withTrimmedBottom(footerH));
     constexpr int stripW = 80;
     constexpr int drawerW = 220;
 
@@ -3964,6 +3975,8 @@ void NOVAAudioProcessorEditor::updateStats()
         lblStats.setText({}, juce::dontSendNotification);
     }
 
+    updateAdvice(cpuPercent, bufferDurationMs);
+
     lblCpu.setText("CPU USAGE\n" + juce::String(cpuPercent, 1) + "%", juce::dontSendNotification);
     lblProc.setText("PROCESS TIME\n" + juce::String(procTimeMs, 2) + " ms", juce::dontSendNotification);
     lblBuf.setText("BUFFER TIME\n" + juce::String(bufferDurationMs, 1) + " ms", juce::dontSendNotification);
@@ -3974,6 +3987,71 @@ void NOVAAudioProcessorEditor::updateStats()
         lblStats.setColour(juce::Label::textColourId, juce::Colours::red);
     else
         lblStats.setColour(juce::Label::textColourId, Nova::Colors::TextDim);
+}
+
+int NOVAAudioProcessorEditor::computeChainFingerprint() const
+{
+    // Cheap stand-in for "the user changed something": any add, remove, move,
+    // preset load or clear changes one of these, and it needs no new plumbing
+    // through the state stack.
+    int fingerprint = 0;
+    for (auto chain : { Nova::ChainID::LineA, Nova::ChainID::LineB })
+    {
+        const auto nodes = audioProcessor.getAudioEngine().getNodes(chain);
+        fingerprint = fingerprint * 31 + (int) nodes.size();
+
+        for (const auto& node : nodes)
+            fingerprint = fingerprint * 31 + node.pedalID.hashCode();
+    }
+
+    return fingerprint;
+}
+
+void NOVAAudioProcessorEditor::updateAdvice(double cpuPercent, double latencyMs)
+{
+    if (adviceOverlay == nullptr)
+        return;
+
+    auto& engine = audioProcessor.getAudioEngine();
+
+    const int fingerprint = computeChainFingerprint();
+    if (fingerprint != chainFingerprint)
+    {
+        chainFingerprint = fingerprint;
+        ++chainRevisionCounter;
+    }
+
+    // Only the flex zones have a pedal limit worth warning about.
+    int busiestZone = 0;
+    for (auto chain : { Nova::ChainID::LineA, Nova::ChainID::LineB })
+    {
+        int pre = 0, fx = 0;
+        for (const auto& node : engine.getNodes(chain))
+        {
+            if (node.zone == Nova::ZoneID::Pre) ++pre;
+            else if (node.zone == Nova::ZoneID::FX) ++fx;
+        }
+
+        busiestZone = juce::jmax(busiestZone, pre, fx);
+    }
+
+    Nova::Audio::UserAdvisor::Snapshot snapshot;
+    snapshot.engineOn = audioProcessor.pluginState
+        .getChildWithName(Nova::IDs::SETTINGS)
+        .getProperty(Nova::IDs::ENGINE_ON, false);
+    snapshot.cpuPercent = cpuPercent;
+    snapshot.autoHealCount = engine.getAutoHealCount();
+    snapshot.latencyMs = latencyMs;
+    snapshot.inputPeak = engine.getLastInputPeak();
+    snapshot.inputChannels = audioProcessor.getMainBusNumInputChannels();
+    snapshot.pedalsInBusiestZone = busiestZone;
+    snapshot.maxPedalsPerZone = Nova::Config::MAX_PEDALS_PER_FLEX_ZONE;
+    snapshot.chainRevision = chainRevisionCounter;
+    snapshot.latencyTipsEnabled = EditorPrefs::getBool(EditorPrefs::showLatencyTipsKey, true);
+
+    const double now = juce::Time::getMillisecondCounterHiRes() / 1000.0;
+    for (const auto& advice : advisor.update(snapshot, now))
+        adviceOverlay->show(advice);
 }
 
 void NOVAAudioProcessorEditor::updatePedalGui()
