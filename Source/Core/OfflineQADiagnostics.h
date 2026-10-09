@@ -2,11 +2,15 @@
 
 #include <JuceHeader.h>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <functional>
 #include <type_traits>
 #include <vector>
 
 #include "AudioEngine.h"
+#include "PedalCatalog.h"
+#include "PedalRegistry.h"
 #include "DSP/Global/OutputChain.h"
 #include "SessionLogger.h"
 #include "../Effects/Amplifiers/HighGainAmp.h"
@@ -84,6 +88,15 @@ public:
     {
         const auto results = runRtProfileScenarios();
         writeRtProfileReport(results);
+    }
+
+    // Renders every registered processor with deterministic input and parameter
+    // automation and hashes the raw output bits. Used to prove that pure
+    // refactors (e.g. memoising control-rate math) leave the audio bit-identical.
+    static void runBitExactChecksumsAndWriteReport()
+    {
+        const auto results = runBitExactChecksums();
+        writeBitExactReport(results);
     }
 
 private:
@@ -552,13 +565,16 @@ private:
 
     using RtProfileSetupFn = std::function<void(AudioEngine&)>;
     using RtProfileFillFn = std::function<void(juce::AudioBuffer<float>&, int, double)>;
+    // Called before each timed block, outside the measured region.
+    using RtProfileBlockHookFn = std::function<void(AudioEngine&, int)>;
 
     static RtProfileResult runRtProfileScenario(const juce::String& name,
         double sr,
         int scenarioBlockSize,
         const RtProfileSetupFn& setup,
         const RtProfileFillFn& fill,
-        bool warnOnLimiterActivity = true)
+        bool warnOnLimiterActivity = true,
+        const RtProfileBlockHookFn& blockHook = {})
     {
         RtProfileResult result;
         result.name = name;
@@ -595,6 +611,9 @@ private:
 
         for (int block = 0; block < blocks; ++block)
         {
+            if (blockHook)
+                blockHook(engine, block);
+
             buffer.clear();
             fill(buffer, block + 32, sr);
 
@@ -1317,6 +1336,193 @@ private:
         results.push_back(runRtProfileScenario("sample_rate_44100", 44100.0, 128, fullNominalSetup, guitarFill, false));
         results.push_back(runRtProfileScenario("sample_rate_48000", 48000.0, 128, fullNominalSetup, guitarFill, false));
         results.push_back(runRtProfileScenario("sample_rate_96000", 96000.0, 128, fullNominalSetup, guitarFill, false));
+
+        // Per-processor cost at default settings ("proc_*") and while every continuous
+        // parameter keeps ramping ("proc_*_knobs", the worst case while the user turns knobs).
+        const auto knobSweepHook = [](AudioEngine& engine, int block)
+        {
+            if ((block % 4) != 0)
+                return;
+
+            auto* processor = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
+            if (processor == nullptr)
+                return;
+
+            const float target = ((block / 4) % 2 == 0) ? 0.30f : 0.70f;
+            for (auto* parameter : processor->getParameters())
+                if (dynamic_cast<juce::AudioParameterFloat*>(parameter) != nullptr)
+                    parameter->setValueNotifyingHost(target);
+        };
+
+        for (const auto& entry : Nova::PedalCatalog::entries())
+        {
+            const juce::String type(entry.typeID);
+            const auto zone = entry.kind == Nova::PedalCatalog::Kind::Amplifier ? Nova::ZoneID::Amp
+                : entry.kind == Nova::PedalCatalog::Kind::Cabinet ? Nova::ZoneID::Cabinet
+                : Nova::ZoneID::Pre;
+            const auto scenarioName = "proc_" + type.toLowerCase().replaceCharacter(' ', '_');
+
+            const auto processorSetup = [type, zone](AudioEngine& engine)
+            {
+                engine.addPedal(type, Nova::ChainID::LineA, 0, zone, "profile-" + type);
+                engine.synchronizeProcessingState();
+                warmUpEngine(engine, 4);
+            };
+
+            results.push_back(runRtProfileScenario(scenarioName, 48000.0, 128, processorSetup, guitarFill, false));
+            results.push_back(runRtProfileScenario(scenarioName + "_knobs", 48000.0, 128, processorSetup, guitarFill, false, knobSweepHook));
+        }
+
+        return results;
+    }
+
+    struct BitExactResult
+    {
+        juce::String type;
+        double sampleRate = 0.0;
+        int blockSize = 0;
+        bool stereoInput = false;
+        int processedBlocks = 0;
+        int invalidSamples = 0;
+        juce::String hash;
+    };
+
+    // Deterministic guitar-like input: plucked notes across the neck at several
+    // dynamics, silent gaps (exercises gates/envelopes) and seeded noise.
+    static void fillBitExactInputBlock(juce::AudioBuffer<float>& buffer,
+        int blockIndex,
+        double sr,
+        bool stereoInput,
+        juce::Random& rng)
+    {
+        static constexpr double frequencies[] = { 82.41, 110.0, 146.83, 196.0, 246.94, 329.63 };
+        static constexpr double amplitudes[] = { 0.04, 0.18, 0.55, 0.90 };
+        constexpr double pluckPeriodSeconds = 0.3;
+        const int blockSamples = buffer.getNumSamples();
+
+        for (int i = 0; i < blockSamples; ++i)
+        {
+            const double t = ((double)blockIndex * blockSamples + i) / sr;
+            const int pluck = (int)(t / pluckPeriodSeconds);
+            const double tp = t - pluck * pluckPeriodSeconds;
+            const double f = frequencies[pluck % 6];
+            const double a = amplitudes[pluck % 4];
+            const double env = (pluck % 5 == 4) ? 0.0 : std::exp(-tp * 6.0) * juce::jmin(1.0, tp / 0.002);
+            const double w = juce::MathConstants<double>::twoPi * f * t;
+
+            const float left = (float)(a * env * (0.7 * std::sin(w) + 0.2 * std::sin(2.0 * w) + 0.1 * std::sin(3.0 * w)))
+                + 0.001f * (rng.nextFloat() * 2.0f - 1.0f);
+            const float right = stereoInput
+                ? (float)(a * env * (0.7 * std::sin(w + 0.4) + 0.2 * std::sin(2.0 * w + 0.9) + 0.1 * std::sin(3.0 * w)))
+                    + 0.001f * (rng.nextFloat() * 2.0f - 1.0f)
+                : left;
+
+            buffer.setSample(0, i, left);
+            if (buffer.getNumChannels() > 1)
+                buffer.setSample(1, i, right);
+        }
+    }
+
+    static void applyBitExactParameterPattern(juce::AudioProcessor& processor, int pattern)
+    {
+        const auto& parameters = processor.getParameters();
+        for (int i = 0; i < parameters.size(); ++i)
+        {
+            const double position = (double)i * 0.6180339887 + (double)pattern * 0.29;
+            const float normalised = 0.15f + 0.70f * (float)(position - std::floor(position));
+            parameters[i]->setValueNotifyingHost(normalised);
+        }
+    }
+
+    static BitExactResult runBitExactChecksum(const juce::String& type,
+        Nova::PedalCatalog::Kind kind,
+        double sr,
+        int scenarioBlockSize,
+        bool stereoInput)
+    {
+        BitExactResult result;
+        result.type = type;
+        result.sampleRate = sr;
+        result.blockSize = scenarioBlockSize;
+        result.stereoInput = stereoInput;
+
+        auto processor = PedalRegistry::createPedal(type);
+        if (processor == nullptr)
+        {
+            result.hash = "missing-processor";
+            return result;
+        }
+
+        processor->setPlayConfigDetails(2, 2, sr, scenarioBlockSize);
+        processor->prepareToPlay(sr, scenarioBlockSize);
+
+        // juce::dsp::Convolution loads impulse responses on a background thread.
+        // Wait so the first processed block always sees the loaded IR.
+        if (kind == Nova::PedalCatalog::Kind::Cabinet)
+            juce::Thread::sleep(400);
+
+        juce::AudioBuffer<float> buffer(2, scenarioBlockSize);
+        juce::MidiBuffer midi;
+        juce::Random rng(0x5EED1234);
+
+        std::uint64_t hash = 14695981039346656037ull;
+        const int totalBlocks = (int)std::ceil((sr * 2.0) / (double)scenarioBlockSize);
+
+        for (int block = 0; block < totalBlocks; ++block)
+        {
+            if (block == totalBlocks / 4)
+                applyBitExactParameterPattern(*processor, 0);
+            if (block == totalBlocks / 2)
+                applyBitExactParameterPattern(*processor, 1);
+            if (block == (3 * totalBlocks) / 4)
+                applyBitExactParameterPattern(*processor, 2);
+
+            fillBitExactInputBlock(buffer, block, sr, stereoInput, rng);
+            processor->processBlock(buffer, midi);
+
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            {
+                const auto* data = buffer.getReadPointer(ch);
+                for (int i = 0; i < buffer.getNumSamples(); ++i)
+                {
+                    if (!std::isfinite(data[i]))
+                        ++result.invalidSamples;
+
+                    std::uint32_t bits = 0;
+                    std::memcpy(&bits, &data[i], sizeof(bits));
+                    for (int byte = 0; byte < 4; ++byte)
+                    {
+                        hash ^= (std::uint64_t)((bits >> (byte * 8)) & 0xffu);
+                        hash *= 1099511628211ull;
+                    }
+                }
+            }
+        }
+
+        processor->releaseResources();
+        result.processedBlocks = totalBlocks;
+        result.hash = "0x" + juce::String::toHexString((juce::int64)hash).paddedLeft('0', 16);
+        return result;
+    }
+
+    static std::vector<BitExactResult> runBitExactChecksums()
+    {
+        struct Config
+        {
+            double sampleRate;
+            int blockSize;
+            bool stereoInput;
+        };
+
+        static constexpr Config configs[] = {
+            { 48000.0, 64, false },
+            { 44100.0, 128, true }
+        };
+
+        std::vector<BitExactResult> results;
+        for (const auto& entry : Nova::PedalCatalog::entries())
+            for (const auto& config : configs)
+                results.push_back(runBitExactChecksum(entry.typeID, entry.kind, config.sampleRate, config.blockSize, config.stereoInput));
 
         return results;
     }
@@ -4673,6 +4879,64 @@ private:
         }
 
         return "\"" + escaped + "\"";
+    }
+
+    static juce::File getBitExactReportFile()
+    {
+        if (const auto overridePath = juce::SystemStats::getEnvironmentVariable("NOVA_BITEXACT_REPORT_PATH", {});
+            overridePath.isNotEmpty())
+        {
+            auto file = juce::File::getCurrentWorkingDirectory().getChildFile(overridePath);
+            if (juce::File::isAbsolutePath(overridePath))
+                file = juce::File(overridePath);
+
+            auto parent = file.getParentDirectory();
+            if (!parent.exists())
+                parent.createDirectory();
+
+            return file;
+        }
+
+        return getReportFile().getSiblingFile("bitexact-report.json");
+    }
+
+    static void writeBitExactReport(const std::vector<BitExactResult>& results)
+    {
+        auto reportFile = getBitExactReportFile();
+        if (reportFile.existsAsFile())
+            reportFile.deleteFile();
+
+        juce::String text;
+        text << "{" << juce::newLine;
+        text << "  \"generatedAt\": " << jsonQuote(juce::Time::getCurrentTime().toISO8601(true)) << "," << juce::newLine;
+        text << "  \"kind\": \"nova-bitexact-checksums\"," << juce::newLine;
+       #if JUCE_DEBUG
+        text << "  \"configuration\": \"Debug\"," << juce::newLine;
+       #else
+        text << "  \"configuration\": \"Release\"," << juce::newLine;
+       #endif
+        text << "  \"results\": [" << juce::newLine;
+
+        for (size_t i = 0; i < results.size(); ++i)
+        {
+            const auto& result = results[i];
+            text << "    { \"type\": " << jsonQuote(result.type)
+                 << ", \"sampleRate\": " << juce::String(result.sampleRate, 1)
+                 << ", \"blockSize\": " << result.blockSize
+                 << ", \"stereoInput\": " << (result.stereoInput ? "true" : "false")
+                 << ", \"processedBlocks\": " << result.processedBlocks
+                 << ", \"invalidSamples\": " << result.invalidSamples
+                 << ", \"hash\": " << jsonQuote(result.hash) << " }"
+                 << (i + 1 < results.size() ? "," : "") << juce::newLine;
+        }
+
+        text << "  ]" << juce::newLine;
+        text << "}" << juce::newLine;
+
+        // Write to a temp file first so watchers never read a partial report.
+        auto tempFile = reportFile.getSiblingFile(reportFile.getFileName() + ".tmp");
+        if (tempFile.replaceWithText(text))
+            tempFile.moveFileTo(reportFile);
     }
 
     static void writeRtProfileReport(const std::vector<RtProfileResult>& results)

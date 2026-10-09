@@ -168,6 +168,23 @@ void maybeRunRtProfileDiagnosticsOnce()
     NovaDiagnostics::OfflineQADiagnostics::runRtProfileAndWriteReport();
     NovaDiagnostics::SessionLogger::logEvent("rt.profile", "Finished RT profile scenarios");
 }
+
+void maybeRunBitExactDiagnosticsOnce()
+{
+    static bool hasRun = false;
+
+    if (hasRun)
+        return;
+
+    const auto envValue = juce::SystemStats::getEnvironmentVariable("NOVA_RUN_BITEXACT", {});
+    if (envValue != "1")
+        return;
+
+    hasRun = true;
+    NovaDiagnostics::SessionLogger::logEvent("bitexact", "Running bit-exact processor checksums from NOVA_RUN_BITEXACT=1");
+    NovaDiagnostics::OfflineQADiagnostics::runBitExactChecksumsAndWriteReport();
+    NovaDiagnostics::SessionLogger::logEvent("bitexact", "Finished bit-exact processor checksums");
+}
 #endif
 
 juce::String boolToText(bool value)
@@ -451,6 +468,7 @@ NOVAAudioProcessor::NOVAAudioProcessor()
     logStateSnapshot("processor.constructed");
 #if NOVA_DIAGNOSTIC_ENV_HOOKS_ENABLED
     maybeRunRtProfileDiagnosticsOnce();
+    maybeRunBitExactDiagnosticsOnce();
 #endif
 }
 
