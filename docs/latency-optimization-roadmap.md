@@ -290,6 +290,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
   - Nunca hay que abrir el micrófono de un headset Bluetooth: Windows lo pasaría a HFP (16 kHz mono).
 
 ### T2-10 — Latency Autopilot (configuración automática de audio) — **prioridad del producto**
+- **Estado:** investigación terminada (2026-10-09) → `docs/reports/LAT-T2-10-latency-autopilot.md`. Esperando las 5 decisiones de su sección 8 para empezar la Fase 1.
 - **Objetivo (pedido del usuario, 2026-10-07):** que el usuario solo "encienda" NOVA y obtenga la mejor configuración posible para su hardware, sin tocar el panel del driver.
 - **Idea:**
   1. **Elegir driver:** ASIO nativo del fabricante si existe. Evitar wrappers genéricos (ASIO4ALL, FlexASIO), que suelen bloquear el audio de otras apps. Si no hay ASIO: WASAPI Low Latency → Exclusive → Shared.
@@ -386,10 +387,12 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 
 ## 12. Siguiente paso recomendado
 
-1. Probar en la app real: ASIO con la interfaz (buffers 64 y 32) y el wizard (latencia round trip y recomendaciones).
-2. Commit de los cambios T0.
-3. T1 de mayor impacto en CPU: T1-03 (`tanh`/`exp` rápidos), T1-04 (filtros fuera de la zona 8x), T1-13 (Octave) y T1-01 (cab IIR).
-4. Abrir la investigación de `T2-01` (modo Live, −3.5 ms).
+**Dónde retomar (2026-10-09):** T0 completo y commiteado en la rama `perf/t0-latency-optimizations` (sin mergear a `master`). Probado en la app con ASIO.
+
+1. **T2-10 Autopilot:** responder las 5 decisiones de la sección 8 de `docs/reports/LAT-T2-10-latency-autopilot.md` e implementar la Fase 1.
+2. **T1 de mayor impacto en CPU:** T1-03 (`tanh`/`exp` rápidos), T1-04 (filtros fuera de la zona 8x), T1-13 (Octave) y T1-01 (cab IIR + fix del decay).
+3. **T2-01 Modo Live (−3.5 ms):** siguiente investigación.
+4. **Antes de publicar:** firmar el acuerdo ASIO (T0-03) y mergear la rama a `master`.
 
 ## 13. Registro
 
@@ -400,3 +403,4 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | 2026-10-07 | T0-03: checklist de producción según el acuerdo ASIO 2.0.5 (contrafirma, avisos de marca, persona física vs. empresa) |
 | 2026-10-07 | T0-03 implementado para desarrollo: `JUCE_ASIO="1"` en `NOVA.jucer` + re-export con `Projucer --resave`. El re-export también corrigió B-07. Drivers ASIO detectados en la máquina de desarrollo: Yamaha Steinberg USB ASIO, ASIO4ALL v2, Ableton Push, Ableton Move |
 | 2026-10-07 | T0-01, T0-02 y T0-04…T0-16 implementados. 48/48 bit-idénticos (Debug y Release), base validation y golden PASS. Octave −72% de CPU. Nuevos hallazgos B-08 y B-09; nuevos ítems T1-13 y T1-14 |
+| 2026-10-09 | T0 commiteado en la rama `perf/t0-latency-optimizations`. Probado en la app: ASIO con latencia "casi cero" y tocando sobre canciones sin problemas. Investigación de T2-10 terminada (`docs/reports/LAT-T2-10-latency-autopilot.md`) |
