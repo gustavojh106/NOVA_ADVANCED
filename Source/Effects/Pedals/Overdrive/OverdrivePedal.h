@@ -56,6 +56,9 @@ public:
         finalDcBlock.prepare(sampleRate, numChannels);
         driveStage.prepare(currentInnerSampleRate, numChannels);
 
+        // Filter prepare() resets the coefficients, so the memoised tone model must be recomputed.
+        invalidateToneModelCache();
+
         driveControlSmooth.reset(sampleRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
         toneControlSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
         textureControlSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
@@ -247,8 +250,15 @@ public:
                 continue;
             }
 
-            const float dryGain = std::cos(juce::MathConstants<float>::halfPi * mix);
-            const float wetGain = mix >= 0.9999f ? 1.0f : std::sin(juce::MathConstants<float>::halfPi * mix);
+            if (!(mix == cachedMixValue))
+            {
+                cachedMixValue = mix;
+                cachedMixDryGain = std::cos(juce::MathConstants<float>::halfPi * mix);
+                cachedMixWetGain = mix >= 0.9999f ? 1.0f : std::sin(juce::MathConstants<float>::halfPi * mix);
+            }
+
+            const float dryGain = cachedMixDryGain;
+            const float wetGain = cachedMixWetGain;
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
@@ -604,8 +614,17 @@ private:
             // tanh further into saturation without adding musical content.
             // The sag term shaves up to ~3 dB during loud transients to
             // keep the saturator out of brick-wall territory.
-            const float stage1GainDb = 4.0f + drive * 16.0f;          // 4..20 dB
-            const float stage1Gain   = juce::Decibels::decibelsToGain(stage1GainDb);
+            // The dB -> gain conversion (a pow per sub-sample) only depends on the
+            // control value, so it is memoised. NaN never compares equal, which
+            // keeps the first call and any NaN input on the original path.
+            if (!(driveControl == cachedGainDriveControl))
+            {
+                cachedGainDriveControl = driveControl;
+                const float stage1GainDb = 4.0f + drive * 16.0f;      // 4..20 dB
+                cachedStage1Gain = juce::Decibels::decibelsToGain(stage1GainDb);
+            }
+
+            const float stage1Gain   = cachedStage1Gain;
             const float sag          = 1.0f / (1.0f + state.envelope * (0.18f + texture * 0.22f) * (0.6f + drive * 1.4f));
 
             // Asymmetric, signal-dependent bias for tube-style even harmonics.
@@ -646,6 +665,8 @@ private:
         double sampleRate = 44100.0;
         float dcCoeff = 0.001f;
         std::vector<ChannelState> channelState;
+        float cachedGainDriveControl = std::numeric_limits<float>::quiet_NaN();
+        float cachedStage1Gain = 1.0f;
     };
 
     struct ToneModel
@@ -688,8 +709,28 @@ private:
         return juce::Decibels::decibelsToGain(compensationDb);
     }
 
+    void invalidateToneModelCache() noexcept
+    {
+        lastToneModelDrive = std::numeric_limits<float>::quiet_NaN();
+        lastToneModelTone = std::numeric_limits<float>::quiet_NaN();
+        lastToneModelTexture = std::numeric_limits<float>::quiet_NaN();
+    }
+
     void updateToneModel(float driveControl, float toneControl, float textureControl)
     {
+        // The tone model is a pure function of the three controls. Skip the
+        // coefficient math (8 std::exp in double) while they hold still.
+        if (driveControl == lastToneModelDrive
+            && toneControl == lastToneModelTone
+            && textureControl == lastToneModelTexture)
+        {
+            return;
+        }
+
+        lastToneModelDrive = driveControl;
+        lastToneModelTone = toneControl;
+        lastToneModelTexture = textureControl;
+
         const float drive = juce::jlimit(0.0f, 1.0f, driveControl / 100.0f);
         const float tone = juce::jlimit(0.0f, 1.0f, toneControl);
         const float texture = juce::jlimit(0.0f, 1.0f, textureControl);
@@ -753,6 +794,12 @@ private:
     int preparedBlockSize = 512;
     int preparedChannels = 2;
     ToneModel toneModel;
+    float lastToneModelDrive = std::numeric_limits<float>::quiet_NaN();
+    float lastToneModelTone = std::numeric_limits<float>::quiet_NaN();
+    float lastToneModelTexture = std::numeric_limits<float>::quiet_NaN();
+    float cachedMixValue = std::numeric_limits<float>::quiet_NaN();
+    float cachedMixDryGain = 1.0f;
+    float cachedMixWetGain = 0.0f;
     NovaDiagnostics::PedalSignalTelemetry signalTelemetry { "overdrive" };
     DebugTelemetry debugTelemetry;
 };

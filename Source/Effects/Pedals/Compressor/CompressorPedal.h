@@ -216,7 +216,24 @@ protected:
             const float kneeDb = kneeSmooth.getNextValue();
             const float focusAmount = focusSmooth.getNextValue();
             const float blend = juce::jlimit(0.0f, 1.0f, blendSmooth.getNextValue());
-            const float makeupGain = juce::Decibels::decibelsToGain(makeupSmooth.getNextValue());
+            const float makeupDb = makeupSmooth.getNextValue();
+            if (!(makeupDb == cachedMakeupDb))
+            {
+                cachedMakeupDb = makeupDb;
+                cachedMakeupGain = juce::Decibels::decibelsToGain(makeupDb);
+            }
+
+            const float makeupGain = cachedMakeupGain;
+
+            // Same math as mixDryWetEqualPower(), with the cos/sin pair memoised on the blend value.
+            if (!(blend == cachedBlend))
+            {
+                cachedBlend = blend;
+                const float safeMix = juce::jlimit(0.0f, 1.0f, std::isfinite(blend) ? blend : 0.0f);
+                const float phase = safeMix * juce::MathConstants<float>::halfPi;
+                cachedBlendDryGain = std::cos(phase);
+                cachedBlendWetGain = std::sin(phase);
+            }
 
             float fullBandPeak = 0.0f;
             float focusedPeak = 0.0f;
@@ -234,9 +251,12 @@ protected:
             const float detectorInput = juce::jmax(fullBandPeak * fullBandFloor,
                 (fullBandPeak * (1.0f - focusBlend)) + (focusedPeak * focusBlend * 1.18f));
 
-            const float peakAttackCoeff = coefficientForTime(juce::jmax(0.15f, attackMs * juce::jmap(focusAmount, 0.30f, 0.18f)));
-            const float peakReleaseCoeff = coefficientForTime(juce::jmax(10.0f, releaseMs * 0.45f));
-            const float rmsCoeff = coefficientForTime(juce::jmax(4.0f, attackMs * juce::jmap(focusAmount, 2.1f, 1.2f)));
+            const float peakAttackCoeff = memoisedCoefficientForTime(peakAttackCoeffMemo,
+                juce::jmax(0.15f, attackMs * juce::jmap(focusAmount, 0.30f, 0.18f)));
+            const float peakReleaseCoeff = memoisedCoefficientForTime(peakReleaseCoeffMemo,
+                juce::jmax(10.0f, releaseMs * 0.45f));
+            const float rmsCoeff = memoisedCoefficientForTime(rmsCoeffMemo,
+                juce::jmax(4.0f, attackMs * juce::jmap(focusAmount, 2.1f, 1.2f)));
             const float detectorLinear = detector.process(detectorInput,
                 peakAttackCoeff,
                 peakReleaseCoeff,
@@ -273,7 +293,9 @@ protected:
             {
                 const float dry = dryBuffer.getSample(ch, sample);
                 const float wet = buffer.getSample(ch, sample) * compressionGain;
-                buffer.setSample(ch, sample, mixDryWetEqualPower(dry, wet, blend));
+                const float safeDry = std::isfinite(dry) ? dry : 0.0f;
+                const float safeWet = std::isfinite(wet) ? wet : 0.0f;
+                buffer.setSample(ch, sample, (safeDry * cachedBlendDryGain) + (safeWet * cachedBlendWetGain));
             }
         }
 
@@ -326,6 +348,26 @@ private:
         return std::exp(-1.0f / (timeInSeconds * (float) juce::jmax(1.0, currentSampleRate)));
     }
 
+    struct CoefficientMemo
+    {
+        float milliseconds = std::numeric_limits<float>::quiet_NaN();
+        double sampleRate = 0.0;
+        float coefficient = 0.0f;
+    };
+
+    // coefficientForTime() is an exp(); its inputs here only change while a knob moves.
+    float memoisedCoefficientForTime(CoefficientMemo& memo, float milliseconds) const noexcept
+    {
+        if (!(milliseconds == memo.milliseconds) || memo.sampleRate != currentSampleRate)
+        {
+            memo.milliseconds = milliseconds;
+            memo.sampleRate = currentSampleRate;
+            memo.coefficient = coefficientForTime(milliseconds);
+        }
+
+        return memo.coefficient;
+    }
+
     void updateSidechainFilters(float focusAmount)
     {
         if (std::abs(focusAmount - cachedFocus) < 0.001f)
@@ -353,6 +395,15 @@ private:
 
     double currentSampleRate = 44100.0;
     float linkedGainReductionDb = 0.0f;
+
+    CoefficientMemo peakAttackCoeffMemo;
+    CoefficientMemo peakReleaseCoeffMemo;
+    CoefficientMemo rmsCoeffMemo;
+    float cachedMakeupDb = std::numeric_limits<float>::quiet_NaN();
+    float cachedMakeupGain = 1.0f;
+    float cachedBlend = std::numeric_limits<float>::quiet_NaN();
+    float cachedBlendDryGain = 1.0f;
+    float cachedBlendWetGain = 0.0f;
     float cachedFocus = -1.0f;
     std::atomic<float> currentGainReductionDb{ 0.0f };
 };

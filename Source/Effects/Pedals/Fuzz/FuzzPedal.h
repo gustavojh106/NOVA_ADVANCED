@@ -473,8 +473,15 @@ public:
                 continue;
             }
 
-            const float dryGain = std::cos(mix * halfPi);
-            const float wetGain = std::sin(mix * halfPi);
+            if (!(mix == cachedMixValue))
+            {
+                cachedMixValue = mix;
+                cachedMixDryGain = std::cos(mix * halfPi);
+                cachedMixWetGain = std::sin(mix * halfPi);
+            }
+
+            const float dryGain = cachedMixDryGain;
+            const float wetGain = cachedMixWetGain;
 
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
@@ -564,6 +571,10 @@ public:
 
 private:
     static constexpr int kMaxProcessingChannels = 2;
+
+    float cachedMixValue = std::numeric_limits<float>::quiet_NaN();
+    float cachedMixDryGain = 1.0f;
+    float cachedMixWetGain = 0.0f;
 
     static float containFuzzOutput(float x) noexcept
     {

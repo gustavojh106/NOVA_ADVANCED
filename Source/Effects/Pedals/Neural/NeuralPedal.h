@@ -166,6 +166,9 @@ public:
         dcBlock.prepare(innerSampleRate, numChannels);
         envelopeFollower.prepare(innerSampleRate, numChannels);
 
+        // Filter prepare() resets the coefficients, so the memoised tone model must be recomputed.
+        invalidateToneModelCache();
+
         driveSmooth.reset(sampleRate, Nova::Config::SMOOTH_DRIVE_SECONDS);
         focusSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
         detailSmooth.reset(sampleRate, Nova::Config::SMOOTH_DEFAULT_SECONDS);
@@ -297,6 +300,13 @@ public:
                 updateToneModel(currentDrive, currentFocus, currentDetail, currentComp);
             }
 
+            // dB -> gain (a pow) depends only on the drive control: memoised across samples and channels.
+            if (!(currentDrive == cachedInputDriveControl))
+            {
+                cachedInputDriveControl = currentDrive;
+                cachedInputDrive = juce::Decibels::decibelsToGain(7.0f + juce::jlimit(0.0f, 1.0f, currentDrive * 0.01f) * 22.0f);
+            }
+
             for (int ch = 0; ch < (int) upsampled.getNumChannels(); ++ch)
             {
                 auto* data = upsampled.getChannelPointer((size_t) ch);
@@ -309,7 +319,7 @@ public:
                 x += (x - focusLow) * toneModel.focusEdge;
                 x -= focusLow * toneModel.focusLowTrim;
 
-                const float inputDrive = juce::Decibels::decibelsToGain(7.0f + juce::jlimit(0.0f, 1.0f, currentDrive * 0.01f) * 22.0f);
+                const float inputDrive = cachedInputDrive;
                 const float compPush = 1.0f + envelope * (0.24f + currentComp * 0.72f);
                 const float dynamicSag = 1.0f / (1.0f + envelope * (0.14f + currentComp * 0.58f));
                 const float asymmetry = toneModel.asymmetry + envelope * (0.015f + currentDetail * 0.045f);
@@ -338,8 +348,15 @@ public:
             const float mix = snapMixTarget(mixSmooth.getNextValue());
             const float level = levelSmooth.getNextValue();
             const float wetTrim = wetTrimSmooth.getNextValue();
-            const float dryGain = mix <= 0.0001f ? 1.0f : std::cos(halfPi * mix);
-            const float wetGain = mix <= 0.0001f ? 0.0f : (mix >= 0.9999f ? 1.0f : std::sin(halfPi * mix));
+            if (!(mix == cachedMixValue))
+            {
+                cachedMixValue = mix;
+                cachedMixDryGain = mix <= 0.0001f ? 1.0f : std::cos(halfPi * mix);
+                cachedMixWetGain = mix <= 0.0001f ? 0.0f : (mix >= 0.9999f ? 1.0f : std::sin(halfPi * mix));
+            }
+
+            const float dryGain = cachedMixDryGain;
+            const float wetGain = cachedMixWetGain;
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
@@ -416,8 +433,31 @@ private:
         return juce::Decibels::decibelsToGain(compensationDb);
     }
 
+    void invalidateToneModelCache() noexcept
+    {
+        lastToneModelDrive = std::numeric_limits<float>::quiet_NaN();
+        lastToneModelFocus = std::numeric_limits<float>::quiet_NaN();
+        lastToneModelDetail = std::numeric_limits<float>::quiet_NaN();
+        lastToneModelComp = std::numeric_limits<float>::quiet_NaN();
+    }
+
     void updateToneModel(float driveControl, float focusControl, float detailControl, float compControl)
     {
+        // The tone model is a pure function of the four controls. Skip the coefficient
+        // math (7 std::exp in double plus a pow) while they hold still.
+        if (driveControl == lastToneModelDrive
+            && focusControl == lastToneModelFocus
+            && detailControl == lastToneModelDetail
+            && compControl == lastToneModelComp)
+        {
+            return;
+        }
+
+        lastToneModelDrive = driveControl;
+        lastToneModelFocus = focusControl;
+        lastToneModelDetail = detailControl;
+        lastToneModelComp = compControl;
+
         const float drive = juce::jlimit(0.0f, 1.0f, driveControl * 0.01f);
         const float focus = juce::jlimit(0.0f, 1.0f, focusControl);
         const float detail = juce::jlimit(0.0f, 1.0f, detailControl);
@@ -443,6 +483,16 @@ private:
         toneModel.voiceBlend = juce::jlimit(0.18f, 0.92f, 0.32f + detail * 0.46f + comp * 0.12f);
         toneModel.outputTrim = juce::Decibels::decibelsToGain(juce::jmap(drive, -0.25f, -2.10f));
     }
+
+    float lastToneModelDrive = std::numeric_limits<float>::quiet_NaN();
+    float lastToneModelFocus = std::numeric_limits<float>::quiet_NaN();
+    float lastToneModelDetail = std::numeric_limits<float>::quiet_NaN();
+    float lastToneModelComp = std::numeric_limits<float>::quiet_NaN();
+    float cachedInputDriveControl = std::numeric_limits<float>::quiet_NaN();
+    float cachedInputDrive = 1.0f;
+    float cachedMixValue = std::numeric_limits<float>::quiet_NaN();
+    float cachedMixDryGain = 1.0f;
+    float cachedMixWetGain = 0.0f;
 
     juce::dsp::Oversampling<float> oversampler;
     Nova::NeuralDSP::OnePoleFilterBank inputTighten;

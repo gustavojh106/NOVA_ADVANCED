@@ -2021,8 +2021,15 @@ public:
         for (int s = 0; s < numSamples; ++s)
         {
             const float m = mixSmooth.getNextValue();
-            const float dry = std::cos(m * halfPi);
-            const float wet = std::sin(m * halfPi);
+            if (!(m == cachedMixValue))
+            {
+                cachedMixValue = m;
+                cachedMixDryGain = std::cos(m * halfPi);
+                cachedMixWetGain = std::sin(m * halfPi);
+            }
+
+            const float dry = cachedMixDryGain;
+            const float wet = cachedMixWetGain;
 
             dstL[s] = dryL[s] * dry + dstL[s] * wet;
             if (dstR != nullptr)
@@ -2220,6 +2227,9 @@ private:
 
     Nova::Reverb::Engine engine;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
+    float cachedMixValue = std::numeric_limits<float>::quiet_NaN();
+    float cachedMixDryGain = 1.0f;
+    float cachedMixWetGain = 0.0f;
     juce::AudioBuffer<float> dryBuffer;
     juce::AudioBuffer<float> wetInputBuffer;
 

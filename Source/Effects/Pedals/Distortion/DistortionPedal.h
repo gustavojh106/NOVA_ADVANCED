@@ -605,7 +605,9 @@ public:
 
         updateFilters();
 
-        const auto config = Nova::DistortionDSP::getModeConfig(modeParam != nullptr ? modeParam->getIndex() : 0);
+        // Read the mode once per block so the config and the per-sample math always agree.
+        const int modeIndex = modeParam != nullptr ? modeParam->getIndex() : 0;
+        const auto config = Nova::DistortionDSP::getModeConfig(modeIndex);
         const float gainCtlNow = gainSmooth.getCurrentValue();
         const float tightCtlNow = tightSmooth.getCurrentValue();
         const float driveNormNow = juce::jlimit(0.0f, 1.0f, gainCtlNow * 0.01f);
@@ -622,6 +624,16 @@ public:
             const float tightCtl = tightSmooth.getNextValue();
             const float driveNorm = juce::jlimit(0.0f, 1.0f, gainCtl * 0.01f);
 
+            // Stage-1 gain (a pow) and the compatibility trim only depend on the
+            // gain control and the mode, so they are memoised across samples and channels.
+            if (!(gainCtl == cachedStage1GainControl) || modeIndex != cachedStage1Mode)
+            {
+                cachedStage1GainControl = gainCtl;
+                cachedStage1Mode = modeIndex;
+                cachedStage1DbGain = juce::Decibels::decibelsToGain(config.stage1BaseDb + gainCtl * config.stage1DrivePerPct);
+                cachedHighGainCompatibilityTrim = 1.0f / (1.0f + driveNorm * driveNorm * (modeIndex >= 3 ? 0.62f : 0.24f));
+            }
+
             for (int ch = 0; ch < innerChannels; ++ch)
             {
                 auto* data = upsampled.getChannelPointer((size_t) ch);
@@ -629,7 +641,7 @@ public:
                 float x = dryTransient;
 
                 x = inputHP[(size_t) ch].process(x);
-                x *= computeIdleRejectGain(x, ch, driveNorm, tightCtl, modeParam != nullptr ? modeParam->getIndex() : 0);
+                x *= computeIdleRejectGain(x, ch, driveNorm, tightCtl, modeIndex);
                 x = preContour[(size_t) ch].process(x);
                 x = preLP[(size_t) ch].process(x);
 
@@ -639,10 +651,9 @@ public:
                 envelope = detector + sagCoeff * (envelope - detector);
                 const float sagGain = 1.0f - config.sagAmount * juce::jlimit(0.0f, 1.0f, envelope * 0.72f);
 
-                const float highGainCompatibilityTrim = 1.0f / (1.0f + driveNorm * driveNorm * (modeParam != nullptr && modeParam->getIndex() >= 3 ? 0.62f : 0.24f));
-                const float stage1Drive = juce::Decibels::decibelsToGain(config.stage1BaseDb + gainCtl * config.stage1DrivePerPct)
+                const float stage1Drive = cachedStage1DbGain
                     * sagGain
-                    * highGainCompatibilityTrim;
+                    * cachedHighGainCompatibilityTrim;
                 const float stage2Drive = config.stage2Base + driveNorm * config.stage2DriveScale + tightCtl * config.stage2TightScale;
                 const float stage3Drive = config.stage3Base + driveNorm * config.stage3DriveScale + tightCtl * 0.06f;
                 const float bias = (config.contourGainDb > 0.0f ? 0.03f : -0.015f) * driveNorm;
@@ -701,8 +712,15 @@ public:
         {
             const float mix = mixSmooth.getNextValue();
             const float level = juce::jmap(juce::jlimit(0.0f, 1.0f, levelSmooth.getNextValue()), 0.08f, 1.6f);
-            const float dryGain = std::cos(mix * halfPi);
-            const float wetGain = std::sin(mix * halfPi);
+            if (!(mix == cachedMixValue))
+            {
+                cachedMixValue = mix;
+                cachedMixDryGain = std::cos(mix * halfPi);
+                cachedMixWetGain = std::sin(mix * halfPi);
+            }
+
+            const float dryGain = cachedMixDryGain;
+            const float wetGain = cachedMixWetGain;
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
@@ -1267,6 +1285,13 @@ private:
     Nova::DistortionDSP::Gate inputGate;
     float sagAttackCoeff = 0.0f;
     float sagReleaseCoeff = 0.0f;
+    float cachedStage1GainControl = std::numeric_limits<float>::quiet_NaN();
+    int cachedStage1Mode = -1;
+    float cachedStage1DbGain = 1.0f;
+    float cachedHighGainCompatibilityTrim = 1.0f;
+    float cachedMixValue = std::numeric_limits<float>::quiet_NaN();
+    float cachedMixDryGain = 1.0f;
+    float cachedMixWetGain = 0.0f;
     float gateEnvelopeAttackCoeff = 0.0f;
     float gateEnvelopeReleaseCoeff = 0.0f;
     float gateOpenCoeff = 0.0f;

@@ -268,8 +268,15 @@ public:
 
             const float standardGainLeft = Nova::TremoloDSP::modulationGain(lfoLeft, depth);
             const float standardGainRight = Nova::TremoloDSP::modulationGain(lfoRight, depth);
-            const float dryGain = Nova::TremoloDSP::equalPowerDry(mix);
-            const float wetGain = Nova::TremoloDSP::equalPowerWet(mix);
+            if (!(mix == cachedMixValue))
+            {
+                cachedMixValue = mix;
+                cachedMixDryGain = Nova::TremoloDSP::equalPowerDry(mix);
+                cachedMixWetGain = Nova::TremoloDSP::equalPowerWet(mix);
+            }
+
+            const float dryGain = cachedMixDryGain;
+            const float wetGain = cachedMixWetGain;
             const float compensation = 1.0f + wetGain * depth * (0.10f + 0.06f * harmonic + 0.04f * std::abs(shape - 0.5f));
 
             for (int channel = 0; channel < numChannels; ++channel)
@@ -344,6 +351,9 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> harmonicSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> crossoverSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
+    float cachedMixValue = std::numeric_limits<float>::quiet_NaN();
+    float cachedMixDryGain = 1.0f;
+    float cachedMixWetGain = 0.0f;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> levelSmooth;
 };
 

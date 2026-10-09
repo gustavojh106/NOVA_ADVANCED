@@ -768,8 +768,15 @@ public:
             const float outWetL = dcBlock[0].process(wetOutL * outputPerformance * outputBloom * style.outputTrim * reverseOutputComp);
             const float outWetR = dcBlock[1].process(wetOutR * outputPerformance * outputBloom * style.outputTrim * reverseOutputComp);
 
-            const float dryGain = std::cos(mix * halfPi);
-            const float wetGain = std::sin(mix * halfPi);
+            if (!(mix == cachedMixValue))
+            {
+                cachedMixValue = mix;
+                cachedMixDryGain = std::cos(mix * halfPi);
+                cachedMixWetGain = std::sin(mix * halfPi);
+            }
+
+            const float dryGain = cachedMixDryGain;
+            const float wetGain = cachedMixWetGain;
             debugTelemetry.captureChannel(0,
                 delayLSamples * 1000.0f / (float) sr,
                 wetNormalL,
@@ -1297,6 +1304,9 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> modDepthSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> modRateSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
+    float cachedMixValue = std::numeric_limits<float>::quiet_NaN();
+    float cachedMixDryGain = 1.0f;
+    float cachedMixWetGain = 0.0f;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> duckSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> swellSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> reverseSmooth;

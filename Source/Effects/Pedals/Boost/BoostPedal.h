@@ -211,6 +211,16 @@ protected:
         float currentMid = midSmooth.getCurrentValue();
         updateFilters(currentTone, currentTight, currentMid, true);
 
+        // Derived controls only change when the smoothed values advance (once per
+        // base-rate sample), so they are computed there instead of per sub-sample.
+        float gain = 1.0f;
+        float driveWeight = 0.0f;
+        float character = 0.0f;
+        float clipAmount = 0.0f;
+        float denseDrive = 1.0f;
+        float voiceBlend = 0.0f;
+        float ampInputCompatibilityTrim = 1.0f;
+
         for (int sample = 0; sample < innerSamples; ++sample)
         {
             if ((sample % oversampleRatio) == 0)
@@ -221,15 +231,21 @@ protected:
                 currentCharacter = charSmooth.getNextValue();
                 currentMid = midSmooth.getNextValue();
                 updateFilters(currentTone, currentTight, currentMid, false);
-            }
 
-            const float gain = juce::Decibels::decibelsToGain(currentGain);
-            const float driveWeight = juce::jlimit(0.0f, 1.0f, currentGain / 24.0f);
-            const float character = juce::jlimit(0.0f, 1.0f, currentCharacter);
-            const float clipAmount = character * (0.50f + driveWeight * 0.50f);
-            const float denseDrive = 1.0f + character * 1.9f + driveWeight * 0.85f;
-            const float voiceBlend = juce::jlimit(0.0f, 1.0f, 0.34f + currentTone * 0.16f);
-            const float ampInputCompatibilityTrim = 1.0f / (1.0f + driveWeight * driveWeight * (0.72f + character * 0.28f));
+                if (!(currentGain == cachedGainDb))
+                {
+                    cachedGainDb = currentGain;
+                    cachedGainLinear = juce::Decibels::decibelsToGain(currentGain);
+                }
+
+                gain = cachedGainLinear;
+                driveWeight = juce::jlimit(0.0f, 1.0f, currentGain / 24.0f);
+                character = juce::jlimit(0.0f, 1.0f, currentCharacter);
+                clipAmount = character * (0.50f + driveWeight * 0.50f);
+                denseDrive = 1.0f + character * 1.9f + driveWeight * 0.85f;
+                voiceBlend = juce::jlimit(0.0f, 1.0f, 0.34f + currentTone * 0.16f);
+                ampInputCompatibilityTrim = 1.0f / (1.0f + driveWeight * driveWeight * (0.72f + character * 0.28f));
+            }
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
@@ -274,6 +290,9 @@ public:
 
 private:
     static constexpr int kMaxProcessingChannels = 2;
+
+    float cachedGainDb = std::numeric_limits<float>::quiet_NaN();
+    float cachedGainLinear = 1.0f;
 
     static int oversamplingFactor() noexcept
     {

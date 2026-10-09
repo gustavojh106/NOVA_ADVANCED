@@ -165,33 +165,57 @@ private:
     int getMinLag() const noexcept { return juce::jmax(6, (int) std::round(decimatedSr / 920.0f)); }
     int getMaxLag() const noexcept { return juce::jmin(kHistorySize / 3, juce::jmax(18, (int) std::round(decimatedSr / 48.0f))); }
 
-    int wrapIndex(int index) const noexcept
+    // Ring-buffer index of the sample `offsetFromNewest` steps back from the newest one.
+    // Offsets stay below kHistorySize (window + maxLag <= 512), so one wrap is enough.
+    int indexFromNewest(int offsetFromNewest) const noexcept
     {
-        while (index < 0)
+        jassert(offsetFromNewest >= 0 && offsetFromNewest < kHistorySize);
+        int index = writePos - 1 - offsetFromNewest;
+        if (index < 0)
             index += kHistorySize;
-        while (index >= kHistorySize)
-            index -= kHistorySize;
         return index;
     }
 
-    float historyAt(int offsetFromNewest) const noexcept
+    // The lag search walks the ring buffer with decrementing indices instead of
+    // re-wrapping and re-sanitising on every access. History is sanitised on write,
+    // so a second sanitise on read is an identity.
+    //
+    // sum(x * x) over the window does not depend on the lag, so it is computed once per
+    // analysis. Each accumulator keeps its original summation order, so the result is
+    // bit-identical to accumulating all three sums in a single loop.
+    float computeWindowEnergy(int window) const noexcept
     {
-        return sanitizeAudioSample(history[(size_t) wrapIndex(writePos - 1 - offsetFromNewest)]);
-    }
-
-    float computeCorrelation(int lag, int window) const noexcept
-    {
-        float sumXY = 0.0f;
         float sumXX = 0.0f;
-        float sumYY = 0.0f;
+        int xIndex = indexFromNewest(0);
 
         for (int i = 0; i < window; ++i)
         {
-            const float x = historyAt(i);
-            const float y = historyAt(i + lag);
-            sumXY += x * y;
+            const float x = history[(size_t) xIndex];
             sumXX += x * x;
+            if (--xIndex < 0)
+                xIndex += kHistorySize;
+        }
+
+        return sumXX;
+    }
+
+    float computeCorrelation(int lag, int window, float sumXX) const noexcept
+    {
+        float sumXY = 0.0f;
+        float sumYY = 0.0f;
+        int xIndex = indexFromNewest(0);
+        int yIndex = indexFromNewest(lag);
+
+        for (int i = 0; i < window; ++i)
+        {
+            const float x = history[(size_t) xIndex];
+            const float y = history[(size_t) yIndex];
+            sumXY += x * y;
             sumYY += y * y;
+            if (--xIndex < 0)
+                xIndex += kHistorySize;
+            if (--yIndex < 0)
+                yIndex += kHistorySize;
         }
 
         const float denom = std::sqrt(juce::jmax(1.0e-12f, sumXX * sumYY));
@@ -204,6 +228,8 @@ private:
         const int maxLag = getMaxLag();
         const int window = juce::jlimit(96, 256, maxLag + 24);
 
+        const float sumXX = computeWindowEnergy(window);
+
         float bestScore = -1.0f;
         int bestLag = juce::jlimit(minLag, maxLag, juce::roundToInt(trackedPeriod));
         float halfLagScore = -1.0f;
@@ -211,7 +237,7 @@ private:
 
         for (int lag = minLag; lag <= maxLag; ++lag)
         {
-            const float correlation = computeCorrelation(lag, window);
+            const float correlation = computeCorrelation(lag, window, sumXX);
             const float continuityBias = 1.0f / (1.0f + std::abs((float) lag - trackedPeriod) * 0.012f);
             const float biasedScore = correlation * (0.88f + continuityBias * 0.12f);
 
@@ -228,7 +254,7 @@ private:
         if (bestLag / 2 >= minLag)
         {
             const int candidate = bestLag / 2;
-            const float candidateScore = computeCorrelation(candidate, window);
+            const float candidateScore = computeCorrelation(candidate, window, sumXX);
             if (candidateScore > bestScore * 0.94f)
             {
                 bestLag = candidate;

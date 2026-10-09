@@ -466,8 +466,15 @@ public:
                 wetRaw[1] = wetRaw[0];
             }
 
-            const float dryGain = std::cos(mix * halfPi);
-            const float wetGain = std::sin(mix * halfPi);
+            if (!(mix == cachedMixValue))
+            {
+                cachedMixValue = mix;
+                cachedMixDryGain = std::cos(mix * halfPi);
+                cachedMixWetGain = std::sin(mix * halfPi);
+            }
+
+            const float dryGain = cachedMixDryGain;
+            const float wetGain = cachedMixWetGain;
 
             for (int ch = 0; ch < numChannels; ++ch)
             {
@@ -561,6 +568,9 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> depthSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> widthSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> mixSmooth;
+    float cachedMixValue = std::numeric_limits<float>::quiet_NaN();
+    float cachedMixDryGain = 1.0f;
+    float cachedMixWetGain = 0.0f;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> lagSmooth;
 
     float driftPhase = 0.0f;

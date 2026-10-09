@@ -106,9 +106,18 @@ public:
         constexpr float halfPi = juce::MathConstants<float>::halfPi;
         constexpr float twoPi = juce::MathConstants<float>::twoPi;
 
+        // The mode profile, its log-frequency bounds and the per-stage spread ratios are
+        // constant for the block, so they are computed once instead of per sample/stage.
+        const auto profile = getModeProfile(modeParam != nullptr ? modeParam->getIndex() : 1);
+        const float logMinFreq = std::log(profile.minFreq);
+        const float logMaxFreq = std::log(profile.maxFreq);
+        const float stageCentre = 0.5f * (float) juce::jmax(0, numStages - 1);
+        std::array<float, kMaxStages> stageSpreadRatio {};
+        for (int stage = 0; stage < numStages && stage < kMaxStages; ++stage)
+            stageSpreadRatio[(size_t) stage] = std::exp(((float) stage - stageCentre) * profile.stageSpread);
+
         for (int sample = 0; sample < numSamples; ++sample)
         {
-            const auto profile = getModeProfile(modeParam != nullptr ? modeParam->getIndex() : 1);
             const float rate     = rateSmooth.getNextValue();
             const float depth    = depthSmooth.getNextValue();
             const float feedback = feedbackSmooth.getNextValue();
@@ -140,12 +149,10 @@ public:
             lfoL = juce::jlimit(0.0f, 1.0f, lfoL + driftL);
             lfoR = juce::jlimit(0.0f, 1.0f, lfoR + driftR);
 
-            auto computeBaseFreq = [depth, &profile](float lfo) -> float
+            auto computeBaseFreq = [depth, logMinFreq, logMaxFreq](float lfo) -> float
             {
                 const float sweep = juce::jlimit(0.0f, 1.0f, lfo) * depth;
-                const float logMin = std::log(profile.minFreq);
-                const float logMax = std::log(profile.maxFreq);
-                return std::exp(logMin + sweep * (logMax - logMin));
+                return std::exp(logMinFreq + sweep * (logMaxFreq - logMinFreq));
             };
 
             const float baseFreqL = computeBaseFreq(lfoL);
@@ -157,13 +164,11 @@ public:
                 float x = dry + feedbackState[(size_t) ch] * feedback;
 
                 const float baseFreq = (ch == 0) ? baseFreqL : baseFreqR;
-                const float stageCentre = 0.5f * (float) juce::jmax(0, numStages - 1);
                 const float stageLfo = ch == 0 ? lfoL : lfoR;
 
                 for (int stage = 0; stage < numStages && stage < kMaxStages; ++stage)
                 {
-                    const float spread = ((float) stage - stageCentre) * profile.stageSpread;
-                    float stageRatio = std::exp(spread);
+                    float stageRatio = stageSpreadRatio[(size_t) stage];
                     stageRatio *= (stage % 2 == 0)
                         ? (profile.evenStageMin + stageLfo * profile.evenStageDepth)
                         : (profile.oddStageMax - stageLfo * profile.oddStageDepth);
@@ -193,9 +198,14 @@ public:
                     continue;
                 }
 
-                const float dryGain = std::cos(mix * halfPi);
-                const float wetGain = mix >= 0.9999f ? 1.0f : std::sin(mix * halfPi);
-                buffer.setSample(ch, sample, dry * dryGain + wet * wetGain * profile.wetTrim);
+                if (!(mix == cachedMixValue))
+                {
+                    cachedMixValue = mix;
+                    cachedMixDryGain = std::cos(mix * halfPi);
+                    cachedMixWetGain = mix >= 0.9999f ? 1.0f : std::sin(mix * halfPi);
+                }
+
+                buffer.setSample(ch, sample, dry * cachedMixDryGain + wet * cachedMixWetGain * profile.wetTrim);
             }
 
             lfoPhase = wrapPhase(lfoPhase + rate / (float) sr);
@@ -213,6 +223,10 @@ public:
 private:
     static constexpr int kMaxProcessingChannels = 2;
     static constexpr int kMaxStages = 12;
+
+    float cachedMixValue = std::numeric_limits<float>::quiet_NaN();
+    float cachedMixDryGain = 1.0f;
+    float cachedMixWetGain = 0.0f;
 
     struct FeedbackHighPass
     {

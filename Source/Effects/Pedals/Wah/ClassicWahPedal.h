@@ -262,15 +262,35 @@ public:
                 detector = juce::jmax(detector, detectorSample);
             }
 
-            const float attackCoeff = std::exp(-1.0f / (juce::jmax(0.1f, attackMs) * 0.001f * (float) sr));
-            const float decayCoeff = std::exp(-1.0f / (juce::jmax(1.0f, decayMs) * 0.001f * (float) sr));
+            // Envelope coefficients only depend on the smoothed times and the sample rate:
+            // memoised so the exp() calls run only while a knob or the rate changes.
+            if (!(attackMs == cachedAttackMs) || sr != cachedCoeffSampleRate)
+            {
+                cachedAttackMs = attackMs;
+                cachedAttackCoeff = std::exp(-1.0f / (juce::jmax(0.1f, attackMs) * 0.001f * (float) sr));
+            }
+
+            if (!(decayMs == cachedDecayMs) || sr != cachedCoeffSampleRate)
+            {
+                cachedDecayMs = decayMs;
+                cachedDecayCoeff = std::exp(-1.0f / (juce::jmax(1.0f, decayMs) * 0.001f * (float) sr));
+            }
+
+            if (sr != cachedCoeffSampleRate)
+            {
+                cachedCoeffSampleRate = sr;
+                cachedEnvelopeSmoothCoeff = std::exp(-1.0f / (0.0035f * (float) sr));
+            }
+
+            const float attackCoeff = cachedAttackCoeff;
+            const float decayCoeff = cachedDecayCoeff;
 
             if (detector > envelope)
                 envelope = detector + attackCoeff * (envelope - detector);
             else
                 envelope = detector + decayCoeff * (envelope - detector);
 
-            const float envelopeSmoothCoeff = std::exp(-1.0f / (0.0035f * (float) sr));
+            const float envelopeSmoothCoeff = cachedEnvelopeSmoothCoeff;
             envelopeSmoothed += (1.0f - envelopeSmoothCoeff) * (envelope - envelopeSmoothed);
 
             const float detectorThreshold = juce::jmap(sensitivity, 0.030f, 0.013f);
@@ -315,9 +335,22 @@ public:
             const float touchAccentFreq = touchAccent * (220.0f + range * 420.0f);
             const float touchMaxFreq = juce::jmap(voice, 1260.0f, 1980.0f) + range * 920.0f + touchAccentFreq;
             const float maxFreq = motionMode == MotionMode::Pedal ? pedalMaxFreq : touchMaxFreq;
+
+            if (!(minFreq == cachedMinFreq))
+            {
+                cachedMinFreq = minFreq;
+                cachedLogMinFreq = std::log(minFreq);
+            }
+
+            if (!(maxFreq == cachedMaxFreq))
+            {
+                cachedMaxFreq = maxFreq;
+                cachedLogMaxFreq = std::log(maxFreq);
+            }
+
             const float freq = juce::jlimit(90.0f,
                 (float) (sr * 0.40),
-                std::exp(std::log(minFreq) + effectiveSweep * (std::log(maxFreq) - std::log(minFreq))));
+                std::exp(cachedLogMinFreq + effectiveSweep * (cachedLogMaxFreq - cachedLogMinFreq)));
 
             const float touchLift = motionMode == MotionMode::Pedal ? 0.0f : touchSweep * 0.16f + touchAccent * 0.40f;
             const float dynamicQ = juce::jmax(0.55f,
@@ -705,6 +738,17 @@ private:
 
     float envelope = 0.0f;
     float envelopeSmoothed = 0.0f;
+
+    double cachedCoeffSampleRate = std::numeric_limits<double>::quiet_NaN();
+    float cachedAttackMs = std::numeric_limits<float>::quiet_NaN();
+    float cachedAttackCoeff = 0.0f;
+    float cachedDecayMs = std::numeric_limits<float>::quiet_NaN();
+    float cachedDecayCoeff = 0.0f;
+    float cachedEnvelopeSmoothCoeff = 0.0f;
+    float cachedMinFreq = std::numeric_limits<float>::quiet_NaN();
+    float cachedLogMinFreq = 0.0f;
+    float cachedMaxFreq = std::numeric_limits<float>::quiet_NaN();
+    float cachedLogMaxFreq = 0.0f;
 
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> sweepSmooth;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> sensSmooth;

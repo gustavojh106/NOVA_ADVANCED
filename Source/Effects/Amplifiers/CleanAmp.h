@@ -790,8 +790,17 @@ private:
 
             // Drive is intentionally less explosive than the original version.
             // It still gets warm, but it should not feed the amp/reverb with runaway levels.
-            const float drive = 1.0f + (driveNorm * juce::jmap(headroom, 2.75f, 1.45f));
-            const float compensation = 1.0f / std::sqrt(1.0f + (driveNorm * juce::jmap(headroom, 1.05f, 0.62f)));
+            // Pure function of the two smoothed controls: memoised while they hold still.
+            if (!(driveNorm == cachedDriveNorm) || !(headroom == cachedHeadroom))
+            {
+                cachedDriveNorm = driveNorm;
+                cachedHeadroom = headroom;
+                cachedDrive = 1.0f + (driveNorm * juce::jmap(headroom, 2.75f, 1.45f));
+                cachedCompensation = 1.0f / std::sqrt(1.0f + (driveNorm * juce::jmap(headroom, 1.05f, 0.62f)));
+            }
+
+            const float drive = cachedDrive;
+            const float compensation = cachedCompensation;
 
             debugTelemetry.captureControlWindow(drive,
                 bass,
@@ -928,6 +937,11 @@ private:
 
     float cachedBass = std::numeric_limits<float>::quiet_NaN();
     float cachedTreble = std::numeric_limits<float>::quiet_NaN();
+
+    float cachedDriveNorm = std::numeric_limits<float>::quiet_NaN();
+    float cachedHeadroom = std::numeric_limits<float>::quiet_NaN();
+    float cachedDrive = 1.0f;
+    float cachedCompensation = 1.0f;
 
     bool isPrepared = false;
 
