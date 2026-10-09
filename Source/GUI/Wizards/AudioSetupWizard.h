@@ -407,9 +407,40 @@ private:
         int numInputs = 0;
         int numOutputs = 0;
         double latencyMs = 0.0;
+        double roundTripMs = 0.0;
         bool asioAvailable = false;
         bool deviceActive = false;
     };
+
+    // Round trip = driver-reported input + output latency (both already include the
+    // buffers) plus NOVA's own processing latency. Falls back to two buffers when the
+    // driver reports nothing.
+    static double estimateRoundTripMs(juce::AudioIODevice& device, int processorLatencySamples)
+    {
+        const double sampleRate = device.getCurrentSampleRate();
+        if (sampleRate <= 0.0)
+            return 0.0;
+
+        int driverSamples = device.getInputLatencyInSamples() + device.getOutputLatencyInSamples();
+        if (driverSamples <= 0)
+            driverSamples = 2 * device.getCurrentBufferSizeSamples();
+
+        return ((double) (driverSamples + juce::jmax(0, processorLatencySamples)) / sampleRate) * 1000.0;
+    }
+
+   #if JucePlugin_Build_Standalone
+    static int getProcessorLatencySamples(juce::StandalonePluginHolder& holder)
+    {
+        return holder.processor != nullptr ? holder.processor->getLatencySamples() : 0;
+    }
+   #endif
+
+    // Shared-mode WASAPI and DirectSound go through the Windows mixer, which adds
+    // roughly 10 ms per direction compared to the low-latency or exclusive modes.
+    static bool isHighLatencyWindowsDriver(const juce::String& driverType)
+    {
+        return driverType == "Windows Audio" || driverType.containsIgnoreCase("DirectSound");
+    }
 
     ScanResult scan;
     bool scanAcknowledged = false;
@@ -436,6 +467,7 @@ private:
                 scan.numOutputs = dev->getActiveOutputChannels().countNumberOfSetBits();
                 scan.latencyMs = scan.sampleRate > 0
                     ? (scan.bufferSize / scan.sampleRate) * 1000.0 : 0.0;
+                scan.roundTripMs = estimateRoundTripMs(*dev, getProcessorLatencySamples(*holder));
 
                 juce::AudioDeviceManager::AudioDeviceSetup setup;
                 dm.getAudioDeviceSetup(setup);
@@ -474,7 +506,8 @@ private:
             rows.push_back({ "Output Device", scan.outputDevice, scan.numOutputs > 0 });
             rows.push_back({ "Sample Rate",   juce::String(scan.sampleRate, 0) + " Hz", scan.sampleRate >= 44100.0 });
             rows.push_back({ "Buffer Size",   juce::String(scan.bufferSize) + " samples", true });
-            rows.push_back({ "Latency",       juce::String(scan.latencyMs, 1) + " ms one-way", scan.latencyMs <= 12.0 });
+            rows.push_back({ "Latency",       "~" + juce::String(scan.roundTripMs, 1) + " ms round trip (buffer "
+                                                  + juce::String(scan.latencyMs, 1) + " ms)", scan.roundTripMs <= 15.0 });
             rows.push_back({ "Channels",      juce::String(scan.numInputs) + " in / " + juce::String(scan.numOutputs) + " out", true });
         }
         else
@@ -530,8 +563,11 @@ private:
             advice = "No audio device found. Go to the next step to configure one.";
         else if (scan.asioAvailable && !scan.driverType.containsIgnoreCase("ASIO"))
             advice = "ASIO driver available but not active. Switch to ASIO in the next step for the lowest latency.";
-        else if (scan.latencyMs > 15.0)
-            advice = "Your latency is high (" + juce::String(scan.latencyMs, 1) + " ms). We'll help you reduce it in Step 3.";
+        else if (!scan.asioAvailable && isHighLatencyWindowsDriver(scan.driverType))
+            advice = "No ASIO driver found. Switch to 'Windows Audio (Low Latency Mode)' or 'Windows Audio (Exclusive Mode)' "
+                     "in the next step. Exclusive mode blocks other apps from using the device.";
+        else if (scan.roundTripMs > 20.0)
+            advice = "Your round-trip latency is high (~" + juce::String(scan.roundTripMs, 1) + " ms). We'll help you reduce it in Step 3.";
         else if (scan.numInputs == 0)
             advice = "No input channels detected. Check your audio interface connection.";
         else
@@ -557,7 +593,13 @@ private:
     void paintDeviceStatus(juce::Graphics& g, juce::Rectangle<int> area) const
     {
         // Recommendation banner at top
+        juce::String bannerTip;
         if (scan.asioAvailable && !scan.driverType.containsIgnoreCase("ASIO"))
+            bannerTip = "TIP: Switch to ASIO driver for lowest latency";
+        else if (!scan.asioAvailable && isHighLatencyWindowsDriver(scan.driverType))
+            bannerTip = "TIP: Use 'Windows Audio (Low Latency Mode)' or Exclusive Mode for lower latency";
+
+        if (bannerTip.isNotEmpty())
         {
             auto banner = juce::Rectangle<int>(area.getX(), area.getY() - 56, area.getWidth(), 32);
             g.setColour(juce::Colour::fromString("ff1A1408").withAlpha(0.9f));
@@ -566,7 +608,7 @@ private:
             g.drawRoundedRectangle(banner.toFloat().reduced(0.5f), 8.0f, 1.0f);
             g.setColour(juce::Colour::fromString("ffF59E0B"));
             g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
-            g.drawText("TIP: Switch to ASIO driver for lowest latency", banner, juce::Justification::centred);
+            g.drawText(bannerTip, banner, juce::Justification::centred);
         }
 
         // Live status strip at bottom
@@ -582,6 +624,7 @@ private:
                 const double sr = dev->getCurrentSampleRate();
                 const int buf = dev->getCurrentBufferSizeSamples();
                 const double lat = sr > 0 ? (buf / sr) * 1000.0 : 0.0;
+                const double roundTrip = estimateRoundTripMs(*dev, getProcessorLatencySamples(*holder));
 
                 g.setColour(Nova::Colors::Success);
                 g.fillEllipse((float)strip.getX() + 12.0f, (float)strip.getCentreY() - 3.0f, 6.0f, 6.0f);
@@ -590,8 +633,8 @@ private:
                 g.setFont(juce::Font(juce::FontOptions(11.0f)));
                 g.drawText(dev->getTypeName() + "  |  "
                     + juce::String(sr, 0) + " Hz  |  "
-                    + juce::String(buf) + " smp  |  "
-                    + juce::String(lat, 1) + " ms",
+                    + juce::String(buf) + " smp (" + juce::String(lat, 1) + " ms)  |  ~"
+                    + juce::String(roundTrip, 1) + " ms round trip",
                     strip.withTrimmedLeft(24), juce::Justification::centred);
             }
             else

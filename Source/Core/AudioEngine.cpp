@@ -838,6 +838,8 @@ juce::String AudioEngine::buildDiagnosticReport() const
     reportData.activeGraph = (runtime != nullptr);
     reportData.generation = runtime != nullptr ? runtime->generation : 0;
     reportData.graphLatencySamples = runtime != nullptr ? runtime->latencySamples : 0;
+    reportData.inputChainLatencySamples = (runtime != nullptr && runtime->inputChain != nullptr) ? runtime->inputChain->getLatencySamples() : 0;
+    reportData.outputChainLatencySamples = (runtime != nullptr && runtime->outputChain != nullptr) ? runtime->outputChain->getLatencySamples() : 0;
     reportData.wetMix = audioPlane.dryWetMixer.getCurrentMix();
     reportData.wetMixTarget = params.getOutputMixNormalized();
     reportData.wetMixCurrent = audioPlane.dryWetMixer.getCurrentMix();
@@ -871,6 +873,7 @@ juce::String AudioEngine::buildDiagnosticReport() const
             entry.processorName = entry.hasProcessor ? slot.processor->getName() : juce::String{};
             entry.cachedBase = (slot.baseProcessor != nullptr);
             entry.cachedTempo = (slot.tempoSyncProcessor != nullptr);
+            entry.latencySamples = entry.hasProcessor ? slot.processor->getLatencySamples() : 0;
             reportData.runtimeChainA.push_back(std::move(entry));
         }
 
@@ -886,6 +889,7 @@ juce::String AudioEngine::buildDiagnosticReport() const
             entry.processorName = entry.hasProcessor ? slot.processor->getName() : juce::String{};
             entry.cachedBase = (slot.baseProcessor != nullptr);
             entry.cachedTempo = (slot.tempoSyncProcessor != nullptr);
+            entry.latencySamples = entry.hasProcessor ? slot.processor->getLatencySamples() : 0;
             reportData.runtimeChainB.push_back(std::move(entry));
         }
     }

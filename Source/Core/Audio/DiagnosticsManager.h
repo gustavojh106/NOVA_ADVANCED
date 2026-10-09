@@ -28,6 +28,7 @@ namespace Audio
             bool hasProcessor = false;
             bool cachedBase = false;
             bool cachedTempo = false;
+            int latencySamples = 0;
         };
 
         struct ReportData
@@ -41,6 +42,8 @@ namespace Audio
             bool activeGraph = false;
             uint64_t generation = 0;
             int graphLatencySamples = 0;
+            int inputChainLatencySamples = 0;
+            int outputChainLatencySamples = 0;
             float wetMix = 0.0f;
             float wetMixTarget = 0.0f;
             float wetMixCurrent = 0.0f;
@@ -83,6 +86,7 @@ namespace Audio
 
             if (data.activeGraph)
             {
+                report << "latency.breakdown: " << describeLatencyBreakdown(data) << juce::newLine;
                 report << "runtime.chainA:" << juce::newLine << describeRuntimeChain(data.runtimeChainA) << juce::newLine
                     << "runtime.chainB:" << juce::newLine << describeRuntimeChain(data.runtimeChainB) << juce::newLine;
             }
@@ -197,6 +201,35 @@ namespace Audio
             return lines.joinIntoString(juce::newLine);
         }
 
+        static int sumChainLatency(const std::vector<RuntimeChainEntry>& chain)
+        {
+            int total = 0;
+            for (const auto& slot : chain)
+                total += slot.latencySamples;
+            return total;
+        }
+
+        // Where NOVA's own processing latency comes from. The graph aligns both lines
+        // to the slower one, so graph latency = input + max(lineA, lineB) + output.
+        static juce::String describeLatencyBreakdown(const ReportData& data)
+        {
+            const auto toMs = [&data](int samples)
+            {
+                return data.sampleRate > 0.0 ? juce::String((double) samples * 1000.0 / data.sampleRate, 2) : juce::String("?");
+            };
+
+            const int lineA = sumChainLatency(data.runtimeChainA);
+            const int lineB = sumChainLatency(data.runtimeChainB);
+
+            juce::String text;
+            text << "graph=" << data.graphLatencySamples << " samples (" << toMs(data.graphLatencySamples) << " ms)"
+                << " | inputChain=" << data.inputChainLatencySamples
+                << " | lineA=" << lineA
+                << " | lineB=" << lineB
+                << " | outputChain=" << data.outputChainLatencySamples;
+            return text;
+        }
+
         static juce::String describeRuntimeChain(const std::vector<RuntimeChainEntry>& chain)
         {
             juce::StringArray lines;
@@ -211,7 +244,8 @@ namespace Audio
                     << " bypassed=" << boolToText(slot.bypassed)
                     << " processor=" << (slot.hasProcessor ? slot.processorName : juce::String("<null>"))
                     << " cachedBase=" << boolToText(slot.cachedBase)
-                    << " cachedTempo=" << boolToText(slot.cachedTempo);
+                    << " cachedTempo=" << boolToText(slot.cachedTempo)
+                    << " latencySamples=" << slot.latencySamples;
                 lines.add(line);
             }
 
