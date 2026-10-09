@@ -22,6 +22,10 @@ This file is the live operational context for NOVA. Keep it short and current. C
 - Avoid direct edits to generated Visual Studio project files.
 - Preserve user changes already present in the worktree unless the task explicitly requires reconciling them.
 
+## Related Backlogs
+
+- Latency/CPU optimization roadmap with risk tiers (T0 no-risk, T1 low-risk, T2 investigate one by one): `docs/latency-optimization-roadmap.md`.
+
 ## Current Sensitive Files
 
 - `Source/Core/PluginEditor.cpp`

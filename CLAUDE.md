@@ -42,6 +42,7 @@ Tests use JUCE's built-in `juce::UnitTest` framework. They are compiled into the
 - Test helpers use `kSampleRate = 48000.0`, `kBlockSize = 64`, `kTolerance = 1.0e-4f`
 - `warmUpEngine(engine, blockSize, blocks=10)` skips startup silence blocks before assertions
 - To run: build and launch the Standalone app — tests execute within the JUCE unit test runner
+- Bit-exact check for refactors that must not change the sound: `scripts/run-bitexact-checksums.ps1 -Configuration Debug|Release` hashes every processor's output against `docs/golden-metrics/t0-bitexact-*-baseline.json` (use `-UpdateBaseline` only for intentional sound changes)
 
 ## Architecture
 
@@ -142,7 +143,7 @@ These files have non-obvious roles or are central coordination points — most o
 
 - All effects process stereo (`AudioChannelSet::stereo()` in/out)
 - Parameter smoothing uses `juce::SmoothedValue` with ramp times from `Nova::Config` (`SMOOTH_DEFAULT_SECONDS = 0.02`, `SMOOTH_DRIVE_SECONDS = 0.012`)
-- Oversampled effects (Overdrive, Distortion, Fuzz, etc.) use `juce::dsp::Oversampling<float>` at 4x
+- Oversampled effects (Overdrive, Distortion, Fuzz, amps, etc.) use `juce::dsp::Oversampling<float>` at 8x (`factor = 3`, polyphase IIR)
 - Bypass crossfade is handled in `ProcessorBase::processBlock()` via `beginBypassProcess()`/`endBypassProcess()` with 10ms ramp (`SMOOTH_BYPASS_SECONDS = 0.01`)
 - Latency reporting: call `setProcessingLatency()` (not `setLatencySamples()` directly) to respect bypass state
 - Hard absolute limit: `Nova::Config::HARD_ABS_LIMIT_LINEAR` (24.0f ≈ +27.6 dBFS)
