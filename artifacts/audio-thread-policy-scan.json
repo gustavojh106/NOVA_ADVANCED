@@ -1,16 +1,16 @@
 {
-    "generatedAt":  "2026-06-20T22:11:04.4247602-06:00",
-    "status":  "PASS",
+    "generatedAt":  "2026-10-07T15:38:06.2865960-06:00",
+    "status":  "FAIL",
     "summary":  {
                     "activeFiles":  32,
                     "activeRanges":  38,
-                    "failures":  0,
+                    "failures":  2,
                     "warnings":  0,
                     "allowlistedWarnings":  0,
                     "legacyWarnings":  0,
                     "legacyQuarantined":  4,
                     "contractChecks":  595,
-                    "contractFailures":  0,
+                    "contractFailures":  2,
                     "allowListEntries":  2
                 },
     "activeFiles":  [
@@ -2048,8 +2048,8 @@
                            {
                                "checkId":  "p9f_no_audio_path_behavior_files_changed",
                                "target":  "git diff",
-                               "passed":  true,
-                               "detail":  "no OutputChain/AudioEngine/DryWet/Routing/GraphBuilder file changes"
+                               "passed":  false,
+                               "detail":  "changed=Source/Core/AudioEngine.cpp"
                            },
                            {
                                "checkId":  "p9f_docs_no_factory_approved",
@@ -2144,8 +2144,8 @@
                            {
                                "checkId":  "p9g_no_audio_path_behavior_files_changed",
                                "target":  "git diff",
-                               "passed":  true,
-                               "detail":  "no OutputChain/AudioEngine/DryWet/Routing/GraphBuilder file changes"
+                               "passed":  false,
+                               "detail":  "changed=Source/Core/AudioEngine.cpp"
                            },
                            {
                                "checkId":  "p9g_p9f_limiter_report_still_pass",
@@ -3637,7 +3637,18 @@
                            }
                        ],
     "contractFailures":  [
-
+                             {
+                                 "checkId":  "p9f_audio_path_behavior_file_changed",
+                                 "file":  "git diff",
+                                 "function":  "P9F scope guard",
+                                 "detail":  "P9F must not change OutputChain, AudioEngine, DryWetMixer, RoutingMixer, or GraphBuilder behavior files."
+                             },
+                             {
+                                 "checkId":  "p9g_audio_path_behavior_file_changed",
+                                 "file":  "git diff",
+                                 "function":  "P9G scope guard",
+                                 "detail":  "P9G must not change OutputChain, AudioEngine, DryWetMixer, RoutingMixer, or GraphBuilder behavior files."
+                             }
                          ],
     "allowlistedWarnings":  [
 

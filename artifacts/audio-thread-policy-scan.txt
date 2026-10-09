@@ -1,15 +1,15 @@
 NOVA Audio Thread Policy Scan
-Generated: 2026-06-20 22:11:04
-status=PASS
+Generated: 2026-10-07 15:38:06
+status=FAIL
 summary.activeFiles=32
 summary.activeRanges=38
-summary.failures=0
+summary.failures=2
 summary.warnings=0
 summary.allowlistedWarnings=0
 summary.legacyWarnings=0
 summary.legacyQuarantined=4
 summary.contractChecks=595
-summary.contractFailures=0
+summary.contractFailures=2
 summary.allowListEntries=2
 
 Active files scanned:
@@ -52,7 +52,11 @@ Allowlist entries:
 
 No FAIL findings in active audio routes.
 
-RuntimeGraphManager contract checks: PASS
+RuntimeGraphManager contract FAIL findings:
+  - [p9f_audio_path_behavior_file_changed] git diff function=P9F scope guard
+    detail=P9F must not change OutputChain, AudioEngine, DryWetMixer, RoutingMixer, or GraphBuilder behavior files.
+  - [p9g_audio_path_behavior_file_changed] git diff function=P9G scope guard
+    detail=P9G must not change OutputChain, AudioEngine, DryWetMixer, RoutingMixer, or GraphBuilder behavior files.
 
 RuntimeGraphManager contract checks detail:
   - [manager_method_exists] target=RuntimeGraphManager::getActiveRaw passed=True detail=found
@@ -385,7 +389,7 @@ RuntimeGraphManager contract checks detail:
   - [p9f_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p9f_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
   - [p9f_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
-  - [p9f_no_audio_path_behavior_files_changed] target=git diff passed=True detail=no OutputChain/AudioEngine/DryWet/Routing/GraphBuilder file changes
+  - [p9f_no_audio_path_behavior_files_changed] target=git diff passed=False detail=changed=Source/Core/AudioEngine.cpp
   - [p9f_docs_no_factory_approved] target=docs/p9f-draft-preset-direct-limiter-telemetry-results.md passed=True detail=P9F docs avoid shipping approval marker
   - [p9f_docs_keep_pending_statuses] target=docs/p9f-draft-preset-direct-limiter-telemetry-results.md passed=True detail=manual, Distortion, and Reaper statuses remain pending
   - [p9g_p9g_technical_readiness_snapshot_md_present] target=docs/p9g-technical-readiness-snapshot.md passed=True detail=P9G document found
@@ -401,7 +405,7 @@ RuntimeGraphManager contract checks detail:
   - [p9g_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p9g_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
   - [p9g_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
-  - [p9g_no_audio_path_behavior_files_changed] target=git diff passed=True detail=no OutputChain/AudioEngine/DryWet/Routing/GraphBuilder file changes
+  - [p9g_no_audio_path_behavior_files_changed] target=git diff passed=False detail=changed=Source/Core/AudioEngine.cpp
   - [p9g_p9f_limiter_report_still_pass] target=artifacts/p9f-draft-preset-limiter-telemetry-report.json passed=True detail=status=PASS; limiterTelemetryZero=True
   - [p10a_p10a_six_draft_preset_listening_run_pack_md_present] target=docs/p10a-six-draft-preset-listening-run-pack.md passed=True detail=P10A file found
   - [p10a_p10a_six_draft_preset_listening_checklist_md_present] target=docs/p10a-six-draft-preset-listening-checklist.md passed=True detail=P10A file found
@@ -669,4 +673,4 @@ P7G quarantined legacy findings (not WARN; not active audio routes):
     line=scratchBuffer.setSize(numChannels, numSamples, false, false, true);
     quarantineReason=Legacy Auto Wah names canonicalize to the registered Wah processor; AutoWahPedal is not registered.
 
-Policy result: PASS
+Policy result: FAIL
