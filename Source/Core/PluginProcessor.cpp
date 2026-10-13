@@ -687,6 +687,8 @@ void NOVAAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::Mi
     refreshEngineEnabledIfNeeded(false);
     refreshEngineGlobalParamsIfNeeded(false, false);
     audioEngine.process(buffer, midi);
+    if (outputSilenced.load(std::memory_order_relaxed))
+        buffer.clear();
     audioVisualizer.pushBuffer(buffer);
 }
 

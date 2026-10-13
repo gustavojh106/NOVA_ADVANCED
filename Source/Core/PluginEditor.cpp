@@ -15,6 +15,7 @@
 
 #if JucePlugin_Build_Standalone
  #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+ #include "Audio/StandaloneAudioAutopilot.h"
 #endif
 
 namespace
@@ -2553,6 +2554,20 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     audioProcessor.getAudioEngine().setTunerReferencePitch(EditorPrefs::parseTunerReference());
     applyEditorPreferences(true);
 
+#if JucePlugin_Build_Standalone
+    if (auto* holder = juce::StandalonePluginHolder::getInstance())
+    {
+        autopilotNotice = std::make_unique<Nova::AutopilotNoticeBanner>();
+        addChildComponent(*autopilotNotice);
+        audioAutopilot = std::make_unique<Nova::StandaloneAudioAutopilot>(*holder, audioProcessor);
+        audioAutopilot->onNotice = [this](const Nova::StandaloneAudioAutopilot::Notice& notice)
+        {
+            autopilotNotice->show(notice);
+            resized();
+        };
+    }
+#endif
+
     statsTimer = std::make_unique<StatsTimer>(*this);
 }
 
@@ -2563,6 +2578,10 @@ NOVAAudioProcessorEditor::~NOVAAudioProcessorEditor()
     audioProcessor.pluginState.removeListener(this);
     cancelPendingUpdate();
     currentOverlay.reset();
+#if JucePlugin_Build_Standalone
+    audioAutopilot.reset();
+    autopilotNotice.reset();
+#endif
     activePedalEditors.clear();
 
     for (auto* knob : { &inputVolume, &inputGate,
@@ -3294,6 +3313,13 @@ void NOVAAudioProcessorEditor::resized()
 
     if (currentOverlay) currentOverlay->setBounds(area);
     if (tunerOverlay && tunerOverlay->isVisible()) tunerOverlay->setBounds(area);
+#if JucePlugin_Build_Standalone
+    if (autopilotNotice != nullptr)
+    {
+        const int noticeW = juce::jmin(720, area.getWidth() - 32);
+        autopilotNotice->setBounds(area.getCentreX() - noticeW / 2, 88, noticeW, 46);
+    }
+#endif
 
     constexpr int headerH = 80;
     constexpr int footerH = 100;
@@ -3712,7 +3738,11 @@ void NOVAAudioProcessorEditor::launchWizard(int wizardID)
     switch (wizardID)
     {
         case 0: // Audio Setup
+#if JucePlugin_Build_Standalone
+            wizard = std::make_unique<AudioSetupWizard>(audioProcessor, closeFn, audioAutopilot.get());
+#else
             wizard = std::make_unique<AudioSetupWizard>(audioProcessor, closeFn);
+#endif
             break;
 
         case 1: // Start / Launcher

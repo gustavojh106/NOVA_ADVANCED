@@ -287,6 +287,9 @@
     <Filter Include="NOVA\Source\Effects">
       <UniqueIdentifier>{B556229D-9BD4-837E-FC26-A49D5073ECBA}</UniqueIdentifier>
     </Filter>
+    <Filter Include="NOVA\Source\Core\Audio">
+      <UniqueIdentifier>{7A9BE802-2B11-6F61-B259-B38FD608D144}</UniqueIdentifier>
+    </Filter>
     <Filter Include="NOVA\Source\Core">
       <UniqueIdentifier>{69118454-8663-3918-D2E8-7B4D0FC3DA15}</UniqueIdentifier>
     </Filter>
@@ -5462,6 +5465,12 @@
     </ClInclude>
     <ClInclude Include="..\..\Source\Effects\Pedals\Base\PedalUIFactory.h">
       <Filter>NOVA\Source\Effects\Pedals\Base</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Core\Audio\AudioAutopilot.h">
+      <Filter>NOVA\Source\Core\Audio</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Source\Core\Audio\StandaloneAudioAutopilot.h">
+      <Filter>NOVA\Source\Core\Audio</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Source\Core\AudioEngine.h">
       <Filter>NOVA\Source\Core</Filter>

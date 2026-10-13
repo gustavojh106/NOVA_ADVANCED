@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "AudioEngine.h"
+#include "Audio/AudioAutopilot.h"
 #include "Audio/CpuMeter.h"
 #include "Audio/DiagnosticsManager.h"
 #include "Audio/DryWetMixer.h"
@@ -17541,6 +17542,463 @@ public:
     }
 };
 
+// =============================================================================
+// T2-10 Latency Autopilot: decision engine on synthetic device inventories
+// (no hardware). Names mirror what JUCE reports on Windows.
+// =============================================================================
+namespace AutopilotFixtures
+{
+namespace AP = Nova::AudioAutopilot;
+
+const juce::String kRealtekMic { "Microphone Array (Realtek(R) Audio)" };
+const juce::String kRealtekSpeakers { "Speakers (Realtek(R) Audio)" };
+const juce::String kUrLine { "Line (Steinberg UR22C)" };
+const juce::String kUrSpeakers { "Speakers (Steinberg UR22C)" };
+const juce::String kBtHeadset { "Headset (WH-1000XM4 Hands-Free AG Audio)" };
+
+AP::DriverTypeEntry makeType(const juce::String& typeName, const juce::StringArray& inputs, const juce::StringArray& outputs)
+{
+    AP::DriverTypeEntry entry;
+    entry.typeName = typeName;
+    entry.inputNames = inputs;
+    entry.outputNames = outputs;
+    return entry;
+}
+
+AP::ActiveDevice makeActive(const juce::String& typeName, const juce::String& input, const juce::String& output,
+                            double sampleRate = 48000.0, int bufferSize = 480)
+{
+    AP::ActiveDevice active;
+    active.isOpen = true;
+    active.typeName = typeName;
+    active.inputName = input;
+    active.outputName = output;
+    active.sampleRate = sampleRate;
+    active.bufferSize = bufferSize;
+    active.numInputChannels = input.isNotEmpty() ? 2 : 0;
+    active.numOutputChannels = 2;
+    active.availableSampleRates = { 44100.0, 48000.0 };
+    active.availableBufferSizes = { 32, 64, 128, 256, 480 };
+    return active;
+}
+
+void addWindowsTypes(AP::Inventory& inventory, const juce::StringArray& inputs, const juce::StringArray& outputs)
+{
+    inventory.types.push_back(makeType("Windows Audio", inputs, outputs));
+    inventory.types.push_back(makeType("Windows Audio (Exclusive Mode)", inputs, outputs));
+    inventory.types.push_back(makeType("Windows Audio (Low Latency Mode)", inputs, outputs));
+
+    auto dsInputs = inputs;
+    auto dsOutputs = outputs;
+    dsInputs.insert(0, "Primary Sound Capture Driver");
+    dsOutputs.insert(0, "Primary Sound Driver");
+    inventory.types.push_back(makeType("DirectSound", dsInputs, dsOutputs));
+}
+
+void addAsioType(AP::Inventory& inventory, const juce::StringArray& drivers)
+{
+    inventory.types.push_back(makeType("ASIO", drivers, drivers));
+}
+
+// Laptop with only its onboard codec, running the JUCE default (shared mode).
+AP::Inventory makeLaptop()
+{
+    AP::Inventory inventory;
+    addWindowsTypes(inventory, { kRealtekMic }, { kRealtekSpeakers });
+    inventory.active = makeActive("Windows Audio", kRealtekMic, kRealtekSpeakers);
+    return inventory;
+}
+
+// Same laptop with a USB interface plugged in and several ASIO drivers installed.
+AP::Inventory makeInterfaceRig()
+{
+    AP::Inventory inventory;
+    addWindowsTypes(inventory, { kRealtekMic, kUrLine }, { kRealtekSpeakers, kUrSpeakers });
+    addAsioType(inventory, { "Yamaha Steinberg USB ASIO", "ASIO4ALL v2", "Ableton Move" });
+    inventory.active = makeActive("Windows Audio", kRealtekMic, kRealtekSpeakers);
+    return inventory;
+}
+
+int indexOfKey(const std::vector<AP::Candidate>& ranked, const juce::String& key)
+{
+    for (size_t i = 0; i < ranked.size(); ++i)
+        if (ranked[i].getKey() == key)
+            return (int) i;
+
+    return -1;
+}
+
+bool reasonsMention(const AP::Candidate& candidate, const juce::String& text)
+{
+    for (const auto& reason : candidate.reasons)
+        if (reason.containsIgnoreCase(text))
+            return true;
+
+    return false;
+}
+}
+
+class AudioAutopilotTests final : public juce::UnitTest
+{
+public:
+    AudioAutopilotTests()
+        : juce::UnitTest("Audio Autopilot", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        using namespace AutopilotFixtures;
+
+        beginTest("AudioAutopilot classifies JUCE driver types and ASIO drivers");
+        {
+            expect(AP::classifyDriverType("ASIO") == AP::DriverFamily::Asio);
+            expect(AP::classifyDriverType("Windows Audio") == AP::DriverFamily::WasapiShared);
+            expect(AP::classifyDriverType("Windows Audio (Exclusive Mode)") == AP::DriverFamily::WasapiExclusive);
+            expect(AP::classifyDriverType("Windows Audio (Low Latency Mode)") == AP::DriverFamily::WasapiLowLatency);
+            expect(AP::classifyDriverType("DirectSound") == AP::DriverFamily::DirectSound);
+
+            expect(AP::classifyAsioDriver("Yamaha Steinberg USB ASIO") == AP::AsioDriverClass::Native);
+            expect(AP::classifyAsioDriver("Focusrite USB ASIO") == AP::AsioDriverClass::Native);
+            expect(AP::classifyAsioDriver("ASIO4ALL v2") == AP::AsioDriverClass::Generic);
+            expect(AP::classifyAsioDriver("FlexASIO") == AP::AsioDriverClass::Generic);
+            expect(AP::classifyAsioDriver("Realtek ASIO") == AP::AsioDriverClass::Generic);
+            expect(AP::classifyAsioDriver("Voicemeeter Virtual ASIO") == AP::AsioDriverClass::Virtual);
+
+            const auto tokens = AP::getBrandTokens("Yamaha Steinberg USB ASIO");
+            expectEquals(tokens.joinIntoString(","), juce::String("yamaha,steinberg"));
+        }
+
+        beginTest("AudioAutopilot reads Windows endpoint names");
+        {
+            const auto line = AP::classifyEndpoint(kUrLine);
+            expectEquals(line.label, juce::String("Line"));
+            expectEquals(line.device, juce::String("Steinberg UR22C"));
+            expect(! line.builtIn && ! line.microphone && ! line.bluetooth);
+
+            const auto speakers = AP::classifyEndpoint(kRealtekSpeakers);
+            expectEquals(speakers.device, juce::String("Realtek(R) Audio"));
+            expect(speakers.builtIn && speakers.speakers && ! speakers.headphones);
+
+            const auto intelMic = AP::classifyEndpoint(juce::String(juce::CharPointer_UTF8(
+                "Microphone Array (Intel\xc2\xae Smart Sound Technology for Digital Microphones)")));
+            expect(intelMic.builtIn && intelMic.microphone);
+
+            expect(AP::classifyEndpoint(kBtHeadset).bluetooth);
+            expect(! AP::classifyEndpoint(kBtHeadset).builtIn);
+            expectEquals(AP::classifyEndpoint("Speakers (2- USB Audio CODEC)").device, juce::String("USB Audio CODEC"));
+            expect(AP::classifyEndpoint("CABLE Output (VB-Audio Virtual Cable)").virtualDevice);
+            expect(AP::classifyEndpoint("Stereo Mix (Realtek(R) Audio)").virtualDevice);
+            expect(AP::classifyEndpoint("Microphone (HD Pro Webcam C920)").webcam);
+            expect(AP::classifyEndpoint("Speakers (NVIDIA High Definition Audio)").display);
+            expect(! AP::classifyEndpoint("Speakers (NVIDIA High Definition Audio)").builtIn);
+            expect(AP::classifyEndpoint("Auriculares (Realtek(R) Audio)").headphones);
+            expect(AP::classifyEndpoint("Altavoces (Realtek(R) Audio)").speakers);
+            expect(AP::classifyEndpoint("Primary Sound Capture Driver").systemAlias);
+            expect(AP::isSameDevice(AP::classifyEndpoint(kUrLine), AP::classifyEndpoint(kUrSpeakers)));
+            expect(! AP::isSameDevice(AP::classifyEndpoint(kUrLine), AP::classifyEndpoint(kRealtekSpeakers)));
+        }
+
+        beginTest("AudioAutopilot prefers the connected interface's native ASIO driver");
+        {
+            const auto inventory = makeInterfaceRig();
+            const auto recommendation = AP::recommend(inventory);
+
+            expect(recommendation.kind == AP::RecommendationKind::SwitchDevice);
+            expectEquals(recommendation.candidate.typeName, juce::String("ASIO"));
+            expectEquals(recommendation.candidate.outputName, juce::String("Yamaha Steinberg USB ASIO"));
+            expect(recommendation.candidate.tier == AP::Tier::AsioNativeVerified);
+            expectEquals(recommendation.candidate.sampleRate, 48000.0);
+            expectEquals(recommendation.candidate.bufferSize, 0, "ASIO keeps the buffer chosen in the driver panel");
+
+            const auto ranked = AP::rankCandidates(inventory);
+            expectEquals((int) ranked.size(), 7);
+            const AP::Tier expectedOrder[] = { AP::Tier::AsioNativeVerified, AP::Tier::WasapiExclusive,
+                                               AP::Tier::WasapiLowLatency, AP::Tier::AsioNativeUnverified,
+                                               AP::Tier::AsioGeneric, AP::Tier::WasapiShared, AP::Tier::DirectSound };
+            for (size_t i = 0; i < ranked.size() && i < std::size(expectedOrder); ++i)
+                expect(ranked[i].tier == expectedOrder[i], "Unexpected tier at rank " + juce::String((int) i));
+
+            expectEquals(ranked[1].inputName, kUrLine, "WASAPI keeps input and output on the interface");
+            expectEquals(ranked[1].outputName, kUrSpeakers);
+            expectEquals(ranked[1].bufferSize, 128);
+            expectEquals(ranked[3].outputName, juce::String("Ableton Move"));
+            expectEquals(ranked[4].outputName, juce::String("ASIO4ALL v2"));
+            expect(reasonsMention(ranked[1], "same device"));
+        }
+
+        beginTest("AudioAutopilot falls back to WASAPI Exclusive or Low Latency without ASIO");
+        {
+            const auto inventory = makeLaptop();
+            const auto recommendation = AP::recommend(inventory);
+
+            expect(recommendation.kind == AP::RecommendationKind::SwitchDevice);
+            expectEquals(recommendation.candidate.typeName, juce::String("Windows Audio (Exclusive Mode)"));
+            expectEquals(recommendation.candidate.inputName, kRealtekMic);
+            expectEquals(recommendation.candidate.outputName, kRealtekSpeakers);
+            expectEquals(recommendation.candidate.bufferSize, 128);
+            expect(reasonsMention(recommendation.candidate, "built-in microphone"));
+
+            AP::Options noExclusive;
+            noExclusive.allowExclusive = false;
+            const auto withoutExclusive = AP::recommend(inventory, noExclusive);
+            expectEquals(withoutExclusive.candidate.typeName, juce::String("Windows Audio (Low Latency Mode)"));
+
+            for (const auto& candidate : AP::rankCandidates(inventory, noExclusive))
+                expect(candidate.tier != AP::Tier::WasapiExclusive);
+
+            for (const auto& candidate : AP::rankCandidates(inventory))
+                expect(! candidate.inputName.startsWith("Primary Sound"), "DirectSound aliases are never candidates");
+        }
+
+        beginTest("AudioAutopilot ranks ASIO wrappers below WASAPI Low Latency");
+        {
+            auto inventory = makeLaptop();
+            addAsioType(inventory, { "ASIO4ALL v2", "FlexASIO" });
+
+            const auto ranked = AP::rankCandidates(inventory);
+            expectEquals(AP::recommend(inventory).candidate.typeName, juce::String("Windows Audio (Exclusive Mode)"));
+            expectEquals(indexOfKey(ranked, "ASIO|ASIO4ALL v2|ASIO4ALL v2"), 2);
+            expect(ranked[2].tier == AP::Tier::AsioGeneric);
+            expect(ranked[4].tier == AP::Tier::WasapiShared);
+        }
+
+        beginTest("AudioAutopilot does not trust ASIO drivers whose hardware is unplugged");
+        {
+            auto unplugged = makeLaptop();
+            addAsioType(unplugged, { "Ableton Move" });
+            const auto ranked = AP::rankCandidates(unplugged);
+            expectEquals(AP::recommend(unplugged).candidate.typeName, juce::String("Windows Audio (Exclusive Mode)"));
+            expect(ranked[indexOfKey(ranked, "ASIO|Ableton Move|Ableton Move")].tier == AP::Tier::AsioNativeUnverified);
+
+            AP::Inventory push;
+            addWindowsTypes(push, { kRealtekMic, "Line (Ableton Push 3)" }, { kRealtekSpeakers, "Speakers (Ableton Push 3)" });
+            addAsioType(push, { "Ableton Move", "Ableton Push" });
+            push.active = makeActive("Windows Audio", kRealtekMic, kRealtekSpeakers);
+            expectEquals(AP::recommend(push).candidate.outputName, juce::String("Ableton Push"),
+                         "The driver whose name matches the plugged hardware best wins");
+        }
+
+        beginTest("AudioAutopilot avoids Bluetooth outputs and never opens a Bluetooth mic");
+        {
+            AP::Inventory inventory;
+            addWindowsTypes(inventory, { kRealtekMic, kBtHeadset }, { kBtHeadset, kRealtekSpeakers });
+            inventory.active = makeActive("Windows Audio", kRealtekMic, kBtHeadset);
+
+            for (const auto& candidate : AP::rankCandidates(inventory))
+            {
+                expect(candidate.inputName != kBtHeadset, "Bluetooth headset mic must never be a candidate input");
+                expect(candidate.outputName == kRealtekSpeakers, "Any wired output beats Bluetooth");
+            }
+
+            AP::Inventory onlyBluetooth;
+            addWindowsTypes(onlyBluetooth, { kRealtekMic }, { kBtHeadset });
+            const auto recommendation = AP::recommend(onlyBluetooth);
+            expectEquals(recommendation.candidate.outputName, kBtHeadset);
+            expect(reasonsMention(recommendation.candidate, "Bluetooth"), "Bluetooth latency must be explained");
+        }
+
+        beginTest("AudioAutopilot keeps input and output on the same device when possible");
+        {
+            AP::Inventory inventory;
+            addWindowsTypes(inventory,
+                            { "Microphone (Blue Yeti)", "Analogue 1 + 2 (Focusrite USB Audio)" },
+                            { kRealtekSpeakers, "Speakers (Focusrite USB Audio)" });
+            const auto recommendation = AP::recommend(inventory);
+            expectEquals(recommendation.candidate.inputName, juce::String("Analogue 1 + 2 (Focusrite USB Audio)"));
+            expectEquals(recommendation.candidate.outputName, juce::String("Speakers (Focusrite USB Audio)"));
+
+            AP::Inventory split;
+            addWindowsTypes(split, { "Microphone (Blue Yeti)" }, { kRealtekSpeakers });
+            expect(reasonsMention(AP::recommend(split).candidate, "different devices"));
+        }
+
+        beginTest("AudioAutopilot recognises a running setup that is already optimal");
+        {
+            auto onAsio = makeInterfaceRig();
+            onAsio.active = makeActive("ASIO", "Yamaha Steinberg USB ASIO", "Yamaha Steinberg USB ASIO", 48000.0, 64);
+            expect(AP::recommend(onAsio).kind == AP::RecommendationKind::AlreadyOptimal);
+
+            auto at44k = onAsio;
+            at44k.active.sampleRate = 44100.0;
+            const auto rateChange = AP::recommend(at44k);
+            expect(rateChange.kind == AP::RecommendationKind::ChangeSampleRate);
+            expectEquals(rateChange.candidate.sampleRate, 48000.0);
+            expectEquals(rateChange.candidate.bufferSize, 64, "A rate change keeps the current buffer");
+
+            auto only44k = at44k;
+            only44k.active.availableSampleRates = { 44100.0 };
+            expect(AP::recommend(only44k).kind == AP::RecommendationKind::AlreadyOptimal);
+
+            // A vendor driver with a generic name is trusted once it is running.
+            auto generic = makeLaptop();
+            addAsioType(generic, { "TUSBAudio ASIO Driver" });
+            generic.active = makeActive("ASIO", "TUSBAudio ASIO Driver", "TUSBAudio ASIO Driver");
+            const auto running = AP::recommend(generic);
+            expect(running.kind == AP::RecommendationKind::AlreadyOptimal);
+            expect(running.candidate.tier == AP::Tier::AsioNativeVerified);
+        }
+
+        beginTest("AudioAutopilot skips candidates that already failed this session");
+        {
+            const auto inventory = makeInterfaceRig();
+            const juce::StringArray failed { "ASIO|Yamaha Steinberg USB ASIO|Yamaha Steinberg USB ASIO" };
+            const auto next = AP::recommend(inventory, {}, failed);
+            expectEquals(next.candidate.typeName, juce::String("Windows Audio (Exclusive Mode)"));
+            expectEquals(next.candidate.outputName, kUrSpeakers);
+        }
+
+        beginTest("AudioAutopilot reports no candidate without a usable input");
+        {
+            AP::Inventory noInputs;
+            addWindowsTypes(noInputs, {}, { kRealtekSpeakers });
+            expect(AP::recommend(noInputs).kind == AP::RecommendationKind::NoCandidate);
+
+            AP::Inventory virtualOnly;
+            addWindowsTypes(virtualOnly, { "CABLE Output (VB-Audio Virtual Cable)" }, { kRealtekSpeakers });
+            addAsioType(virtualOnly, { "Voicemeeter Virtual ASIO" });
+            expect(AP::recommend(virtualOnly).kind == AP::RecommendationKind::NoCandidate);
+
+            expect(AP::recommend(AP::Inventory {}).kind == AP::RecommendationKind::NoCandidate);
+        }
+
+        beginTest("AudioAutopilot input mute policy unmutes only when it is safe");
+        {
+            const auto advise = [] (const juce::String& type, const juce::String& input, const juce::String& output)
+            {
+                return AP::adviseInputMute(makeActive(type, input, output));
+            };
+
+            const auto asio = advise("ASIO", "Yamaha Steinberg USB ASIO", "Yamaha Steinberg USB ASIO");
+            expect(asio.advice == AP::MuteAdvice::Unmute);
+
+            const auto wrapper = advise("ASIO", "ASIO4ALL v2", "ASIO4ALL v2");
+            expect(wrapper.advice == AP::MuteAdvice::KeepMuted && ! wrapper.feedbackRisk);
+
+            const auto laptop = advise("Windows Audio", kRealtekMic, kRealtekSpeakers);
+            expect(laptop.advice == AP::MuteAdvice::KeepMuted && laptop.feedbackRisk);
+            expect(laptop.reason.containsIgnoreCase("feedback"));
+
+            expect(advise("Windows Audio", kRealtekMic, "Headphones (Realtek(R) Audio)").advice == AP::MuteAdvice::Unmute);
+            expect(advise("Windows Audio", kRealtekMic, "Auriculares (Realtek(R) Audio)").advice == AP::MuteAdvice::Unmute);
+            expect(advise("Windows Audio (Exclusive Mode)", kUrLine, kUrSpeakers).advice == AP::MuteAdvice::Unmute);
+            expect(advise("Windows Audio", kUrLine, kRealtekSpeakers).advice == AP::MuteAdvice::Unmute);
+
+            const auto usbMic = advise("Windows Audio", "Microphone (Blue Yeti)", kRealtekSpeakers);
+            expect(usbMic.advice == AP::MuteAdvice::KeepMuted && ! usbMic.feedbackRisk);
+
+            const auto webcam = advise("Windows Audio", "Microphone (HD Pro Webcam C920)", "Speakers (NVIDIA High Definition Audio)");
+            expect(webcam.advice == AP::MuteAdvice::KeepMuted && webcam.feedbackRisk);
+
+            const auto bluetooth = advise("Windows Audio", kBtHeadset, kBtHeadset);
+            expect(bluetooth.advice == AP::MuteAdvice::KeepMuted && bluetooth.feedbackRisk);
+
+            const auto loopback = advise("Windows Audio", "Stereo Mix (Realtek(R) Audio)", "Headphones (Realtek(R) Audio)");
+            expect(loopback.advice == AP::MuteAdvice::KeepMuted && loopback.feedbackRisk);
+
+            expect(advise("DirectSound", "Primary Sound Capture Driver", "Primary Sound Driver").advice == AP::MuteAdvice::KeepMuted);
+            expect(advise("Windows Audio", {}, kRealtekSpeakers).advice == AP::MuteAdvice::NoInput);
+
+            auto closed = makeActive("ASIO", "Yamaha Steinberg USB ASIO", "Yamaha Steinberg USB ASIO");
+            closed.isOpen = false;
+            expect(AP::adviseInputMute(closed).advice == AP::MuteAdvice::NoInput);
+        }
+
+        beginTest("AudioAutopilot describes candidates for the UI");
+        {
+            const auto recommendation = AP::recommend(makeInterfaceRig());
+            const juce::String expected(juce::CharPointer_UTF8("ASIO  \xc2\xb7  Yamaha Steinberg USB ASIO  \xc2\xb7  48 kHz"));
+            expectEquals(AP::describeCandidate(recommendation.candidate), expected);
+
+            const auto laptop = AP::recommend(makeLaptop());
+            expect(AP::describeCandidate(laptop.candidate).contains("In: " + kRealtekMic));
+            expect(AP::describeCandidate(laptop.candidate).endsWith("128 samples"));
+        }
+
+        beginTest("AudioAutopilot calibration ladder walks up from the smallest buffer");
+        {
+            const auto joined = [] (const juce::Array<int>& sizes)
+            {
+                juce::StringArray parts;
+                for (int size : sizes)
+                    parts.add(juce::String(size));
+                return parts.joinIntoString(",");
+            };
+
+            // ASIO drivers usually list powers of two.
+            expectEquals(joined(AP::buildCalibrationLadder({ 16, 32, 64, 128, 256, 512, 1024, 2048 })),
+                         juce::String("32,64,128,256,512"));
+
+            // WASAPI Exclusive lists every multiple of 32 above the device minimum: keep it short.
+            juce::Array<int> exclusive { 144, 480 };
+            for (int size = 160; size <= 2048; size += 32)
+                exclusive.addIfNotAlreadyThere(size);
+            expectEquals(joined(AP::buildCalibrationLadder(exclusive)), juce::String("144,192,256,384,512"));
+
+            // Unsorted input, and a fine-grained Low Latency list.
+            expectEquals(joined(AP::buildCalibrationLadder({ 512, 64, 32, 128, 96, 48 })), juce::String("32,48,64,96,128,512"));
+
+            // Nothing at or below the limit: still one measurement at the smallest size.
+            expectEquals(joined(AP::buildCalibrationLadder({ 1024, 2048 })), juce::String("1024"));
+            expect(AP::buildCalibrationLadder({}).isEmpty());
+
+            AP::CalibrationOptions playAlong;
+            playAlong.firstBufferSamples = 64;
+            expectEquals(joined(AP::buildCalibrationLadder({ 32, 64, 128 }, playAlong)), juce::String("64,128"));
+        }
+
+        beginTest("AudioAutopilot stability verdict respects each threshold");
+        {
+            // 64 samples at 48 kHz = 1.333 ms per block; 4 s = 3000 blocks expected.
+            AP::StabilityMeasurement clean;
+            clean.bufferSize = 64;
+            clean.sampleRate = 48000.0;
+            clean.windowSeconds = 4.0;
+            clean.xruns = 0;
+            clean.peakProcessMs = 0.40;
+            clean.maxCallbackGapMs = 1.70;
+            clean.blocksDelivered = 3000;
+
+            const auto stable = AP::evaluateStability(clean);
+            expect(stable.stable, "Clean measurement must pass: " + stable.summary);
+            expectWithinAbsoluteError(stable.peakLoad, 0.30, 1.0e-6);
+            expectWithinAbsoluteError(stable.gapRatio, 1.275, 1.0e-6);
+            expectWithinAbsoluteError(stable.deliveredRatio, 1.0, 1.0e-6);
+
+            auto dropout = clean;
+            dropout.xruns = 1;
+            expect(! AP::evaluateStability(dropout).stable);
+            expect(AP::evaluateStability(dropout).summary.contains("dropout"));
+
+            auto justBelowLoad = clean;
+            justBelowLoad.peakProcessMs = 0.69 * 1000.0 * 64.0 / 48000.0;
+            expect(AP::evaluateStability(justBelowLoad).stable, "69% peak load passes");
+
+            auto atLoadLimit = clean;
+            atLoadLimit.peakProcessMs = 0.705 * 1000.0 * 64.0 / 48000.0;
+            expect(! AP::evaluateStability(atLoadLimit).stable, "Over 70% peak load fails");
+            expect(AP::evaluateStability(atLoadLimit).summary.contains("peak load"));
+
+            auto justBelowGap = clean;
+            justBelowGap.maxCallbackGapMs = 1.99 * 1000.0 * 64.0 / 48000.0;
+            expect(AP::evaluateStability(justBelowGap).stable, "1.99x gap passes (USB drivers deliver in bursts)");
+
+            auto atGapLimit = clean;
+            atGapLimit.maxCallbackGapMs = 2.01 * 1000.0 * 64.0 / 48000.0;
+            expect(! AP::evaluateStability(atGapLimit).stable, "A gap over 2 blocks fails");
+
+            auto missingCallbacks = clean;
+            missingCallbacks.blocksDelivered = 2669; // 89%
+            expect(! AP::evaluateStability(missingCallbacks).stable);
+            missingCallbacks.blocksDelivered = 2700; // 90%
+            expect(AP::evaluateStability(missingCallbacks).stable);
+
+            AP::StabilityMeasurement empty;
+            expect(! AP::evaluateStability(empty).stable);
+        }
+    }
+};
+
 static AudioEngineValidationTests audioEngineValidationTests;
 static P1PedalSafetyTests p1PedalSafetyTests;
 static P13ESharedPedalContractTests p13eSharedPedalContractTests;
@@ -17557,6 +18015,7 @@ static P10GHighGainNoiseFloorGateCollapseTests p10gHighGainNoiseFloorGateCollaps
 static P11AAmpProfessionalizationTests p11aAmpProfessionalizationTests;
 static P11BCabinetProfessionalizationTests p11bCabinetProfessionalizationTests;
 static P7IDiagnosticsProfilerTests p7iDiagnosticsProfilerTests;
+static AudioAutopilotTests audioAutopilotTests;
 
 void touchAudioEngineValidationTests()
 {
@@ -17575,7 +18034,8 @@ void touchAudioEngineValidationTests()
         p10gHighGainNoiseFloorGateCollapseTests,
         p11aAmpProfessionalizationTests,
         p11bCabinetProfessionalizationTests,
-        p7iDiagnosticsProfilerTests);
+        p7iDiagnosticsProfilerTests,
+        audioAutopilotTests);
 }
 }
 

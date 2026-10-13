@@ -3473,6 +3473,8 @@
     <ClInclude Include="..\..\Source\Effects\Pedals\Base\ProcessorBase.h"/>
     <ClInclude Include="..\..\Source\Effects\Pedals\Base\NovaPedalProcessor.h"/>
     <ClInclude Include="..\..\Source\Effects\Pedals\Base\PedalUIFactory.h"/>
+    <ClInclude Include="..\..\Source\Core\Audio\AudioAutopilot.h"/>
+    <ClInclude Include="..\..\Source\Core\Audio\StandaloneAudioAutopilot.h"/>
     <ClInclude Include="..\..\Source\Core\AudioEngine.h"/>
     <ClInclude Include="..\..\Source\Core\Common.h"/>
     <ClInclude Include="..\..\Source\Core\Constants.h"/>

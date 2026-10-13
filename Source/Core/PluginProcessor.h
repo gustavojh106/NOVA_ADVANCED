@@ -83,6 +83,10 @@ public:
     bool isEngineOn() const;
     Nova::SwitcherMode getSwitcherMode() const;
 
+    // Latency Autopilot buffer calibration (Standalone): processing continues, output is silence.
+    void setOutputSilenced(bool shouldSilence) noexcept { outputSilenced.store(shouldSilence, std::memory_order_relaxed); }
+    bool isOutputSilenced() const noexcept { return outputSilenced.load(std::memory_order_relaxed); }
+
 private:
     // AudioProcessorParameter::Listener
     void parameterValueChanged(int parameterIndex, float newValue) override;
@@ -143,6 +147,7 @@ private:
     std::atomic<bool> hostLatencyRefreshPending{ false };
     std::atomic<int> lastReportedHostLatencySamples{ -1 };
     std::atomic<int> hostTransportPollCounter{ 0 };
+    std::atomic<bool> outputSilenced{ false };
     RuntimeGlobalParamAtomics lastRuntimeGlobalParams;
     juce::AudioBuffer<float> hostBypassDelayBuffer;
     int hostBypassDelayWritePosition = 0;

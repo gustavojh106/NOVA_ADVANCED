@@ -131,6 +131,14 @@ public:
     PedalProcessorHandle getPedalProcessorHandle(Nova::ChainID chain, int index) const;
     juce::AudioProcessor* getProcessorForPedal(Nova::ChainID chain, int index);
     uint64_t getActiveGraphGeneration() const noexcept;
+    // Audio blocks processed since the last prepare(). Lets the message thread confirm that a newly
+    // opened device actually delivers callbacks (Latency Autopilot); reads the existing counter only.
+    uint64_t getAudioBlockCount() const noexcept { return audioPlane.audioBlockCounter.load(std::memory_order_relaxed); }
+    // Buffer calibration window (Latency Autopilot): worst block time and longest gap between
+    // callbacks since requestTimingWindowReset(), which the audio thread applies at its next block.
+    void requestTimingWindowReset() noexcept { audioPlane.cpuMeter.requestWindowReset(); }
+    double getWindowPeakProcessTimeMs() const noexcept { return audioPlane.cpuMeter.getWindowPeakProcessTimeMs(); }
+    double getWindowMaxCallbackIntervalMs() const noexcept { return audioPlane.cpuMeter.getWindowMaxCallbackIntervalMs(); }
 
     double getCpuLoad() const;
     double getLastProcessTimeMs() const;

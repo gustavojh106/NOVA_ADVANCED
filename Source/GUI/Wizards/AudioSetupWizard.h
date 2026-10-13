@@ -1,10 +1,14 @@
 #pragma once
 #include "WizardBase.h"
 #include "../../Core/PluginProcessor.h"
+#include "../../Core/Audio/AudioAutopilot.h"
 
 #if JucePlugin_Build_Standalone
  #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+ #include "../../Core/Audio/StandaloneAudioAutopilot.h"
 #endif
+
+namespace Nova { class StandaloneAudioAutopilot; }
 
 // =============================================================================
 // Interactive Audio Setup Wizard
@@ -13,8 +17,9 @@
 // Each step generates dynamic recommendations based on user selections and
 // detected hardware state.
 //
-// Step 0 - System Scan:    Hardware detection + prioritized recommendations.
-//                          Gated by explicit "GOT IT" acknowledgment.
+// Step 0 - System Scan:    Hardware detection + "Recommended setup" from the
+//                          Latency Autopilot (APPLY / UNDO, nothing automatic)
+//                          + input monitor mute state. Gated by "GOT IT".
 // Step 1 - Device:         Full JUCE device selector + live status bar +
 //                          recommendation banner from scan results.
 // Step 2 - Latency:        Use-case card selector (none pre-selected, gates NEXT).
@@ -31,9 +36,11 @@
 class AudioSetupWizard final : public WizardBase, private juce::Timer
 {
 public:
-    AudioSetupWizard(NOVAAudioProcessor& proc, std::function<void()> onCloseFn)
+    AudioSetupWizard(NOVAAudioProcessor& proc, std::function<void()> onCloseFn,
+                     Nova::StandaloneAudioAutopilot* autopilotToUse = nullptr)
         : WizardBase(buildSteps(), std::move(onCloseFn)),
-          processor(proc)
+          processor(proc),
+          autopilot(autopilotToUse)
     {
         // =================================================================
         // Step 0: System Scan
@@ -52,6 +59,31 @@ public:
                 repaint();
             };
             page->addAndMakeVisible(btnAcknowledge);
+
+            styleAccentButton(btnApplyRecommended, "APPLY");
+            btnApplyRecommended.onClick = [this] { applyRecommendedSetup(); };
+            page->addChildComponent(btnApplyRecommended);
+
+            styleSecondaryButton(btnUndoRecommended, "UNDO");
+            btnUndoRecommended.onClick = [this] { undoRecommendedSetup(); };
+            page->addChildComponent(btnUndoRecommended);
+
+            styleSecondaryButton(btnCalibrate, "CALIBRATE BUFFER");
+            btnCalibrate.setTooltip("Finds the smallest buffer that runs without dropouts. Output is muted for 5-25 s.");
+            btnCalibrate.onClick = [this] { startBufferCalibration(); };
+            page->addChildComponent(btnCalibrate);
+
+            styleSecondaryButton(btnCancelCalibration, "CANCEL");
+            btnCancelCalibration.onClick = [this] { cancelBufferCalibration(); };
+            page->addChildComponent(btnCancelCalibration);
+
+            styleSecondaryButton(btnDriverPanel, "DRIVER PANEL");
+            btnDriverPanel.onClick = [this] { openDriverPanel(); };
+            page->addChildComponent(btnDriverPanel);
+
+            styleSecondaryButton(btnInputMute, "UNMUTE");
+            btnInputMute.onClick = [this] { toggleInputMute(); };
+            page->addChildComponent(btnInputMute);
         }
 
         // =================================================================
@@ -301,12 +333,30 @@ public:
         auto area = getContentArea().withTrimmedTop(60);
         if (area.isEmpty()) return;
 
-        // Step 0: Acknowledge button
-        btnAcknowledge.setBounds(area.getCentreX() - 100, area.getBottom() - 48, 200, 38);
+        // Step 0: Acknowledge button + recommended setup / input monitor controls
+        placeOnPage(btnAcknowledge, { area.getCentreX() - 100, area.getBottom() - 48, 200, 38 });
+        {
+            const auto layout = getScanLayout(area);
+            placeOnPage(btnInputMute, layout.inputMuteButton);
+
+            // Card actions, right to left, only the visible ones.
+            auto row = layout.cardButtonRow;
+            const std::pair<juce::TextButton*, int> cardButtons[] = {
+                { &btnUndoRecommended, 80 }, { &btnApplyRecommended, 90 }, { &btnCalibrate, 150 },
+                { &btnDriverPanel, 120 }, { &btnCancelCalibration, 90 }
+            };
+            for (const auto& [button, width] : cardButtons)
+            {
+                if (! button->isVisible())
+                    continue;
+                placeOnPage(*button, row.removeFromRight(width));
+                row.removeFromRight(8);
+            }
+        }
 
         // Step 1: Device selector
         if (deviceSelector)
-            deviceSelector->setBounds(area.withTrimmedBottom(40));
+            placeOnPage(*deviceSelector, area.withTrimmedBottom(40));
 
         // Step 2: Use-case buttons + apply buffer
         {
@@ -318,10 +368,10 @@ public:
             int y = ucArea.getY();
             for (int i = 0; i < 3; ++i)
             {
-                useCaseButtons[i].setBounds(cx, y, btnW, btnH);
+                placeOnPage(useCaseButtons[i], { cx, y, btnW, btnH });
                 y += btnH + gap;
             }
-            btnApplyBuffer.setBounds(cx, y + 120, 260, 36);
+            placeOnPage(btnApplyBuffer, { cx, y + 120, 260, 36 });
         }
 
         // Step 4: Tuner cards + custom Hz
@@ -334,16 +384,16 @@ public:
             const int sx = tArea.getCentreX() - totalW / 2;
             const int sy = tArea.getY() + 24;
             for (int i = 0; i < 3; ++i)
-                tunerCards[i].setBounds(sx + i * (cardW + gap), sy, cardW, cardH);
+                placeOnPage(tunerCards[i], { sx + i * (cardW + gap), sy, cardW, cardH });
 
-            btnCustomHz.setBounds(sx + 3 * (cardW + gap), sy, cardW, cardH);
-            customHzSlider.setBounds(sx, sy + cardH + 16, totalW, 30);
+            placeOnPage(btnCustomHz, { sx + 3 * (cardW + gap), sy, cardW, cardH });
+            placeOnPage(customHzSlider, { sx, sy + cardH + 16, totalW, 30 });
         }
 
         // Step 5: Apply all + edit buttons
         {
             auto sArea = area;
-            btnApplyAll.setBounds(sArea.getCentreX() - 130, sArea.getBottom() - 48, 260, 38);
+            placeOnPage(btnApplyAll, { sArea.getCentreX() - 130, sArea.getBottom() - 48, 260, 38 });
             // Edit buttons positioned dynamically in buildSummary
         }
     }
@@ -410,6 +460,12 @@ private:
         double roundTripMs = 0.0;
         bool asioAvailable = false;
         bool deviceActive = false;
+
+        // Latency Autopilot (Standalone only)
+        bool autopilotAvailable = false;
+        Nova::AudioAutopilot::Recommendation recommendation;
+        Nova::AudioAutopilot::InputMuteDecision inputMute;
+        bool inputMuted = false;
     };
 
     // Round trip = driver-reported input + output latency (both already include the
@@ -445,6 +501,13 @@ private:
     ScanResult scan;
     bool scanAcknowledged = false;
     juce::TextButton btnAcknowledge;
+    juce::TextButton btnApplyRecommended;
+    juce::TextButton btnUndoRecommended;
+    juce::TextButton btnCalibrate;
+    juce::TextButton btnCancelCalibration;
+    juce::TextButton btnDriverPanel;
+    juce::TextButton btnInputMute;
+    int lastAutopilotRevision = -1;
 
     void runSystemScan()
     {
@@ -477,27 +540,43 @@ private:
                     ? setup.outputDeviceName : "Default";
             }
         }
+
+        if (autopilot != nullptr)
+        {
+            scan.autopilotAvailable = true;
+            scan.recommendation = autopilot->getRecommendation();
+            scan.inputMute = autopilot->getInputMuteDecision();
+            scan.inputMuted = autopilot->isInputMuted();
+            lastAutopilotRevision = autopilot->getRevision();
+        }
 #endif
+        updateScanControls();
     }
 
-    void paintSystemScan(juce::Graphics& g, juce::Rectangle<int> area) const
+    // --- Layout shared by paintSystemScan() and resized() ----------------
+
+    struct ScanRow
     {
-        const int cardW = juce::jmin(560, area.getWidth() - 20);
-        const int cx = area.getCentreX() - cardW / 2;
+        const char* label;
+        juce::String value;
+        bool ok;
+        bool isInputMonitor = false;
+    };
 
-        // --- Status icon ---
-        auto iconArea = juce::Rectangle<int>(area.getCentreX() - 26, area.getY(), 52, 52);
-        g.setColour(Nova::Colors::Accent.withAlpha(0.12f));
-        g.fillRoundedRectangle(iconArea.toFloat(), 14.0f);
-        g.setColour(Nova::Colors::Accent);
-        g.setFont(juce::Font(juce::FontOptions(24.0f, juce::Font::bold)));
-        g.drawText(juce::CharPointer_UTF8("\xe2\x9a\x99"), iconArea, juce::Justification::centred);
+    struct ScanLayout
+    {
+        int cardX = 0;
+        int cardW = 0;
+        int rowsTop = 0;
+        int rowHeight = 24;
+        juce::Rectangle<int> recommendationCard;
+        juce::Rectangle<int> inputMuteButton;
+        juce::Rectangle<int> cardButtonRow;
+    };
 
-        int y = area.getY() + 64;
-
-        // --- Scan rows ---
-        struct Row { const char* label; juce::String value; bool ok; };
-        std::vector<Row> rows;
+    std::vector<ScanRow> buildScanRows() const
+    {
+        std::vector<ScanRow> rows;
 
         if (scan.deviceActive)
         {
@@ -520,7 +599,251 @@ private:
         else
             rows.push_back({ "ASIO", "Not detected", false });
 
-        const int rowH = 28;
+        if (scan.autopilotAvailable && scan.inputMute.advice != Nova::AudioAutopilot::MuteAdvice::NoInput)
+        {
+            juce::String value = "On";
+            if (scan.inputMuted)
+                value = scan.inputMute.advice == Nova::AudioAutopilot::MuteAdvice::Unmute
+                    ? "Muted. Safe to unmute: " + scan.inputMute.reason
+                    : "Muted. " + scan.inputMute.reason;
+
+            rows.push_back({ "Input Monitor", value, ! scan.inputMuted, true });
+        }
+
+        return rows;
+    }
+
+    ScanLayout getScanLayout(juce::Rectangle<int> area) const
+    {
+        ScanLayout layout;
+        layout.cardW = juce::jmin(560, area.getWidth() - 20);
+        layout.cardX = area.getCentreX() - layout.cardW / 2;
+        layout.rowsTop = area.getY() + 44;
+
+        const auto rows = buildScanRows();
+        for (size_t i = 0; i < rows.size(); ++i)
+            if (rows[i].isInputMonitor)
+                layout.inputMuteButton = { layout.cardX + layout.cardW - 84, layout.rowsTop + (int) i * layout.rowHeight + 2,
+                                           78, layout.rowHeight - 4 };
+
+        const int rowsBottom = layout.rowsTop + (int) rows.size() * layout.rowHeight;
+        layout.recommendationCard = { layout.cardX, rowsBottom + 12, layout.cardW, 128 };
+        layout.cardButtonRow = layout.recommendationCard.reduced(14, 10).removeFromBottom(28);
+        return layout;
+    }
+
+    // Page children live in page coordinates while the layouts here (and paint) use
+    // wizard coordinates, so translate by the page origin before applying.
+    void placeOnPage(juce::Component& component, juce::Rectangle<int> wizardBounds)
+    {
+        if (auto* page = component.getParentComponent(); page != nullptr && page != this)
+            component.setBounds(wizardBounds - page->getPosition());
+        else
+            component.setBounds(wizardBounds);
+    }
+
+    // --- Recommended setup (Latency Autopilot) ----------------------------
+
+    void updateScanControls()
+    {
+        using Kind = Nova::AudioAutopilot::RecommendationKind;
+        const auto kind = scan.recommendation.kind;
+        bool busy = false;
+        bool calibrating = false;
+        bool canUndo = false;
+        bool canCalibrate = false;
+        bool canOpenPanel = false;
+
+#if JucePlugin_Build_Standalone
+        if (autopilot != nullptr)
+        {
+            busy = autopilot->isBusy();
+            calibrating = autopilot->getActivity() == Nova::StandaloneAudioAutopilot::Activity::Calibrating;
+            canUndo = autopilot->canUndo();
+            canCalibrate = autopilot->getCalibrationBlocker().isEmpty();
+            canOpenPanel = autopilot->canOpenDriverPanel();
+        }
+#endif
+
+        btnApplyRecommended.setVisible(scan.autopilotAvailable && ! busy
+                                       && (kind == Kind::SwitchDevice || kind == Kind::ChangeSampleRate));
+        btnUndoRecommended.setVisible(scan.autopilotAvailable && canUndo);
+        btnCalibrate.setVisible(scan.autopilotAvailable && canCalibrate);
+        btnCancelCalibration.setVisible(scan.autopilotAvailable && calibrating);
+        btnDriverPanel.setVisible(scan.autopilotAvailable && canOpenPanel);
+        btnInputMute.setVisible(scan.autopilotAvailable && scan.inputMute.advice != Nova::AudioAutopilot::MuteAdvice::NoInput);
+        btnInputMute.setButtonText(scan.inputMuted ? "UNMUTE" : "MUTE");
+        resized();
+    }
+
+    void applyRecommendedSetup()
+    {
+#if JucePlugin_Build_Standalone
+        using Kind = Nova::AudioAutopilot::RecommendationKind;
+        const auto kind = scan.recommendation.kind;
+
+        if (autopilot == nullptr || (kind != Kind::SwitchDevice && kind != Kind::ChangeSampleRate))
+            return;
+
+        autopilot->apply(scan.recommendation.candidate);
+        runSystemScan();
+        repaint();
+#endif
+    }
+
+    void undoRecommendedSetup()
+    {
+#if JucePlugin_Build_Standalone
+        if (autopilot == nullptr)
+            return;
+
+        autopilot->undo();
+        runSystemScan();
+        repaint();
+#endif
+    }
+
+    void startBufferCalibration()
+    {
+#if JucePlugin_Build_Standalone
+        if (autopilot == nullptr)
+            return;
+
+        autopilot->startCalibration();
+        runSystemScan();
+        repaint();
+#endif
+    }
+
+    void cancelBufferCalibration()
+    {
+#if JucePlugin_Build_Standalone
+        if (autopilot == nullptr)
+            return;
+
+        autopilot->cancelCalibration();
+        runSystemScan();
+        repaint();
+#endif
+    }
+
+    void openDriverPanel()
+    {
+#if JucePlugin_Build_Standalone
+        if (autopilot == nullptr)
+            return;
+
+        autopilot->openDriverPanel();
+        runSystemScan();
+        repaint();
+#endif
+    }
+
+    void toggleInputMute()
+    {
+#if JucePlugin_Build_Standalone
+        if (autopilot == nullptr)
+            return;
+
+        autopilot->setInputMutedByUser(! autopilot->isInputMuted());
+        runSystemScan();
+        repaint();
+#endif
+    }
+
+    juce::String getRecommendationHeadline() const
+    {
+        using Kind = Nova::AudioAutopilot::RecommendationKind;
+
+        switch (scan.recommendation.kind)
+        {
+            case Kind::AlreadyOptimal:   return "You're already on the best setup NOVA found.";
+            case Kind::ChangeSampleRate:
+            case Kind::SwitchDevice:     return Nova::AudioAutopilot::describeCandidate(scan.recommendation.candidate);
+            case Kind::NoCandidate:      break;
+        }
+
+        return "No usable input and output found. Connect your interface or pick devices in the next step.";
+    }
+
+    juce::String getRecommendationDetail() const
+    {
+#if JucePlugin_Build_Standalone
+        if (autopilot != nullptr && autopilot->getActivity() != Nova::StandaloneAudioAutopilot::Activity::None)
+            return autopilot->getStatusMessage();
+#endif
+        const auto& reasons = scan.recommendation.candidate.reasons;
+        juce::StringArray shown;
+        for (int i = 0; i < juce::jmin(2, reasons.size()); ++i)
+            shown.add(reasons[i]);
+
+        return shown.joinIntoString(" ");
+    }
+
+    // Tag at the card's top-right: the latest autopilot activity, else whether the best setup is active.
+    std::pair<juce::String, juce::Colour> getRecommendationTag() const
+    {
+#if JucePlugin_Build_Standalone
+        if (autopilot != nullptr)
+        {
+            using Activity = Nova::StandaloneAudioAutopilot::Activity;
+            const auto warning = juce::Colour::fromString("ffF59E0B");
+            switch (autopilot->getActivity())
+            {
+                case Activity::Verifying:         return { "CHECKING...", Nova::Colors::Accent };
+                case Activity::Applied:           return { "APPLIED", Nova::Colors::Success };
+                case Activity::Reverted:          return { "REVERTED", warning };
+                case Activity::Undone:            return { "UNDONE", Nova::Colors::TextDim };
+                case Activity::Calibrating:       return { "CALIBRATING " + juce::String(juce::roundToInt(autopilot->getCalibrationProgress() * 100.0f)) + "%",
+                                                           Nova::Colors::Accent };
+                case Activity::Calibrated:        return { "CALIBRATED", Nova::Colors::Success };
+                case Activity::CalibrationFailed: return { "NOT CALIBRATED", warning };
+                case Activity::None:              break;
+            }
+        }
+#endif
+        if (scan.recommendation.kind == Nova::AudioAutopilot::RecommendationKind::AlreadyOptimal)
+            return { "ACTIVE", Nova::Colors::Success };
+
+        return {};
+    }
+
+    // Static advice when the autopilot isn't available (plugin builds: the DAW owns the device).
+    juce::String getLegacyAdvice() const
+    {
+        if (!scan.deviceActive)
+            return "No audio device found. Go to the next step to configure one.";
+        if (scan.asioAvailable && !scan.driverType.containsIgnoreCase("ASIO"))
+            return "ASIO driver available but not active. Switch to ASIO in the next step for the lowest latency.";
+        if (!scan.asioAvailable && isHighLatencyWindowsDriver(scan.driverType))
+            return "No ASIO driver found. Switch to 'Windows Audio (Low Latency Mode)' or 'Windows Audio (Exclusive Mode)' "
+                   "in the next step. Exclusive mode blocks other apps from using the device.";
+        if (scan.roundTripMs > 20.0)
+            return "Your round-trip latency is high (~" + juce::String(scan.roundTripMs, 1) + " ms). We'll help you reduce it in Step 3.";
+        if (scan.numInputs == 0)
+            return "No input channels detected. Check your audio interface connection.";
+        return "Your system looks ready. Proceed to review device settings.";
+    }
+
+    void paintSystemScan(juce::Graphics& g, juce::Rectangle<int> area) const
+    {
+        const auto layout = getScanLayout(area);
+        const int cardW = layout.cardW;
+        const int cx = layout.cardX;
+
+        // --- Status icon ---
+        auto iconArea = juce::Rectangle<int>(area.getCentreX() - 18, area.getY(), 36, 36);
+        g.setColour(Nova::Colors::Accent.withAlpha(0.12f));
+        g.fillRoundedRectangle(iconArea.toFloat(), 10.0f);
+        g.setColour(Nova::Colors::Accent);
+        g.setFont(juce::Font(juce::FontOptions(18.0f, juce::Font::bold)));
+        g.drawText(juce::CharPointer_UTF8("\xe2\x9a\x99"), iconArea, juce::Justification::centred);
+
+        // --- Scan rows ---
+        const auto rows = buildScanRows();
+        const int rowH = layout.rowHeight;
+        int y = layout.rowsTop;
+
         for (size_t i = 0; i < rows.size(); ++i)
         {
             const auto& row = rows[i];
@@ -539,51 +862,63 @@ private:
             g.setFont(juce::Font(juce::FontOptions(11.0f, juce::Font::bold)));
             g.drawText(row.label, cx + 28, y, 130, rowH, juce::Justification::centredLeft);
 
+            const int valueW = cardW - 175 - (row.isInputMonitor ? 90 : 0);
             g.setColour(Nova::Colors::Text.withAlpha(0.9f));
             g.setFont(juce::Font(juce::FontOptions(12.0f)));
-            g.drawText(row.value, cx + 165, y, cardW - 175, rowH, juce::Justification::centredLeft);
+            g.drawText(row.value, cx + 165, y, valueW, rowH, juce::Justification::centredLeft);
             y += rowH;
         }
 
-        // --- Recommendations ---
-        y += 14;
-
+        // --- Recommended setup ---
+        const auto card = layout.recommendationCard;
         g.setColour(Nova::Colors::Accent.withAlpha(0.08f));
-        auto recBg = juce::Rectangle<int>(cx, y, cardW, 60);
-        g.fillRoundedRectangle(recBg.toFloat(), 10.0f);
+        g.fillRoundedRectangle(card.toFloat(), 10.0f);
         g.setColour(Nova::Colors::Accent.withAlpha(0.35f));
-        g.drawRoundedRectangle(recBg.toFloat().reduced(0.5f), 10.0f, 1.0f);
+        g.drawRoundedRectangle(card.toFloat().reduced(0.5f), 10.0f, 1.0f);
 
+        auto inner = card.reduced(14, 8);
+        auto titleRow = inner.removeFromTop(16);
         g.setColour(Nova::Colors::Accent);
         g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
-        g.drawText("RECOMMENDATIONS", cx + 14, y + 6, cardW, 14, juce::Justification::centredLeft);
+        g.drawText(scan.autopilotAvailable ? "RECOMMENDED SETUP" : "RECOMMENDATIONS", titleRow, juce::Justification::centredLeft);
 
-        juce::String advice;
-        if (!scan.deviceActive)
-            advice = "No audio device found. Go to the next step to configure one.";
-        else if (scan.asioAvailable && !scan.driverType.containsIgnoreCase("ASIO"))
-            advice = "ASIO driver available but not active. Switch to ASIO in the next step for the lowest latency.";
-        else if (!scan.asioAvailable && isHighLatencyWindowsDriver(scan.driverType))
-            advice = "No ASIO driver found. Switch to 'Windows Audio (Low Latency Mode)' or 'Windows Audio (Exclusive Mode)' "
-                     "in the next step. Exclusive mode blocks other apps from using the device.";
-        else if (scan.roundTripMs > 20.0)
-            advice = "Your round-trip latency is high (~" + juce::String(scan.roundTripMs, 1) + " ms). We'll help you reduce it in Step 3.";
-        else if (scan.numInputs == 0)
-            advice = "No input channels detected. Check your audio interface connection.";
-        else
-            advice = "Your system looks ready. Proceed to review device settings.";
-
-        g.setColour(Nova::Colors::Text.withAlpha(0.85f));
-        g.setFont(juce::Font(juce::FontOptions(11.5f)));
-        g.drawFittedText(advice, cx + 14, y + 22, cardW - 28, 32, juce::Justification::centredLeft, 2);
-
-        // Acknowledge badge
-        if (scanAcknowledged)
+        if (! scan.autopilotAvailable)
         {
-            g.setColour(Nova::Colors::Success);
-            g.setFont(juce::Font(juce::FontOptions(10.0f, juce::Font::bold)));
-            g.drawText("REVIEWED", cx + cardW - 90, y + 6, 80, 14, juce::Justification::centredRight);
+            g.setColour(Nova::Colors::Text.withAlpha(0.85f));
+            g.setFont(juce::Font(juce::FontOptions(11.5f)));
+            g.drawFittedText(getLegacyAdvice(), inner.withTrimmedTop(6), juce::Justification::topLeft, 3);
+            return;
         }
+
+        const auto tag = getRecommendationTag();
+        if (tag.first.isNotEmpty())
+        {
+            g.setColour(tag.second);
+            g.drawText(tag.first, titleRow, juce::Justification::centredRight);
+        }
+
+        inner.removeFromTop(4);
+        g.setColour(Nova::Colors::Text);
+        g.setFont(juce::Font(juce::FontOptions(12.5f, juce::Font::bold)));
+        g.drawFittedText(getRecommendationHeadline(), inner.removeFromTop(18), juce::Justification::centredLeft, 1);
+
+        inner.removeFromBottom(30); // action buttons row
+        g.setColour(Nova::Colors::Text.withAlpha(0.72f));
+        g.setFont(juce::Font(juce::FontOptions(11.0f)));
+        g.drawFittedText(getRecommendationDetail(), inner, juce::Justification::topLeft, 3);
+
+#if JucePlugin_Build_Standalone
+        // Calibration progress, left of the CANCEL button.
+        if (autopilot != nullptr && autopilot->getActivity() == Nova::StandaloneAudioAutopilot::Activity::Calibrating)
+        {
+            const auto bar = layout.cardButtonRow.withTrimmedRight(110).withSizeKeepingCentre(
+                layout.cardButtonRow.getWidth() - 110, 8).toFloat();
+            g.setColour(juce::Colour::fromString("ff0A0F18"));
+            g.fillRoundedRectangle(bar, 4.0f);
+            g.setColour(Nova::Colors::Accent);
+            g.fillRoundedRectangle(bar.withWidth(bar.getWidth() * autopilot->getCalibrationProgress()), 4.0f);
+        }
+#endif
     }
 
     // =================================================================
@@ -1587,8 +1922,8 @@ private:
             // Position EDIT button
             if (i < kMaxEditButtons && item.editStep >= 0)
             {
-                const_cast<AudioSetupWizard*>(this)->editButtons[i].setBounds(
-                    cx + cardW - 60, y + 2, 50, rowH - 4);
+                auto* self = const_cast<AudioSetupWizard*>(this);
+                self->placeOnPage(self->editButtons[i], { cx + cardW - 60, y + 2, 50, rowH - 4 });
             }
 
             y += rowH;
@@ -1657,7 +1992,15 @@ private:
     // Timer
     // =================================================================
 
-    void timerCallback() override { repaint(); }
+    void timerCallback() override
+    {
+#if JucePlugin_Build_Standalone
+        // Device changes, mute changes and APPLY verification all bump the revision.
+        if (autopilot != nullptr && autopilot->getRevision() != lastAutopilotRevision)
+            runSystemScan();
+#endif
+        repaint();
+    }
 
     // =================================================================
     // Look and Feel for device selector
@@ -1692,6 +2035,7 @@ private:
     // =================================================================
 
     NOVAAudioProcessor& processor;
+    Nova::StandaloneAudioAutopilot* autopilot = nullptr; // owned by the editor; null in plugin builds
     SelectorLookAndFeel selectorLnf;
     std::unique_ptr<juce::AudioDeviceSelectorComponent> deviceSelector;
 

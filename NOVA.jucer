@@ -999,6 +999,11 @@
         </GROUP>
       </GROUP>
       <GROUP id="{F408AF80-EAB5-6526-8D68-81E3A5C510C4}" name="Core">
+        <GROUP id="{6A2D9C41-3B7E-4F15-9C8A-2E5D7B1F0A93}" name="Audio">
+          <FILE id="AutPlt" name="AudioAutopilot.h" compile="0" resource="0" file="Source/Core/Audio/AudioAutopilot.h"/>
+          <FILE id="SAutPl" name="StandaloneAudioAutopilot.h" compile="0" resource="0"
+                file="Source/Core/Audio/StandaloneAudioAutopilot.h"/>
+        </GROUP>
         <FILE id="bZC07n" name="AudioEngine.cpp" compile="1" resource="0" file="Source/Core/AudioEngine.cpp"/>
         <FILE id="NOVAAT" name="AudioEngineTests.cpp" compile="1" resource="0" file="Source/Core/AudioEngineTests.cpp"/>
         <FILE id="Mxw8oG" name="AudioEngine.h" compile="0" resource="0" file="Source/Core/AudioEngine.h"/>

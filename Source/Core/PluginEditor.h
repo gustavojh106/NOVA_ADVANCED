@@ -15,6 +15,7 @@
 class ChainLane;
 class AssetBrowserOverlay;
 class PedalSlotComponent;
+namespace Nova { class StandaloneAudioAutopilot; class AutopilotNoticeBanner; }
 
 // ==============================================================================
 // CLASE PRINCIPAL DEL EDITOR
@@ -216,6 +217,12 @@ private:
     float outputMeterDisplay = 0.0f;
     float inputMeterHold = 0.0f;
     float outputMeterHold = 0.0f;
+
+#if JucePlugin_Build_Standalone
+    // Latency Autopilot (T2-10): device recommendation + input mute policy, Standalone only.
+    std::unique_ptr<Nova::StandaloneAudioAutopilot> audioAutopilot;
+    std::unique_ptr<Nova::AutopilotNoticeBanner> autopilotNotice;
+#endif
 
     int lastKnownAutoHealCount = 0;
     int autoHealFlashFrames    = 0;
