@@ -1,15 +1,15 @@
 NOVA Audio Thread Policy Scan
-Generated: 2026-10-13 16:01:58
-status=PASS
+Generated: 2026-10-13 16:21:56
+status=FAIL
 summary.activeFiles=32
 summary.activeRanges=38
-summary.failures=0
+summary.failures=7
 summary.warnings=0
 summary.allowlistedWarnings=0
 summary.legacyWarnings=0
 summary.legacyQuarantined=4
 summary.contractChecks=595
-summary.contractFailures=0
+summary.contractFailures=7
 summary.allowListEntries=2
 
 Active files scanned:
@@ -52,7 +52,21 @@ Allowlist entries:
 
 No FAIL findings in active audio routes.
 
-RuntimeGraphManager contract checks: PASS
+RuntimeGraphManager contract FAIL findings:
+  - [p9b_generated_preset_outside_draft_folder] repo function=P9B preset generation guard
+    detail=P9B generated preset files must not be outside Resources/Presets/DraftFactory.
+  - [p9c_generated_preset_outside_generated_draft_folder] repo function=P9C preset generation guard
+    detail=P9C generated preset files must not be outside Resources/Presets/DraftFactory/generated.
+  - [p9d_generated_preset_outside_generated_draft_folder] repo function=P9D generated output
+    detail=P9D generated preset files must be under Resources/Presets/DraftFactory/generated only.
+  - [p9e_generated_preset_outside_generated_draft_folder] repo function=P9E preset generation guard
+    detail=P9E generated preset files must be under Resources/Presets/DraftFactory/generated only.
+  - [p9f_generated_preset_outside_generated_draft_folder] repo function=P9F preset generation guard
+    detail=P9F generated preset files must be under Resources/Presets/DraftFactory/generated only.
+  - [p9g_generated_preset_outside_generated_draft_folder] repo function=P9G preset guard
+    detail=P9G draft preset files must remain under Resources/Presets/DraftFactory/generated only.
+  - [p10a_generated_preset_outside_generated_draft_folder] repo function=P10A preset guard
+    detail=P10A draft preset files must remain under Resources/Presets/DraftFactory/generated only.
 
 RuntimeGraphManager contract checks detail:
   - [manager_method_exists] target=RuntimeGraphManager::getActiveRaw passed=True detail=found
@@ -287,7 +301,7 @@ RuntimeGraphManager contract checks detail:
   - [p9b_manifest_generated_paths_stay_in_draft_folder] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=all generated paths stay in draft folder
   - [p9b_docs_no_factory_approved] target=P9B docs passed=True detail=P9B docs avoid forbidden readiness marker
   - [p9b_docs_keep_pending_statuses] target=P9B docs passed=True detail=manual, Distortion, and Reaper statuses remain pending
-  - [p9b_generated_presets_only_in_draft_folder] target=repo .nova-preset files passed=True detail=all .nova-preset files are under draft folder
+  - [p9b_generated_presets_only_in_draft_folder] target=repo .nova-preset files passed=False detail=outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset
   - [p9b_no_startup_preset_pointer_update] target=git diff passed=True detail=startup-preset.txt not changed
   - [p9b_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p9b_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
@@ -303,7 +317,7 @@ RuntimeGraphManager contract checks detail:
   - [p9c_generator_no_startup_preset_update_logic] target=scripts/generate-draft-factory-presets.ps1 passed=True detail=no startup preset write logic
   - [p9c_manifest_no_factory_approved] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=no forbidden readiness marker in manifest
   - [p9c_manifest_references_only_generated_draft_folder] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=manifest paths are under generated draft folder
-  - [p9c_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=True detail=all .nova-preset files are under generated draft folder
+  - [p9c_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=False detail=outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset
   - [p9c_docs_no_factory_approved] target=docs/p9c-draft-preset-generator-roundtrip-results.md passed=True detail=P9C docs avoid forbidden readiness marker
   - [p9c_docs_keep_pending_statuses] target=docs/p9c-draft-preset-generator-roundtrip-results.md passed=True detail=manual, Distortion, and Reaper statuses remain pending
   - [p9c_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
@@ -335,7 +349,7 @@ RuntimeGraphManager contract checks detail:
   - [p9d_no_startup_preset_pointer_write] target=artifacts/p9d-draft-preset-builder-report.json passed=True detail=report says startup preset pointer was not written
   - [p9d_generated_folder_present] target=Resources/Presets/DraftFactory/generated passed=True detail=generated folder found
   - [p9d_generated_preset_count] target=Resources/Presets/DraftFactory/generated passed=True detail=count=6
-  - [p9d_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=True detail=all .nova-preset files are under generated draft folder
+  - [p9d_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=False detail=outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset
   - [p9d_manifest_no_factory_approved] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=no forbidden readiness marker in manifest
   - [p9d_manifest_references_only_generated_draft_folder] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=paths=6; outside=0
   - [p9d_manifest_generated_files_list_valid] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=generatedPresetFiles=6; outside=0
@@ -362,7 +376,7 @@ RuntimeGraphManager contract checks detail:
   - [p9e_manifest_no_factory_approved] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=manifest has no shipping approval marker
   - [p9e_manifest_references_only_generated_draft_folder] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=paths=6; outside=0
   - [p9e_manifest_keeps_pending_statuses] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=manual, Distortion, and Reaper statuses remain pending/not_applicable
-  - [p9e_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=True detail=all .nova-preset files are under generated draft folder
+  - [p9e_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=False detail=outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset
   - [p9e_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p9e_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
   - [p9e_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
@@ -381,7 +395,7 @@ RuntimeGraphManager contract checks detail:
   - [p9f_manifest_no_factory_approved] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=manifest has no shipping approval marker
   - [p9f_manifest_references_only_generated_draft_folder] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=paths=6; outside=0
   - [p9f_manifest_keeps_pending_statuses] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=manual, Distortion, and Reaper statuses remain pending/not_applicable
-  - [p9f_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=True detail=all .nova-preset files are under generated draft folder
+  - [p9f_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=False detail=outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset
   - [p9f_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p9f_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
   - [p9f_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
@@ -396,7 +410,7 @@ RuntimeGraphManager contract checks detail:
   - [p9g_docs_keep_pending_statuses] target=docs/p9g-* passed=True detail=manual, Distortion, and Reaper statuses remain pending
   - [p9g_manifest_no_factory_approved] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=manifest has no shipping approval marker
   - [p9g_manifest_keeps_pending_statuses] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=manual, Distortion, and Reaper statuses remain pending/not_applicable
-  - [p9g_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=True detail=all .nova-preset files are under generated draft folder
+  - [p9g_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=False detail=outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset
   - [p9g_generated_preset_count] target=Resources/Presets/DraftFactory/generated passed=True detail=generatedPresetCount=6
   - [p9g_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p9g_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
@@ -419,7 +433,7 @@ RuntimeGraphManager contract checks detail:
   - [p10a_docs_keep_pending_statuses] target=docs/p10a-* and artifacts/manual-listening/p10a-* passed=True detail=manual, Distortion, and Reaper statuses remain pending/NOT_RUN
   - [p10a_manifest_no_factory_approved] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=manifest has no shipping approval marker
   - [p10a_manifest_keeps_pending_statuses] target=Resources/Presets/DraftFactory/factory-bank.draft.json passed=True detail=manual, Distortion, and Reaper statuses remain pending/not_applicable
-  - [p10a_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=True detail=all .nova-preset files are under generated draft folder
+  - [p10a_generated_presets_only_in_generated_draft_folder] target=repo .nova-preset files passed=False detail=outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset
   - [p10a_no_golden_baseline_update] target=git diff passed=True detail=no golden baseline files changed
   - [p10a_no_known_failure_ignore_added] target=scripts/run-base-audio-validation.ps1 passed=True detail=no known-failure ignore marker
   - [p10a_no_schema_bump] target=Source/Core/Constants.h passed=True detail=STATE_SCHEMA_VERSION remains 1
@@ -669,4 +683,4 @@ P7G quarantined legacy findings (not WARN; not active audio routes):
     line=scratchBuffer.setSize(numChannels, numSamples, false, false, true);
     quarantineReason=Legacy Auto Wah names canonicalize to the registered Wah processor; AutoWahPedal is not registered.
 
-Policy result: PASS
+Policy result: FAIL

@@ -1,5 +1,5 @@
 NOVA Offline QA Report
-Generated: 2026-10-13 16:00:56
+Generated: 2026-10-13 16:20:32
 Scenarios: 74
 
 [PASS] impulse_transparency_line_a
@@ -51,7 +51,7 @@ reenabled_null_rms=0.00000000
 
 [PASS] compressor_flagship_recall
 notes=Studio compressor state recalled cleanly
-state_size_bytes=497.00000000
+state_size_bytes=653.00000000
 null_rms=0.00000000
 baseline_peak=0.32073265
 recalled_peak=0.32073265
@@ -72,7 +72,7 @@ iterations=2100.00000000
 
 [PASS] noise_gate_flagship_recall
 notes=Studio gate state recalled cleanly
-state_size_bytes=426.00000000
+state_size_bytes=547.00000000
 null_rms=0.00000000
 baseline_peak=0.11999950
 recalled_peak=0.11999950
@@ -92,7 +92,7 @@ iterations=2100.00000000
 
 [PASS] eq_flagship_recall
 notes=Studio EQ state recalled cleanly
-state_size_bytes=546.00000000
+state_size_bytes=712.00000000
 null_rms=0.00000000
 baseline_peak=0.32853261
 recalled_peak=0.32853261
@@ -114,7 +114,7 @@ iterations=2100.00000000
 
 [PASS] boost_flagship_recall
 notes=Boost flagship state recalled cleanly
-state_size_bytes=377.00000000
+state_size_bytes=511.00000000
 null_rms=0.00000000
 baseline_peak=0.62488264
 recalled_peak=0.62488264
@@ -134,7 +134,7 @@ iterations=120.00000000
 
 [PASS] neural_flagship_recall
 notes=Adaptive preamp state recalled cleanly
-state_size_bytes=383.00000000
+state_size_bytes=503.00000000
 null_rms=0.00000000
 baseline_peak=0.41576537
 recalled_peak=0.41576537
@@ -154,7 +154,7 @@ iterations=2250.00000000
 
 [PASS] overdrive_flagship_recall
 notes=Modern overdrive state recalled cleanly
-state_size_bytes=318.00000000
+state_size_bytes=429.00000000
 null_rms=0.00000000
 baseline_peak=0.48130989
 recalled_peak=0.48130989
@@ -212,7 +212,7 @@ iterations=2250.00000000
 
 [PASS] fuzz_flagship_recall
 notes=Commercial fuzz state recalled cleanly
-state_size_bytes=419.00000000
+state_size_bytes=565.00000000
 null_rms=0.00000000
 baseline_peak=0.91998494
 recalled_peak=0.91998494
@@ -233,7 +233,7 @@ iterations=2250.00000000
 
 [PASS] wah_flagship_recall
 notes=Unified wah state recalled cleanly
-state_size_bytes=537.00000000
+state_size_bytes=718.00000000
 null_rms=0.00000000
 baseline_peak=0.59987211
 recalled_peak=0.59987211
@@ -254,7 +254,7 @@ iterations=480.00000000
 
 [PASS] octave_flagship_recall
 notes=Commercial octave state recalled cleanly
-state_size_bytes=342.00000000
+state_size_bytes=464.00000000
 null_rms=0.00000000
 baseline_peak=1.93660367
 recalled_peak=1.93660367
@@ -275,7 +275,7 @@ iterations=120.00000000
 
 [PASS] chorus_flagship_recall
 notes=Commercial chorus state recalled cleanly
-state_size_bytes=431.00000000
+state_size_bytes=589.00000000
 null_rms=0.00000000
 baseline_peak=0.26602203
 recalled_peak=0.26602203
@@ -297,7 +297,7 @@ iterations=2250.00000000
 
 [PASS] phaser_flagship_recall
 notes=Modulation phaser state recalled cleanly
-state_size_bytes=386.00000000
+state_size_bytes=505.00000000
 null_rms=0.00000000
 baseline_peak=0.25844571
 recalled_peak=0.25844571
@@ -323,7 +323,7 @@ iterations=120.00000000
 
 [PASS] flanger_flagship_recall
 notes=Commercial flanger state recalled cleanly
-state_size_bytes=495.00000000
+state_size_bytes=669.00000000
 null_rms=0.00000000
 baseline_peak=0.26717481
 recalled_peak=0.26717481
@@ -345,7 +345,7 @@ iterations=2250.00000000
 
 [PASS] tremolo_flagship_recall
 notes=Studio tremolo state recalled cleanly
-state_size_bytes=569.00000000
+state_size_bytes=780.00000000
 null_rms=0.00000000
 baseline_peak=0.30491135
 recalled_peak=0.30491135
@@ -367,7 +367,7 @@ iterations=2250.00000000
 
 [PASS] reverb_tail_quality
 notes=Cloud tail stayed finite, sustained and decayed cleanly
-render_ms=157.45290000
+render_ms=178.75050000
 peak=0.90457606
 rms=0.00173052
 late_rms_0p8_1p3s=0.00018310
@@ -534,7 +534,7 @@ blocks=2400.00000000
 
 [PASS] graph_diagnostic_report
 notes=Diagnostic report reflects graph topology
-report_length_chars=1148.00000000
+report_length_chars=1147.00000000
 contains_delay=1.00000000
 contains_reverb=1.00000000
 contains_ids=1.00000000
