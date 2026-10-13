@@ -18966,6 +18966,528 @@ private:
     }
 };
 
+// E2 (beta engine checklist, docs/reports/E2-preset-format-freeze.md): the preset
+// format is frozen at schema 1. These tests check that every parameter of every
+// processor survives a preset file round-trip, that a parameter range change keeps
+// the real value, and that the committed v1 fixtures keep loading with the same
+// values. Regenerate the fixtures only on purpose: NOVA_WRITE_PRESET_FIXTURES=1.
+class E2PresetFormatFreezeTests final : public juce::UnitTest
+{
+public:
+    E2PresetFormatFreezeTests()
+        : juce::UnitTest("E2 preset format freeze", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        runFullParameterRoundTrip();
+        runRangeChangeKeepsRealValue();
+        runV1Fixtures();
+    }
+
+private:
+    struct LoadedSession
+    {
+        std::unique_ptr<SessionStore> store = std::make_unique<SessionStore>();
+        std::unique_ptr<AudioEngine> engine = std::make_unique<AudioEngine>();
+    };
+
+    static Nova::ZoneID zoneFor(const Nova::PedalCatalog::Entry& entry, int index)
+    {
+        if (entry.kind == Nova::PedalCatalog::Kind::Amplifier)
+            return Nova::ZoneID::Amp;
+        if (entry.kind == Nova::PedalCatalog::Kind::Cabinet)
+            return Nova::ZoneID::Cabinet;
+        return (index % 2) == 0 ? Nova::ZoneID::Pre : Nova::ZoneID::FX;
+    }
+
+    // Deterministic non-default values; choice and bool parameters snap to a step.
+    static void applyPattern(juce::AudioProcessor& processor, int seed)
+    {
+        const auto& parameters = processor.getParameters();
+        for (int i = 0; i < parameters.size(); ++i)
+        {
+            const double position = (double)i * 0.6180339887 + (double)seed * 0.29;
+            parameters[i]->setValueNotifyingHost(0.15f + 0.70f * (float)(position - std::floor(position)));
+        }
+    }
+
+    static juce::String paramKey(juce::AudioProcessorParameter& param, int index)
+    {
+        if (auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(&param))
+            return withID->paramID;
+        return "#" + juce::String(index);
+    }
+
+    // Real value in parameter units (index for choices); normalized for non-ranged.
+    static double realValue(juce::AudioProcessorParameter& param)
+    {
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(&param))
+            return ranged->convertFrom0to1(ranged->getValue());
+        return param.getValue();
+    }
+
+    static LoadedSession buildSession(const juce::ValueTree& canonicalState)
+    {
+        LoadedSession session;
+        session.store->applyCommand(SessionStore::Command::makeRestoreState(canonicalState));
+        session.engine->prepare(kSampleRate, kBlockSize, 2, 2);
+        SessionPersistence::rebuildEngineFromState(*session.engine, session.store->state());
+        return session;
+    }
+
+    static LoadedSession loadSession(const juce::File& file, bool& loaded)
+    {
+        LoadedSession session;
+        session.engine->prepare(kSampleRate, kBlockSize, 2, 2);
+        loaded = SessionPersistence::loadPresetFromFile(file, *session.store, *session.engine);
+        return session;
+    }
+
+    static juce::File tempPreset(const juce::String& name)
+    {
+        return juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("nova-e2-" + name + ".nova-preset");
+    }
+
+    static juce::String fileNameFor(const juce::String& type)
+    {
+        return type.replaceCharacter(' ', '-') + ".nova-preset";
+    }
+
+    // ------------------------------------------------- full parameter round-trip
+
+    void runFullParameterRoundTrip()
+    {
+        beginTest("E2 preset file round-trip keeps every parameter of every processor");
+        StartupPresetPointerGuard startupPointerGuard;
+        int index = 0;
+
+        for (const auto& entry : Nova::PedalCatalog::entries())
+        {
+            const juce::String type(entry.typeID);
+            auto state = makeP7DState();
+            appendP7DPedal(state, Nova::ChainID::LineA, type, zoneFor(entry, index), "e2-" + juce::String(index), true);
+            Nova::PluginStateModel::canonicalizeStateTree(state);
+
+            auto source = buildSession(state);
+            auto* processor = source.engine->getProcessorForPedal(Nova::ChainID::LineA, 0);
+            expect(processor != nullptr, type + ": source processor must exist");
+            if (processor == nullptr)
+                continue;
+
+            applyPattern(*processor, index);
+
+            const auto file = tempPreset(juce::String(index));
+            file.deleteFile();
+            expect(SessionPersistence::savePresetToFile(file, *source.store, *source.engine), type + ": save must succeed");
+
+            bool loaded = false;
+            auto restored = loadSession(file, loaded);
+            expect(loaded, type + ": load must succeed");
+            auto* restoredProcessor = restored.engine->getProcessorForPedal(Nova::ChainID::LineA, 0);
+            expect(restoredProcessor != nullptr, type + ": restored processor must exist");
+
+            int mismatches = 0;
+            if (restoredProcessor != nullptr)
+            {
+                const auto& before = processor->getParameters();
+                const auto& after = restoredProcessor->getParameters();
+                expectEquals(after.size(), before.size(), type + ": parameter count");
+
+                for (int i = 0; i < juce::jmin(before.size(), after.size()); ++i)
+                {
+                    // Switches and selectors compare their effective step (a bool set to
+                    // 0.58 is "on" and may be stored as 1.0); continuous ones compare the
+                    // exact normalized value.
+                    const bool stepped = before[i]->isDiscrete() || before[i]->isBoolean();
+                    const float expected = stepped ? (float)realValue(*before[i]) : before[i]->getValue();
+                    const float actual = stepped ? (float)realValue(*after[i]) : after[i]->getValue();
+                    if (std::abs(expected - actual) > 1.0e-6f)
+                    {
+                        ++mismatches;
+                        expect(false, type + ": parameter " + paramKey(*before[i], i) + " expected "
+                            + juce::String(expected, 6) + " got " + juce::String(actual, 6));
+                    }
+                }
+
+                logMessage("E2 round-trip " + type + ": " + juce::String(before.size()) + " parameters, "
+                    + juce::String(mismatches) + " mismatches");
+            }
+
+            file.deleteFile();
+            ++index;
+        }
+    }
+
+    // ------------------------------------------------------- range change safety
+
+    void runRangeChangeKeepsRealValue()
+    {
+        beginTest("E2 a parameter range change keeps the stored real value");
+
+        // Compressor uses the generic ProcessorBase serializer.
+        auto source = PedalRegistry::createPedal("Compressor");
+        expect(source != nullptr, "Compressor must exist");
+        if (source == nullptr)
+            return;
+
+        applyPattern(*source, 3);
+        juce::MemoryBlock block;
+        source->getStateInformation(block);
+        auto xml = juce::AudioProcessor::getXmlFromBinary(block.getData(), (int)block.getSize());
+        expect(xml != nullptr && xml->hasTagName("PLUGIN_STATE"), "Compressor state must be PLUGIN_STATE");
+        if (xml == nullptr)
+            return;
+
+        // Pick the first float parameter with a real range.
+        juce::RangedAudioParameter* target = nullptr;
+        for (auto* param : source->getParameters())
+            if (auto* f = dynamic_cast<juce::AudioParameterFloat*>(param); f != nullptr && f->range.getRange().getLength() > 1.0f)
+            {
+                target = f;
+                break;
+            }
+
+        expect(target != nullptr, "Compressor must have a float parameter with a real range");
+        if (target == nullptr)
+            return;
+
+        const double originalReal = realValue(*target);
+        int rawAttributes = 0;
+        juce::XmlElement* element = nullptr;
+        for (auto* child : xml->getChildIterator())
+        {
+            rawAttributes += child->hasAttribute("raw") ? 1 : 0;
+            if (child->getStringAttribute("id") == target->paramID)
+                element = child;
+        }
+
+        expectEquals(rawAttributes, source->getParameters().size(), "Every ranged parameter must store its real value");
+        expect(element != nullptr, "Target parameter must be in the state");
+        if (element == nullptr)
+            return;
+
+        // Simulate a range change: the stored normalized value no longer maps to the
+        // stored real value. The real value must win.
+        const float storedNormalised = (float)element->getDoubleAttribute("value");
+        element->setAttribute("value", storedNormalised < 0.5f ? storedNormalised + 0.3f : storedNormalised - 0.3f);
+        juce::MemoryBlock changed;
+        juce::AudioProcessor::copyXmlToBinary(*xml, changed);
+
+        auto restored = PedalRegistry::createPedal("Compressor");
+        restored->setStateInformation(changed.getData(), (int)changed.getSize());
+        double restoredReal = 0.0;
+        for (auto* param : restored->getParameters())
+            if (auto* f = dynamic_cast<juce::RangedAudioParameter*>(param); f != nullptr && f->paramID == target->paramID)
+                restoredReal = realValue(*f);
+
+        expect(std::abs(restoredReal - originalReal) <= 1.0e-3 * juce::jmax(1.0, std::abs(originalReal)),
+            "Range change: real value must be kept; original=" + juce::String(originalReal, 4)
+                + " restored=" + juce::String(restoredReal, 4));
+
+        // States written before the real values existed still load by normalized value.
+        for (auto* child : xml->getChildIterator())
+            child->removeAttribute("raw");
+        element->setAttribute("value", storedNormalised);
+        juce::MemoryBlock legacy;
+        juce::AudioProcessor::copyXmlToBinary(*xml, legacy);
+
+        auto legacyRestored = PedalRegistry::createPedal("Compressor");
+        legacyRestored->setStateInformation(legacy.getData(), (int)legacy.getSize());
+        float legacyNormalised = -1.0f;
+        for (auto* param : legacyRestored->getParameters())
+            if (auto* f = dynamic_cast<juce::RangedAudioParameter*>(param); f != nullptr && f->paramID == target->paramID)
+                legacyNormalised = f->getValue();
+
+        expect(std::abs(legacyNormalised - storedNormalised) <= 1.0e-6f,
+            "Legacy state without real values must restore the normalized value");
+    }
+
+    // --------------------------------------------------------------- v1 fixtures
+
+    static juce::File findRepoRoot()
+    {
+        for (auto dir : { juce::File::getCurrentWorkingDirectory(),
+                          juce::File::getSpecialLocation(juce::File::currentExecutableFile).getParentDirectory() })
+        {
+            for (int i = 0; i < 12; ++i)
+            {
+                if (dir.getChildFile("NOVA.jucer").existsAsFile())
+                    return dir;
+                const auto parent = dir.getParentDirectory();
+                if (parent == dir)
+                    break;
+                dir = parent;
+            }
+        }
+        return {};
+    }
+
+    // Everything a preset restores, in real units: settings, mixer and, per pedal,
+    // type, zone, ID, enabled state and parameter real values.
+    static juce::var describeSession(const LoadedSession& session)
+    {
+        auto* root = new juce::DynamicObject();
+        const auto& state = session.store->state();
+
+        auto describeProperties = [](const juce::ValueTree& tree)
+        {
+            auto* props = new juce::DynamicObject();
+            for (int i = 0; i < tree.getNumProperties(); ++i)
+            {
+                const auto name = tree.getPropertyName(i);
+                const auto value = tree.getProperty(name);
+                if (Nova::PluginStateModel::isNumericScalar(value))
+                    props->setProperty(name, (double)value);
+            }
+            return juce::var(props);
+        };
+
+        root->setProperty("settings", describeProperties(Nova::PluginStateModel::getSettingsTree(state)));
+
+        juce::Array<juce::var> pedals;
+        for (auto chain : { Nova::ChainID::LineA, Nova::ChainID::LineB })
+        {
+            const auto line = Nova::PluginStateModel::getLineTree(state, chain);
+            root->setProperty(chain == Nova::ChainID::LineA ? "mixerA" : "mixerB", describeProperties(line));
+
+            for (int i = 0; i < line.getNumChildren(); ++i)
+            {
+                const auto child = line.getChild(i);
+                auto* pedal = new juce::DynamicObject();
+                pedal->setProperty("line", chain == Nova::ChainID::LineA ? "A" : "B");
+                pedal->setProperty("index", i);
+                pedal->setProperty("type", child.getProperty(Nova::IDs::PEDAL_TYPE).toString());
+                pedal->setProperty("zone", (int)child.getProperty(Nova::IDs::PEDAL_ZONE));
+                pedal->setProperty("id", child.getProperty(Nova::IDs::PEDAL_ID).toString());
+                pedal->setProperty("enabled", (bool)child.getProperty(Nova::IDs::PEDAL_ENABLED));
+
+                auto* params = new juce::DynamicObject();
+                if (auto* processor = session.engine->getProcessorForPedal(chain, i))
+                {
+                    const auto& parameters = processor->getParameters();
+                    for (int p = 0; p < parameters.size(); ++p)
+                        params->setProperty(paramKey(*parameters[p], p), realValue(*parameters[p]));
+                }
+
+                pedal->setProperty("params", juce::var(params));
+                pedals.add(juce::var(pedal));
+            }
+        }
+
+        root->setProperty("pedals", pedals);
+        return juce::var(root);
+    }
+
+    void compareDescriptions(const juce::String& name, const juce::var& expected, const juce::var& actual)
+    {
+        int checks = 0;
+        int mismatches = 0;
+        const auto near = [](double a, double b) { return std::abs(a - b) <= 1.0e-3 * juce::jmax(1.0, std::abs(a)); };
+
+        for (const auto* section : { "settings", "mixerA", "mixerB" })
+        {
+            const auto* want = expected[section].getDynamicObject();
+            const auto* got = actual[section].getDynamicObject();
+            if (want == nullptr || got == nullptr)
+                continue;
+
+            for (const auto& prop : want->getProperties())
+            {
+                ++checks;
+                if (!got->hasProperty(prop.name) || !near((double)prop.value, (double)got->getProperty(prop.name)))
+                {
+                    ++mismatches;
+                    expect(false, name + ": " + section + "." + prop.name.toString() + " expected "
+                        + prop.value.toString() + " got " + got->getProperty(prop.name).toString());
+                }
+            }
+        }
+
+        const auto* wantPedals = expected["pedals"].getArray();
+        const auto* gotPedals = actual["pedals"].getArray();
+        expect(wantPedals != nullptr && gotPedals != nullptr && wantPedals->size() == gotPedals->size(),
+            name + ": pedal count must match");
+
+        if (wantPedals != nullptr && gotPedals != nullptr)
+        {
+            for (int i = 0; i < juce::jmin(wantPedals->size(), gotPedals->size()); ++i)
+            {
+                const auto& want = wantPedals->getReference(i);
+                const auto& got = gotPedals->getReference(i);
+                for (const auto* key : { "line", "index", "type", "zone", "id", "enabled" })
+                {
+                    ++checks;
+                    if (want[key].toString() != got[key].toString())
+                    {
+                        ++mismatches;
+                        expect(false, name + ": pedal " + juce::String(i) + " " + key + " expected "
+                            + want[key].toString() + " got " + got[key].toString());
+                    }
+                }
+
+                const auto* wantParams = want["params"].getDynamicObject();
+                const auto* gotParams = got["params"].getDynamicObject();
+                if (wantParams == nullptr || gotParams == nullptr)
+                    continue;
+
+                // Parameters added after the fixture was written are not checked
+                // (they load at their defaults); stored ones must keep their value.
+                for (const auto& param : wantParams->getProperties())
+                {
+                    ++checks;
+                    if (!gotParams->hasProperty(param.name)
+                        || !near((double)param.value, (double)gotParams->getProperty(param.name)))
+                    {
+                        ++mismatches;
+                        expect(false, name + ": " + want["type"].toString() + "." + param.name.toString()
+                            + " expected " + param.value.toString() + " got "
+                            + gotParams->getProperty(param.name).toString());
+                    }
+                }
+            }
+        }
+
+        logMessage("E2 fixture " + name + ": " + juce::String(checks) + " checks, " + juce::String(mismatches) + " mismatches");
+    }
+
+    struct FixtureSpec
+    {
+        juce::String fileName;
+        juce::ValueTree state;
+        std::vector<int> seeds; // per pedal, LineA then LineB
+    };
+
+    static std::vector<FixtureSpec> buildFixtureSpecs()
+    {
+        std::vector<FixtureSpec> specs;
+        int index = 0;
+
+        for (const auto& entry : Nova::PedalCatalog::entries())
+        {
+            FixtureSpec spec;
+            spec.fileName = fileNameFor(entry.typeID);
+            spec.state = makeP7DState();
+            appendP7DPedal(spec.state, Nova::ChainID::LineA, entry.typeID, zoneFor(entry, index),
+                "e2-v1-" + juce::String(index), (index % 3) != 0);
+            Nova::PluginStateModel::canonicalizeStateTree(spec.state);
+            spec.seeds = { index };
+            specs.push_back(spec);
+            ++index;
+        }
+
+        // A full rig: both lines, every zone, dual routing and non-default globals.
+        FixtureSpec rig;
+        rig.fileName = "Full-Rig.nova-preset";
+        rig.state = makeP7DState();
+        auto settings = Nova::PluginStateModel::getSettingsTree(rig.state);
+        settings.setProperty(Nova::IDs::ENGINE_ON, true, nullptr);
+        settings.setProperty(Nova::IDs::SWITCH_MODE, (int)Nova::SwitcherMode::Dual_Parallel, nullptr);
+        settings.setProperty(Nova::IDs::INPUT_GAIN, 4.5f, nullptr);
+        settings.setProperty(Nova::IDs::INPUT_GATE, -70.0f, nullptr);
+        settings.setProperty(Nova::IDs::FORCE_MONO, true, nullptr);
+        settings.setProperty(Nova::IDs::OUTPUT_VOL, -2.0f, nullptr);
+        settings.setProperty(Nova::IDs::OUTPUT_LIMITER, -3.0f, nullptr);
+        settings.setProperty(Nova::IDs::OUTPUT_MIX, 80.0f, nullptr);
+        auto lineA = Nova::PluginStateModel::getLineTree(rig.state, Nova::ChainID::LineA);
+        auto lineB = Nova::PluginStateModel::getLineTree(rig.state, Nova::ChainID::LineB);
+        lineA.setProperty(Nova::IDs::MIXER_GAIN_A, 0.8f, nullptr);
+        lineA.setProperty(Nova::IDs::MIXER_PAN_A, -0.3f, nullptr);
+        lineA.setProperty(Nova::IDs::MIXER_WIDTH_A, 1.2f, nullptr);
+        lineB.setProperty(Nova::IDs::MIXER_GAIN_B, 1.1f, nullptr);
+        lineB.setProperty(Nova::IDs::MIXER_PAN_B, 0.4f, nullptr);
+        lineB.setProperty(Nova::IDs::MIXER_WIDTH_B, 0.9f, nullptr);
+        appendP7DPedal(rig.state, Nova::ChainID::LineA, "Noise Gate", Nova::ZoneID::Pre, "rig-a-1", true);
+        appendP7DPedal(rig.state, Nova::ChainID::LineA, "Overdrive", Nova::ZoneID::Pre, "rig-a-2", true);
+        appendP7DPedal(rig.state, Nova::ChainID::LineA, "High Gain Amp", Nova::ZoneID::Amp, "rig-a-3", true);
+        appendP7DPedal(rig.state, Nova::ChainID::LineA, "Delay", Nova::ZoneID::FX, "rig-a-4", false);
+        appendP7DPedal(rig.state, Nova::ChainID::LineA, "Modern 4x12", Nova::ZoneID::Cabinet, "rig-a-5", true);
+        appendP7DPedal(rig.state, Nova::ChainID::LineB, "Compressor", Nova::ZoneID::Pre, "rig-b-1", true);
+        appendP7DPedal(rig.state, Nova::ChainID::LineB, "Clean Amp", Nova::ZoneID::Amp, "rig-b-2", true);
+        appendP7DPedal(rig.state, Nova::ChainID::LineB, "Chorus", Nova::ZoneID::FX, "rig-b-3", true);
+        appendP7DPedal(rig.state, Nova::ChainID::LineB, "Reverb", Nova::ZoneID::FX, "rig-b-4", true);
+        appendP7DPedal(rig.state, Nova::ChainID::LineB, "Vintage 2x12", Nova::ZoneID::Cabinet, "rig-b-5", false);
+        Nova::PluginStateModel::canonicalizeStateTree(rig.state);
+        rig.seeds = { 101, 102, 103, 104, 105, 106, 107, 108, 109, 110 };
+        specs.push_back(rig);
+
+        return specs;
+    }
+
+    void writeFixtures(const juce::File& dir)
+    {
+        dir.createDirectory();
+        juce::Array<juce::var> entries;
+
+        for (const auto& spec : buildFixtureSpecs())
+        {
+            auto session = buildSession(spec.state);
+            size_t seedIndex = 0;
+            for (auto chain : { Nova::ChainID::LineA, Nova::ChainID::LineB })
+            {
+                const auto line = Nova::PluginStateModel::getLineTree(session.store->state(), chain);
+                for (int i = 0; i < line.getNumChildren() && seedIndex < spec.seeds.size(); ++i, ++seedIndex)
+                    if (auto* processor = session.engine->getProcessorForPedal(chain, i))
+                        applyPattern(*processor, spec.seeds[seedIndex]);
+            }
+
+            const auto file = dir.getChildFile(spec.fileName);
+            expect(SessionPersistence::savePresetToFile(file, *session.store, *session.engine),
+                "Fixture save must succeed: " + spec.fileName);
+
+            auto* entry = new juce::DynamicObject();
+            entry->setProperty("file", spec.fileName);
+            entry->setProperty("expected", describeSession(session));
+            entries.add(juce::var(entry));
+        }
+
+        auto* root = new juce::DynamicObject();
+        root->setProperty("schemaVersion", Nova::Config::STATE_SCHEMA_VERSION);
+        root->setProperty("note", "Presets written by the beta build (schema 1). Future NOVA versions must keep "
+                                  "loading them with these real parameter values. Do not regenerate to make a test pass.");
+        root->setProperty("presets", entries);
+        dir.getChildFile("expected.json").replaceWithText(juce::JSON::toString(juce::var(root)));
+        logMessage("E2 fixtures written to " + dir.getFullPathName() + " (" + juce::String(entries.size()) + " presets)");
+    }
+
+    void runV1Fixtures()
+    {
+        beginTest("E2 v1 preset fixtures keep loading with the same values");
+        StartupPresetPointerGuard startupPointerGuard;
+
+        const auto root = findRepoRoot();
+        expect(root.exists(), "Repository root (NOVA.jucer) must be found to read the fixtures");
+        if (!root.exists())
+            return;
+
+        const auto dir = root.getChildFile("docs/golden-metrics/presets-v1");
+        if (juce::SystemStats::getEnvironmentVariable("NOVA_WRITE_PRESET_FIXTURES", {}) == "1")
+            writeFixtures(dir);
+
+        const auto expectedFile = dir.getChildFile("expected.json");
+        expect(expectedFile.existsAsFile(), "v1 fixtures must exist: " + expectedFile.getFullPathName());
+        if (!expectedFile.existsAsFile())
+            return;
+
+        const auto parsed = juce::JSON::parse(expectedFile.loadFileAsString());
+        const auto* presets = parsed["presets"].getArray();
+        expect(presets != nullptr && presets->size() > 0, "expected.json must list the fixture presets");
+        if (presets == nullptr)
+            return;
+
+        for (const auto& entry : *presets)
+        {
+            const auto name = entry["file"].toString();
+            bool loaded = false;
+            auto session = loadSession(dir.getChildFile(name), loaded);
+            expect(loaded, name + " must load");
+            if (loaded)
+                compareDescriptions(name, entry["expected"], describeSession(session));
+        }
+    }
+};
+
 static AudioEngineValidationTests audioEngineValidationTests;
 static P1PedalSafetyTests p1PedalSafetyTests;
 static P13ESharedPedalContractTests p13eSharedPedalContractTests;
@@ -18984,6 +19506,7 @@ static P11BCabinetProfessionalizationTests p11bCabinetProfessionalizationTests;
 static P7IDiagnosticsProfilerTests p7iDiagnosticsProfilerTests;
 static AudioAutopilotTests audioAutopilotTests;
 static T201LiveModeF0Tests t201LiveModeF0Tests;
+static E2PresetFormatFreezeTests e2PresetFormatFreezeTests;
 
 void touchAudioEngineValidationTests()
 {
@@ -19004,7 +19527,8 @@ void touchAudioEngineValidationTests()
         p11bCabinetProfessionalizationTests,
         p7iDiagnosticsProfilerTests,
         audioAutopilotTests,
-        t201LiveModeF0Tests);
+        t201LiveModeF0Tests,
+        e2PresetFormatFreezeTests);
 }
 }
 

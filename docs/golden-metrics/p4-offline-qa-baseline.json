@@ -119,7 +119,7 @@
                       "status":  "PASS",
                       "notes":  "Modern overdrive state recalled cleanly",
                       "metrics":  {
-                                      "state_size_bytes":  318,
+                                      "state_size_bytes":  429,
                                       "null_rms":  0,
                                       "baseline_peak":  0.48130989,
                                       "recalled_peak":  0.48130989,

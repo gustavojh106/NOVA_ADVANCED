@@ -410,6 +410,9 @@ public:
             auto* child = xml.createNewChildElement("PARAM");
             child->setAttribute("id", param->paramID);
             child->setAttribute("value", param->getValue());
+
+            if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+                child->setAttribute("raw", ranged->convertFrom0to1(param->getValue()));
         };
 
         for (auto* param : getParameters())
@@ -441,7 +444,23 @@ public:
                 continue;
 
             const auto paramID = child->getStringAttribute("id");
-            const float value = (float) child->getDoubleAttribute("value");
+            float value = (float) child->getDoubleAttribute("value");
+
+            // Modern states use the current parameter IDs: prefer the stored real value
+            // if the parameter range changed since the state was saved.
+            if (isModernState)
+            {
+                for (auto* param : getParameters())
+                {
+                    if (auto* withID = dynamic_cast<juce::AudioProcessorParameterWithID*>(param);
+                        withID != nullptr && withID->paramID == paramID)
+                    {
+                        value = restoredNormalisedValue(*child, *param);
+                        break;
+                    }
+                }
+            }
+
             const auto remapNormalisedRange = [](float normalised,
                 float sourceMin,
                 float sourceMax,

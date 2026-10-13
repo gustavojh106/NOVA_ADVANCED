@@ -126,6 +126,9 @@ public:
     static juce::ValueTree createSerializableState(const SessionStore& store, AudioEngine& engine)
     {
         auto snapshot = Nova::PluginStateModel::makeCanonicalCopy(store.state());
+       #ifdef JucePlugin_VersionString
+        snapshot.setProperty(Nova::IDs::SAVED_BY_VERSION, JucePlugin_VersionString, nullptr);
+       #endif
         writeRuntimeStateToTree(snapshot, store.getRuntimeGlobalParams(), store.isEngineEnabled());
         captureLivePedalStates(snapshot, engine);
         return snapshot;
@@ -182,6 +185,16 @@ public:
             NovaDiagnostics::SessionLogger::logEvent("preset.load.invalid",
                 "Preset missing required sections (SETTINGS/LINE_A/LINE_B): " + file.getFileName());
             return false;
+        }
+
+        if (Nova::PluginStateModel::isFromNewerSchema(loaded))
+        {
+            NovaDiagnostics::SessionLogger::logEvent("preset.load.newerSchema",
+                "Preset written by a newer NOVA (schema "
+                + juce::String(Nova::PluginStateModel::getStateSchemaVersion(loaded))
+                + ", this build reads " + juce::String(Nova::Config::STATE_SCHEMA_VERSION)
+                + ", saved by " + loaded.getProperty(Nova::IDs::SAVED_BY_VERSION, "unknown").toString()
+                + "); loading best effort: " + file.getFileName());
         }
 
         if (!store.applyCommand(SessionStore::Command::makeRestoreState(loaded)).changed)

@@ -46,6 +46,23 @@ inline void stampStateSchema(juce::ValueTree state)
     state.setProperty(IDs::STATE_SCHEMA_VERSION, Config::STATE_SCHEMA_VERSION, nullptr);
 }
 
+// A state written by a newer NOVA. It still loads best effort (unknown pedal types
+// and properties are dropped), but callers should tell the user.
+inline bool isFromNewerSchema(const juce::ValueTree& state) noexcept
+{
+    return getStateSchemaVersion(state) > Config::STATE_SCHEMA_VERSION;
+}
+
+// Upgrades a state written with an older schema to the current layout. Runs before
+// the current version is stamped. Schema 1 is the first frozen layout (beta, see
+// docs/reports/E2-preset-format-freeze.md); unversioned states (0) share it.
+// Add one step per future version, e.g. `if (fromVersion < 2) { ... }`, together
+// with a v1 fixture test that keeps loading.
+inline void migrateStateTree(juce::ValueTree state, int fromVersion)
+{
+    juce::ignoreUnused(state, fromVersion);
+}
+
 inline int zoneSortRank(ZoneID zone)
 {
     switch (zone)
@@ -263,6 +280,10 @@ inline void canonicalizeStateTree(juce::ValueTree state)
 {
     if (!state.isValid())
         return;
+
+    const int incomingVersion = getStateSchemaVersion(state);
+    if (incomingVersion < Config::STATE_SCHEMA_VERSION)
+        migrateStateTree(state, incomingVersion);
 
     ensureStructure(state);
     applyDefaultValues(state);

@@ -801,6 +801,12 @@ void NOVAAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
         return;
     }
 
+    if (PluginState::isFromNewerSchema(loaded))
+        NovaDiagnostics::SessionLogger::logEvent("state.restore.newerSchema",
+            "Host state written by a newer NOVA (schema " + juce::String(PluginState::getStateSchemaVersion(loaded))
+            + ", saved by " + loaded.getProperty(Nova::IDs::SAVED_BY_VERSION, "unknown").toString()
+            + "); loading best effort");
+
     if (!sessionCoordinator.restoreStateTree(loaded))
     {
         NovaDiagnostics::SessionLogger::logEvent("state.restore", "State restore failed; resetting to clean state");
@@ -846,9 +852,10 @@ bool NOVAAudioProcessor::loadPresetFromFile(const juce::File& file)
     refreshEngineEnabledIfNeeded();
     refreshEngineGlobalParamsIfNeeded(true);
     synchronizeEngineNow();
+    // The incoming schema version is logged by SessionPersistence before the state is
+    // canonicalized (which stamps the current version).
     NovaDiagnostics::SessionLogger::logEvent("state.apply",
         juce::String("Applied state tree")
-        + ", incomingSchemaVersion=" + juce::String(PluginState::getStateSchemaVersion(pluginState))
         + ", storedSchemaVersion=" + juce::String(Nova::Config::STATE_SCHEMA_VERSION)
         + " from preset: " + file.getFullPathName());
     logStateSnapshot("state.applied");

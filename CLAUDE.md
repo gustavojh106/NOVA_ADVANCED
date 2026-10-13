@@ -175,7 +175,7 @@ The editor (`PluginEditor.h/cpp`) uses a multi-tier responsive layout with three
 
 Match validation depth to the subsystem being changed:
 - **DSP changes**: Assume bypass, smoothing, and latency can regress even if compile passes. Test with audio.
-- **State/preset changes**: Sanity-check serialization round-trips (save → load → compare).
+- **State/preset changes**: Sanity-check serialization round-trips (save → load → compare). The preset format is frozen at schema 1 since the beta (`docs/reports/E2-preset-format-freeze.md`): never rename/remove `Nova::IDs`, pedal `typeID`s or `paramID`s, never reorder choice options, and never regenerate `docs/golden-metrics/presets-v1/` to make a test pass. Layout/meaning changes need a `STATE_SCHEMA_VERSION` bump plus a step in `PluginStateModel::migrateStateTree()`.
 - **GUI drag/drop changes**: Verify chain ordering and zone assignment stay aligned with `PluginStateModel` zone ordering.
 - **Source file membership changes**: Update `NOVA.jucer` and re-export. Build the Standalone target first (it includes unit tests).
 - **Minimum for any code change**: Compile the Standalone target.

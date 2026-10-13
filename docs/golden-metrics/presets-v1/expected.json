@@ -1,0 +1,1299 @@
+{
+  "schemaVersion": 1,
+  "note": "Presets written by the beta build (schema 1). Future NOVA versions must keep loading them with these real parameter values. Do not regenerate to make a test pass.",
+  "presets": [
+    {
+      "file": "Compressor.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Compressor",
+            "zone": 0,
+            "id": "e2-v1-0",
+            "enabled": false,
+            "params": {
+              "compThreshold": -35.700000762939453,
+              "compRatio": 7.409999847412109,
+              "compAttack": 25.899999618530273,
+              "compRelease": 268.05999755859375,
+              "compKnee": 6.289999961853027,
+              "compFocus": 0.209999993443489,
+              "compBlend": 0.649999976158142,
+              "compMakeup": 6.809999942779541
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Noise-Gate.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Noise Gate",
+            "zone": 2,
+            "id": "e2-v1-1",
+            "enabled": true,
+            "params": {
+              "gateThreshold": -51.760002136230469,
+              "gateAttack": 19.639999389648438,
+              "gateHold": 207.29998779296875,
+              "gateRelease": 183.099990844726562,
+              "gateRange": -30.3800048828125,
+              "gateHysteresis": 8.069999694824219,
+              "gateFocus": 0.849999964237213
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "EQ.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "EQ",
+            "zone": 0,
+            "id": "e2-v1-2",
+            "enabled": true,
+            "params": {
+              "eqLowCut": 231.279998779296875,
+              "eqLow": -5.070000171661377,
+              "eqLowMid": 5.309999465942383,
+              "eqMid": -1.110000610351562,
+              "eqMidFreq": 1095.179931640625,
+              "eqMidQ": 1.679999947547913,
+              "eqPresence": -3.560000419616699,
+              "eqHigh": 6.819999694824219,
+              "eqHighCut": 11547.330078125,
+              "eqLevel": 0.5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Boost.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Boost",
+            "zone": 2,
+            "id": "e2-v1-3",
+            "enabled": false,
+            "params": {
+              "boostGain": 18.219999313354492,
+              "boostTone": 0.489999979734421,
+              "boostTight": 0.219999998807907,
+              "boostChar": 0.659999966621399,
+              "boostMid": -1.329999923706055,
+              "boostLevel": 1.730000019073486
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Neural.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Neural",
+            "zone": 0,
+            "id": "e2-v1-4",
+            "enabled": true,
+            "params": {
+              "neuralDrive": 26.19999885559082,
+              "neuralFocus": 0.689999997615814,
+              "neuralDetail": 0.429999977350235,
+              "neuralComp": 0.159999996423721,
+              "neuralMix": 0.589999973773956,
+              "neuralLevel": 0.329999983310699
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Overdrive.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Overdrive",
+            "zone": 2,
+            "id": "e2-v1-5",
+            "enabled": true,
+            "params": {
+              "drive": 46.5,
+              "tone": 0.199999988079071,
+              "texture": 0.629999995231628,
+              "mix": 0.359999984502792,
+              "level": 0.799999952316284
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Distortion.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Distortion",
+            "zone": 0,
+            "id": "e2-v1-6",
+            "enabled": false,
+            "params": {
+              "distGain": 66.799995422363281,
+              "distTone": 0.399999976158142,
+              "distBody": 0.829999983310699,
+              "distMix": 0.569999992847443,
+              "distLevel": 0.299999982118607,
+              "distTight": 0.729999959468842,
+              "distMode": 2.0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Fuzz.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Fuzz",
+            "zone": 2,
+            "id": "e2-v1-7",
+            "enabled": true,
+            "params": {
+              "fuzzAmount": 17.100000381469727,
+              "fuzzTone": 0.599999964237213,
+              "fuzzGate": 0.340000003576279,
+              "fuzzMix": 0.769999980926514,
+              "fuzzLevel": 0.5,
+              "fuzzBias": 0.229999989271164,
+              "fuzzMode": 1.0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Wah.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Wah",
+            "zone": 0,
+            "id": "e2-v1-8",
+            "enabled": true,
+            "params": {
+              "wahMode": 1.0,
+              "wahSweep": 0.810000002384186,
+              "wahSens": 0.539999961853027,
+              "wahAttack": 8.519999504089355,
+              "wahDecay": 566.54998779296875,
+              "wahRange": 0.439999997615814,
+              "wahResonance": 2.110000133514404,
+              "wahVoice": 0.599999964237213,
+              "wahMix": 0.329999983310699
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Octave.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Octave",
+            "zone": 2,
+            "id": "e2-v1-9",
+            "enabled": false,
+            "params": {
+              "octaveSub": 0.579999983310699,
+              "octaveUpper": 0.310000002384186,
+              "octaveDry": 0.740000009536743,
+              "octaveTone": 0.469999998807907,
+              "octaveLevel": 0.810000002384186
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Chorus.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Chorus",
+            "zone": 0,
+            "id": "e2-v1-10",
+            "enabled": true,
+            "params": {
+              "chorusRate": 6.25,
+              "chorusDepth": 0.509999990463257,
+              "chorusWidth": 0.25,
+              "chorusTone": 0.680000007152557,
+              "chorusMix": 0.409999996423721,
+              "chorusLag": 15.489999771118164,
+              "chorusMode": 1.0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Phaser.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Phaser",
+            "zone": 2,
+            "id": "e2-v1-11",
+            "enabled": true,
+            "params": {
+              "phaserRate": 2.299999952316284,
+              "phaserDepth": 0.719999969005585,
+              "phaserFeedback": -0.090000033378601,
+              "phaserStages": 3.809999942779541,
+              "phaserMix": 0.610000014305115,
+              "phaserMode": 1.0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Flanger.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Flanger",
+            "zone": 0,
+            "id": "e2-v1-12",
+            "enabled": false,
+            "params": {
+              "flangerRate": 2.68999981880188,
+              "flangerDepth": 0.219999998807907,
+              "flangerManual": 0.649999976158142,
+              "flangerFeedback": -0.220000028610229,
+              "flangerWidth": 0.819999992847443,
+              "flangerTone": 8138.5498046875,
+              "flangerMix": 0.280000001192093,
+              "flangerMode": 1.0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Tremolo.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Tremolo",
+            "zone": 2,
+            "id": "e2-v1-13",
+            "enabled": true,
+            "params": {
+              "tremoloRate": 10.489999771118164,
+              "tremoloDepth": 0.419999986886978,
+              "tremoloShape": 0.149999991059303,
+              "tremoloBias": 0.589999973773956,
+              "tremoloStereo": 0.319999992847443,
+              "tremoloHarmonic": 0.75,
+              "tremoloCrossover": 1195.25,
+              "tremoloMix": 0.219999998807907,
+              "tremoloLevel": 1.470000028610229
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Delay.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Delay",
+            "zone": 0,
+            "id": "e2-v1-14",
+            "enabled": true,
+            "params": {
+              "delayMode": 1.0,
+              "delayTime": 1574.699951171875,
+              "delaySync": 0.0,
+              "delaySyncDivision": 9.0,
+              "delayFeedback": 0.509999990463257,
+              "delayTone": 4018.58984375,
+              "delayLowCut": 1519.2799072265625,
+              "delaySpread": 0.419999986886978,
+              "delayTexture": 0.149999991059303,
+              "delayModDepth": 0.589999973773956,
+              "delayModRate": 1.939999938011169,
+              "delayMix": 0.75,
+              "delayDuck": 0.479999989271164,
+              "delaySwell": 0.219999998807907,
+              "delayReverse": 0.649999976158142,
+              "delayFreeze": 0.0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Reverb.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Reverb",
+            "zone": 2,
+            "id": "e2-v1-15",
+            "enabled": false,
+            "params": {
+              "reverbMode": 2.0,
+              "reverbDecay": 0.829999983310699,
+              "reverbTone": 0.560000002384186,
+              "reverbSize": 0.28999999165535,
+              "reverbDamping": 0.729999959468842,
+              "reverbBassCut": 0.459999978542328,
+              "reverbDiffusion": 0.189999997615814,
+              "reverbWidth": 0.620000004768372,
+              "reverbMod": 0.359999984502792,
+              "reverbPredelay": 197.149993896484375,
+              "reverbMix": 0.519999980926514,
+              "reverbDuck": 0.25,
+              "reverbSwell": 0.689999997615814,
+              "reverbGate": 0.419999986886978,
+              "reverbReverse": 0.149999991059303,
+              "reverbFreeze": 1.0,
+              "reverbShimmerPitch": 1.0
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Classic-Amp.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Classic Amp",
+            "zone": 1,
+            "id": "e2-v1-16",
+            "enabled": true,
+            "params": {
+              "ampDrive": 3.789999961853027,
+              "ampTone": 0.329999983310699,
+              "ampPresence": 0.759999990463257,
+              "ampDepth": 0.5,
+              "ampSag": 0.229999989271164,
+              "ampBright": 0.659999966621399,
+              "ampLevel": 0.789999961853027
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "High-Gain-Amp.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "High Gain Amp",
+            "zone": 1,
+            "id": "e2-v1-17",
+            "enabled": true,
+            "params": {
+              "hgDrive": 8.210000038146973,
+              "hgTone": 0.529999971389771,
+              "hgPresence": 0.269999980926514,
+              "hgTight": 0.699999988079071,
+              "hgResonance": 0.429999977350235,
+              "hgFeel": 0.159999996423721,
+              "hgLevel": 1.189999938011169
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Clean-Amp.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Clean Amp",
+            "zone": 1,
+            "id": "e2-v1-18",
+            "enabled": false,
+            "params": {
+              "cleanDrive": 0.299999982118607,
+              "cleanBass": 0.740000009536743,
+              "cleanTreble": 0.469999998807907,
+              "cleanReverb": 0.199999988079071,
+              "cleanHeadroom": 0.629999995231628,
+              "cleanLevel": 0.729999959468842
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Chime-Amp.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Chime Amp",
+            "zone": 1,
+            "id": "e2-v1-19",
+            "enabled": true,
+            "params": {
+              "chimeDrive": 2.180000066757202,
+              "chimeTrebleCut": 0.239999994635582,
+              "chimeBassCut": 0.669999957084656,
+              "chimeBrill": 0.399999976158142,
+              "chimeSag": 0.839999973773956,
+              "chimeLevel": 1.139999985694885
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Boutique-Amp.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Boutique Amp",
+            "zone": 1,
+            "id": "e2-v1-20",
+            "enabled": true,
+            "params": {
+              "boutDrive": 2.539999961853027,
+              "boutWarmth": 0.439999997615814,
+              "boutMid": 0.179999992251396,
+              "boutPres": 0.610000014305115,
+              "boutTouch": 0.340000003576279,
+              "boutLevel": 1.549999952316284
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Cabinet.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Cabinet",
+            "zone": 3,
+            "id": "e2-v1-21",
+            "enabled": false,
+            "params": {
+              "cabThump": -6.890000343322754,
+              "cabAir": 3.489999771118164,
+              "cabResonance": -1.460000038146973,
+              "cabLowCut": 154.470001220703125,
+              "cabHighCut": 7032.7197265625,
+              "cabDistance": 0.280000001192093,
+              "cabMix": 0.709999978542328,
+              "cabLevel": 0.879999995231628
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Vintage-2x12.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Vintage 2x12",
+            "zone": 3,
+            "id": "e2-v1-22",
+            "enabled": true,
+            "params": {
+              "v2x12Warmth": -2.020000457763672,
+              "v2x12Sparkle": 8.369998931884766,
+              "v2x12Resonance": 0.96999979019165,
+              "v2x12LowCut": 106.789993286132812,
+              "v2x12HighCut": 7055.02001953125,
+              "v2x12Distance": 0.479999989271164,
+              "v2x12Mix": 0.209999993443489,
+              "v2x12Level": 1.289999961853027
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Modern-4x12.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 0.0,
+          "switchMode": 0.0,
+          "inGain": 0.0,
+          "gateThresh": -100.0,
+          "forceMono": 0.0,
+          "outVol": 0.0,
+          "limiter": 0.0,
+          "globalMix": 100.0
+        },
+        "mixerA": {
+          "gainA": 1.0,
+          "panA": 0.0,
+          "widthA": 1.0
+        },
+        "mixerB": {
+          "gainB": 1.0,
+          "panB": 0.0,
+          "widthB": 1.0
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Modern 4x12",
+            "zone": 3,
+            "id": "e2-v1-23",
+            "enabled": true,
+            "params": {
+              "m4x12Low": 2.859999656677246,
+              "m4x12Presence": -3.560000419616699,
+              "m4x12Resonance": 3.409999847412109,
+              "m4x12LowCut": 119.949996948242188,
+              "m4x12HighCut": 4647.06982421875,
+              "m4x12Distance": 0.680000007152557,
+              "m4x12Mix": 0.409999996423721,
+              "m4x12Level": 1.689999938011169
+            }
+          }
+        ]
+      }
+    },
+    {
+      "file": "Full-Rig.nova-preset",
+      "expected": {
+        "settings": {
+          "engineOn": 1.0,
+          "switchMode": 2.0,
+          "inGain": 4.5,
+          "gateThresh": -70.0,
+          "forceMono": 1.0,
+          "outVol": -2.0,
+          "limiter": -3.0,
+          "globalMix": 80.0
+        },
+        "mixerA": {
+          "gainA": 0.800000011920929,
+          "panA": -0.300000011920929,
+          "widthA": 1.200000047683716
+        },
+        "mixerB": {
+          "gainB": 1.100000023841858,
+          "panB": 0.400000005960464,
+          "widthB": 0.899999976158142
+        },
+        "pedals": [
+          {
+            "line": "A",
+            "index": 0,
+            "type": "Noise Gate",
+            "zone": 0,
+            "id": "rig-a-1",
+            "enabled": true,
+            "params": {
+              "gateThreshold": -51.760002136230469,
+              "gateAttack": 19.639999389648438,
+              "gateHold": 207.29998779296875,
+              "gateRelease": 183.099990844726562,
+              "gateRange": -30.3800048828125,
+              "gateHysteresis": 8.069999694824219,
+              "gateFocus": 0.849999964237213
+            }
+          },
+          {
+            "line": "A",
+            "index": 1,
+            "type": "Overdrive",
+            "zone": 0,
+            "id": "rig-a-2",
+            "enabled": true,
+            "params": {
+              "drive": 55.599998474121094,
+              "tone": 0.28999999165535,
+              "texture": 0.719999969005585,
+              "mix": 0.449999988079071,
+              "level": 0.189999997615814
+            }
+          },
+          {
+            "line": "A",
+            "index": 2,
+            "type": "High Gain Amp",
+            "zone": 1,
+            "id": "rig-a-3",
+            "enabled": true,
+            "params": {
+              "hgDrive": 7.829999923706055,
+              "hgTone": 0.489999979734421,
+              "hgPresence": 0.219999998807907,
+              "hgTight": 0.659999966621399,
+              "hgResonance": 0.389999985694885,
+              "hgFeel": 0.819999992847443,
+              "hgLevel": 1.110000014305115
+            }
+          },
+          {
+            "line": "A",
+            "index": 3,
+            "type": "Delay",
+            "zone": 2,
+            "id": "rig-a-4",
+            "enabled": false,
+            "params": {
+              "delayMode": 1.0,
+              "delayTime": 1747.25,
+              "delaySync": 0.0,
+              "delaySyncDivision": 2.0,
+              "delayFeedback": 0.569999992847443,
+              "delayTone": 4956.58984375,
+              "delayLowCut": 1671.8800048828125,
+              "delaySpread": 0.489999979734421,
+              "delayTexture": 0.219999998807907,
+              "delayModDepth": 0.659999966621399,
+              "delayModRate": 2.359999895095825,
+              "delayMix": 0.819999992847443,
+              "delayDuck": 0.550000011920929,
+              "delaySwell": 0.28999999165535,
+              "delayReverse": 0.719999969005585,
+              "delayFreeze": 0.0
+            }
+          },
+          {
+            "line": "A",
+            "index": 4,
+            "type": "Modern 4x12",
+            "zone": 3,
+            "id": "rig-a-5",
+            "enabled": true,
+            "params": {
+              "m4x12Low": -0.840000152587891,
+              "m4x12Presence": -7.260000228881836,
+              "m4x12Resonance": 1.559999942779541,
+              "m4x12LowCut": 97.6199951171875,
+              "m4x12HighCut": 7813.8701171875,
+              "m4x12Distance": 0.529999971389771,
+              "m4x12Mix": 0.259999990463257,
+              "m4x12Level": 1.389999985694885
+            }
+          },
+          {
+            "line": "B",
+            "index": 0,
+            "type": "Compressor",
+            "zone": 0,
+            "id": "rig-b-1",
+            "enabled": true,
+            "params": {
+              "compThreshold": -13.940000534057617,
+              "compRatio": 5.409999847412109,
+              "compAttack": 66.830001831054688,
+              "compRelease": 208.909988403320312,
+              "compKnee": 4.279999732971191,
+              "compFocus": 0.729999959468842,
+              "compBlend": 0.459999978542328,
+              "compMakeup": 3.529999971389771
+            }
+          },
+          {
+            "line": "B",
+            "index": 1,
+            "type": "Clean Amp",
+            "zone": 1,
+            "id": "rig-b-2",
+            "enabled": true,
+            "params": {
+              "cleanDrive": 0.170000001788139,
+              "cleanBass": 0.599999964237213,
+              "cleanTreble": 0.340000003576279,
+              "cleanReverb": 0.769999980926514,
+              "cleanHeadroom": 0.5,
+              "cleanLevel": 0.469999998807907
+            }
+          },
+          {
+            "line": "B",
+            "index": 2,
+            "type": "Chorus",
+            "zone": 2,
+            "id": "rig-b-3",
+            "enabled": true,
+            "params": {
+              "chorusRate": 3.009999990463257,
+              "chorusDepth": 0.810000002384186,
+              "chorusWidth": 0.539999961853027,
+              "chorusTone": 0.269999980926514,
+              "chorusMix": 0.699999988079071,
+              "chorusLag": 8.989999771118164,
+              "chorusMode": 0.0
+            }
+          },
+          {
+            "line": "B",
+            "index": 3,
+            "type": "Reverb",
+            "zone": 2,
+            "id": "rig-b-4",
+            "enabled": true,
+            "params": {
+              "reverbMode": 3.0,
+              "reverbDecay": 0.310000002384186,
+              "reverbTone": 0.740000009536743,
+              "reverbSize": 0.469999998807907,
+              "reverbDamping": 0.209999993443489,
+              "reverbBassCut": 0.639999985694885,
+              "reverbDiffusion": 0.370000004768372,
+              "reverbWidth": 0.810000002384186,
+              "reverbMod": 0.539999961853027,
+              "reverbPredelay": 67.650001525878906,
+              "reverbMix": 0.699999988079071,
+              "reverbDuck": 0.439999997615814,
+              "reverbSwell": 0.170000001788139,
+              "reverbGate": 0.599999964237213,
+              "reverbReverse": 0.329999983310699,
+              "reverbFreeze": 1.0,
+              "reverbShimmerPitch": 1.0
+            }
+          },
+          {
+            "line": "B",
+            "index": 4,
+            "type": "Vintage 2x12",
+            "zone": 3,
+            "id": "rig-b-5",
+            "enabled": false,
+            "params": {
+              "v2x12Warmth": 6.719999313354492,
+              "v2x12Sparkle": 0.300000190734863,
+              "v2x12Resonance": -3.06000018119812,
+              "v2x12LowCut": 166.850006103515625,
+              "v2x12HighCut": 5139.8203125,
+              "v2x12Distance": 0.839999973773956,
+              "v2x12Mix": 0.579999983310699,
+              "v2x12Level": 0.620000004768372
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

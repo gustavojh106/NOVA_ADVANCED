@@ -29,6 +29,7 @@ namespace Nova
         static const juce::Identifier LINE_A("LINE_A");
         static const juce::Identifier LINE_B("LINE_B");
         static const juce::Identifier STATE_SCHEMA_VERSION("schemaVersion");
+        static const juce::Identifier SAVED_BY_VERSION("savedByVersion"); // NOVA version that wrote the state (support info)
 
         static const juce::Identifier ENGINE_ON("engineOn");
         static const juce::Identifier SWITCH_MODE("switchMode");

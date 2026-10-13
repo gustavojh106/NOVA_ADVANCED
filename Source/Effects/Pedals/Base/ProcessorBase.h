@@ -85,8 +85,9 @@ public:
 
     // -----------------------------------------------------------------------------
     // Generic state recall (AudioProcessorParameterWithID)
-    // Stores normalized values [0..1] for all registered parameters.
-    // Not used on the realtime audio path.
+    // Stores, per parameter ID, the normalized value [0..1] and (for ranged
+    // parameters) the real value in parameter units. Parameters missing from a
+    // state keep their defaults. Not used on the realtime audio path.
     // -----------------------------------------------------------------------------
     void getStateInformation(juce::MemoryBlock& destData) override
     {
@@ -97,9 +98,13 @@ public:
         {
             if (auto* p = dynamic_cast<juce::AudioProcessorParameterWithID*>(param))
             {
+                const float normalised = juce::jlimit(0.0f, 1.0f, p->getValue());
                 auto* e = xml.createNewChildElement("PARAM");
                 e->setAttribute("id", p->paramID);
-                e->setAttribute("value", juce::jlimit(0.0f, 1.0f, p->getValue()));
+                e->setAttribute("value", normalised);
+
+                if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+                    e->setAttribute("raw", ranged->convertFrom0to1(normalised));
             }
         }
 
@@ -118,8 +123,6 @@ public:
                 continue;
 
             const juce::String paramID = child->getStringAttribute("id");
-            const float value = juce::jlimit(0.0f, 1.0f,
-                static_cast<float>(child->getDoubleAttribute("value", 0.0)));
 
             for (auto* param : getParameters())
             {
@@ -127,12 +130,37 @@ public:
                 {
                     if (p->paramID == paramID)
                     {
-                        p->setValueNotifyingHost(value);
+                        p->setValueNotifyingHost(restoredNormalisedValue(*child, *param));
                         break;
                     }
                 }
             }
         }
+    }
+
+    // Normalized value to restore from a PARAM element. While the parameter range is
+    // the one the state was saved with, the stored normalized value is used as is
+    // (exact). If the range changed since, the stored real value wins, so presets
+    // keep their sound across range changes. States without "raw" (written before
+    // 2026-10) always use the normalized value.
+    static float restoredNormalisedValue(const juce::XmlElement& element, juce::AudioProcessorParameter& param)
+    {
+        const float normalised = juce::jlimit(0.0f, 1.0f,
+            static_cast<float>(element.getDoubleAttribute("value", 0.0)));
+
+        auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(&param);
+        if (ranged == nullptr || !element.hasAttribute("raw"))
+            return normalised;
+
+        const float raw = static_cast<float>(element.getDoubleAttribute("raw"));
+        if (!std::isfinite(raw))
+            return normalised;
+
+        const float tolerance = 1.0e-4f * juce::jmax(1.0f, std::abs(raw));
+        if (std::abs(ranged->convertFrom0to1(normalised) - raw) <= tolerance)
+            return normalised;
+
+        return juce::jlimit(0.0f, 1.0f, ranged->convertTo0to1(raw));
     }
 
     // -----------------------------------------------------------------------------
