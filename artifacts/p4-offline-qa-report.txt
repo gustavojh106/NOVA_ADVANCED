@@ -1,5 +1,5 @@
 NOVA Offline QA Report
-Generated: 2026-10-12 18:28:22
+Generated: 2026-10-12 19:41:27
 Scenarios: 74
 
 [PASS] impulse_transparency_line_a
@@ -171,14 +171,14 @@ null_rms=0.10629905
 notes=Overdrive->CleanAmp->Reverb chain stayed finite, safe and musically stable with a decaying tail
 input_peak=0.28328192
 output_peak=0.50169563
-output_rms=0.07960489
-output_dc=0.00001026
+output_rms=0.07960438
+output_dc=0.00001027
 finite=1.00000000
 near_clip_count=0.00000000
-tail_rms=0.02356519
-body_rms=0.10061708
-late_tail_rms=0.00349620
-tail_decay_ratio=0.14836272
+tail_rms=0.02353564
+body_rms=0.10061077
+late_tail_rms=0.00349394
+tail_decay_ratio=0.14845321
 
 [PASS] overdrive_automation_stress
 notes=Overdrive remained finite under aggressive preamp automation
@@ -367,19 +367,19 @@ iterations=2250.00000000
 
 [PASS] reverb_tail_quality
 notes=Cloud tail stayed finite, sustained and decayed cleanly
-render_ms=131.44650000
+render_ms=163.23200000
 peak=0.90457606
 rms=0.00173052
-late_rms_0p8_1p3s=0.00018309
+late_rms_0p8_1p3s=0.00018310
 tail_end_rms_last_250ms=0.00000000
 finite=1.00000000
 
 [PASS] reverb_stereo_field
 notes=Hall mode projected a decorrelated stereo tail
-corr_after_50ms=0.46307417
+corr_after_50ms=0.46307418
 left_rms_100_1100ms=0.00034820
 right_rms_100_1100ms=0.00034638
-right_to_left_ratio=0.99475449
+right_to_left_ratio=0.99475443
 finite=1.00000000
 
 [PASS] reverb_mode_distinctness
@@ -449,16 +449,16 @@ blocks=2250.00000000
 [PASS] delay_tail_decay
 notes=Tape delay tail stayed finite and decayed cleanly
 peak=0.87603855
-late_rms_1p0_1p9s=0.00063757
-end_rms_last_300ms=0.00000030
+late_rms_1p0_1p9s=0.00064129
+end_rms_last_300ms=0.00000031
 finite=1.00000000
 
 [PASS] delay_stereo_field
 notes=Digital delay projected decorrelated stereo repeats
-corr_after_80ms=0.02908684
-left_rms_80_1180ms=0.00440776
-right_rms_80_1180ms=0.00432917
-right_to_left_ratio=0.98217077
+corr_after_80ms=0.02478920
+left_rms_80_1180ms=0.00445406
+right_rms_80_1180ms=0.00432477
+right_to_left_ratio=0.97097160
 finite=1.00000000
 
 [PASS] delay_mode_distinctness
