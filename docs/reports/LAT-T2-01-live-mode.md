@@ -1,7 +1,7 @@
 # LAT-T2-01 — Modo Live (sin lookaheads): investigación
 
 - **Fecha:** 2026-10-11
-- **Estado:** decisiones tomadas y **Fase 0 terminada (2026-10-12)**: resultados en la sección 11.1. Siguiente: arreglo de B-11 → F1 (Standalone).
+- **Estado:** decisiones tomadas, **Fase 0 terminada** (sección 11.1) y **B-11 arreglado** (sección 11.2), ambos el 2026-10-12. Siguiente: F1 (Standalone).
 - **Roadmap:** `docs/latency-optimization-roadmap.md` → T2-01
 - **Alcance:** Standalone y VST3. Solo latencia propia de NOVA (DSP); la del driver es T2-10.
 
@@ -495,6 +495,38 @@ Cada fase se valida y se commitea por separado. Los archivos nuevos se agregan a
 **Latencia de la cadena típica (Studio, `latency.breakdown`):** 162 / 176 / 344 muestras a 44.1 / 48 / 96 kHz, idéntico a lo calculado en 2.3 (gate 66/72/144, Overdrive 4, High Gain Amp 4, cab 0, reverb 0, OutputChain 88/96/192). Con Live, por cálculo: 19 / 20 / 32 muestras.
 
 **B-11 confirmado:** tras reconstruir el grafo, salen exactamente **6 bloques** con la entrada sin procesar. Con el master a −20 dB, la salida salta de −29.6 a −10.5 dBFS (+19 dB) durante 8 ms con bloque 64. El test queda como caracterización; el arreglo de B-11 lo invierte (0 bloques crudos).
+
+### 11.2 Arreglo de B-11 (2026-10-12)
+
+**Antes:** al reconstruir el grafo, el motor dejaba de procesar durante 6 bloques y sacaba la entrada sin procesar. En el arranque en frío eran 5 bloques.
+
+**Ahora** (`AudioEngine::process`):
+1. **Fade-out con el grafo saliente:** cuando el audio thread detecta un grafo nuevo, procesa el viejo unos bloques más con una rampa de 1 a 0 de 5 ms.
+   - Usa como máximo 4 bloques, así que con buffer 32 la rampa es de 2.7 ms.
+   - El grafo viejo sigue vivo porque `RuntimeGraphManager` lo retiene 8 bloques.
+   - Solo se usa en bloques consecutivos, para no tocar nunca un grafo ya liberado.
+2. **Silencio en los bloques de arranque**, nunca la entrada. Durante esos bloques el grafo nuevo **se alimenta** con la señal y su salida se descarta, así sus delay lines y filtros ya están llenos al entrar.
+3. **Fade-in de 5 ms** con el grafo nuevo. Si no alcanzó a llenarse su latencia durante el arranque, la rampa espera a que salga señal.
+4. **Endpoint Dry** (mix 0): no pasa por el grafo, así que sigue sacando la entrada sin hueco.
+
+**Medición** (seno de 220 Hz, master −20 dB; test "B-11 graph transition"):
+
+| Caso | Bloques crudos | Bloques en silencio | Pico en la transición vs. normal | Paso máximo transición / normal |
+|---|---|---|---|---|
+| Agregar pedal, buffer 64 | 0 (antes 6) | 7 | −31.3 / −29.6 dBFS | 0.00078 / 0.00090 |
+| Agregar pedal, buffer 32 | 0 | 9 | −31.2 / −29.6 | 0.00078 / 0.00090 |
+| Agregar pedal, buffer 512 | 0 | 6 | −30.3 / −30.4 | 0.00094 / 0.00087 |
+| Bypass que cambia la latencia (gate), buffer 64 | 0 | 8 | −30.2 / −29.6 | 0.00086 / 0.00087 |
+| Arranque en frío, buffer 64 | 0 (antes 5) | 6 | −30.4 / −30.4 | 0.00086 / 0.00087 |
+
+- **Sin click:** el paso máximo entre muestras en la transición queda igual al de la señal normal. Un corte duro de este seno daría unas 35 veces más.
+- **Hueco audible:** fade-out + 6 bloques de silencio + fade-in, es decir ~18 ms con buffer 64 y ~74 ms con buffer 512. Antes, en ese mismo tiempo sonaba DI crudo a +19 dB. Achicar el hueco o hacer crossfade con spillover es T2-15.
+- **Costo:** durante los bloques de arranque el grafo nuevo se procesa (antes no se procesaba). Es el mismo costo que un bloque normal.
+- **rt-profile Release:** 63 PASS, 1 WARN, 0 FAIL (`artifacts/rt-profile-release-b11.json`).
+  - Promedios: mediana +4.2% en los escenarios de motor, frente a +8.2% en los `proc_*`, que no tocan el motor. Es ruido de la máquina.
+  - El WARN es un pico aislado en `stress_block_32` (1 bloque de 675, 79% del presupuesto; en una segunda corrida, 61% y PASS).
+  - En esas corridas los picos subieron unas 2 veces en casi todos los escenarios, también en los `proc_*`, así que no se atribuye al arreglo. Conviene repetir el rt-profile con la máquina en reposo antes de mergear.
+- **Falla del harness (aparte):** dos corridas del script de rt-profile dejaron el reporte vacío (0 bytes) un segundo después de lanzar NOVA. Al repetirlas, funcionaron.
 
 **Hallazgos laterales:**
 - **B-14:** `LookaheadDelay::process()` del Noise Gate trata un retardo de 0 como un retardo de buffer completo: lee la muestra más vieja antes de escribir. Live usa 12 muestras, así que no lo afecta, pero G3 (0 ms) necesitaría arreglarlo.
