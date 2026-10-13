@@ -69,6 +69,8 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     audioPlane.audioThreadID = {};
     audioPlane.audioBlockCounter.store(0, std::memory_order_relaxed);
     audioPlane.startupCounter = Nova::Config::STARTUP_COUNTER_INIT;
+    audioPlane.transitionFadeSamples = juce::jmax(1, juce::roundToInt(sr * kGraphTransitionFadeSeconds));
+    resetGraphTransitionState();
     audioPlane.tunerService.setSampleRate(sr);
     audioPlane.tunerService.reset();
 
@@ -500,6 +502,67 @@ void AudioEngine::resetAudioRuntimeState(bool resetMeters)
     }
 }
 
+void AudioEngine::resetGraphTransitionState() noexcept
+{
+    audioPlane.lastProcessedRuntime = nullptr;
+    audioPlane.lastProcessedBlock = 0;
+    audioPlane.fadeOutRuntime = nullptr;
+    audioPlane.fadeOutBlocksUsed = 0;
+    audioPlane.fadeOutSamplesDone = 0;
+    audioPlane.fadeOutSamplesTotal = 1;
+    audioPlane.fadeInSamplesDone = 0;
+    audioPlane.fadeInDelaySamples = 0;
+    audioPlane.warmedSamples = 0;
+    audioPlane.warmingRuntime = nullptr;
+    audioPlane.fadeInPending = false;
+}
+
+// Linear ramp from 1 to 0 across fadeOutSamplesTotal, continued over consecutive
+// blocks; everything after the ramp is silence.
+void AudioEngine::applyGraphFadeOut(juce::AudioBuffer<float>& buffer) noexcept
+{
+    const int numSamples = buffer.getNumSamples();
+    const int total = audioPlane.fadeOutSamplesTotal;
+    const float step = 1.0f / (float)total;
+
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const int done = audioPlane.fadeOutSamplesDone + i;
+        const float gain = done < total ? 1.0f - (float)done * step : 0.0f;
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            buffer.getWritePointer(ch)[i] *= gain;
+    }
+
+    audioPlane.fadeOutSamplesDone = juce::jmin(total, audioPlane.fadeOutSamplesDone + numSamples);
+}
+
+// Linear ramp from 0 to 1 across transitionFadeSamples on the first processed blocks
+// of a new graph. If the graph was not fed long enough during startup to fill its
+// latency, the ramp waits until its output actually starts.
+void AudioEngine::applyGraphFadeIn(juce::AudioBuffer<float>& buffer) noexcept
+{
+    const int numSamples = buffer.getNumSamples();
+    const int total = audioPlane.transitionFadeSamples;
+    const float step = 1.0f / (float)total;
+    int i = 0;
+
+    for (; i < numSamples && audioPlane.fadeInSamplesDone < total; ++i)
+    {
+        float gain = 0.0f;
+        if (audioPlane.fadeInDelaySamples > 0)
+            --audioPlane.fadeInDelaySamples;
+        else
+            gain = (float)(audioPlane.fadeInSamplesDone++) * step;
+
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+            buffer.getWritePointer(ch)[i] *= gain;
+    }
+
+    if (audioPlane.fadeInSamplesDone >= total)
+        audioPlane.fadeInPending = false;
+}
+
 void AudioEngine::resetRuntimeGraph(GraphRuntime& runtime)
 {
     auto resetNode = [](juce::AudioProcessorGraph::Node::Ptr& node)
@@ -538,7 +601,7 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     if (audioPlane.audioThreadID == juce::Thread::ThreadID())
         audioPlane.audioThreadID = juce::Thread::getCurrentThreadId();
 
-    audioPlane.audioBlockCounter.fetch_add(1, std::memory_order_release);
+    const uint64_t blockIndex = audioPlane.audioBlockCounter.fetch_add(1, std::memory_order_release) + 1;
 
     if (audioPlane.audioRuntimeResetRequested.exchange(false, std::memory_order_acq_rel))
         resetAudioRuntimeState(false);
@@ -564,8 +627,70 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
 
     if (!audioPlane.isEngineOn.load(std::memory_order_acquire))
     {
+        audioPlane.lastProcessedRuntime = nullptr;
+        audioPlane.fadeOutRuntime = nullptr;
         const auto health = audioPlane.healthMonitor.sanitizeAndMeterOutput(buffer, inputPeak, mode != DiagnosticsMode::Production);
         handleHealthAfterBlock(health, buffer.getNumSamples(), false);
+        commitTiming();
+        return;
+    }
+
+    // The exact dry endpoint (output mix 0) never touches the graph, so it needs no
+    // transition: it keeps passing the input through.
+    const bool dryEndpoint = audioPlane.dryWetMixer.classifyEndpoint() == Nova::Audio::DryWetMixer::EndpointPath::Dry;
+    const bool tunerOn = audioPlane.tunerEnabled.load(std::memory_order_acquire);
+    GraphRuntime* runtime = runtimeGraphs.getActiveRaw();
+
+    // B-11: a newly published graph replaced the one processed in the previous block.
+    // Fade the outgoing graph out instead of cutting to the unwarmed new one.
+    if (audioPlane.fadeOutRuntime == nullptr
+        && audioPlane.lastProcessedRuntime != nullptr
+        && runtime != audioPlane.lastProcessedRuntime
+        && blockIndex == audioPlane.lastProcessedBlock + 1
+        && !tunerOn
+        && !dryEndpoint)
+    {
+        audioPlane.fadeOutRuntime = audioPlane.lastProcessedRuntime;
+        audioPlane.fadeOutBlocksUsed = 0;
+        audioPlane.fadeOutSamplesDone = 0;
+        audioPlane.fadeOutSamplesTotal = juce::jlimit(1,
+            kMaxGraphFadeOutBlocks * juce::jmax(1, buffer.getNumSamples()),
+            audioPlane.transitionFadeSamples);
+        audioPlane.startupCounter = juce::jmax(audioPlane.startupCounter, Nova::Config::STARTUP_COUNTER_GRAPH_CHANGE);
+    }
+
+    if (audioPlane.fadeOutRuntime != nullptr)
+    {
+        // Only on consecutive blocks: the outgoing graph is then guaranteed to be
+        // inside its retirement grace period.
+        const bool outgoingSafe = blockIndex == audioPlane.lastProcessedBlock + 1
+            && audioPlane.fadeOutBlocksUsed < kMaxGraphFadeOutBlocks
+            && !tunerOn;
+
+        if (outgoingSafe)
+        {
+            HealthMonitor::BlockStats fadeHealth;
+            fadeHealth.inputPeak = inputPeak;
+            processWithSampleAccurateDryWet(*audioPlane.fadeOutRuntime, buffer, midi, fadeHealth);
+            applyGraphFadeOut(buffer);
+            ++audioPlane.fadeOutBlocksUsed;
+            audioPlane.lastProcessedBlock = blockIndex;
+        }
+        else
+        {
+            buffer.clear();
+        }
+
+        if (!outgoingSafe
+            || audioPlane.fadeOutSamplesDone >= audioPlane.fadeOutSamplesTotal
+            || audioPlane.fadeOutBlocksUsed >= kMaxGraphFadeOutBlocks)
+        {
+            audioPlane.fadeOutRuntime = nullptr;
+            audioPlane.lastProcessedRuntime = nullptr;
+        }
+
+        const auto health = audioPlane.healthMonitor.sanitizeAndMeterOutput(buffer, inputPeak, mode != DiagnosticsMode::Production);
+        handleHealthAfterBlock(health, buffer.getNumSamples(), outgoingSafe);
         commitTiming();
         return;
     }
@@ -573,14 +698,47 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     if (audioPlane.startupCounter > 0)
     {
         --audioPlane.startupCounter;
+        audioPlane.lastProcessedRuntime = nullptr;
+
+        // B-11: silence while the new graph settles, never the raw input. The graph is
+        // fed the input (output discarded) so its delay lines and filters are settled
+        // when it fades in.
+        if (!dryEndpoint)
+        {
+            audioPlane.fadeInPending = true;
+            audioPlane.fadeInSamplesDone = 0;
+
+            const bool canWarm = !tunerOn && runtime != nullptr && runtime->graph != nullptr;
+            if (runtime != audioPlane.warmingRuntime)
+            {
+                audioPlane.warmingRuntime = runtime;
+                audioPlane.warmedSamples = 0;
+            }
+
+            if (canWarm)
+            {
+                HealthMonitor::BlockStats warmHealth;
+                warmHealth.inputPeak = inputPeak;
+                processWithSampleAccurateDryWet(*runtime, buffer, midi, warmHealth);
+                audioPlane.warmedSamples = juce::jmin(Nova::Config::MAX_GRAPH_LATENCY_SAMPLES,
+                    audioPlane.warmedSamples + buffer.getNumSamples());
+            }
+
+            audioPlane.fadeInDelaySamples = canWarm
+                ? juce::jmax(0, runtime->latencySamples - audioPlane.warmedSamples)
+                : 0;
+            buffer.clear();
+        }
+
         const auto health = audioPlane.healthMonitor.sanitizeAndMeterOutput(buffer, inputPeak, mode != DiagnosticsMode::Production);
         handleHealthAfterBlock(health, buffer.getNumSamples(), false);
         commitTiming();
         return;
     }
 
-    if (audioPlane.tunerEnabled.load(std::memory_order_acquire))
+    if (tunerOn)
     {
+        audioPlane.lastProcessedRuntime = nullptr;
         audioPlane.tunerService.pushBuffer(buffer);
         buffer.clear();
         const auto health = audioPlane.healthMonitor.sanitizeAndMeterOutput(buffer, inputPeak, false);
@@ -589,9 +747,9 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
         return;
     }
 
-    GraphRuntime* runtime = runtimeGraphs.getActiveRaw();
     if (runtime == nullptr || runtime->graph == nullptr)
     {
+        audioPlane.lastProcessedRuntime = nullptr;
         buffer.clear();
         const auto health = audioPlane.healthMonitor.sanitizeAndMeterOutput(buffer, inputPeak, true);
         handleHealthAfterBlock(health, buffer.getNumSamples(), false);
@@ -602,6 +760,17 @@ void AudioEngine::process(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& mi
     HealthMonitor::BlockStats health;
     health.inputPeak = inputPeak;
     processWithSampleAccurateDryWet(*runtime, buffer, midi, health);
+
+    if (audioPlane.fadeInPending)
+    {
+        if (dryEndpoint)
+            audioPlane.fadeInPending = false;
+        else
+            applyGraphFadeIn(buffer);
+    }
+
+    audioPlane.lastProcessedRuntime = runtime;
+    audioPlane.lastProcessedBlock = blockIndex;
 
     const auto outputHealth = audioPlane.healthMonitor.sanitizeAndMeterOutput(buffer, inputPeak, mode != DiagnosticsMode::Production);
     health.outputPeak = outputHealth.outputPeak;

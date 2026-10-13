@@ -18007,7 +18007,7 @@ public:
 
 // T2-01 F0 (docs/reports/LAT-T2-01-live-mode.md): worst-case measurements of the
 // output limiter and the Noise Gate in Studio and Live, latency breakdown of the
-// typical chain, and the B-11 characterization. Ports the offline Python
+// typical chain, and the B-11 graph transition. Ports the offline Python
 // simulations to C++. Measured values go to the log with the "T2-01 F0" prefix.
 class T201LiveModeF0Tests final : public juce::UnitTest
 {
@@ -18022,7 +18022,7 @@ public:
         runLimiterSuite();
         runGateSuite();
         runLatencyBreakdown();
-        runB11Characterization();
+        runB11Transition();
     }
 
 private:
@@ -18758,44 +18758,71 @@ private:
         }
     }
 
-    // ------------------------------------------------------- B-11 characterization
+    // ------------------------------------------------------------ B-11 transition
 
-    void runB11Characterization()
+    struct TransitionStats
     {
-        beginTest("T2-01 F0 B-11 characterization: a graph rebuild passes raw input for the startup blocks");
+        int rawBlocks = 0;              // output equal to the input, bit for bit
+        int silentBlocks = 0;
+        float steadyPeak = 0.0f;        // processed output outside the transition
+        float transitionPeak = 0.0f;
+        float steadyMaxDelta = 0.0f;    // largest sample-to-sample step outside the transition
+        float transitionMaxDelta = 0.0f;
+        bool resumed = false;
+    };
 
-        // Master at -20 dB makes processed output easy to tell apart from raw input.
+    enum class RebuildKind { AddPedal, LatencyBypass, ColdStart };
+
+    // 220 Hz sine at 0.3 with the master at -20 dB, so processed output is easy to tell
+    // apart from raw input. The rebuild happens at 0.4 s; the transition window covers
+    // the fade-out, the startup blocks and the fade-in, with margin.
+    static TransitionStats renderGraphTransition(int blockSize, RebuildKind kind)
+    {
+        TransitionStats stats;
         AudioEngine engine;
-        engine.prepare(kRate, kBlock, 2, 2);
+        engine.prepare(kRate, blockSize, 2, 2);
+
         AudioEngine::RuntimeGlobalParams params;
         params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
         params.outputMixRaw = 100.0f;
         params.outputVolumeDb = -20.0f;
         engine.updateGlobalParams(params);
-        engine.setEngineEnabled(true);
-        engine.synchronizeProcessingState();
-        warmUpEngine(engine, kBlock, 32);
 
-        constexpr int kBlocks = 40;
-        constexpr int kRebuildAt = 16;
-        int rawBefore = 0;
-        int rawAfter = 0;
-        int firstRawAfter = -1;
-        float processedPeak = 0.0f;
-        float rawPeak = 0.0f;
-        int globalSample = 0;
-        juce::MidiBuffer midi;
+        if (kind == RebuildKind::LatencyBypass)
+            engine.addPedal("Noise Gate", Nova::ChainID::LineA, -1, Nova::ZoneID::Pre, "b11-gate");
 
-        for (int blockIndex = 0; blockIndex < kBlocks; ++blockIndex)
+        if (kind != RebuildKind::ColdStart)
         {
-            if (blockIndex == kRebuildAt)
+            engine.setEngineEnabled(true);
+            engine.synchronizeProcessingState();
+            warmUpEngine(engine, blockSize, 48);
+        }
+
+        const int totalBlocks = (int)(1.5 * kRate) / blockSize;
+        const int rebuildAt = kind == RebuildKind::ColdStart ? 0 : (int)(0.4 * kRate) / blockSize;
+        const int fadeBlocks = (int)std::ceil(0.005 * kRate / blockSize);
+        const int transitionEnd = rebuildAt + 4 + Nova::Config::STARTUP_COUNTER_GRAPH_CHANGE + fadeBlocks + 4;
+
+        juce::MidiBuffer midi;
+        int globalSample = 0;
+        float previous = 0.0f;
+
+        for (int b = 0; b < totalBlocks; ++b)
+        {
+            if (b == rebuildAt)
             {
-                engine.addPedal("Reverb", Nova::ChainID::LineA, -1, Nova::ZoneID::FX, "b11-reverb");
+                if (kind == RebuildKind::AddPedal)
+                    engine.addPedal("Reverb", Nova::ChainID::LineA, -1, Nova::ZoneID::FX, "b11-reverb");
+                else if (kind == RebuildKind::LatencyBypass)
+                    engine.setPedalBypassed(Nova::ChainID::LineA, 0, true);
+                else
+                    engine.setEngineEnabled(true);
+
                 engine.synchronizeProcessingState();
             }
 
-            juce::AudioBuffer<float> block(2, kBlock);
-            for (int i = 0; i < kBlock; ++i, ++globalSample)
+            juce::AudioBuffer<float> block(2, blockSize);
+            for (int i = 0; i < blockSize; ++i, ++globalSample)
             {
                 const float x = 0.3f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * (float)globalSample / (float)kRate);
                 block.setSample(0, i, x);
@@ -18806,35 +18833,86 @@ private:
             input.makeCopyOf(block);
             engine.process(block, midi);
 
+            const bool inTransition = b >= rebuildAt && b < transitionEnd;
             bool raw = true;
             for (int ch = 0; ch < 2 && raw; ++ch)
-                for (int i = 0; i < kBlock && raw; ++i)
+                for (int i = 0; i < blockSize && raw; ++i)
                     raw = block.getSample(ch, i) == input.getSample(ch, i);
 
-            const float peak = block.getMagnitude(0, kBlock);
-            if (blockIndex < kRebuildAt)
+            stats.rawBlocks += raw ? 1 : 0;
+            stats.silentBlocks += block.getMagnitude(0, blockSize) == 0.0f ? 1 : 0;
+
+            for (int i = 0; i < blockSize; ++i)
             {
-                rawBefore += raw ? 1 : 0;
-                processedPeak = juce::jmax(processedPeak, peak);
+                const float y = block.getSample(0, i);
+                const float delta = std::abs(y - previous);
+                previous = y;
+
+                if (inTransition)
+                {
+                    stats.transitionMaxDelta = juce::jmax(stats.transitionMaxDelta, delta);
+                    stats.transitionPeak = juce::jmax(stats.transitionPeak, std::abs(y));
+                }
+                else if (b > 0)
+                {
+                    // The step reference comes from the old graph only (a pedal added by
+                    // the rebuild, like a reverb, can legitimately raise it afterwards).
+                    if (b < rebuildAt || kind == RebuildKind::ColdStart)
+                        stats.steadyMaxDelta = juce::jmax(stats.steadyMaxDelta, delta);
+                    stats.steadyPeak = juce::jmax(stats.steadyPeak, std::abs(y));
+                }
             }
-            else if (raw)
-            {
-                ++rawAfter;
-                rawPeak = juce::jmax(rawPeak, peak);
-                if (firstRawAfter < 0)
-                    firstRawAfter = blockIndex - kRebuildAt;
-            }
+
+            if (b == totalBlocks - 1)
+                stats.resumed = block.getMagnitude(0, blockSize) > 0.0f;
         }
 
-        logMessage("T2-01 F0 B-11 | raw blocks before rebuild=" + juce::String(rawBefore)
-            + " after rebuild=" + juce::String(rawAfter) + " (first at +" + juce::String(firstRawAfter)
-            + ") | processed peak=" + juce::String(toDb(processedPeak), 1) + " dBFS raw peak="
-            + juce::String(toDb(rawPeak), 1) + " dBFS");
+        return stats;
+    }
 
-        expectEquals(rawBefore, 0, "Before the rebuild the engine must output processed audio");
-        // Documents B-11 as it is today. The B-11 fix flips this to 0 raw blocks.
-        expectEquals(rawAfter, Nova::Config::STARTUP_COUNTER_GRAPH_CHANGE,
-            "B-11: after a rebuild the startup blocks pass the raw input unprocessed");
+    void runB11Transition()
+    {
+        beginTest("B-11 graph transition: fade-out, silence and fade-in instead of raw input");
+
+        struct Scenario
+        {
+            const char* name;
+            int blockSize;
+            RebuildKind kind;
+        };
+
+        const Scenario scenarios[] = {
+            { "add_pedal_block64", 64, RebuildKind::AddPedal },
+            { "add_pedal_block32", 32, RebuildKind::AddPedal },
+            { "add_pedal_block512", 512, RebuildKind::AddPedal },
+            { "latency_bypass_block64", 64, RebuildKind::LatencyBypass },
+            { "cold_start_block64", 64, RebuildKind::ColdStart }
+        };
+
+        for (const auto& scenario : scenarios)
+        {
+            const auto stats = renderGraphTransition(scenario.blockSize, scenario.kind);
+            const juce::String name(scenario.name);
+
+            logMessage("B-11 transition " + name
+                + " | raw blocks=" + juce::String(stats.rawBlocks)
+                + " silent blocks=" + juce::String(stats.silentBlocks)
+                + " | peak steady=" + juce::String(toDb(stats.steadyPeak), 1)
+                + " dBFS transition=" + juce::String(toDb(stats.transitionPeak), 1)
+                + " dBFS | max step steady=" + juce::String(stats.steadyMaxDelta, 6)
+                + " transition=" + juce::String(stats.transitionMaxDelta, 6));
+
+            expectEquals(stats.rawBlocks, 0, name + ": no block may pass the raw input");
+            expect(stats.silentBlocks >= 1, name + ": the new graph must settle in silence");
+            expect(stats.resumed, name + ": processed output must resume after the transition");
+            expect(stats.transitionPeak <= stats.steadyPeak * 1.05f,
+                name + ": the transition must not jump above the processed level; transition="
+                    + juce::String(stats.transitionPeak, 6) + " steady=" + juce::String(stats.steadyPeak, 6));
+            // A hard cut of this sine would step up to ~35x the steady maximum.
+            expect(stats.transitionMaxDelta <= stats.steadyMaxDelta * 1.5f,
+                name + ": the transition must not click; step=" + juce::String(stats.transitionMaxDelta, 6)
+                    + " steady=" + juce::String(stats.steadyMaxDelta, 6));
+        }
     }
 };
 

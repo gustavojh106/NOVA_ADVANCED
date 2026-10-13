@@ -293,7 +293,27 @@ private:
 
         int startupCounter = 0;
         uint32_t meterDecimator = 0;
+
+        // Graph transition (B-11): the outgoing graph fades out, the startup blocks are
+        // silent, and the new graph fades in. Audio thread only, reset in prepare().
+        // The outgoing graph is used only on consecutive blocks right after it was last
+        // processed, well inside the retirement grace period of RuntimeGraphManager.
+        GraphRuntime* lastProcessedRuntime = nullptr;
+        uint64_t lastProcessedBlock = 0;
+        GraphRuntime* fadeOutRuntime = nullptr;
+        int fadeOutBlocksUsed = 0;
+        int fadeOutSamplesDone = 0;
+        int fadeOutSamplesTotal = 1;
+        int fadeInSamplesDone = 0;
+        int fadeInDelaySamples = 0;     // new graph output still inside its latency
+        int warmedSamples = 0;          // samples fed to the new graph during startup
+        GraphRuntime* warmingRuntime = nullptr;
+        int transitionFadeSamples = 1;
+        bool fadeInPending = false;
     };
+
+    static constexpr double kGraphTransitionFadeSeconds = 0.005;
+    static constexpr int kMaxGraphFadeOutBlocks = 4; // < RuntimeGraphManager grace (8 blocks)
 
     void enqueueGraphCommand(const GraphCommand& cmd, bool flushIfSafe);
     void flushPendingGraphCommands();
@@ -310,6 +330,9 @@ private:
 
     void prepareScratchBuffers(double sampleRate, int samplesPerBlock, int numChannels);
     void resetAudioRuntimeState(bool resetMeters);
+    void resetGraphTransitionState() noexcept;
+    void applyGraphFadeOut(juce::AudioBuffer<float>& buffer) noexcept;
+    void applyGraphFadeIn(juce::AudioBuffer<float>& buffer) noexcept;
     void resetRuntimeGraph(GraphRuntime& runtime);
     void resetDryDelayLine();
     void updateDryDelayLatency(int latencySamples) noexcept;

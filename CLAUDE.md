@@ -148,7 +148,7 @@ These files have non-obvious roles or are central coordination points — most o
 - Latency reporting: call `setProcessingLatency()` (not `setLatencySamples()` directly) to respect bypass state
 - Hard absolute limit: `Nova::Config::HARD_ABS_LIMIT_LINEAR` (24.0f ≈ +27.6 dBFS)
 - Auto-heal: AudioEngine detects consecutive corrupt blocks (`CORRUPT_BLOCKS_BEFORE_HEAL = 2`) and resets the graph
-- Startup silence: engine skips initial blocks after prepare/rebuild (`STARTUP_COUNTER_INIT = 5`, `STARTUP_COUNTER_GRAPH_CHANGE = 6`)
+- Startup silence: after prepare/rebuild the engine outputs silence for a few blocks (`STARTUP_COUNTER_INIT = 5`, `STARTUP_COUNTER_GRAPH_CHANGE = 6`) while feeding the new graph, then fades it in over 5 ms; on a rebuild the outgoing graph first fades out over 5 ms (max 4 blocks). Never raw input (B-11). The exact dry endpoint (output mix 0) passes input through
 - Cabinet simulation uses `SyntheticIR`: cascaded biquad filters → comb-filter reflections → exponential decay → 1024-sample IR per cabinet type
 - InputChain includes pitch-shift transpose via buffer-based delay line with varispeed interpolation
 
