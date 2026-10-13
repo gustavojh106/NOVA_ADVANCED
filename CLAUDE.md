@@ -134,7 +134,7 @@ These files have non-obvious roles or are central coordination points — most o
 | `Source/Core/PedalRegistry.h` | Factory map: type string → processor constructor (add `#include` + entry here for new effects) |
 | `Source/Effects/Pedals/Base/ProcessorBase.h` | Base class for all effects: bypass crossfade, latency reporting |
 | `Source/Effects/Pedals/Base/PremiumPedalUI.h` | Premium editor template with filmstrip knobs, hero knob, response curves |
-| `Source/Effects/Cabinets/SyntheticIR.h` | Biquad cascade → comb-filter → exponential decay → 1024-sample IR per cabinet type |
+| `Source/Effects/Cabinets/SyntheticIR.h` | Biquad cascade → comb-filter → exponential decay → 23 ms IR per cabinet type; same decay time and level at every sample rate (matched to 48 kHz) |
 | `Source/Core/StyleSheet.h` | Knob geometry constants, `ModernKnobLnF`, `StudioTrimKnobLnF` LookAndFeel classes |
 
 **Legacy placeholders** (empty, safe to ignore): `Common.h`, `GlobalProcessors.h`.
@@ -149,7 +149,7 @@ These files have non-obvious roles or are central coordination points — most o
 - Hard absolute limit: `Nova::Config::HARD_ABS_LIMIT_LINEAR` (24.0f ≈ +27.6 dBFS)
 - Auto-heal: AudioEngine detects consecutive corrupt blocks (`CORRUPT_BLOCKS_BEFORE_HEAL = 2`) and resets the graph
 - Startup silence: after prepare/rebuild the engine outputs silence for a few blocks (`STARTUP_COUNTER_INIT = 5`, `STARTUP_COUNTER_GRAPH_CHANGE = 6`) while feeding the new graph, then fades it in over 5 ms; on a rebuild the outgoing graph first fades out over 5 ms (max 4 blocks). Never raw input (B-11). The exact dry endpoint (output mix 0) passes input through
-- Cabinet simulation uses `SyntheticIR`: cascaded biquad filters → comb-filter reflections → exponential decay → 1024-sample IR per cabinet type
+- Cabinet simulation uses `SyntheticIR`: cascaded biquad filters → comb-filter reflections → exponential decay → 23 ms IR per cabinet type. Voicings are tuned at 48 kHz (`kReferenceSampleRate`); other rates scale the decay and match the band level to the 48 kHz IR
 - InputChain includes pitch-shift transpose via buffer-based delay line with varispeed interpolation
 
 ### GUI Architecture

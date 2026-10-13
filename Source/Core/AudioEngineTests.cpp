@@ -4194,6 +4194,56 @@ public:
             expect(ir96.getNumSamples() > ir44.getNumSamples(), "Higher sample rates should carry a proportionally longer IR for equivalent time resolution");
         }
 
+        beginTest("Synthetic cabinet IRs keep the 48 kHz response at 44.1 and 96 kHz (B-01)");
+        {
+            // Before the fix the decay was a fixed per-sample factor and the IR was
+            // peak-normalized, so at 96 kHz the cabinet came out ~6 dB louder.
+            const auto magnitudeDb = [](const juce::AudioBuffer<float>& ir, double sr, double freq)
+            {
+                const auto* data = ir.getReadPointer(0);
+                const double w = juce::MathConstants<double>::twoPi * freq / sr;
+                double re = 0.0, im = 0.0;
+                for (int n = 0; n < ir.getNumSamples(); ++n)
+                {
+                    re += (double)data[n] * std::cos(w * n);
+                    im -= (double)data[n] * std::sin(w * n);
+                }
+                return 10.0 * std::log10(juce::jmax(1.0e-24, re * re + im * im));
+            };
+
+            using Generator = juce::AudioBuffer<float> (*)(double);
+            const std::pair<const char*, Generator> cabinets[] = {
+                { "Atlas 4x12", &Nova::CabinetIR::generateAtlas4x12 },
+                { "Vintage 2x12", &Nova::CabinetIR::generateVintage2x12 },
+                { "Modern 4x12", &Nova::CabinetIR::generateModern4x12 }
+            };
+            static constexpr double freqs[] = { 100.0, 250.0, 500.0, 1000.0, 2000.0, 3000.0, 4000.0, 5000.0 };
+
+            for (const auto& [name, generate] : cabinets)
+            {
+                const auto reference = generate(48000.0);
+
+                for (double sr : { 44100.0, 96000.0 })
+                {
+                    const auto ir = generate(sr);
+                    juce::String line;
+                    line << "B-01 cab " << name << " @ " << juce::String(sr, 0) << " Hz vs 48 kHz:";
+                    double worst = 0.0;
+
+                    for (double f : freqs)
+                    {
+                        const double diff = magnitudeDb(ir, sr, f) - magnitudeDb(reference, 48000.0, f);
+                        worst = juce::jmax(worst, std::abs(diff));
+                        line << " " << juce::String(f, 0) << "Hz=" << juce::String(diff, 2);
+                    }
+
+                    logMessage(line);
+                    expect(worst <= 1.0, juce::String(name) + " @ " + juce::String(sr, 0)
+                        + " must stay within 1 dB of the 48 kHz response; worst=" + juce::String(worst, 2) + " dB");
+                }
+            }
+        }
+
         beginTest("Overdrive keeps the opposite channel silent");
         {
             OverdrivePedal pedal;

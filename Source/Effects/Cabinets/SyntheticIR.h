@@ -26,6 +26,10 @@ namespace Nova::CabinetIR
 
 static constexpr double kIRDurationSeconds = 0.023;
 
+// Rate the cabinet voicings were tuned at. At any other rate the IR keeps the same
+// decay time and the same level as at this rate (B-01).
+static constexpr double kReferenceSampleRate = 48000.0;
+
 // -------------------------------------------------------------------
 //  Single biquad filter section (direct form II transposed)
 // -------------------------------------------------------------------
@@ -136,7 +140,7 @@ struct BiquadSection
 inline juce::AudioBuffer<float> generateIR(
     double sampleRate,
     std::vector<BiquadSection>& filters,
-    float decayRate,        // exponential decay per sample (e.g., 0.994)
+    float decayRate,        // exponential decay per sample at kReferenceSampleRate (e.g., 0.994)
     float boxReflectDelay,  // samples for first box reflection
     float boxReflectGain,   // amplitude of cabinet box reflection
     float secondReflectDelay = 0.0f,
@@ -175,18 +179,67 @@ inline juce::AudioBuffer<float> generateIR(
             data[i] += data[i - delay2] * secondReflectGain;
     }
 
-    // Exponential decay envelope
+    // Exponential decay envelope, same decay time at every sample rate.
+    const float perSampleDecay = sampleRate == kReferenceSampleRate
+        ? decayRate
+        : (float)std::pow((double)decayRate, kReferenceSampleRate / sampleRate);
+
     float env = 1.0f;
     for (int i = 0; i < irLength; ++i)
     {
         data[i] *= env;
-        env *= decayRate;
+        env *= perSampleDecay;
     }
 
     // Normalize to peak
     const float peak = ir.getMagnitude(0, irLength);
     if (peak > 0.0001f)
         ir.applyGain(0.85f / peak);
+
+    return ir;
+}
+
+// Mean power gain of the IR over the guitar band (16 log-spaced points, 100 Hz to
+// 5 kHz), from a direct DFT. Only used at prepare time.
+inline double bandPowerGain(const juce::AudioBuffer<float>& ir, double sampleRate)
+{
+    constexpr int kPoints = 16;
+    const auto* data = ir.getReadPointer(0);
+    double sum = 0.0;
+
+    for (int p = 0; p < kPoints; ++p)
+    {
+        const double freq = 100.0 * std::pow(50.0, (double)p / (double)(kPoints - 1));
+        const double w = juce::MathConstants<double>::twoPi * freq / sampleRate;
+        double re = 0.0, im = 0.0;
+
+        for (int n = 0; n < ir.getNumSamples(); ++n)
+        {
+            re += (double)data[n] * std::cos(w * n);
+            im -= (double)data[n] * std::sin(w * n);
+        }
+
+        sum += re * re + im * im;
+    }
+
+    return sum / kPoints;
+}
+
+// Peak normalization makes the level depend on the sample rate: at 96 kHz the same
+// response spreads over twice the samples, its peak halves and the cabinet came out
+// ~6 dB louder. Away from the reference rate, scale the IR so its band gain matches
+// the reference IR. At the reference rate the IR is returned untouched.
+template <typename Builder>
+inline juce::AudioBuffer<float> generateMatchedToReference(double sampleRate, Builder&& build)
+{
+    auto ir = build(sampleRate);
+    if (sampleRate == kReferenceSampleRate)
+        return ir;
+
+    const auto reference = build(kReferenceSampleRate);
+    const double power = bandPowerGain(ir, sampleRate);
+    if (power > 1.0e-12)
+        ir.applyGain((float)std::sqrt(bandPowerGain(reference, kReferenceSampleRate) / power));
 
     return ir;
 }
@@ -198,7 +251,7 @@ inline juce::AudioBuffer<float> generateIR(
 //  steep high rolloff above 5kHz, slight mid-scoop around 400Hz.
 //  The "standard" rock/metal cabinet sound.
 // ===================================================================
-inline juce::AudioBuffer<float> generateAtlas4x12(double sampleRate)
+inline juce::AudioBuffer<float> buildAtlas4x12(double sampleRate)
 {
     std::vector<BiquadSection> filters;
 
@@ -238,7 +291,7 @@ inline juce::AudioBuffer<float> generateAtlas4x12(double sampleRate)
 //  tone, earlier high-end rolloff, "vocal" mid-range, natural room
 //  ambience from open back. Think Fender Twin, Vox AC30.
 // ===================================================================
-inline juce::AudioBuffer<float> generateVintage2x12(double sampleRate)
+inline juce::AudioBuffer<float> buildVintage2x12(double sampleRate)
 {
     std::vector<BiquadSection> filters;
 
@@ -279,7 +332,7 @@ inline juce::AudioBuffer<float> generateVintage2x12(double sampleRate)
 //  2kHz (the V30 signature), mid-scoop around 500-700Hz for chunk,
 //  extended but controlled high end, aggressive overall.
 // ===================================================================
-inline juce::AudioBuffer<float> generateModern4x12(double sampleRate)
+inline juce::AudioBuffer<float> buildModern4x12(double sampleRate)
 {
     std::vector<BiquadSection> filters;
 
@@ -310,6 +363,24 @@ inline juce::AudioBuffer<float> generateModern4x12(double sampleRate)
     const float boxDelay2 = (float)(sampleRate * 0.00058);  // ~0.58ms
 
     return generateIR(sampleRate, filters, 0.994f, boxDelay1, -0.20f, boxDelay2, 0.12f);
+}
+
+// ===================================================================
+//  Public generators: same decay time and level at every sample rate
+// ===================================================================
+inline juce::AudioBuffer<float> generateAtlas4x12(double sampleRate)
+{
+    return generateMatchedToReference(sampleRate, [](double sr) { return buildAtlas4x12(sr); });
+}
+
+inline juce::AudioBuffer<float> generateVintage2x12(double sampleRate)
+{
+    return generateMatchedToReference(sampleRate, [](double sr) { return buildVintage2x12(sr); });
+}
+
+inline juce::AudioBuffer<float> generateModern4x12(double sampleRate)
+{
+    return generateMatchedToReference(sampleRate, [](double sr) { return buildModern4x12(sr); });
 }
 
 } // namespace Nova::CabinetIR
