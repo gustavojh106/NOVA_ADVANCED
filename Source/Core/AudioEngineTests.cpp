@@ -6975,6 +6975,11 @@ public:
                 }
 
                 engine.synchronizeProcessingState();
+
+                // juce::dsp::Convolution loads the cabinet IR on a background thread.
+                // Without this wait each engine could render with or without the IR
+                // depending on timing, and the null test fails intermittently.
+                juce::Thread::sleep(500);
                 warmUpEngine(engine, kBlockSize, 24);
             };
 
