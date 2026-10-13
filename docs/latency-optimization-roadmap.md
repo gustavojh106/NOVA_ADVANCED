@@ -220,6 +220,12 @@ Técnicamente el cambio es T0; lo que falta es la decisión legal/comercial.
 Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad del producto) → T2-01 → T2-02 → T2-11 → T2-09 → T2-03 → T2-04 → T2-07 → resto.**
 
 ### T2-01 — Modo Live (sin lookaheads)
+- **Estado:** **investigación terminada (2026-10-11):** `docs/reports/LAT-T2-01-live-mode.md`. Sin código. Faltan las decisiones del usuario (§11 del documento) antes de la Fase 0.
+- **Resultado:**
+  - Cadena típica: 3.67 → 0.42 ms (**−3.25 ms**) con el limiter por `processWithoutLookahead` y el gate con un lookahead de 0.25 ms. Con el gate en 0 ms, −3.5 ms.
+  - En simulación, el limiter sin lookahead cumple las 4 garantías de P12D.
+  - Un soft-clipper solo no sirve: con overs sostenidos distorsiona ~20–25%.
+  - Nuevos hallazgos B-11, B-12 y B-13.
 - **Ganancia:** hasta **−3.5 ms** (−2 ms del limiter, −1.5 ms del gate) y un ataque que se siente más rápido.
 - **Idea:** en modo Live, limiter tipo soft-clipper sin lookahead (ya existe `processWithoutLookahead` en `Source/Core/DSP/Global/OutputChain.h:353`) y gates de latencia cero que abren en 0.1–0.3 ms. El modo Studio conserva el comportamiento actual.
 - **Por qué es riesgoso:**
@@ -290,7 +296,9 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
   - Nunca hay que abrir el micrófono de un headset Bluetooth: Windows lo pasaría a HFP (16 kHz mono).
 
 ### T2-10 — Latency Autopilot (configuración automática de audio) — **prioridad del producto**
-- **Estado:** investigación terminada (2026-10-09) → `docs/reports/LAT-T2-10-latency-autopilot.md`. Esperando las 5 decisiones de su sección 8 para empezar la Fase 1.
+- **Estado:** **F1 hecha (2026-10-09):** inventario, motor de decisión puro con 13 unit tests, "Recommended setup" en el wizard con APPLY/UNDO y reversión automática si no llega audio en 2 s, y política de mute de la entrada. Validación: base PASS (324 resultados, 13597 checks, 0 fallos), golden PASS y bit-exacto 48/48 en Debug y Release. Detalle en `docs/reports/LAT-T2-10-latency-autopilot.md` §10.
+- **F2 hecha (2026-10-09):** "CALIBRATE BUFFER" en el wizard. Prueba la escalera de buffers desde 32 con la salida en silencio y se queda con el primero sin xruns, con carga pico < 70% y gap entre callbacks < 2×. También: UNDO, CANCEL y DRIVER PANEL para buffers fijos. Validación: base PASS (326 resultados, 13617 checks, 0 fallos), golden PASS, bit-exacto 48/48 en Debug y Release. Siguiente: F3. Detalle en §11 del mismo documento.
+- **Decisiones (2026-10-09):** primera ejecución automática con aviso y Deshacer; silenciar la salida durante la calibración; Exclusive permitido en Estudio (nunca en Canciones); monitoreo solo con sugerencias; desmute automático cuando es seguro.
 - **Objetivo (pedido del usuario, 2026-10-07):** que el usuario solo "encienda" NOVA y obtenga la mejor configuración posible para su hardware, sin tocar el panel del driver.
 - **Idea:**
   1. **Elegir driver:** ASIO nativo del fabricante si existe. Evitar wrappers genéricos (ASIO4ALL, FlexASIO), que suelen bloquear el audio de otras apps. Si no hay ASIO: WASAPI Low Latency → Exclusive → Shared.
@@ -360,6 +368,10 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | B-07 | Los `.vcxproj` versionados tenían rutas de módulos JUCE viejas (6 niveles `..`, apuntaban a una carpeta inexistente) y les faltaban 28 headers que sí estaban en `NOVA.jucer`. El build funcionaba porque esos archivos están `ExcludedFromBuild` o son headers | Corregido por el re-export de T0-03 |
 | B-08 | El Octave costaba 43.5% de CPU (pico 70%) por su detector de pitch: con buffers chicos podía causar cortes por sí solo | T0-16 (−72%); más margen en T1-13 |
 | B-09 | La suite de tests en Debug está al límite del stack de 1 MB: agregar 3 KB a `OctavePedal` provocó un stack overflow (`0xC00000FD`) en `AudioEngineTests.cpp`, que crea varios pedales como variables locales en una misma función | T1-14 |
+| B-10 | `AudioSetupWizard` posicionaba los controles de sus páginas en coordenadas del wizard (no de la página): quedaban corridos y "GOT IT" podía quedar fuera de la vista. `StartWizard` repite el patrón | Corregido en `AudioSetupWizard` (T2-10 F1); `StartWizard` pendiente |
+| B-11 | Tras reconstruir el grafo, los 6 bloques de arranque devuelven la **entrada sin procesar** (no silencio): DI crudo, sin OutputChain y sin alinear (`AudioEngine.cpp:573-580`). Pasa con el bypass de pedales con latencia, el cambio de preset y el futuro cambio de modo Live. Visto en el código; falta confirmarlo con un test | T2-01 F0/F1, T2-15 |
+| B-12 | Con `OUTPUT_MIX = 0`, el endpoint Dry devuelve la entrada sin retraso, pero al host se le reporta la latencia del grafo: en un DAW esa pista suena 2 ms adelantada (`AudioEngine.cpp:639-644`). Baja prioridad | T2-01 (Live lo reduce a ~0) |
+| B-13 | El estimador de true peak del limiter (Catmull-Rom de 4 puntos) subestima los picos entre muestras con contenido agudo: +0.8 dBTP con un tono a fs/4. Con material post-cab queda ≤ 0 dBTP | Anotado en T2-01 §3.5; sin ítem todavía |
 
 ## 9. Límites físicos (no se pueden optimizar por software)
 
@@ -387,11 +399,14 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 
 ## 12. Siguiente paso recomendado
 
-**Dónde retomar (2026-10-09):** T0 completo y commiteado en la rama `perf/t0-latency-optimizations` (sin mergear a `master`). Probado en la app con ASIO.
+**Dónde retomar (2026-10-11):** T0 completo y commiteado en la rama `perf/t0-latency-optimizations` (sin mergear a `master`). T2-10 F1 y F2 implementadas y validadas en la misma rama, todavía sin commitear; falta la prueba manual en la app. Investigación de T2-01 terminada (`docs/reports/LAT-T2-01-live-mode.md`).
 
-1. **T2-10 Autopilot:** responder las 5 decisiones de la sección 8 de `docs/reports/LAT-T2-10-latency-autopilot.md` e implementar la Fase 1.
-2. **T1 de mayor impacto en CPU:** T1-03 (`tanh`/`exp` rápidos), T1-04 (filtros fuera de la zona 8x), T1-13 (Octave) y T1-01 (cab IIR + fix del decay).
-3. **T2-01 Modo Live (−3.5 ms):** siguiente investigación.
+1. **T2-10 F1 + F2:** prueba manual (listas en las secciones 10 y 11 de `docs/reports/LAT-T2-10-latency-autopilot.md`) y commits por tema.
+2. **T2-01:** tomar las 8 decisiones de la §11 del documento. Después, la Fase 0 (sin cambio de sonido): checksums de OutputChain e InputChain, suite C++ de peor caso para el limiter y el gate, `latency.breakdown` de la cadena típica y test de B-11.
+3. **Siguiente paso, a elegir:**
+   - T2-01 F1: modo Live en el motor, apagado por defecto.
+   - T2-10 F3: automático en la primera ejecución, re-detección al conectar o desconectar, monitoreo con sugerencias y memoria por equipo.
+   - T1 de CPU: T1-03, T1-04, T1-13 y T1-01.
 4. **Antes de publicar:** firmar el acuerdo ASIO (T0-03) y mergear la rama a `master`.
 
 ## 13. Registro
@@ -404,3 +419,6 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | 2026-10-07 | T0-03 implementado para desarrollo: `JUCE_ASIO="1"` en `NOVA.jucer` + re-export con `Projucer --resave`. El re-export también corrigió B-07. Drivers ASIO detectados en la máquina de desarrollo: Yamaha Steinberg USB ASIO, ASIO4ALL v2, Ableton Push, Ableton Move |
 | 2026-10-07 | T0-01, T0-02 y T0-04…T0-16 implementados. 48/48 bit-idénticos (Debug y Release), base validation y golden PASS. Octave −72% de CPU. Nuevos hallazgos B-08 y B-09; nuevos ítems T1-13 y T1-14 |
 | 2026-10-09 | T0 commiteado en la rama `perf/t0-latency-optimizations`. Probado en la app: ASIO con latencia "casi cero" y tocando sobre canciones sin problemas. Investigación de T2-10 terminada (`docs/reports/LAT-T2-10-latency-autopilot.md`) |
+| 2026-10-09 | Decisiones de T2-10 tomadas. T2-10 F1 implementada: `AudioAutopilot.h` (motor puro + 13 tests), `StandaloneAudioAutopilot.h` (aplicar/deshacer con reversión automática + política de mute) y tarjeta "Recommended setup" en el wizard. Base PASS (324/13597/0), golden PASS, bit-exacto 48/48 (Debug y Release). Nuevo hallazgo B-10 (layout de páginas del wizard), corregido en `AudioSetupWizard` |
+| 2026-10-09 | T2-10 F2 implementada: calibración del buffer (escalera desde 32 con la salida en silencio; criterios: 0 xruns, 90% de los callbacks, carga pico < 70% y gap < 2×). Ventana de medición en `CpuMeter`, flag de silencio en `processBlock`, CANCEL, UNDO y DRIVER PANEL. Base PASS (326/13617/0), golden PASS, bit-exacto 48/48 (Debug y Release). rt-profile Release 64/64 PASS. La ventana de `CpuMeter` queda dentro del ruido: los escenarios de motor (que la usan) +2.9% de mediana, frente a +9.6% de los `proc_*`, que no pasan por `CpuMeter` (ruido de la máquina). Evidencia: `artifacts/rt-profile-release-t2-10-f2.json` |
+| 2026-10-11 | Investigación de T2-01 terminada (`docs/reports/LAT-T2-01-live-mode.md`). Latencia por nodo: código + harness VST3 (88/96/192 muestras de OutputChain; +4 por procesador con oversampling, 4.076 reales). Simulación offline del limiter (7 alternativas) y de los gates. Recomendación: `processWithoutLookahead` + gate con lookahead de 0.25 ms → −3.25 ms en la cadena típica, con las garantías de P12D intactas. Nuevos hallazgos B-11, B-12 y B-13. Sin cambios en `Source/` |
