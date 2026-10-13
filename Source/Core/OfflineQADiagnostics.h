@@ -11,6 +11,7 @@
 #include "AudioEngine.h"
 #include "PedalCatalog.h"
 #include "PedalRegistry.h"
+#include "DSP/Global/InputChain.h"
 #include "DSP/Global/OutputChain.h"
 #include "SessionLogger.h"
 #include "../Effects/Amplifiers/HighGainAmp.h"
@@ -1461,6 +1462,25 @@ private:
         if (kind == Nova::PedalCatalog::Kind::Cabinet)
             juce::Thread::sleep(400);
 
+        auto& processorRef = *processor;
+        renderBitExactChecksum(result, processorRef, [&processorRef](int pattern)
+            {
+                applyBitExactParameterPattern(processorRef, pattern);
+            });
+        return result;
+    }
+
+    // Renders 2 s of the deterministic input through an already prepared processor,
+    // applying parameter patterns 0, 1 and 2 at 1/4, 1/2 and 3/4, and hashes the
+    // output bits into result.
+    static void renderBitExactChecksum(BitExactResult& result,
+        juce::AudioProcessor& processor,
+        const std::function<void(int)>& applyPattern)
+    {
+        const double sr = result.sampleRate;
+        const int scenarioBlockSize = result.blockSize;
+        const bool stereoInput = result.stereoInput;
+
         juce::AudioBuffer<float> buffer(2, scenarioBlockSize);
         juce::MidiBuffer midi;
         juce::Random rng(0x5EED1234);
@@ -1471,14 +1491,14 @@ private:
         for (int block = 0; block < totalBlocks; ++block)
         {
             if (block == totalBlocks / 4)
-                applyBitExactParameterPattern(*processor, 0);
+                applyPattern(0);
             if (block == totalBlocks / 2)
-                applyBitExactParameterPattern(*processor, 1);
+                applyPattern(1);
             if (block == (3 * totalBlocks) / 4)
-                applyBitExactParameterPattern(*processor, 2);
+                applyPattern(2);
 
             fillBitExactInputBlock(buffer, block, sr, stereoInput, rng);
-            processor->processBlock(buffer, midi);
+            processor.processBlock(buffer, midi);
 
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
             {
@@ -1499,9 +1519,75 @@ private:
             }
         }
 
-        processor->releaseResources();
+        processor.releaseResources();
         result.processedBlocks = totalBlocks;
         result.hash = "0x" + juce::String::toHexString((juce::int64)hash).paddedLeft('0', 16);
+    }
+
+    // Global stages (T2-01 F0). They have no AudioParameters, so the patterns drive
+    // setParams() instead: master gain hot enough to hit the limiter, the input gate
+    // engaged and force-mono toggled. "@live" entries pin the Live mode output.
+    static BitExactResult runGlobalStageBitExactChecksum(const juce::String& type,
+        double sr,
+        int scenarioBlockSize,
+        bool stereoInput)
+    {
+        BitExactResult result;
+        result.type = type;
+        result.sampleRate = sr;
+        result.blockSize = scenarioBlockSize;
+        result.stereoInput = stereoInput;
+
+        if (type.startsWith("OutputChain"))
+        {
+            auto output = std::make_unique<OutputChainProcessor>();
+            output->setLiveMode(type.endsWith("@live"));
+            output->setPlayConfigDetails(2, 2, sr, scenarioBlockSize);
+            output->setParams(0.0f, 0.0f);
+            output->prepareToPlay(sr, scenarioBlockSize);
+
+            auto& stage = *output;
+            renderBitExactChecksum(result, stage, [&stage](int pattern)
+                {
+                    static constexpr float volumeDb[] = { 10.73f, 6.0f, -3.0f };
+                    static constexpr float limiterDb[] = { 0.0f, -6.0f, -12.0f };
+                    stage.setParams(volumeDb[pattern], limiterDb[pattern]);
+                });
+        }
+        else if (type == "InputChain")
+        {
+            auto input = std::make_unique<InputChainProcessor>();
+            input->setPlayConfigDetails(2, 2, sr, scenarioBlockSize);
+            input->setParams(0.0f, -100.0f, false);
+            input->prepareToPlay(sr, scenarioBlockSize);
+
+            auto& stage = *input;
+            renderBitExactChecksum(result, stage, [&stage](int pattern)
+                {
+                    static constexpr float gainDb[] = { 6.0f, -3.0f, 12.0f };
+                    static constexpr float gateDb[] = { -50.0f, -40.0f, -60.0f };
+                    static constexpr bool forceMono[] = { false, true, false };
+                    stage.setParams(gainDb[pattern], gateDb[pattern], forceMono[pattern]);
+                });
+        }
+        else if (type == "Noise Gate@live")
+        {
+            auto gate = std::make_unique<NoiseGatePedal>();
+            gate->setLiveMode(true);
+            gate->setPlayConfigDetails(2, 2, sr, scenarioBlockSize);
+            gate->prepareToPlay(sr, scenarioBlockSize);
+
+            auto& stage = *gate;
+            renderBitExactChecksum(result, stage, [&stage](int pattern)
+                {
+                    applyBitExactParameterPattern(stage, pattern);
+                });
+        }
+        else
+        {
+            result.hash = "missing-processor";
+        }
+
         return result;
     }
 
@@ -1523,6 +1609,11 @@ private:
         for (const auto& entry : Nova::PedalCatalog::entries())
             for (const auto& config : configs)
                 results.push_back(runBitExactChecksum(entry.typeID, entry.kind, config.sampleRate, config.blockSize, config.stereoInput));
+
+        static const char* const globalStages[] = { "OutputChain", "InputChain", "OutputChain@live", "Noise Gate@live" };
+        for (const auto* stage : globalStages)
+            for (const auto& config : configs)
+                results.push_back(runGlobalStageBitExactChecksum(stage, config.sampleRate, config.blockSize, config.stereoInput));
 
         return results;
     }

@@ -181,10 +181,17 @@ void OutputChainProcessor::applyParameterTargets(bool forceSync) noexcept
     }
 }
 
+void OutputChainProcessor::setLiveMode(bool shouldUseLiveMode)
+{
+    liveMode.store(shouldUseLiveMode, std::memory_order_release);
+    updateReportedLatencyForLimiter(currentLimiterDb);
+}
+
 void OutputChainProcessor::updateReportedLatencyForLimiter(float /*limiterDb*/)
 {
-    // Limiter is always armed -> latency is always the lookahead delay.
-    setLatencySamples(limiter.getLookaheadSamples());
+    // Limiter is always armed -> latency is always the lookahead delay (Studio),
+    // or zero when Live mode runs it without lookahead.
+    setLatencySamples(isLiveMode() ? 0 : limiter.getLookaheadSamples());
 }
 
 void OutputChainProcessor::applyDcBlockers(juce::AudioBuffer<float>& buffer) noexcept
@@ -290,7 +297,9 @@ void OutputChainProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     // when the user-controlled limiterDb is 0). The previous build bypassed the
     // lookahead at 0 dB and relied on the 0.985->0.999 soft ceiling alone,
     // which left hot master gain unchecked.
-    const PeakLimiter::Result limiterResult = limiter.process(buffer, limiterThresholdLinearSmooth);
+    const PeakLimiter::Result limiterResult = limiter.process(buffer,
+        limiterThresholdLinearSmooth,
+        !liveMode.load(std::memory_order_relaxed));
 
     debugTelemetry.captureControls(currentOutputVolDb, currentLimiterDb, limiterResult);
     debugTelemetry.postLimiterStage.capture(buffer);

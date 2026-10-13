@@ -51,6 +51,13 @@ public:
     void setTelemetryTag(const juce::String& newTag);
     DebugSnapshot getDebugSnapshot() const noexcept;
 
+    // Live mode (T2-01): the limiter runs without its lookahead delay and the stage
+    // reports zero latency. Same threshold, hold, release and soft ceiling as Studio.
+    // Off by default. Set it before prepareToPlay(); switching modes while audio runs
+    // goes through a graph rebuild with fresh processors.
+    void setLiveMode(bool shouldUseLiveMode);
+    bool isLiveMode() const noexcept { return liveMode.load(std::memory_order_acquire); }
+
     // JUCE boilerplate
     const juce::String getName() const override { return "OutputChain"; }
     bool hasEditor() const override { return false; }
@@ -180,7 +187,8 @@ private:
 
         template <typename BufferType>
         Result process(BufferType& buffer,
-            juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear>& thresholdLinearSmoother) noexcept
+            juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear>& thresholdLinearSmoother,
+            bool useLookahead = true) noexcept
         {
             Result result;
 
@@ -190,7 +198,7 @@ private:
 
             const int numSamples = buffer.getNumSamples();
 
-            if (numChannels <= 0 || numSamples <= 0 || delayBuffer.getNumSamples() <= lookaheadSamples)
+            if (!useLookahead || numChannels <= 0 || numSamples <= 0 || delayBuffer.getNumSamples() <= lookaheadSamples)
             {
                 return processWithoutLookahead(buffer, thresholdLinearSmoother);
             }
@@ -491,6 +499,7 @@ private:
 
     std::atomic<float> targetOutputVolDb{ 0.0f };
     std::atomic<float> targetLimiterDb{ 0.0f };
+    std::atomic<bool> liveMode{ false };
 
     float currentOutputVolDb = 0.0f;
     float currentLimiterDb = 0.0f;

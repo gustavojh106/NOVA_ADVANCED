@@ -6,6 +6,7 @@
 #include <limits>
 #include <memory>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include "AudioEngine.h"
@@ -18004,6 +18005,839 @@ public:
     }
 };
 
+// T2-01 F0 (docs/reports/LAT-T2-01-live-mode.md): worst-case measurements of the
+// output limiter and the Noise Gate in Studio and Live, latency breakdown of the
+// typical chain, and the B-11 characterization. Ports the offline Python
+// simulations to C++. Measured values go to the log with the "T2-01 F0" prefix.
+class T201LiveModeF0Tests final : public juce::UnitTest
+{
+public:
+    T201LiveModeF0Tests()
+        : juce::UnitTest("T2-01 F0 Live mode measurements", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        runLimiterSuite();
+        runGateSuite();
+        runLatencyBreakdown();
+        runB11Characterization();
+    }
+
+private:
+    using Signal = std::vector<float>;
+
+    static constexpr double kRate = 48000.0;
+    static constexpr int kBlock = 64;
+    static constexpr float kLimiterCeiling = 0.97f;
+
+    struct OutputRun
+    {
+        Signal output;
+        int latency = 0;
+        OutputChainProcessor::DebugSnapshot snapshot;
+        bool finite = true;
+    };
+
+    struct LimiterCase
+    {
+        juce::String name;
+        Signal input;
+        float masterDb = 0.0f;
+        std::vector<int> onsets;
+        bool sustained = false;
+        bool postCab = false;
+    };
+
+    // ---------------------------------------------------------------- helpers
+
+    static float toDb(double linear) noexcept
+    {
+        return (float)(20.0 * std::log10(juce::jmax(1.0e-12, linear)));
+    }
+
+    static float energyRatioDb(double numerator, double denominator) noexcept
+    {
+        return (float)(10.0 * std::log10(juce::jmax(1.0e-30, numerator) / juce::jmax(1.0e-30, denominator)));
+    }
+
+    static OutputRun runOutputChain(bool live, const Signal& input, float masterDb)
+    {
+        OutputRun run;
+        auto output = std::make_unique<OutputChainProcessor>();
+        output->setLiveMode(live);
+        output->setPlayConfigDetails(2, 2, kRate, kBlock);
+        output->setParams(masterDb, 0.0f);
+        output->prepareToPlay(kRate, kBlock);
+        run.latency = output->getLatencySamples();
+
+        // Flush the latency so the aligned output covers the whole input.
+        const int total = (int)input.size() + run.latency + kBlock;
+        run.output.assign((size_t)total, 0.0f);
+
+        juce::AudioBuffer<float> block(2, kBlock);
+        juce::MidiBuffer midi;
+
+        for (int start = 0; start < total; start += kBlock)
+        {
+            const int count = juce::jmin(kBlock, total - start);
+            block.setSize(2, count, false, false, true);
+
+            for (int i = 0; i < count; ++i)
+            {
+                const int n = start + i;
+                const float x = n < (int)input.size() ? input[(size_t)n] : 0.0f;
+                block.setSample(0, i, x);
+                block.setSample(1, i, x);
+            }
+
+            output->processBlock(block, midi);
+            run.finite = run.finite && bufferHasOnlyFiniteSamples(block);
+
+            // Both channels carry the same signal (linked limiter), so one is enough.
+            for (int i = 0; i < count; ++i)
+                run.output[(size_t)(start + i)] = block.getSample(0, i);
+        }
+
+        run.snapshot = output->getDebugSnapshot();
+        return run;
+    }
+
+    // Output sample n aligned with input sample n (removes the reported latency).
+    static float aligned(const OutputRun& run, int n) noexcept
+    {
+        const int index = n + run.latency;
+        return juce::isPositiveAndBelow(index, (int)run.output.size()) ? run.output[(size_t)index] : 0.0f;
+    }
+
+    static float samplePeak(const Signal& x) noexcept
+    {
+        float peak = 0.0f;
+        for (float v : x)
+            peak = juce::jmax(peak, std::abs(v));
+        return peak;
+    }
+
+    // True peak via 8x linear-phase FIR oversampling (BS.1770-style estimate).
+    static float truePeak(const Signal& x)
+    {
+        juce::dsp::Oversampling<float> oversampler(1, 3,
+            juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple, true, false);
+        oversampler.initProcessing((size_t)kBlock);
+
+        juce::AudioBuffer<float> chunk(1, kBlock);
+        float peak = 0.0f;
+        const int total = (int)x.size() + 4 * kBlock;
+
+        for (int start = 0; start < total; start += kBlock)
+        {
+            for (int i = 0; i < kBlock; ++i)
+            {
+                const int n = start + i;
+                chunk.setSample(0, i, n < (int)x.size() ? x[(size_t)n] : 0.0f);
+            }
+
+            juce::dsp::AudioBlock<float> block(chunk);
+            auto up = oversampler.processSamplesUp(block);
+            const auto* data = up.getChannelPointer(0);
+            for (size_t i = 0; i < up.getNumSamples(); ++i)
+                peak = juce::jmax(peak, std::abs(data[i]));
+        }
+
+        return peak;
+    }
+
+    static Signal applyButterworth(const Signal& x, float cutoffHz, bool highPass)
+    {
+        auto coefficients = highPass
+            ? juce::dsp::FilterDesign<float>::designIIRHighpassHighOrderButterworthMethod(cutoffHz, kRate, 4)
+            : juce::dsp::FilterDesign<float>::designIIRLowpassHighOrderButterworthMethod(cutoffHz, kRate, 4);
+
+        std::vector<juce::dsp::IIR::Filter<float>> filters;
+        for (auto* c : coefficients)
+            filters.emplace_back(c);
+
+        Signal y(x.size());
+        for (size_t n = 0; n < x.size(); ++n)
+        {
+            float v = x[n];
+            for (auto& f : filters)
+                v = f.processSample(v);
+            y[n] = v;
+        }
+
+        return y;
+    }
+
+    static void normalisePeak(Signal& x, float targetPeak)
+    {
+        const float peak = samplePeak(x);
+        if (peak <= 0.0f)
+            return;
+
+        const float scale = targetPeak / peak;
+        for (auto& v : x)
+            v *= scale;
+    }
+
+    // Plucked guitar-like notes (82-330 Hz) every 250 ms with a short pick noise burst.
+    static Signal makePlucks(double seconds, std::vector<int>& onsets)
+    {
+        static constexpr double notes[] = { 82.41, 110.0, 146.83, 196.0, 246.94, 329.63 };
+        const int length = (int)(seconds * kRate);
+        const int period = (int)(0.25 * kRate);
+        juce::Random rng(0x7201F0);
+
+        Signal x((size_t)length, 0.0f);
+        onsets.clear();
+
+        for (int n = 0; n < length; ++n)
+        {
+            const int pluck = n / period;
+            const int offset = n - pluck * period;
+            if (offset == 0)
+                onsets.push_back(n);
+
+            const double tp = offset / kRate;
+            const double f = notes[pluck % 6];
+            double v = 0.0;
+
+            for (int k = 1; k <= 24 && k * f < 0.45 * kRate; ++k)
+                v += (1.0 / k) * std::exp(-tp * (2.5 + 0.9 * k))
+                    * std::sin(juce::MathConstants<double>::twoPi * k * f * tp + 0.7 * k);
+
+            v *= juce::jmin(1.0, tp / 0.0005);
+            v += 0.3 * std::exp(-tp / 0.002) * (rng.nextFloat() * 2.0f - 1.0f);
+            x[(size_t)n] = (float)v;
+        }
+
+        return x;
+    }
+
+    static Signal makeSine(double seconds, double frequency, double amplitude, double phase = 0.0)
+    {
+        Signal x((size_t)(seconds * kRate));
+        for (size_t n = 0; n < x.size(); ++n)
+            x[n] = (float)(amplitude * std::sin(juce::MathConstants<double>::twoPi * frequency * (double)n / kRate + phase));
+        return x;
+    }
+
+    static std::vector<LimiterCase> buildLimiterCases()
+    {
+        std::vector<LimiterCase> cases;
+        const float overSix = kLimiterCeiling * juce::Decibels::decibelsToGain(6.0f);
+        const float overTwelve = kLimiterCeiling * juce::Decibels::decibelsToGain(12.0f);
+
+        for (float amplitude : { 1.0f, 2.0f })
+        {
+            LimiterCase c;
+            c.name = "impulse_" + juce::String(amplitude, 1);
+            c.input.assign((size_t)(0.5 * kRate), 0.0f);
+            c.input[(size_t)(0.1 * kRate)] = amplitude;
+            c.onsets = { (int)(0.1 * kRate) };
+            cases.push_back(c);
+        }
+
+        {
+            LimiterCase c;
+            c.name = "sine_1k_0dBFS";
+            c.input = makeSine(1.0, 1000.0, 1.0);
+            c.sustained = true;
+            cases.push_back(c);
+
+            c.name = "sine_1k_+6dB";
+            c.input = makeSine(1.0, 1000.0, 2.0);
+            cases.push_back(c);
+
+            c.name = "sine_4321_+6dB";
+            c.input = makeSine(1.0, 4321.0, 2.0);
+            cases.push_back(c);
+        }
+
+        {
+            // fs/4 tone at 45 degrees: samples at 0.919, true peak 1.3 (B-13 case).
+            LimiterCase c;
+            c.name = "tone_fs4_45deg";
+            c.input = makeSine(1.0, kRate / 4.0, 1.3, juce::MathConstants<double>::pi / 4.0);
+            c.sustained = true;
+            cases.push_back(c);
+        }
+
+        {
+            LimiterCase c;
+            c.name = "ramp_-12_to_+12dB";
+            c.input = makeSine(2.0, 1000.0, 1.0);
+            for (size_t n = 0; n < c.input.size(); ++n)
+                c.input[n] *= juce::Decibels::decibelsToGain(-12.0f + 24.0f * (float)n / (float)c.input.size());
+            cases.push_back(c);
+        }
+
+        {
+            // P12D scenario of the investigation: a 0.5 sine with master +10.73 dB.
+            LimiterCase c;
+            c.name = "p12d_master_+10.73dB";
+            c.input = makeSine(1.0, 220.0, 0.5);
+            c.masterDb = 10.73f;
+            c.sustained = true;
+            cases.push_back(c);
+
+            // Two-tone variant of the P12D unit test (220 + 277 Hz): the beating
+            // envelope makes the gain move, so its residual is intermodulation.
+            c.name = "p12d_twotone_master_+10.73dB";
+            c.input.resize((size_t)kRate);
+            for (size_t n = 0; n < c.input.size(); ++n)
+            {
+                const double t = (double)n / kRate;
+                c.input[n] = (float)(0.25 * std::sin(juce::MathConstants<double>::twoPi * 220.0 * t)
+                    + 0.25 * std::sin(juce::MathConstants<double>::twoPi * 277.0 * t + 0.19));
+            }
+            normalisePeak(c.input, 0.5f);
+            cases.push_back(c);
+        }
+
+        std::vector<int> onsets;
+        const auto plucks = makePlucks(2.0, onsets);
+
+        for (float target : { overSix, overTwelve })
+        {
+            LimiterCase c;
+            c.name = target == overSix ? "picks_postcab_+6dB" : "picks_postcab_+12dB";
+            c.input = applyButterworth(plucks, 5500.0f, false);
+            normalisePeak(c.input, target);
+            c.onsets = onsets;
+            c.postCab = true;
+            cases.push_back(c);
+        }
+
+        {
+            Signal driven = plucks;
+            normalisePeak(driven, 1.0f);
+            for (auto& v : driven)
+                v = std::tanh(10.0f * v);
+
+            LimiterCase c;
+            c.name = "picks_highgain_postcab_+6dB";
+            c.input = applyButterworth(driven, 5500.0f, false);
+            normalisePeak(c.input, overSix);
+            c.onsets = onsets;
+            c.postCab = true;
+            cases.push_back(c);
+
+            // No cabinet: NOVA used as a preamp into a real amp or FRFR.
+            c.name = "picks_highgain_nocab_+6dB";
+            c.input = driven;
+            normalisePeak(c.input, overSix);
+            c.postCab = false;
+            cases.push_back(c);
+        }
+
+        {
+            LimiterCase c;
+            c.name = "picks_fullband_nocab_+6dB";
+            c.input = plucks;
+            normalisePeak(c.input, overSix);
+            c.onsets = onsets;
+            cases.push_back(c);
+        }
+
+        return cases;
+    }
+
+    // Nonlinear residual of a sustained case: hot render against a reference render
+    // scaled below the threshold (same DC blockers and latency), least-squares gain
+    // fit over the settled second half.
+    static float sustainedResidualDb(bool live, const LimiterCase& c, const OutputRun& hot)
+    {
+        constexpr float kReferenceScale = 0.25f;
+        Signal quiet = c.input;
+        const float quietPeak = samplePeak(quiet) * juce::Decibels::decibelsToGain(c.masterDb);
+        const float scale = kReferenceScale / juce::jmax(1.0e-6f, quietPeak);
+        for (auto& v : quiet)
+            v *= scale;
+
+        const auto reference = runOutputChain(live, quiet, c.masterDb);
+        const int start = (int)c.input.size() / 2;
+        const int end = (int)c.input.size();
+
+        double cross = 0.0;
+        double refEnergy = 0.0;
+        for (int n = start; n < end; ++n)
+        {
+            cross += (double)aligned(hot, n) * aligned(reference, n);
+            refEnergy += (double)aligned(reference, n) * aligned(reference, n);
+        }
+
+        const double gain = cross / juce::jmax(1.0e-30, refEnergy);
+        double residual = 0.0;
+        double signal = 0.0;
+        for (int n = start; n < end; ++n)
+        {
+            const double fit = gain * aligned(reference, n);
+            const double error = aligned(hot, n) - fit;
+            residual += error * error;
+            signal += fit * fit;
+        }
+
+        return energyRatioDb(residual, signal);
+    }
+
+    struct Splatter
+    {
+        float absoluteDb = 0.0f;   // C5 as defined in the investigation: out_HF / in_HF
+        float normalisedDb = 0.0f; // out_HF / in_HF relative to out / in broadband
+    };
+
+    // Energy above 9 kHz in the first 10 ms of each attack. "absolute" compares the
+    // treble out against the treble in (criterion C5). "normalised" also discounts the
+    // gain reduction, so 0 dB means the limiter scaled the attack without adding treble.
+    static Splatter attackSplatter(const LimiterCase& c, const OutputRun& run)
+    {
+        Signal alignedOutput(c.input.size());
+        for (size_t n = 0; n < c.input.size(); ++n)
+            alignedOutput[n] = aligned(run, (int)n);
+
+        const auto inputHf = applyButterworth(c.input, 9000.0f, true);
+        const auto outputHf = applyButterworth(alignedOutput, 9000.0f, true);
+        const int window = (int)(0.010 * kRate);
+
+        double inHf = 0.0, outHf = 0.0, inAll = 0.0, outAll = 0.0;
+        for (int onset : c.onsets)
+        {
+            for (int n = onset; n < juce::jmin(onset + window, (int)c.input.size()); ++n)
+            {
+                inHf += (double)inputHf[(size_t)n] * inputHf[(size_t)n];
+                outHf += (double)outputHf[(size_t)n] * outputHf[(size_t)n];
+                inAll += (double)c.input[(size_t)n] * c.input[(size_t)n];
+                outAll += (double)alignedOutput[(size_t)n] * alignedOutput[(size_t)n];
+            }
+        }
+
+        Splatter splatter;
+        splatter.absoluteDb = energyRatioDb(outHf, inHf);
+        splatter.normalisedDb = splatter.absoluteDb - energyRatioDb(outAll, inAll);
+        return splatter;
+    }
+
+    // ------------------------------------------------------------ limiter suite
+
+    void runLimiterSuite()
+    {
+        beginTest("T2-01 F0 limiter worst case: Studio lookahead vs Live without lookahead");
+
+        for (const auto& c : buildLimiterCases())
+        {
+            const auto studio = runOutputChain(false, c.input, c.masterDb);
+            const auto live = runOutputChain(true, c.input, c.masterDb);
+
+            expectEquals(live.latency, 0, c.name + ": Live OutputChain must report zero latency");
+            expect(studio.latency > 0, c.name + ": Studio OutputChain must report its lookahead");
+            expect(studio.finite && live.finite, c.name + ": render must stay finite");
+
+            const float studioPeak = samplePeak(studio.output);
+            const float livePeak = samplePeak(live.output);
+            const float studioTp = truePeak(studio.output);
+            const float liveTp = truePeak(live.output);
+
+            // The debug snapshot covers only the last telemetry window, so the line
+            // reports the input peak (after master gain) instead of the gain reduction.
+            const float inputPeakDb = toDb(samplePeak(c.input)) + c.masterDb;
+
+            juce::String line;
+            line << "T2-01 F0 limiter " << c.name
+                 << " | in peak=" << juce::String(inputPeakDb, 2) << " dBFS"
+                 << " | studio peak=" << juce::String(toDb(studioPeak), 2) << " dBFS tp=" << juce::String(toDb(studioTp), 2)
+                 << " dBTP ceilingHits=" << studio.snapshot.softCeilingTouchedSamples
+                 << " | live peak=" << juce::String(toDb(livePeak), 2) << " dBFS tp=" << juce::String(toDb(liveTp), 2)
+                 << " dBTP ceilingHits=" << live.snapshot.softCeilingTouchedSamples;
+
+            // C2: Live computes the gain from the same sample it attenuates, so the
+            // sample ceiling holds by construction and the soft ceiling stays untouched.
+            expect(livePeak <= kLimiterCeiling * 1.0001f,
+                c.name + ": Live sample peak must stay at or below 0.97; peak=" + juce::String(livePeak, 6));
+            expectEquals(live.snapshot.softCeilingTouchedSamples, 0,
+                c.name + ": Live must not reach the soft ceiling");
+
+            if (c.sustained)
+            {
+                const float studioResidual = sustainedResidualDb(false, c, studio);
+                const float liveResidual = sustainedResidualDb(true, c, live);
+                line << " | residual studio=" << juce::String(studioResidual, 1)
+                     << " dB live=" << juce::String(liveResidual, 1) << " dB";
+
+                // C4: a limiter (gain), not a clipper. Single sine of the investigation.
+                if (c.name == "p12d_master_+10.73dB")
+                    expect(liveResidual <= -60.0f,
+                        c.name + ": Live residual must stay <= -60 dB; residual=" + juce::String(liveResidual, 2));
+
+                // Every other sustained case: Live adds no distortion over Studio.
+                expect(liveResidual <= studioResidual + 1.5f,
+                    c.name + ": Live residual must stay within +1.5 dB of Studio; studio="
+                        + juce::String(studioResidual, 2) + " live=" + juce::String(liveResidual, 2));
+            }
+
+            if (!c.onsets.empty() && c.input.size() > (size_t)kRate / 2)
+            {
+                const auto studioSplatter = attackSplatter(c, studio);
+                const auto liveSplatter = attackSplatter(c, live);
+                line << " | splatter abs studio=" << juce::String(studioSplatter.absoluteDb, 2)
+                     << " dB live=" << juce::String(liveSplatter.absoluteDb, 2)
+                     << " dB | splatter norm studio=" << juce::String(studioSplatter.normalisedDb, 2)
+                     << " dB live=" << juce::String(liveSplatter.normalisedDb, 2) << " dB";
+
+                // C5: no click-like treble on the attacks of post-cab material.
+                if (c.postCab)
+                    expect(liveSplatter.absoluteDb <= 1.5f,
+                        c.name + ": Live attack splatter must stay <= input +1.5 dB; splatter="
+                            + juce::String(liveSplatter.absoluteDb, 2));
+            }
+
+            // C3: post-cab true peak within 0.5 dB of Studio. Without a cabinet both
+            // modes go over 0 dBTP (B-13, Catmull-Rom estimator); Live within +1 dB.
+            if (c.postCab)
+                expect(toDb(liveTp) <= toDb(studioTp) + 0.5f,
+                    c.name + ": Live true peak must stay within +0.5 dB of Studio; studio="
+                        + juce::String(toDb(studioTp), 2) + " live=" + juce::String(toDb(liveTp), 2));
+            else if (!c.onsets.empty())
+                expect(toDb(liveTp) <= toDb(studioTp) + 1.0f,
+                    c.name + ": no-cab Live true peak must stay within +1 dB of Studio; studio="
+                        + juce::String(toDb(studioTp), 2) + " live=" + juce::String(toDb(liveTp), 2));
+
+            // P12D guarantees G1-G4 in both modes.
+            if (c.name.startsWith("p12d"))
+            {
+                for (const auto* run : { &studio, &live })
+                {
+                    const auto mode = run == &studio ? juce::String("Studio") : juce::String("Live");
+                    expect(samplePeak(run->output) < 0.98f, mode + " P12D peak must stay below 0.98");
+                    expect(run->snapshot.limiterMaxReductionDb > 0.5f, mode + " P12D limiter must reduce gain");
+                    expectEquals(run->snapshot.softCeilingTouchedSamples, 0, mode + " P12D must not touch the soft ceiling");
+                }
+            }
+
+            logMessage(line);
+        }
+
+        beginTest("T2-01 F0 limiter clean path: Live equals Studio minus the lookahead");
+        {
+            std::vector<int> onsets;
+            auto clean = applyButterworth(makePlucks(1.0, onsets), 5500.0f, false);
+            normalisePeak(clean, 0.5f);
+
+            const auto studio = runOutputChain(false, clean, 0.0f);
+            const auto live = runOutputChain(true, clean, 0.0f);
+
+            float maxDifference = 0.0f;
+            for (int n = 0; n < (int)clean.size(); ++n)
+                maxDifference = juce::jmax(maxDifference, std::abs(aligned(studio, n) - aligned(live, n)));
+
+            logMessage("T2-01 F0 limiter clean path | max |studio - live| = " + juce::String(maxDifference, 9)
+                + " | latency studio=" + juce::String(studio.latency) + " live=" + juce::String(live.latency));
+            expect(maxDifference <= 1.0e-7f,
+                "Below the threshold Live must be Studio shifted by the lookahead; maxDifference=" + juce::String(maxDifference, 9));
+            expectEquals(studio.snapshot.limiterActiveBlocks, 0);
+            expectEquals(live.snapshot.limiterActiveBlocks, 0);
+        }
+
+        beginTest("T2-01 F0 OutputChain Live latency at 44.1 / 48 / 96 kHz");
+        for (double sr : { 44100.0, 48000.0, 96000.0 })
+        {
+            for (bool liveMode : { false, true })
+            {
+                auto output = std::make_unique<OutputChainProcessor>();
+                output->setLiveMode(liveMode);
+                output->setPlayConfigDetails(2, 2, sr, kBlock);
+                output->prepareToPlay(sr, kBlock);
+                const int expected = liveMode ? 0 : juce::roundToInt(sr * 0.002);
+                expectEquals(output->getLatencySamples(), expected,
+                    juce::String(liveMode ? "Live" : "Studio") + " OutputChain latency @ " + juce::String(sr));
+            }
+        }
+    }
+
+    // --------------------------------------------------------------- gate suite
+
+    struct GateCase
+    {
+        juce::String name;
+        float noteDbfs = -12.0f;
+        bool palmMute = false;
+    };
+
+    // DI with a noise floor (hum -66 dBFS + hiss -72 dBFS), 0.6 s of floor so the gate
+    // closes, then a plucked note (or 16th-note palm mutes at 120 bpm).
+    static Signal makeGateSignal(const GateCase& c, int& onset)
+    {
+        const int length = (int)(1.2 * kRate);
+        onset = (int)(0.6 * kRate);
+        const int palmPeriod = (int)(0.125 * kRate);
+        juce::Random rng(0x6A7E);
+        const float noteAmplitude = juce::Decibels::decibelsToGain(c.noteDbfs);
+
+        Signal x((size_t)length);
+        for (int n = 0; n < length; ++n)
+        {
+            const double t = n / kRate;
+            double v = 0.0005 * std::sin(juce::MathConstants<double>::twoPi * 60.0 * t)
+                + 0.00025 * (rng.nextFloat() * 2.0f - 1.0f);
+
+            if (n >= onset)
+            {
+                const int local = c.palmMute ? (n - onset) % palmPeriod : n - onset;
+                const double tp = local / kRate;
+                const double decay = c.palmMute ? 40.0 : 4.0;
+                double note = 0.0;
+                for (int k = 1; k <= 12; ++k)
+                    note += (1.0 / k) * std::exp(-tp * (decay + 0.7 * k))
+                        * std::sin(juce::MathConstants<double>::twoPi * k * 110.0 * tp + 0.7 * k);
+                note *= juce::jmin(1.0, tp / 0.0005);
+                v += noteAmplitude * 0.62 * note;
+            }
+
+            x[(size_t)n] = (float)v;
+        }
+
+        return x;
+    }
+
+    struct GateRun
+    {
+        Signal output;
+        int latency = 0;
+    };
+
+    static GateRun runGate(bool live, const Signal& input, double sr = kRate)
+    {
+        GateRun run;
+        auto gate = std::make_unique<NoiseGatePedal>();
+        gate->setLiveMode(live);
+        gate->setPlayConfigDetails(2, 2, sr, kBlock);
+        gate->prepareToPlay(sr, kBlock);
+        run.latency = gate->getLatencySamples();
+
+        const int total = (int)input.size() + run.latency + kBlock;
+        run.output.assign((size_t)total, 0.0f);
+        juce::AudioBuffer<float> block(2, kBlock);
+        juce::MidiBuffer midi;
+
+        for (int start = 0; start < total; start += kBlock)
+        {
+            const int count = juce::jmin(kBlock, total - start);
+            block.setSize(2, count, false, false, true);
+            for (int i = 0; i < count; ++i)
+            {
+                const int n = start + i;
+                const float x = n < (int)input.size() ? input[(size_t)n] : 0.0f;
+                block.setSample(0, i, x);
+                block.setSample(1, i, x);
+            }
+
+            gate->processBlock(block, midi);
+            for (int i = 0; i < count; ++i)
+                run.output[(size_t)(start + i)] = block.getSample(0, i);
+        }
+
+        return run;
+    }
+
+    static float gateLossDb(const Signal& input, const GateRun& run, int onset, double windowSeconds)
+    {
+        const int window = (int)(windowSeconds * kRate);
+        double in = 0.0, out = 0.0;
+        for (int n = onset; n < onset + window; ++n)
+        {
+            in += (double)input[(size_t)n] * input[(size_t)n];
+            const float y = run.output[(size_t)(n + run.latency)];
+            out += (double)y * y;
+        }
+        return energyRatioDb(out, in);
+    }
+
+    void runGateSuite()
+    {
+        beginTest("T2-01 F0 Noise Gate attack: Studio 1.5 ms vs Live 0.25 ms lookahead");
+
+        // The detector listens to a filtered sidechain (the default focus high-passes
+        // around 200 Hz), so a note's dBFS does not map to the threshold directly.
+        // "Near threshold" is the quietest note that opens the gate in Studio.
+        float nearThresholdDbfs = -20.0f;
+        for (float level = -46.0f; level <= -20.0f; level += 1.0f)
+        {
+            int onset = 0;
+            const GateCase probe { "probe", level, false };
+            const auto input = makeGateSignal(probe, onset);
+            if (gateLossDb(input, runGate(false, input), onset, 0.003) >= -0.2f)
+            {
+                nearThresholdDbfs = level;
+                break;
+            }
+        }
+
+        const GateCase cases[] = {
+            { "strong_pick_-12dBFS", -12.0f, false },
+            { "soft_fingerpicking_-36dBFS", -36.0f, false },
+            { "near_threshold_" + juce::String(nearThresholdDbfs, 0) + "dBFS", nearThresholdDbfs, false },
+            { "palm_mute_16ths_-18dBFS", -18.0f, true }
+        };
+
+        for (const auto& c : cases)
+        {
+            const bool nearThreshold = c.noteDbfs == nearThresholdDbfs;
+            int onset = 0;
+            const auto input = makeGateSignal(c, onset);
+            const auto studio = runGate(false, input);
+            const auto live = runGate(true, input);
+
+            const float studio1 = gateLossDb(input, studio, onset, 0.001);
+            const float studio3 = gateLossDb(input, studio, onset, 0.003);
+            const float live1 = gateLossDb(input, live, onset, 0.001);
+            const float live3 = gateLossDb(input, live, onset, 0.003);
+
+            logMessage("T2-01 F0 gate " + c.name
+                + " | studio (lat " + juce::String(studio.latency) + ") 1ms=" + juce::String(studio1, 2) + " dB 3ms=" + juce::String(studio3, 2)
+                + " dB | live (lat " + juce::String(live.latency) + ") 1ms=" + juce::String(live1, 2) + " dB 3ms=" + juce::String(live3, 2) + " dB");
+
+            expect(studio1 >= -0.2f, c.name + ": Studio lookahead must hide the gate opening; loss=" + juce::String(studio1, 2));
+
+            // C6: <= 1 dB on notes >= 10 dB over the threshold, <= 2.5 dB near it.
+            const float allowed = nearThreshold ? -2.5f : -1.0f;
+            expect(live1 >= allowed, c.name + ": Live first-ms loss " + juce::String(live1, 2)
+                + " dB exceeds " + juce::String(allowed, 1) + " dB");
+        }
+
+        beginTest("T2-01 F0 Noise Gate Live latency at 44.1 / 48 / 96 kHz");
+        for (const auto& [sr, studioExpected, liveExpected] : { std::tuple<double, int, int>{ 44100.0, 66, 11 },
+                                                                std::tuple<double, int, int>{ 48000.0, 72, 12 },
+                                                                std::tuple<double, int, int>{ 96000.0, 144, 24 } })
+        {
+            for (bool liveMode : { false, true })
+            {
+                auto gate = std::make_unique<NoiseGatePedal>();
+                gate->setLiveMode(liveMode);
+                gate->setPlayConfigDetails(2, 2, sr, kBlock);
+                gate->prepareToPlay(sr, kBlock);
+                expectEquals(gate->getLatencySamples(), liveMode ? liveExpected : studioExpected,
+                    juce::String(liveMode ? "Live" : "Studio") + " gate latency @ " + juce::String(sr));
+            }
+        }
+    }
+
+    // -------------------------------------------------------- latency breakdown
+
+    void runLatencyBreakdown()
+    {
+        beginTest("T2-01 F0 latency breakdown of the typical chain (Studio)");
+
+        // Gate 1.5 ms + Overdrive 4 + High Gain Amp 4 + Cabinet 0 + Reverb 0 + limiter 2.0 ms.
+        for (const auto& [sr, expected] : { std::pair<double, int>{ 44100.0, 162 },
+                                            std::pair<double, int>{ 48000.0, 176 },
+                                            std::pair<double, int>{ 96000.0, 344 } })
+        {
+            AudioEngine engine;
+            engine.prepare(sr, kBlock, 2, 2);
+            engine.addPedal("Noise Gate", Nova::ChainID::LineA, -1, Nova::ZoneID::Pre, "f0-gate");
+            engine.addPedal("Overdrive", Nova::ChainID::LineA, -1, Nova::ZoneID::Pre, "f0-overdrive");
+            engine.addPedal("High Gain Amp", Nova::ChainID::LineA, -1, Nova::ZoneID::Amp, "f0-amp");
+            engine.addPedal("Cabinet", Nova::ChainID::LineA, -1, Nova::ZoneID::Cabinet, "f0-cab");
+            engine.addPedal("Reverb", Nova::ChainID::LineA, -1, Nova::ZoneID::FX, "f0-reverb");
+            engine.synchronizeProcessingState();
+
+            const auto report = engine.buildDiagnosticReport();
+            // One log line: the session log keeps only the first line of a message prefixed.
+            juce::String breakdown;
+            for (const auto& reportLine : juce::StringArray::fromLines(report))
+                if (reportLine.contains("latency.breakdown") || reportLine.contains("latencySamples="))
+                    breakdown << " || " << reportLine.trim();
+
+            logMessage("T2-01 F0 typical chain @ " + juce::String(sr, 0) + " Hz: graph="
+                + juce::String(engine.getLatencyNumSamples()) + " samples ("
+                + juce::String(1000.0 * engine.getLatencyNumSamples() / sr, 2) + " ms)" + breakdown);
+
+            expectEquals(engine.getLatencyNumSamples(), expected,
+                "Typical chain Studio latency @ " + juce::String(sr));
+        }
+    }
+
+    // ------------------------------------------------------- B-11 characterization
+
+    void runB11Characterization()
+    {
+        beginTest("T2-01 F0 B-11 characterization: a graph rebuild passes raw input for the startup blocks");
+
+        // Master at -20 dB makes processed output easy to tell apart from raw input.
+        AudioEngine engine;
+        engine.prepare(kRate, kBlock, 2, 2);
+        AudioEngine::RuntimeGlobalParams params;
+        params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+        params.outputMixRaw = 100.0f;
+        params.outputVolumeDb = -20.0f;
+        engine.updateGlobalParams(params);
+        engine.setEngineEnabled(true);
+        engine.synchronizeProcessingState();
+        warmUpEngine(engine, kBlock, 32);
+
+        constexpr int kBlocks = 40;
+        constexpr int kRebuildAt = 16;
+        int rawBefore = 0;
+        int rawAfter = 0;
+        int firstRawAfter = -1;
+        float processedPeak = 0.0f;
+        float rawPeak = 0.0f;
+        int globalSample = 0;
+        juce::MidiBuffer midi;
+
+        for (int blockIndex = 0; blockIndex < kBlocks; ++blockIndex)
+        {
+            if (blockIndex == kRebuildAt)
+            {
+                engine.addPedal("Reverb", Nova::ChainID::LineA, -1, Nova::ZoneID::FX, "b11-reverb");
+                engine.synchronizeProcessingState();
+            }
+
+            juce::AudioBuffer<float> block(2, kBlock);
+            for (int i = 0; i < kBlock; ++i, ++globalSample)
+            {
+                const float x = 0.3f * std::sin(juce::MathConstants<float>::twoPi * 220.0f * (float)globalSample / (float)kRate);
+                block.setSample(0, i, x);
+                block.setSample(1, i, x);
+            }
+
+            juce::AudioBuffer<float> input;
+            input.makeCopyOf(block);
+            engine.process(block, midi);
+
+            bool raw = true;
+            for (int ch = 0; ch < 2 && raw; ++ch)
+                for (int i = 0; i < kBlock && raw; ++i)
+                    raw = block.getSample(ch, i) == input.getSample(ch, i);
+
+            const float peak = block.getMagnitude(0, kBlock);
+            if (blockIndex < kRebuildAt)
+            {
+                rawBefore += raw ? 1 : 0;
+                processedPeak = juce::jmax(processedPeak, peak);
+            }
+            else if (raw)
+            {
+                ++rawAfter;
+                rawPeak = juce::jmax(rawPeak, peak);
+                if (firstRawAfter < 0)
+                    firstRawAfter = blockIndex - kRebuildAt;
+            }
+        }
+
+        logMessage("T2-01 F0 B-11 | raw blocks before rebuild=" + juce::String(rawBefore)
+            + " after rebuild=" + juce::String(rawAfter) + " (first at +" + juce::String(firstRawAfter)
+            + ") | processed peak=" + juce::String(toDb(processedPeak), 1) + " dBFS raw peak="
+            + juce::String(toDb(rawPeak), 1) + " dBFS");
+
+        expectEquals(rawBefore, 0, "Before the rebuild the engine must output processed audio");
+        // Documents B-11 as it is today. The B-11 fix flips this to 0 raw blocks.
+        expectEquals(rawAfter, Nova::Config::STARTUP_COUNTER_GRAPH_CHANGE,
+            "B-11: after a rebuild the startup blocks pass the raw input unprocessed");
+    }
+};
+
 static AudioEngineValidationTests audioEngineValidationTests;
 static P1PedalSafetyTests p1PedalSafetyTests;
 static P13ESharedPedalContractTests p13eSharedPedalContractTests;
@@ -18021,6 +18855,7 @@ static P11AAmpProfessionalizationTests p11aAmpProfessionalizationTests;
 static P11BCabinetProfessionalizationTests p11bCabinetProfessionalizationTests;
 static P7IDiagnosticsProfilerTests p7iDiagnosticsProfilerTests;
 static AudioAutopilotTests audioAutopilotTests;
+static T201LiveModeF0Tests t201LiveModeF0Tests;
 
 void touchAudioEngineValidationTests()
 {
@@ -18040,7 +18875,8 @@ void touchAudioEngineValidationTests()
         p11aAmpProfessionalizationTests,
         p11bCabinetProfessionalizationTests,
         p7iDiagnosticsProfilerTests,
-        audioAutopilotTests);
+        audioAutopilotTests,
+        t201LiveModeF0Tests);
 }
 }
 

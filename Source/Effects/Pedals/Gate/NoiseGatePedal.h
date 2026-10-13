@@ -216,7 +216,9 @@ public:
         hysteresisSmooth.setCurrentAndTargetValue(hysteresisParam != nullptr ? hysteresisParam->get() : 8.0f);
         focusSmooth.setCurrentAndTargetValue(focusParam != nullptr ? focusParam->get() : 0.55f);
 
-        lookaheadSamples = juce::jlimit(16, 192, juce::roundToInt(sr * 0.0015));
+        lookaheadSamples = liveMode
+            ? juce::jmax(1, juce::roundToInt(sr * kLiveLookaheadSeconds))
+            : juce::jlimit(16, 192, juce::roundToInt(sr * 0.0015));
         for (auto& delay : lookahead)
             delay.allocate(samplesPerBlock + lookaheadSamples + 8);
 
@@ -232,6 +234,11 @@ public:
     {
         releasePedalProcessing();
     }
+
+    // Live mode (T2-01): 0.25 ms lookahead instead of 1.5 ms. Off by default.
+    // Latency is fixed in prepareToPlay(), so set it before preparing (message thread).
+    void setLiveMode(bool shouldUseLiveMode) noexcept { liveMode = shouldUseLiveMode; }
+    bool isLiveMode() const noexcept { return liveMode; }
 
     void reset() override
     {
@@ -462,6 +469,11 @@ private:
     int holdCounter = 0;
     int lookaheadSamples = 64;
     bool gateOpen = true;
+    bool liveMode = false;
+
+    // LookaheadDelay::process() treats a delay of 0 as a full-buffer delay, so Live
+    // keeps at least one sample; 0.25 ms gives 11 / 12 / 24 samples at 44.1 / 48 / 96 kHz.
+    static constexpr double kLiveLookaheadSeconds = 0.00025;
 };
 
 #include "GateEditor.h"

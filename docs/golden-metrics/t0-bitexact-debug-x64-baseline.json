@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T15:19:42.563-06:00",
+  "generatedAt": "2026-10-12T18:24:29.840-06:00",
   "kind": "nova-bitexact-checksums",
   "configuration": "Debug",
   "results": [
@@ -50,6 +50,14 @@
     { "type": "Vintage 2x12", "sampleRate": 48000.0, "blockSize": 64, "stereoInput": false, "processedBlocks": 1500, "invalidSamples": 0, "hash": "0x72a1007fa4248325" },
     { "type": "Vintage 2x12", "sampleRate": 44100.0, "blockSize": 128, "stereoInput": true, "processedBlocks": 690, "invalidSamples": 0, "hash": "0x134135caa3dc6800" },
     { "type": "Modern 4x12", "sampleRate": 48000.0, "blockSize": 64, "stereoInput": false, "processedBlocks": 1500, "invalidSamples": 0, "hash": "0x5c855b46bb6a0cf9" },
-    { "type": "Modern 4x12", "sampleRate": 44100.0, "blockSize": 128, "stereoInput": true, "processedBlocks": 690, "invalidSamples": 0, "hash": "0xf4e2023e3dccc270" }
+    { "type": "Modern 4x12", "sampleRate": 44100.0, "blockSize": 128, "stereoInput": true, "processedBlocks": 690, "invalidSamples": 0, "hash": "0xf4e2023e3dccc270" },
+    { "type": "OutputChain", "sampleRate": 48000.0, "blockSize": 64, "stereoInput": false, "processedBlocks": 1500, "invalidSamples": 0, "hash": "0xe5dfc719e40aa8d9" },
+    { "type": "OutputChain", "sampleRate": 44100.0, "blockSize": 128, "stereoInput": true, "processedBlocks": 690, "invalidSamples": 0, "hash": "0x3fd4fbccc6a25c4f" },
+    { "type": "InputChain", "sampleRate": 48000.0, "blockSize": 64, "stereoInput": false, "processedBlocks": 1500, "invalidSamples": 0, "hash": "0x8a346234bd6e8719" },
+    { "type": "InputChain", "sampleRate": 44100.0, "blockSize": 128, "stereoInput": true, "processedBlocks": 690, "invalidSamples": 0, "hash": "0x3a3ddaacbe5874da" },
+    { "type": "OutputChain@live", "sampleRate": 48000.0, "blockSize": 64, "stereoInput": false, "processedBlocks": 1500, "invalidSamples": 0, "hash": "0x0efe508faaeadcb9" },
+    { "type": "OutputChain@live", "sampleRate": 44100.0, "blockSize": 128, "stereoInput": true, "processedBlocks": 690, "invalidSamples": 0, "hash": "0xe35c3da8f29b4e45" },
+    { "type": "Noise Gate@live", "sampleRate": 48000.0, "blockSize": 64, "stereoInput": false, "processedBlocks": 1500, "invalidSamples": 0, "hash": "0x5e505d37dc3be68d" },
+    { "type": "Noise Gate@live", "sampleRate": 44100.0, "blockSize": 128, "stereoInput": true, "processedBlocks": 690, "invalidSamples": 0, "hash": "0x5958cdc555fd64a4" }
   ]
 }
