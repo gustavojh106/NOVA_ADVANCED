@@ -1,5 +1,5 @@
 NOVA Audio Thread Policy Scan
-Generated: 2026-10-09 16:37:23
+Generated: 2026-10-12 18:07:51
 status=PASS
 summary.activeFiles=32
 summary.activeRanges=38
