@@ -19488,6 +19488,320 @@ private:
     }
 };
 
+// E3 (beta engine checklist): device robustness. The Standalone re-prepares the
+// processor whenever the device, sample rate or buffer size changes (also on Latency
+// Autopilot Apply/Undo/calibration and when an unplugged device falls back to
+// another one). Pedal settings must survive that, and every rate/buffer combination
+// and host block size must process clean audio.
+class E3DeviceRobustnessTests final : public juce::UnitTest
+{
+public:
+    E3DeviceRobustnessTests()
+        : juce::UnitTest("E3 device robustness", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        runReprepareKeepsSettings();
+        runRateAndBufferMatrix();
+        runIrregularHostBlocks();
+        runProcessorReleaseAndReprepare();
+    }
+
+private:
+    struct PedalSpec
+    {
+        const char* type;
+        Nova::ZoneID zone;
+    };
+
+    static constexpr PedalSpec kTypicalChain[] = {
+        { "Noise Gate", Nova::ZoneID::Pre },
+        { "Overdrive", Nova::ZoneID::Pre },
+        { "High Gain Amp", Nova::ZoneID::Amp },
+        { "Delay", Nova::ZoneID::FX },
+        { "Cabinet", Nova::ZoneID::Cabinet }
+    };
+
+    static void applyPattern(juce::AudioProcessor& processor, int seed)
+    {
+        const auto& parameters = processor.getParameters();
+        for (int i = 0; i < parameters.size(); ++i)
+        {
+            const double position = (double)i * 0.6180339887 + (double)seed * 0.29;
+            parameters[i]->setValueNotifyingHost(0.15f + 0.70f * (float)(position - std::floor(position)));
+        }
+    }
+
+    // Effective value: stepped parameters by their step, continuous by normalized value.
+    static std::vector<float> captureParameters(juce::AudioProcessor& processor)
+    {
+        std::vector<float> values;
+        for (auto* param : processor.getParameters())
+        {
+            auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param);
+            const bool stepped = param->isDiscrete() || param->isBoolean();
+            values.push_back(stepped && ranged != nullptr ? ranged->convertFrom0to1(param->getValue()) : param->getValue());
+        }
+        return values;
+    }
+
+    static void fillGuitar(juce::AudioBuffer<float>& buffer, int64_t& sampleCounter, double sr, float level)
+    {
+        for (int i = 0; i < buffer.getNumSamples(); ++i, ++sampleCounter)
+        {
+            const double t = (double)sampleCounter / sr;
+            const double tp = std::fmod(t, 0.25);
+            const double env = std::exp(-tp * 6.0) * juce::jmin(1.0, tp / 0.002);
+            const float x = (float)(level * env * (0.7 * std::sin(juce::MathConstants<double>::twoPi * 110.0 * t)
+                + 0.3 * std::sin(juce::MathConstants<double>::twoPi * 330.0 * t)));
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                buffer.setSample(ch, i, x);
+        }
+    }
+
+    struct RenderStats
+    {
+        bool finite = true;
+        float peak = 0.0f;
+        int blocks = 0;
+    };
+
+    static RenderStats render(AudioEngine& engine, double sr, const std::vector<int>& blockSizes, int repeats, float level)
+    {
+        RenderStats stats;
+        juce::MidiBuffer midi;
+        int64_t counter = 0;
+
+        for (int r = 0; r < repeats; ++r)
+        {
+            for (int size : blockSizes)
+            {
+                juce::AudioBuffer<float> block(2, size);
+                fillGuitar(block, counter, sr, level);
+                engine.process(block, midi);
+                stats.finite = stats.finite && bufferHasOnlyFiniteSamples(block);
+                if (size > 0)
+                    stats.peak = juce::jmax(stats.peak, block.getMagnitude(0, size));
+                ++stats.blocks;
+            }
+        }
+
+        return stats;
+    }
+
+    static int expectedTypicalLatency(double sr)
+    {
+        const int gate = juce::jlimit(16, 192, juce::roundToInt(sr * 0.0015));
+        const int limiter = juce::jmax(1, juce::roundToInt(sr * 0.002));
+        return gate + 4 + 4 + limiter; // Overdrive and High Gain Amp oversampling: 4 each
+    }
+
+    static void addTypicalChain(AudioEngine& engine)
+    {
+        int i = 0;
+        for (const auto& spec : kTypicalChain)
+            engine.addPedal(spec.type, Nova::ChainID::LineA, -1, spec.zone, "e3-" + juce::String(i++));
+        engine.synchronizeProcessingState();
+    }
+
+    static void enable(AudioEngine& engine)
+    {
+        AudioEngine::RuntimeGlobalParams params;
+        params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
+        params.outputMixRaw = 100.0f;
+        engine.updateGlobalParams(params);
+        engine.setEngineEnabled(true);
+        engine.synchronizeProcessingState();
+    }
+
+    // ------------------------------------------------------------------ tests
+
+    void runReprepareKeepsSettings()
+    {
+        beginTest("E3 re-preparing the engine keeps pedal settings, bypass and topology");
+
+        AudioEngine engine;
+        engine.prepare(48000.0, 64, 2, 2);
+        addTypicalChain(engine);
+        enable(engine);
+
+        const int numPedals = (int)std::size(kTypicalChain);
+        std::vector<std::vector<float>> expected;
+        for (int i = 0; i < numPedals; ++i)
+        {
+            auto* processor = engine.getProcessorForPedal(Nova::ChainID::LineA, i);
+            expect(processor != nullptr, "Pedal " + juce::String(i) + " must exist");
+            if (processor == nullptr)
+                return;
+            applyPattern(*processor, 10 + i);
+            expected.push_back(captureParameters(*processor));
+        }
+
+        engine.setPedalBypassed(Nova::ChainID::LineA, 3, true); // Delay
+        engine.synchronizeProcessingState();
+
+        const std::pair<double, int> devices[] = {
+            { 96000.0, 512 }, { 44100.0, 32 }, { 48000.0, 1024 }, { 88200.0, 256 }, { 192000.0, 128 }, { 48000.0, 64 }
+        };
+
+        for (const auto& [sr, block] : devices)
+        {
+            const juce::String context = juce::String(sr, 0) + " Hz / " + juce::String(block);
+            engine.prepare(sr, block, 2, 2);
+            engine.synchronizeProcessingState();
+
+            expectEquals((int)engine.getNodes(Nova::ChainID::LineA).size(), numPedals, context + ": topology");
+
+            int mismatches = 0;
+            for (int i = 0; i < numPedals; ++i)
+            {
+                auto* processor = engine.getProcessorForPedal(Nova::ChainID::LineA, i);
+                if (processor == nullptr)
+                {
+                    ++mismatches;
+                    continue;
+                }
+
+                const auto actual = captureParameters(*processor);
+                for (size_t p = 0; p < juce::jmin(actual.size(), expected[(size_t)i].size()); ++p)
+                    if (std::abs(actual[p] - expected[(size_t)i][p]) > 1.0e-6f)
+                        ++mismatches;
+            }
+
+            auto* delay = dynamic_cast<ProcessorBase*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 3));
+            const bool delayBypassed = delay != nullptr && delay->getBypassed();
+            const auto stats = render(engine, sr, { block }, juce::jmax(16, (int)(0.2 * sr) / block), 0.3f);
+
+            logMessage("E3 re-prepare " + context + ": parameter mismatches=" + juce::String(mismatches)
+                + " delayBypassed=" + juce::String(delayBypassed ? "yes" : "no")
+                + " latency=" + juce::String(engine.getLatencyNumSamples())
+                + " peak=" + juce::String(stats.peak, 3));
+
+            expectEquals(mismatches, 0, context + ": pedal settings must survive the re-prepare");
+            expect(delayBypassed, context + ": bypass state must survive the re-prepare");
+            expect(stats.finite, context + ": output must stay finite");
+        }
+    }
+
+    void runRateAndBufferMatrix()
+    {
+        beginTest("E3 every sample rate and buffer size processes clean audio with the typical chain");
+
+        for (double sr : { 44100.0, 48000.0, 88200.0, 96000.0, 192000.0 })
+        {
+            juce::String line;
+            line << "E3 matrix " << juce::String(sr, 0) << " Hz:";
+
+            for (int block : { 16, 32, 64, 128, 256, 512, 1024, 2048 })
+            {
+                AudioEngine engine;
+                engine.prepare(sr, block, 2, 2);
+                addTypicalChain(engine);
+                enable(engine);
+
+                const auto stats = render(engine, sr, { block }, juce::jmax(24, (int)(0.15 * sr) / block), 0.5f);
+                const int latency = engine.getLatencyNumSamples();
+                const juce::String context = juce::String(sr, 0) + " Hz / " + juce::String(block);
+
+                expect(stats.finite, context + ": output must stay finite");
+                expect(stats.peak <= 0.999f, context + ": output must stay under the ceiling; peak=" + juce::String(stats.peak, 4));
+                expect(stats.peak > 0.001f, context + ": output must not be silent");
+                expectEquals(latency, expectedTypicalLatency(sr), context + ": reported latency");
+
+                line << " " << block << "=" << (stats.finite && stats.peak <= 0.999f && stats.peak > 0.001f ? "ok" : "FAIL")
+                     << "(" << latency << ")";
+            }
+
+            logMessage(line);
+        }
+    }
+
+    void runIrregularHostBlocks()
+    {
+        beginTest("E3 host blocks smaller or larger than prepared stay clean");
+
+        AudioEngine engine;
+        engine.prepare(48000.0, 512, 2, 2);
+        addTypicalChain(engine);
+        enable(engine);
+
+        // Hosts and drivers may deliver fewer samples than prepared, odd sizes, empty
+        // blocks, or (breaking the contract) more: the oversized path processes wet only.
+        const std::vector<int> sizes = { 512, 1, 7, 100, 333, 0, 512, 64, 513, 1024, 4096, 256, 2, 511 };
+        const auto stats = render(engine, 48000.0, sizes, 12, 0.5f);
+
+        logMessage("E3 irregular blocks: " + juce::String(stats.blocks) + " blocks, finite="
+            + juce::String(stats.finite ? "yes" : "no") + " peak=" + juce::String(stats.peak, 4));
+        expect(stats.finite, "Irregular block sizes must keep the output finite");
+        expect(stats.peak <= 0.999f, "Irregular block sizes must stay under the ceiling; peak=" + juce::String(stats.peak, 4));
+    }
+
+    void runProcessorReleaseAndReprepare()
+    {
+        beginTest("E3 unplug and replug (release, re-prepare at another rate) keeps the session");
+        StartupPresetPointerGuard startupPointerGuard;
+
+        NOVAAudioProcessor processor;
+        processor.setPlayConfigDetails(2, 2, 48000.0, 128);
+        processor.prepareToPlay(48000.0, 128);
+        processor.requestAddPedal("Overdrive", Nova::ChainID::LineA, Nova::ZoneID::Pre, 0);
+        processor.requestAddPedal("Clean Amp", Nova::ChainID::LineA, Nova::ZoneID::Amp, -1);
+
+        auto& engine = processor.getAudioEngine();
+        auto* overdrive = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
+        expect(overdrive != nullptr, "Overdrive must exist");
+        if (overdrive == nullptr)
+            return;
+
+        applyPattern(*overdrive, 42);
+        const auto expected = captureParameters(*overdrive);
+
+        juce::MidiBuffer midi;
+        for (int i = 0; i < 32; ++i)
+        {
+            juce::AudioBuffer<float> block(2, 128);
+            block.clear();
+            processor.processBlock(block, midi);
+        }
+
+        // Device unplugged: the Standalone stops the callback and releases; the fallback
+        // or replugged device reopens at its own rate and buffer size.
+        processor.releaseResources();
+        processor.setPlayConfigDetails(2, 2, 44100.0, 480);
+        processor.prepareToPlay(44100.0, 480);
+
+        auto* restored = engine.getProcessorForPedal(Nova::ChainID::LineA, 0);
+        expect(restored != nullptr, "Overdrive must exist after the re-prepare");
+        if (restored == nullptr)
+            return;
+
+        const auto actual = captureParameters(*restored);
+        int mismatches = 0;
+        for (size_t p = 0; p < juce::jmin(actual.size(), expected.size()); ++p)
+            if (std::abs(actual[p] - expected[p]) > 1.0e-6f)
+                ++mismatches;
+
+        bool finite = true;
+        int64_t counter = 0;
+        for (int i = 0; i < 64; ++i)
+        {
+            juce::AudioBuffer<float> block(2, 480);
+            fillGuitar(block, counter, 44100.0, 0.4f);
+            processor.processBlock(block, midi);
+            finite = finite && bufferHasOnlyFiniteSamples(block);
+        }
+
+        logMessage("E3 unplug/replug: parameter mismatches=" + juce::String(mismatches)
+            + " host latency=" + juce::String(processor.getLatencySamples()));
+        expectEquals((int)engine.getNodes(Nova::ChainID::LineA).size(), 2, "Topology must survive the re-prepare");
+        expectEquals(mismatches, 0, "Pedal settings must survive unplug and replug");
+        expect(finite, "Output after the re-prepare must stay finite");
+        expectEquals(processor.getLatencySamples(), engine.getLatencyNumSamples(), "Host latency must follow the new rate");
+    }
+};
+
 static AudioEngineValidationTests audioEngineValidationTests;
 static P1PedalSafetyTests p1PedalSafetyTests;
 static P13ESharedPedalContractTests p13eSharedPedalContractTests;
@@ -19507,6 +19821,7 @@ static P7IDiagnosticsProfilerTests p7iDiagnosticsProfilerTests;
 static AudioAutopilotTests audioAutopilotTests;
 static T201LiveModeF0Tests t201LiveModeF0Tests;
 static E2PresetFormatFreezeTests e2PresetFormatFreezeTests;
+static E3DeviceRobustnessTests e3DeviceRobustnessTests;
 
 void touchAudioEngineValidationTests()
 {
@@ -19528,7 +19843,8 @@ void touchAudioEngineValidationTests()
         p7iDiagnosticsProfilerTests,
         audioAutopilotTests,
         t201LiveModeF0Tests,
-        e2PresetFormatFreezeTests);
+        e2PresetFormatFreezeTests,
+        e3DeviceRobustnessTests);
 }
 }
 

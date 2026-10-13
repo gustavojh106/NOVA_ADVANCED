@@ -77,10 +77,14 @@ void AudioEngine::prepare(double sampleRate, int samplesPerBlock, int numIn, int
     prepareScratchBuffers(sr, block, outputs);
     resetAudioRuntimeState(true);
 
+    // A re-prepare (device, sample rate or buffer change; Latency Autopilot apply/undo;
+    // fallback after an unplugged device) rebuilds every processor. Carry the live pedal
+    // settings over, or they would reset to their defaults (E3). On the first prepare
+    // there is no active graph and nothing to carry.
     std::shared_ptr<GraphRuntime> newGraph;
     {
         const juce::ScopedLock modelLock(controlPlane.modelLock);
-        newGraph = buildGraphFromModelLocked(controlPlane.nextGeneration++);
+        newGraph = buildGraphFromModelLocked(controlPlane.nextGeneration++, true);
     }
 
     publishGraph(std::move(newGraph));
