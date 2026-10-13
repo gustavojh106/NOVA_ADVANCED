@@ -220,7 +220,15 @@ Técnicamente el cambio es T0; lo que falta es la decisión legal/comercial.
 Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad del producto) → T2-01 → T2-02 → T2-11 → T2-09 → T2-03 → T2-04 → T2-07 → resto.**
 
 ### T2-01 — Modo Live (sin lookaheads)
-- **Estado:** **investigación terminada (2026-10-11):** `docs/reports/LAT-T2-01-live-mode.md`. Sin código. Faltan las decisiones del usuario (§11 del documento) antes de la Fase 0.
+- **Estado:** **investigación terminada (2026-10-11):** `docs/reports/LAT-T2-01-live-mode.md`.
+- **Decisiones tomadas (2026-10-12):** limiter (a); gate G1 (0.25 ms); global en el Standalone y fuera de los presets; Studio por defecto hasta el A/B; VST3 y gate de InputChain pospuestos; B-11 se arregla antes de F1, como ítem propio; nombre "Live / Studio".
+- **F0 hecha (2026-10-12):**
+  - Flags inertes `setLiveMode()` en OutputChain y Noise Gate, apagados por defecto y sin conectar.
+  - Checksums de OutputChain e InputChain, más dos `@live`.
+  - Suite C++ `T2-01 F0 Live mode measurements`.
+  - Resultado: Live cumple C2–C6 en C++ (techo 0.97 en todos los casos, P12D −66.3 dB, gate ≤ 1.1 dB en el primer ms). En el A/B hay que escuchar el primer flanco de los overs (+0.9 a +2.2 dB de agudos frente a Studio, solo cuando el limiter actúa).
+  - Validación: B-11 confirmado (6 bloques de DI crudo). Bit-exacto 48/48 previos sin cambios (56/56 con las entradas nuevas), base PASS (333/13744/0) en Debug y Release, golden PASS.
+  - Detalle en §11.1 del documento.
 - **Resultado:**
   - Cadena típica: 3.67 → 0.42 ms (**−3.25 ms**) con el limiter por `processWithoutLookahead` y el gate con un lookahead de 0.25 ms. Con el gate en 0 ms, −3.5 ms.
   - En simulación, el limiter sin lookahead cumple las 4 garantías de P12D.
@@ -369,9 +377,11 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | B-08 | El Octave costaba 43.5% de CPU (pico 70%) por su detector de pitch: con buffers chicos podía causar cortes por sí solo | T0-16 (−72%); más margen en T1-13 |
 | B-09 | La suite de tests en Debug está al límite del stack de 1 MB: agregar 3 KB a `OctavePedal` provocó un stack overflow (`0xC00000FD`) en `AudioEngineTests.cpp`, que crea varios pedales como variables locales en una misma función | T1-14 |
 | B-10 | `AudioSetupWizard` posicionaba los controles de sus páginas en coordenadas del wizard (no de la página): quedaban corridos y "GOT IT" podía quedar fuera de la vista. `StartWizard` repite el patrón | Corregido en `AudioSetupWizard` (T2-10 F1); `StartWizard` pendiente |
-| B-11 | Tras reconstruir el grafo, los 6 bloques de arranque devuelven la **entrada sin procesar** (no silencio): DI crudo, sin OutputChain y sin alinear (`AudioEngine.cpp:573-580`). Pasa con el bypass de pedales con latencia, el cambio de preset y el futuro cambio de modo Live. Visto en el código; falta confirmarlo con un test | T2-01 F0/F1, T2-15 |
+| B-11 | Tras reconstruir el grafo, los 6 bloques de arranque devuelven la **entrada sin procesar** (no silencio): DI crudo, sin OutputChain y sin alinear (`AudioEngine.cpp:573-580`). Pasa con el bypass de pedales con latencia, el cambio de preset, el Aplicar/Deshacer del Autopilot y el futuro cambio de modo Live. **Confirmado con un test en T2-01 F0:** 6 bloques crudos, +19 dB con el master a −20 dB | Arreglo propio antes de T2-01 F1; T2-15 |
 | B-12 | Con `OUTPUT_MIX = 0`, el endpoint Dry devuelve la entrada sin retraso, pero al host se le reporta la latencia del grafo: en un DAW esa pista suena 2 ms adelantada (`AudioEngine.cpp:639-644`). Baja prioridad | T2-01 (Live lo reduce a ~0) |
-| B-13 | El estimador de true peak del limiter (Catmull-Rom de 4 puntos) subestima los picos entre muestras con contenido agudo: +0.8 dBTP con un tono a fs/4. Con material post-cab queda ≤ 0 dBTP | Anotado en T2-01 §3.5; sin ítem todavía |
+| B-13 | El estimador de true peak del limiter (Catmull-Rom de 4 puntos) subestima los picos entre muestras con contenido agudo: +0.8 dBTP con un tono a fs/4. Con material post-cab queda ≤ 0 dBTP. **Medido en C++ (T2-01 F0):** high-gain sin cab, +0.86 dBTP en Studio y +1.42 en Live | Anotado en T2-01 §3.5; sin ítem todavía |
+| B-14 | `LookaheadDelay::process()` del Noise Gate trata un retardo de 0 como un retardo de buffer completo. No afecta a Studio (72 muestras) ni a Live G1 (12) | Solo si algún día se elige G3 (T2-01) |
+| B-15 | El test "AudioEngine mixed-zone insertion…" fallaba de forma intermitente en Release (también en `HEAD`): no esperaba la carga en segundo plano del IR del Cabinet | Corregido en T2-01 F0 (espera de 500 ms) |
 
 ## 9. Límites físicos (no se pueden optimizar por software)
 
@@ -399,12 +409,11 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 
 ## 12. Siguiente paso recomendado
 
-**Dónde retomar (2026-10-11):** T0 completo y commiteado en la rama `perf/t0-latency-optimizations` (sin mergear a `master`). T2-10 F1 y F2 implementadas y validadas en la misma rama, todavía sin commitear; falta la prueba manual en la app. Investigación de T2-01 terminada (`docs/reports/LAT-T2-01-live-mode.md`).
+**Dónde retomar (2026-10-12):** todo commiteado en la rama `perf/t0-latency-optimizations` (sin mergear a `master`): T0, T2-10 F1 + F2 (probadas por el usuario en la app, caja negra OK) y T2-01 F0.
 
-1. **T2-10 F1 + F2:** prueba manual (listas en las secciones 10 y 11 de `docs/reports/LAT-T2-10-latency-autopilot.md`) y commits por tema.
-2. **T2-01:** tomar las 8 decisiones de la §11 del documento. Después, la Fase 0 (sin cambio de sonido): checksums de OutputChain e InputChain, suite C++ de peor caso para el limiter y el gate, `latency.breakdown` de la cadena típica y test de B-11.
-3. **Siguiente paso, a elegir:**
-   - T2-01 F1: modo Live en el motor, apagado por defecto.
+1. **Arreglar B-11:** fade-out → silencio durante los bloques de arranque → fade-in, en lugar de DI crudo. Invertir el test de caracterización de F0 (0 bloques crudos). Mejora el cambio de preset, el bypass con latencia y el Aplicar/Deshacer del Autopilot.
+2. **T2-01 F1 + F2 solo en el Standalone:** `AudioEngine::setLatencyMode` + `GraphBuilder` conectan los flags de F0; ajuste en el `PropertySet` del Standalone; interruptor "Live / Studio"; Studio por defecto. Después, el A/B del usuario.
+3. **Después, a elegir:**
    - T2-10 F3: automático en la primera ejecución, re-detección al conectar o desconectar, monitoreo con sugerencias y memoria por equipo.
    - T1 de CPU: T1-03, T1-04, T1-13 y T1-01.
 4. **Antes de publicar:** firmar el acuerdo ASIO (T0-03) y mergear la rama a `master`.
@@ -422,3 +431,5 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | 2026-10-09 | Decisiones de T2-10 tomadas. T2-10 F1 implementada: `AudioAutopilot.h` (motor puro + 13 tests), `StandaloneAudioAutopilot.h` (aplicar/deshacer con reversión automática + política de mute) y tarjeta "Recommended setup" en el wizard. Base PASS (324/13597/0), golden PASS, bit-exacto 48/48 (Debug y Release). Nuevo hallazgo B-10 (layout de páginas del wizard), corregido en `AudioSetupWizard` |
 | 2026-10-09 | T2-10 F2 implementada: calibración del buffer (escalera desde 32 con la salida en silencio; criterios: 0 xruns, 90% de los callbacks, carga pico < 70% y gap < 2×). Ventana de medición en `CpuMeter`, flag de silencio en `processBlock`, CANCEL, UNDO y DRIVER PANEL. Base PASS (326/13617/0), golden PASS, bit-exacto 48/48 (Debug y Release). rt-profile Release 64/64 PASS. La ventana de `CpuMeter` queda dentro del ruido: los escenarios de motor (que la usan) +2.9% de mediana, frente a +9.6% de los `proc_*`, que no pasan por `CpuMeter` (ruido de la máquina). Evidencia: `artifacts/rt-profile-release-t2-10-f2.json` |
 | 2026-10-11 | Investigación de T2-01 terminada (`docs/reports/LAT-T2-01-live-mode.md`). Latencia por nodo: código + harness VST3 (88/96/192 muestras de OutputChain; +4 por procesador con oversampling, 4.076 reales). Simulación offline del limiter (7 alternativas) y de los gates. Recomendación: `processWithoutLookahead` + gate con lookahead de 0.25 ms → −3.25 ms en la cadena típica, con las garantías de P12D intactas. Nuevos hallazgos B-11, B-12 y B-13. Sin cambios en `Source/` |
+| 2026-10-12 | T2-10 F1 + F2, documentos de T2-01 y reportes de QA commiteados por tema. El usuario probó T2-10 en la app (caja negra OK). Decisiones de T2-01 tomadas (§11 del documento) |
+| 2026-10-12 | T2-01 F0: flags inertes `setLiveMode()` (OutputChain, Noise Gate), checksums de OutputChain/InputChain (+2 `@live`) y suite C++ de medición. Live cumple C2–C6; B-11 confirmado; nuevos hallazgos B-14 y B-15 (B-15 corregido). Bit-exacto 48/48 previos sin cambios, base PASS (333/13744/0) en Debug y Release, golden PASS |

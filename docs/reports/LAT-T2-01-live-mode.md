@@ -1,7 +1,7 @@
 # LAT-T2-01 — Modo Live (sin lookaheads): investigación
 
 - **Fecha:** 2026-10-11
-- **Estado:** investigación terminada. Sin código. Siguiente: decisiones del usuario (sección 11) → Fase 0.
+- **Estado:** decisiones tomadas y **Fase 0 terminada (2026-10-12)**: resultados en la sección 11.1. Siguiente: arreglo de B-11 → F1 (Standalone).
 - **Roadmap:** `docs/latency-optimization-roadmap.md` → T2-01
 - **Alcance:** Standalone y VST3. Solo latencia propia de NOVA (DSP); la del driver es T2-10.
 
@@ -415,7 +415,7 @@ No se usa un `AudioParameter`: sería automatizable, y una automatización cambi
 | Fase | Contenido | Riesgo | Tamaño |
 |---|---|---|---|
 | **F0** | Solo tests y diagnóstico: checksums de OutputChain e InputChain; suite C++ de peor caso para el limiter (métricas de 3.2) y el gate (métricas de 4.2) en Studio, como línea base; test que imprime `latency.breakdown` de la cadena típica a 44.1/48/96k; test que confirma o descarta B-11. **Sin cambios de sonido** | T0 | S |
-| **F1** | Live en el motor: flag en OutputChain (ruta a), gate con lookahead 0.25 ms, `AudioEngine::setLatencyMode` con reconstrucción y transición con fades (sin DI crudo). Ajuste en el `PropertySet` del Standalone + interruptor simple en Ajustes. **Default Studio.** Tests gemelos Live | T1 (apagado por defecto) | M |
+| **F1** | Live en el motor: conectar los flags de OutputChain (ruta a) y del gate (0.25 ms), que ya existen desde F0, mediante `AudioEngine::setLatencyMode` con reconstrucción y transición con fades (sin DI crudo, ya resuelto por el arreglo de B-11). Ajuste en el `PropertySet` del Standalone + interruptor simple en Ajustes. **Default Studio.** Tests gemelos Live | T1 (apagado por defecto) | M |
 | **F2** | UI: tarjeta en Audio Setup, indicador LIVE, texto explicativo, sugerencia del Autopilot (T2-10). Gate de InputChain a 1 ms en Live (si se aprueba). Protocolo A/B + ABX | T1 | S |
 | **F3** | VST3: estado por instancia (fuera de los presets), aplicar con el transporte detenido, smoke de PDC en DAW | T2 | M |
 | **F4** | Si el A/B pasa: Live por defecto en el Standalone | T2 (cambia el default) | S |
@@ -423,18 +423,82 @@ No se usa un `AudioParameter`: sería automatizable, y una automatización cambi
 
 Cada fase se valida y se commitea por separado. Los archivos nuevos se agregan a `NOVA.jucer` y se re-exporta con `Projucer --resave`.
 
-## 11. Decisiones pendientes del usuario
+## 11. Decisiones (tomadas el 2026-10-12)
 
-| # | Decisión | Opciones | Recomendación |
+| # | Decisión | Opciones | Recomendación del documento | **Decidido** |
+|---|---|---|---|---|
+| 1 | Limiter en Live | (a) `processWithoutLookahead`, (e) lookahead de 0.25 ms, (d) híbrido | **(a)**: misma seguridad, 0 ms, sin código DSP nuevo | **(a)**, condicionado a F0. **F0 lo confirmó en C++** (sección 11.1) |
+| 2 | Noise Gate en Live | G1 (0.25 ms), G2 (G1 + attack ≤ 0.10 ms), G3 (0 ms) | **G1** (−1.25 ms, casi transparente). G2 solo si el A/B lo pide | **G1** |
+| 3 | Alcance | Global (Standalone) + por instancia (VST3), fuera de los presets | **Sí**, como en 5.1 | **Sí** |
+| 4 | Default del Standalone | Studio siempre / Live desde F1 / Live después del A/B | **Studio en F1–F3; Live en F4** si el A/B y el ABX pasan | **Sí** |
+| 5 | VST3 | Sin Live / Live aplicado con el transporte detenido / Live inmediato | **Live con el transporte detenido**, no automatizable. CDC de Cubase en F5 | **Pospuesto:** primero Live solo en el Standalone; F3 y F5 después |
+| 6 | Gate de InputChain (4 ms) | Sin cambios / 1 ms solo en Live / 1 ms siempre | **1 ms solo en Live**, con A/B high-gain | **Pospuesto:** viene apagado y va antes de los drives (riesgo de click alto, poco beneficio) |
+| 7 | B-11 (DI crudo tras reconstruir) | Arreglarlo dentro de T2-01 / dejarlo para T2-15 | **Dentro de T2-01 (F0 + F1)** | **Antes de F1, como ítem propio:** afecta también al cambio de preset, al bypass con latencia y al Aplicar/Deshacer del Autopilot |
+| 8 | Nombre en la UI | "Live / Studio", "Baja latencia", "Modo escenario" | **"Live / Studio"**: corto y coherente con el roadmap | **"Live / Studio"** |
+
+**Orden resultante:** F0 (hecha) → arreglo de B-11 → F1 + F2 solo en el Standalone, con Studio por defecto → A/B del usuario → F4. F3 y F5 (VST3) quedan para después.
+
+### 11.1 Resultados de la Fase 0 (2026-10-12)
+
+**Qué se agregó (sin cambio de sonido):**
+- **Flags inertes de Live, apagados por defecto:** `OutputChainProcessor::setLiveMode()` (limiter por `processWithoutLookahead`, latencia reportada 0) y `NoiseGatePedal::setLiveMode()` (lookahead de 0.25 ms). Hacían falta para medir Live en C++. Todavía no están conectados al motor, al estado ni a la UI: eso es F1.
+- **Checksums bit-exactos** de `OutputChain`, `InputChain`, `OutputChain@live` y `Noise Gate@live` en las dos configuraciones (`OfflineQADiagnostics.h`). Los dos `@live` fijan la salida de Live para detectar derivas en F1.
+- **Suite `T2-01 F0 Live mode measurements`** (`AudioEngineTests.cpp`, clase `T201LiveModeF0Tests`). Mide, compara Studio contra Live y escribe las cifras en el log con el prefijo `T2-01 F0`.
+
+**Validación:**
+- Bit-exacto: los 48 checksums previos, idénticos en Debug y en Release; con las 8 entradas nuevas, 56/56 determinísticos.
+- Base validation PASS en Debug y Release (333 resultados, 13744 checks, 0 fallos); golden PASS.
+- rt-profile Release 64/64 PASS. Frente a post-T0, los escenarios de motor (pasan por OutputChain) quedan dentro del ruido: mediana −3.3% (`artifacts/rt-profile-release-t2-01-f0.json`).
+
+**Limiter, 48 kHz, bloque 64 (C++):**
+
+| Caso | Pico de muestra Studio / Live | True peak Studio / Live | Residuo Studio / Live |
 |---|---|---|---|
-| 1 | Limiter en Live | (a) `processWithoutLookahead`, (e) lookahead de 0.25 ms, (d) híbrido | **(a)**: misma seguridad, 0 ms, sin código DSP nuevo |
-| 2 | Noise Gate en Live | G1 (0.25 ms), G2 (G1 + attack ≤ 0.10 ms), G3 (0 ms) | **G1** (−1.25 ms, casi transparente). G2 solo si el A/B lo pide |
-| 3 | Alcance | Global (Standalone) + por instancia (VST3), fuera de los presets | **Sí**, como en 5.1 |
-| 4 | Default del Standalone | Studio siempre / Live desde F1 / Live después del A/B | **Studio en F1–F3; Live en F4** si el A/B y el ABX pasan |
-| 5 | VST3 | Sin Live / Live aplicado con el transporte detenido / Live inmediato | **Live con el transporte detenido**, no automatizable. CDC de Cubase en F5 |
-| 6 | Gate de InputChain (4 ms) | Sin cambios / 1 ms solo en Live / 1 ms siempre | **1 ms solo en Live**, con A/B high-gain |
-| 7 | B-11 (DI crudo tras reconstruir) | Arreglarlo dentro de T2-01 / dejarlo para T2-15 | **Dentro de T2-01 (F0 + F1):** el cambio de modo lo expone directamente y el arreglo (fade + silencio) es chico |
-| 8 | Nombre en la UI | "Live / Studio", "Baja latencia", "Modo escenario" | **"Live / Studio"**: corto y coherente con el roadmap |
+| Impulso 2.0 | −0.26 / −0.26 dBFS | −0.26 / −0.26 dBTP | — |
+| Seno 1 kHz +6 dB | −0.25 / −0.27 | −0.25 / −0.26 | −71.0 / −71.0 dB |
+| Seno 4321 Hz +6 dB | −0.24 / −0.26 | −0.23 / −0.20 | −46.8 / −46.8 dB |
+| Tono fs/4 a 45° | −2.18 / −1.75 | +0.91 / +0.93 (B-13) | −86.6 / −93.4 dB |
+| Rampa −12 → +12 dB | −0.27 / −0.27 | −0.27 / −0.26 | — |
+| **P12D** (seno 0.5, master +10.73 dB) | −0.21 / −0.26 | −0.21 / −0.26 | **−65.7 / −66.3 dB** (Python: −65.7 / −66.5) |
+| P12D dos tonos (test unitario) | −0.26 / −0.26 | −0.26 / −0.26 | −34.2 / −33.2 dB (intermodulación del batido, igual en ambos) |
+| Púas post-cab +6 dB | −0.26 / −0.26 | −0.26 / −0.23 | — |
+| Púas post-cab +12 dB | −0.19 / −0.26 | −0.19 / −0.23 | — |
+| Púas high-gain post-cab +6 dB | −0.21 / −0.26 | −0.20 / −0.18 | — |
+| **Púas high-gain sin cab +6 dB** (nuevo) | −0.23 / −0.26 | **+0.86 / +1.42** | — |
+| Púas de banda completa sin cab +6 dB | −0.26 / −0.26 | +0.14 / +0.36 | — |
+
+| Criterio | Resultado |
+|---|---|
+| C2 techo de muestra | **Cumple.** Live nunca pasa de 0.97 (−0.26 dBFS) y nunca toca el soft ceiling, en todos los casos. Studio llega a −0.19 dBFS en púas de +12 dB |
+| G1–G4 de P12D | Cumplen en Studio y en Live |
+| C3 true peak post-cab | **Cumple:** Live queda a +0.03 a +0.07 dB de Studio (criterio ≤ +0.5) |
+| C3 sin cab (criterio nuevo: ≤ Studio + 1 dB) | Cumple: +0.56 dB. Los dos modos pasan de 0 dBTP sin cab: es B-13 (estimador Catmull-Rom), previo a Live |
+| C4 residuo P12D | **Cumple:** −66.3 dB (≤ −60) |
+| C5 splatter en ataques | Cumple con la métrica del documento (agudos de salida contra agudos de entrada): Live −0.65 / −5.16 / −4.07 dB (≤ +1.5) |
+| Camino limpio | Live es Studio desplazado 96 muestras, **diferencia exacta 0** |
+
+**A escuchar en el A/B:** si se descuenta la reducción de ganancia, en los ataques limitados Live agrega entre +0.9 y +2.2 dB más agudos que Studio (Studio +1.2 a +1.4 dB, Live +2.1 a +3.7 dB). Studio también agrega agudos porque baja la ganancia de golpe, solo que 2 ms antes. Es muy poco frente a un clipper (+8 a +14 dB), pero confirma que **el primer flanco de un over suena distinto**. Solo pasa cuando el limiter actúa; los presets nominales no llegan a él (P9F).
+
+**Noise Gate, 48 kHz (pérdida en el primer ms / en 3 ms):**
+
+| Caso | Studio (72 muestras) | Live (12 muestras) | Python (12) |
+|---|---|---|---|
+| Púa fuerte −12 dBFS | 0.00 / 0.00 dB | −0.27 / −0.14 | −0.7 / −0.2 |
+| Fingerpicking −36 dBFS | 0.00 / 0.00 | −0.82 / −0.39 | −0.9 / −0.3 |
+| Nota más suave que abre el gate (−37 dBFS) | 0.00 / 0.00 | **−1.09 / −0.51** | −2.3 / −0.8 |
+| Palm mute en semicorcheas −18 dBFS | 0.00 / 0.00 | −0.30 / −0.16 | −0.7 / −0.2 |
+
+- **C6 cumple:** ≤ 1 dB en notas fuertes, ≤ 2.5 dB cerca del umbral. C++ da pérdidas algo menores que Python.
+- **Nota de método:** el detector escucha un sidechain filtrado (con el focus por defecto, paso alto en ~200 Hz), así que el nivel en dBFS de una nota no se compara directo con el umbral de −46 dB. Una nota de 110 Hz a −42 dBFS no abre el gate ni en Studio. El caso "cerca del umbral" se define ahora como la nota más suave que abre el gate en Studio.
+- **Latencia del gate:** Live 11 / 12 / 24 muestras a 44.1 / 48 / 96 kHz; Studio 66 / 72 / 144.
+
+**Latencia de la cadena típica (Studio, `latency.breakdown`):** 162 / 176 / 344 muestras a 44.1 / 48 / 96 kHz, idéntico a lo calculado en 2.3 (gate 66/72/144, Overdrive 4, High Gain Amp 4, cab 0, reverb 0, OutputChain 88/96/192). Con Live, por cálculo: 19 / 20 / 32 muestras.
+
+**B-11 confirmado:** tras reconstruir el grafo, salen exactamente **6 bloques** con la entrada sin procesar. Con el master a −20 dB, la salida salta de −29.6 a −10.5 dBFS (+19 dB) durante 8 ms con bloque 64. El test queda como caracterización; el arreglo de B-11 lo invierte (0 bloques crudos).
+
+**Hallazgos laterales:**
+- **B-14:** `LookaheadDelay::process()` del Noise Gate trata un retardo de 0 como un retardo de buffer completo: lee la muestra más vieja antes de escribir. Live usa 12 muestras, así que no lo afecta, pero G3 (0 ms) necesitaría arreglarlo.
+- **B-15:** el test "AudioEngine mixed-zone insertion keeps zone-canonical effective routing" fallaba de forma intermitente en Release, también en `HEAD` sin F0 (3 de 3). Causa: no esperaba la carga del IR del Cabinet, que corre en un hilo de fondo. Arreglado con una espera de 500 ms (Release 3/3 PASS).
 
 ## 12. Referencias
 
@@ -490,7 +554,7 @@ Cada fase se valida y se commitea por separado. Los archivos nuevos se agregan a
 
 ## Anexo: análisis desechable
 
-Scripts en el scratchpad de la sesión (no versionados; F0 los reemplaza con tests en C++):
+Scripts en el scratchpad de la sesión (no versionados; F0 los reemplazó con la suite `T2-01 F0 Live mode measurements` en C++):
 - `os_latency.py`: réplica del diseño halfband IIR de JUCE.
 - `limiter_sim.py` y `splatter.py`: OutputChain y las alternativas de la sección 3.
 - `gate_sim.py`: NoiseGatePedal e InputChain.
