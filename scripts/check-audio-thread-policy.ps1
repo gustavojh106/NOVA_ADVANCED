@@ -3197,6 +3197,9 @@ if ($hasP9bManifestDoc -and $hasP9bResults) {
 }
 
 $p9bPresetFiles = @()
+# Committed preset fixtures (E2, docs/reports/E2-preset-format-freeze.md) are test data that
+# guards preset compatibility, not generated draft presets.
+$approvedPresetFixturePattern = '^docs/golden-metrics/presets-v\d+/'
 $p9bDraftFolder = Join-Path $repoRoot "Resources/Presets/DraftFactory"
 if (Test-Path $p9bDraftFolder) {
     $p9bPresetFiles = @(Get-ChildItem -LiteralPath $p9bDraftFolder -Filter "*.nova-preset" -File -Recurse | ForEach-Object {
@@ -3205,7 +3208,7 @@ if (Test-Path $p9bDraftFolder) {
 }
 $p9bRepoPresetFiles = @(Get-ChildItem -LiteralPath $repoRoot -Filter "*.nova-preset" -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
     Normalize-RelPath($_.FullName.Substring($repoRoot.Length + 1))
-})
+} | Where-Object { $_ -notmatch $approvedPresetFixturePattern })
 $p9bPresetFilesOutsideDraft = @($p9bRepoPresetFiles | Where-Object { $_ -notmatch '^Resources/Presets/DraftFactory/' })
 $contractChecks += [pscustomobject]@{
     checkId = "p9b_generated_presets_only_in_draft_folder"
@@ -3515,7 +3518,7 @@ if (Test-Path $p9cGeneratedFolderPath) {
 }
 $p9cAllPresetFiles = @(Get-ChildItem -LiteralPath $repoRoot -Filter "*.nova-preset" -File -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
     Normalize-RelPath($_.FullName.Substring($repoRoot.Length + 1))
-})
+} | Where-Object { $_ -notmatch $approvedPresetFixturePattern })
 $p9cPresetFilesOutsideGenerated = @($p9cAllPresetFiles | Where-Object { $_ -notmatch '^Resources/Presets/DraftFactory/generated/' })
 $contractChecks += [pscustomobject]@{
     checkId = "p9c_generated_presets_only_in_generated_draft_folder"

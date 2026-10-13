@@ -1,16 +1,16 @@
 {
-    "generatedAt":  "2026-10-13T16:21:56.3535852-06:00",
-    "status":  "FAIL",
+    "generatedAt":  "2026-10-13T16:22:50.7107254-06:00",
+    "status":  "PASS",
     "summary":  {
                     "activeFiles":  32,
                     "activeRanges":  38,
-                    "failures":  7,
+                    "failures":  0,
                     "warnings":  0,
                     "allowlistedWarnings":  0,
                     "legacyWarnings":  0,
                     "legacyQuarantined":  4,
                     "contractChecks":  595,
-                    "contractFailures":  7,
+                    "contractFailures":  0,
                     "allowListEntries":  2
                 },
     "activeFiles":  [
@@ -1460,8 +1460,8 @@
                            {
                                "checkId":  "p9b_generated_presets_only_in_draft_folder",
                                "target":  "repo .nova-preset files",
-                               "passed":  false,
-                               "detail":  "outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset"
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under draft folder"
                            },
                            {
                                "checkId":  "p9b_no_startup_preset_pointer_update",
@@ -1556,8 +1556,8 @@
                            {
                                "checkId":  "p9c_generated_presets_only_in_generated_draft_folder",
                                "target":  "repo .nova-preset files",
-                               "passed":  false,
-                               "detail":  "outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset"
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
                            },
                            {
                                "checkId":  "p9c_docs_no_factory_approved",
@@ -1748,8 +1748,8 @@
                            {
                                "checkId":  "p9d_generated_presets_only_in_generated_draft_folder",
                                "target":  "repo .nova-preset files",
-                               "passed":  false,
-                               "detail":  "outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset"
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
                            },
                            {
                                "checkId":  "p9d_manifest_no_factory_approved",
@@ -1910,8 +1910,8 @@
                            {
                                "checkId":  "p9e_generated_presets_only_in_generated_draft_folder",
                                "target":  "repo .nova-preset files",
-                               "passed":  false,
-                               "detail":  "outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset"
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
                            },
                            {
                                "checkId":  "p9e_no_golden_baseline_update",
@@ -2024,8 +2024,8 @@
                            {
                                "checkId":  "p9f_generated_presets_only_in_generated_draft_folder",
                                "target":  "repo .nova-preset files",
-                               "passed":  false,
-                               "detail":  "outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset"
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
                            },
                            {
                                "checkId":  "p9f_no_golden_baseline_update",
@@ -2114,8 +2114,8 @@
                            {
                                "checkId":  "p9g_generated_presets_only_in_generated_draft_folder",
                                "target":  "repo .nova-preset files",
-                               "passed":  false,
-                               "detail":  "outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset"
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
                            },
                            {
                                "checkId":  "p9g_generated_preset_count",
@@ -2252,8 +2252,8 @@
                            {
                                "checkId":  "p10a_generated_presets_only_in_generated_draft_folder",
                                "target":  "repo .nova-preset files",
-                               "passed":  false,
-                               "detail":  "outside=docs/golden-metrics/presets-v1/Boost.nova-preset,docs/golden-metrics/presets-v1/Boutique-Amp.nova-preset,docs/golden-metrics/presets-v1/Cabinet.nova-preset,docs/golden-metrics/presets-v1/Chime-Amp.nova-preset,docs/golden-metrics/presets-v1/Chorus.nova-preset,docs/golden-metrics/presets-v1/Classic-Amp.nova-preset,docs/golden-metrics/presets-v1/Clean-Amp.nova-preset,docs/golden-metrics/presets-v1/Compressor.nova-preset,docs/golden-metrics/presets-v1/Delay.nova-preset,docs/golden-metrics/presets-v1/Distortion.nova-preset,docs/golden-metrics/presets-v1/EQ.nova-preset,docs/golden-metrics/presets-v1/Flanger.nova-preset,docs/golden-metrics/presets-v1/Full-Rig.nova-preset,docs/golden-metrics/presets-v1/Fuzz.nova-preset,docs/golden-metrics/presets-v1/High-Gain-Amp.nova-preset,docs/golden-metrics/presets-v1/Modern-4x12.nova-preset,docs/golden-metrics/presets-v1/Neural.nova-preset,docs/golden-metrics/presets-v1/Noise-Gate.nova-preset,docs/golden-metrics/presets-v1/Octave.nova-preset,docs/golden-metrics/presets-v1/Overdrive.nova-preset,docs/golden-metrics/presets-v1/Phaser.nova-preset,docs/golden-metrics/presets-v1/Reverb.nova-preset,docs/golden-metrics/presets-v1/Tremolo.nova-preset,docs/golden-metrics/presets-v1/Vintage-2x12.nova-preset,docs/golden-metrics/presets-v1/Wah.nova-preset"
+                               "passed":  true,
+                               "detail":  "all .nova-preset files are under generated draft folder"
                            },
                            {
                                "checkId":  "p10a_no_golden_baseline_update",
@@ -3637,48 +3637,7 @@
                            }
                        ],
     "contractFailures":  [
-                             {
-                                 "checkId":  "p9b_generated_preset_outside_draft_folder",
-                                 "file":  "repo",
-                                 "function":  "P9B preset generation guard",
-                                 "detail":  "P9B generated preset files must not be outside Resources/Presets/DraftFactory."
-                             },
-                             {
-                                 "checkId":  "p9c_generated_preset_outside_generated_draft_folder",
-                                 "file":  "repo",
-                                 "function":  "P9C preset generation guard",
-                                 "detail":  "P9C generated preset files must not be outside Resources/Presets/DraftFactory/generated."
-                             },
-                             {
-                                 "checkId":  "p9d_generated_preset_outside_generated_draft_folder",
-                                 "file":  "repo",
-                                 "function":  "P9D generated output",
-                                 "detail":  "P9D generated preset files must be under Resources/Presets/DraftFactory/generated only."
-                             },
-                             {
-                                 "checkId":  "p9e_generated_preset_outside_generated_draft_folder",
-                                 "file":  "repo",
-                                 "function":  "P9E preset generation guard",
-                                 "detail":  "P9E generated preset files must be under Resources/Presets/DraftFactory/generated only."
-                             },
-                             {
-                                 "checkId":  "p9f_generated_preset_outside_generated_draft_folder",
-                                 "file":  "repo",
-                                 "function":  "P9F preset generation guard",
-                                 "detail":  "P9F generated preset files must be under Resources/Presets/DraftFactory/generated only."
-                             },
-                             {
-                                 "checkId":  "p9g_generated_preset_outside_generated_draft_folder",
-                                 "file":  "repo",
-                                 "function":  "P9G preset guard",
-                                 "detail":  "P9G draft preset files must remain under Resources/Presets/DraftFactory/generated only."
-                             },
-                             {
-                                 "checkId":  "p10a_generated_preset_outside_generated_draft_folder",
-                                 "file":  "repo",
-                                 "function":  "P10A preset guard",
-                                 "detail":  "P10A draft preset files must remain under Resources/Presets/DraftFactory/generated only."
-                             }
+
                          ],
     "allowlistedWarnings":  [
 
