@@ -199,7 +199,7 @@ Técnicamente el cambio es T0; lo que falta es la decisión legal/comercial.
 | ID | Mejora | Dónde | Ganancia estimada | Riesgo concreto | Validación extra | Estado |
 |---|---|---|---|---|---|---|
 | T1-01 | **Cab como IIR exacto.** El IR sintético es: 8 biquads → 2 reflexiones → ventana exponencial rⁿ. Multiplicar una respuesta por rⁿ equivale a escalar polos y ceros por r (b1·r, b2·r², a1·r, a2·r²; cada reflexión g pasa a g·rᵈ). Resultado: el mismo cab sin convolución FFT. | `Source/Effects/Cabinets/SyntheticIR.h`, `CabinetPedal.h`, `Modern4x12Cabinet.h`, `Vintage2x12Cabinet.h` | Cab 2.2% → ~0.3%; costo constante con buffers chicos (la FFT cuesta más con 16–32 muestras) | Difiere solo por el truncado actual del IR (~−68 dB) | Null test < −60 dB contra el IR actual | Pendiente |
-| T1-02 | **Bug: el decay del IR depende de la frecuencia de muestreo** (`0.993f` fijo por muestra: a 96 kHz decae el doble de rápido). Usar r = 0.993^(48000/fs). | `Source/Effects/Cabinets/SyntheticIR.h:180` | El cab suena igual a 44.1, 48 y 96 kHz | Cambia el sonido a 44.1 y 96 kHz (corrección intencional; a 48 kHz no cambia) | Escucha a 44.1k | Pendiente |
+| T1-02 | **Bug: el decay del IR depende de la frecuencia de muestreo** (`0.993f` fijo por muestra: a 96 kHz decae el doble de rápido). Usar r = 0.993^(48000/fs). | `Source/Effects/Cabinets/SyntheticIR.h:180` | El cab suena igual a 44.1, 48 y 96 kHz | Cambia el sonido a 44.1 y 96 kHz (corrección intencional; a 48 kHz no cambia) | Escucha a 44.1k | **Hecho, 2026-10-12.** Además del decay apareció B-16 (nivel): la normalización por pico hacía el cab **~6 dB más fuerte a 96 kHz** y ~0.6 dB más bajo a 44.1. Ahora el decay escala con la frecuencia y el nivel se iguala al del IR de 48 kHz. Los 3 cabs quedan a ≤ 0.52 dB de 48 kHz (100 Hz–5 kHz). A 48 kHz, bit-idéntico |
 | T1-03 | **Aproximaciones rápidas de `tanh`, `exp` y `pow`** (racional / `exp2`) en saturadores y detectores. | HighGainAmp (4 `tanh` por sub-muestra), Overdrive, Distortion, Fuzz, ChimeAmp, BoutiqueAmp, CleanAmp | −50 a −80% del costo de las curvas | Error ~1e-4 (≈ −80 dB) | Null test + golden | Pendiente |
 | T1-04 | **Filtros lineales fuera de la zona a 8x.** Dentro de la banda útil, los filtros lineales conmutan con el cambio de frecuencia de muestreo; solo la curva no lineal necesita 8x. | Overdrive (3 pre + 5 post), HighGainAmp (4 post), CleanAmp (3 shelves), Distortion (pre) | −30 a −60% por pedal | Diferencias pequeñas en agudos por el warping de los filtros | Golden + A/B | Pendiente |
 | T1-05 | **Oversampling con `isMaxQuality = false`:** rechazo de −70 dB en vez de −90 dB. El cab corta igual todo lo que está arriba de 5–8 kHz. | 11 procesadores | ~−20–25% del costo de los filtros halfband; latencia de oversampling algo menor | Algo más de aliasing (inaudible después del cab) | Golden + A/B en high-gain | Pendiente |
@@ -382,6 +382,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | B-13 | El estimador de true peak del limiter (Catmull-Rom de 4 puntos) subestima los picos entre muestras con contenido agudo: +0.8 dBTP con un tono a fs/4. Con material post-cab queda ≤ 0 dBTP. **Medido en C++ (T2-01 F0):** high-gain sin cab, +0.86 dBTP en Studio y +1.42 en Live | Anotado en T2-01 §3.5; sin ítem todavía |
 | B-14 | `LookaheadDelay::process()` del Noise Gate trata un retardo de 0 como un retardo de buffer completo. No afecta a Studio (72 muestras) ni a Live G1 (12) | Solo si algún día se elige G3 (T2-01) |
 | B-15 | El test "AudioEngine mixed-zone insertion…" fallaba de forma intermitente en Release (también en `HEAD`): no esperaba la carga en segundo plano del IR del Cabinet | Corregido en T2-01 F0 (espera de 500 ms) |
+| B-16 | El IR sintético se normalizaba por pico: a 96 kHz la misma respuesta se reparte en el doble de muestras, el pico baja a la mitad y el cab sonaba **~6 dB más fuerte** (a 44.1 kHz, ~0.6 dB más bajo) | Corregido con T1-02 |
 
 ## 9. Límites físicos (no se pueden optimizar por software)
 
@@ -407,12 +408,31 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 - ADAA: Bilbao, Esqueda, Parker, Välimäki, *Antiderivative Antialiasing for Memoryless Nonlinearities*, IEEE Signal Processing Letters 24(7) (2017).
 - Filtros TPT/SVF: Zavalishin, *The Art of VA Filter Design*.
 
+## 11b. Checklist del motor para la beta (decidido 2026-10-12)
+
+**Decisión del usuario:** primero llevar el motor a un estado estable y de calidad para una beta con usuarios reales. Las mejoras (modo Live, CPU, T2) siguen después. Cuando se cumpla todo, el motor queda **congelado**: solo entran arreglos de bugs reportados en la beta, y las optimizaciones siguen en otra rama, protegidas por los checksums bit-exactos.
+
+| # | Criterio | Tipo | Estado |
+|---|---|---|---|
+| E1 | El cab suena igual a 44.1, 48 y 96 kHz (T1-02 + B-16) | Código | **Hecho (2026-10-12)** |
+| E2 | Formato de presets congelado: revisar `STATE_SCHEMA_VERSION`, la migración de versiones viejas y el round-trip guardar → cargar | Revisión + tests | Pendiente |
+| E3 | Robustez de dispositivo: desconexión y reconexión en caliente, 44.1/48/96 kHz, buffers de 32 a 1024, ASIO, WASAPI y equipos sin ASIO | Tests + prueba manual | Pendiente |
+| E4 | Entrada y salida en dispositivos distintos (B-05): el wizard lo detecta y lo explica | Código (wizard) | Pendiente |
+| E5 | VST3 en 2–3 DAWs (procedimiento P13A) | Prueba manual | Pendiente |
+| E6 | Reporte de problemas: exportar el log de sesión y el diagnóstico desde la app | Código | Pendiente |
+| E7 | Cierre: prueba de B-11 en la app, rt-profile con la máquina en reposo, merge a `master` | Prueba + merge | Pendiente |
+| L1 | Acuerdo ASIO de Steinberg firmado por las dos partes (T0-03) | Legal (usuario, en paralelo) | Pendiente |
+
+**Criterio de congelamiento:** E1–E7 cerrados; base, golden y bit-exacto en PASS en Release; rt-profile limpio; matriz de hardware y DAWs sin crashes ni cortes con buffer ≥ 128. L1 es requisito para distribuir.
+
 ## 12. Siguiente paso recomendado
 
 **Dónde retomar (2026-10-12):** todo commiteado en la rama `perf/t0-latency-optimizations` (sin mergear a `master`): T0, T2-10 F1 + F2 (probadas por el usuario en la app, caja negra OK), T2-01 F0 y el arreglo de B-11.
 
+**Prioridad actual: checklist del motor para la beta (§11b).** E1 hecho; sigue E2 (formato de presets).
+
 1. **Prueba rápida en la app del arreglo de B-11:** agregar y quitar pedales, cambiar de preset y usar Aplicar/Deshacer del Autopilot tocando. Debe oírse un hueco corto y limpio, sin DI crudo ni clicks.
-2. **T2-01 F1 + F2 solo en el Standalone:** `AudioEngine::setLatencyMode` + `GraphBuilder` conectan los flags de F0; ajuste en el `PropertySet` del Standalone; interruptor "Live / Studio"; Studio por defecto. Después, el A/B del usuario.
+2. **Después del congelamiento — T2-01 F1 + F2 solo en el Standalone:** `AudioEngine::setLatencyMode` + `GraphBuilder` conectan los flags de F0; ajuste en el `PropertySet` del Standalone; interruptor "Live / Studio"; Studio por defecto. Después, el A/B del usuario.
 3. **Después, a elegir:**
    - T2-10 F3: automático en la primera ejecución, re-detección al conectar o desconectar, monitoreo con sugerencias y memoria por equipo.
    - T1 de CPU: T1-03, T1-04, T1-13 y T1-01.
@@ -434,3 +454,4 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | 2026-10-12 | T2-10 F1 + F2, documentos de T2-01 y reportes de QA commiteados por tema. El usuario probó T2-10 en la app (caja negra OK). Decisiones de T2-01 tomadas (§11 del documento) |
 | 2026-10-12 | T2-01 F0: flags inertes `setLiveMode()` (OutputChain, Noise Gate), checksums de OutputChain/InputChain (+2 `@live`) y suite C++ de medición. Live cumple C2–C6; B-11 confirmado; nuevos hallazgos B-14 y B-15 (B-15 corregido). Bit-exacto 48/48 previos sin cambios, base PASS (333/13744/0) en Debug y Release, golden PASS |
 | 2026-10-12 | B-11 corregido en `AudioEngine::process`: fade-out de 5 ms con el grafo saliente (máx. 4 bloques), silencio con el grafo nuevo alimentándose y fade-in de 5 ms. Test "B-11 graph transition" (5 escenarios): 0 bloques crudos y sin click. Base PASS (333/13767/0) en Debug y Release, golden PASS, bit-exacto 56/56 |
+| 2026-10-12 | Checklist del motor para la beta (§11b). E1 / T1-02 hecho: decay del IR escalado con la frecuencia + nivel igualado al de 48 kHz (B-16: el cab sonaba ~6 dB más fuerte a 96 kHz). Test nuevo: los 3 cabs a ≤ 0.52 dB de 48 kHz. Bit-exacto: solo cambian las 3 entradas de cab a 44.1 kHz (baselines actualizados a propósito). Base PASS (334/13773/0) en Debug y Release, golden PASS |
