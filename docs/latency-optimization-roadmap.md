@@ -415,7 +415,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | # | Criterio | Tipo | Estado |
 |---|---|---|---|
 | E1 | El cab suena igual a 44.1, 48 y 96 kHz (T1-02 + B-16) | Código | **Hecho (2026-10-12)** |
-| E2 | Formato de presets congelado: revisar `STATE_SCHEMA_VERSION`, la migración de versiones viejas y el round-trip guardar → cargar | Revisión + tests | Pendiente |
+| E2 | Formato de presets congelado: revisar `STATE_SCHEMA_VERSION`, la migración de versiones viejas y el round-trip guardar → cargar | Revisión + tests | **Hecho (2026-10-13).** Esquema 1 congelado: valor real por parámetro, punto de migración, detección de presets más nuevos, 25 presets de referencia v1 en el repo y reglas en `docs/reports/E2-preset-format-freeze.md`. Pendiente menor: aviso en la UI para presets más nuevos (con E6) |
 | E3 | Robustez de dispositivo: desconexión y reconexión en caliente, 44.1/48/96 kHz, buffers de 32 a 1024, ASIO, WASAPI y equipos sin ASIO | Tests + prueba manual | Pendiente |
 | E4 | Entrada y salida en dispositivos distintos (B-05): el wizard lo detecta y lo explica | Código (wizard) | Pendiente |
 | E5 | VST3 en 2–3 DAWs (procedimiento P13A) | Prueba manual | Pendiente |
@@ -429,7 +429,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 
 **Dónde retomar (2026-10-12):** todo commiteado en la rama `perf/t0-latency-optimizations` (sin mergear a `master`): T0, T2-10 F1 + F2 (probadas por el usuario en la app, caja negra OK), T2-01 F0 y el arreglo de B-11.
 
-**Prioridad actual: checklist del motor para la beta (§11b).** E1 hecho; sigue E2 (formato de presets).
+**Prioridad actual: checklist del motor para la beta (§11b).** E1 y E2 hechos; sigue E3 (robustez de dispositivo).
 
 1. **Prueba rápida en la app del arreglo de B-11:** agregar y quitar pedales, cambiar de preset y usar Aplicar/Deshacer del Autopilot tocando. Debe oírse un hueco corto y limpio, sin DI crudo ni clicks.
 2. **Después del congelamiento — T2-01 F1 + F2 solo en el Standalone:** `AudioEngine::setLatencyMode` + `GraphBuilder` conectan los flags de F0; ajuste en el `PropertySet` del Standalone; interruptor "Live / Studio"; Studio por defecto. Después, el A/B del usuario.
@@ -455,3 +455,4 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | 2026-10-12 | T2-01 F0: flags inertes `setLiveMode()` (OutputChain, Noise Gate), checksums de OutputChain/InputChain (+2 `@live`) y suite C++ de medición. Live cumple C2–C6; B-11 confirmado; nuevos hallazgos B-14 y B-15 (B-15 corregido). Bit-exacto 48/48 previos sin cambios, base PASS (333/13744/0) en Debug y Release, golden PASS |
 | 2026-10-12 | B-11 corregido en `AudioEngine::process`: fade-out de 5 ms con el grafo saliente (máx. 4 bloques), silencio con el grafo nuevo alimentándose y fade-in de 5 ms. Test "B-11 graph transition" (5 escenarios): 0 bloques crudos y sin click. Base PASS (333/13767/0) en Debug y Release, golden PASS, bit-exacto 56/56 |
 | 2026-10-12 | Checklist del motor para la beta (§11b). E1 / T1-02 hecho: decay del IR escalado con la frecuencia + nivel igualado al de 48 kHz (B-16: el cab sonaba ~6 dB más fuerte a 96 kHz). Test nuevo: los 3 cabs a ≤ 0.52 dB de 48 kHz. Bit-exacto: solo cambian las 3 entradas de cab a 44.1 kHz (baselines actualizados a propósito). Base PASS (334/13773/0) en Debug y Release, golden PASS |
+| 2026-10-13 | E2 hecho: formato de presets congelado en el esquema 1. Valor real (`raw`) por parámetro, `migrateStateTree()`, `isFromNewerSchema()`, `savedByVersion`. Tests: round-trip de 189 parámetros de los 24 procesadores a través del archivo (0 diferencias), cambio de rango, y 25 presets de referencia v1 (832 comprobaciones, 0 diferencias). Base PASS (337/13953/0) en Debug y Release, bit-exacto 56/56, golden PASS (solo `state_size_bytes` del Overdrive, 318 → 429) |
