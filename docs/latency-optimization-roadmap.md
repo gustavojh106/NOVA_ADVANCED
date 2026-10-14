@@ -468,6 +468,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 - ADAA: Parker, Zavalishin, Le Bivic, *Reducing the Aliasing of Nonlinear Waveshaping Using Continuous-Time Convolution*, DAFx-16 (2016).
 - ADAA: Bilbao, Esqueda, Parker, Välimäki, *Antiderivative Antialiasing for Memoryless Nonlinearities*, IEEE Signal Processing Letters 24(7) (2017).
 - Filtros TPT/SVF: Zavalishin, *The Art of VA Filter Design*.
+- Brechas técnicas para un producto de estudio (2026-10-14): `docs/reports/PRO-studio-engine-gap-analysis.md`.
 
 ## 11b. Checklist del motor para la beta (decidido 2026-10-12)
 
@@ -498,6 +499,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 3. **Después, a elegir:**
    - T2-10 F3: automático en la primera ejecución, re-detección al conectar o desconectar, monitoreo con sugerencias y memoria por equipo.
    - T1 de CPU: T1-03, T1-04, T1-13 y T1-01.
+   - Brechas para un producto de estudio (calidad del modelado, integración con el DAW, medición objetiva): `docs/reports/PRO-studio-engine-gap-analysis.md`. Su orden recomendado empieza por la suite de medición espectral (T0) y la consistencia entre frecuencias de muestreo (T1).
 4. **Antes de publicar:** firmar el acuerdo ASIO (T0-03) y mergear la rama a `master`.
 
 ## 13. Registro
@@ -525,3 +527,4 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | 2026-10-13 | E6: reporte de problemas. Settings > HELP con "Export problem report" (pregunta opcional "What happened?", zip en `Documents\NOVA\Problem Reports`, abre el Explorador) y "Open logs folder". `Source/Core/ProblemReport.h` (nuevo, en `NOVA.jucer` + re-export): `report.txt`, logs de esta sesión y de la anterior, rig actual, rutas sin la carpeta del usuario. Nuevo hallazgo B-18 (el log se borraba al abrir NOVA), corregido con `session-log-previous.txt`. Aviso de una sola vez (diálogo) para presets, preset de inicio y sesiones de DAW de una versión más nueva. 5 tests nuevos. Exportación real en el hook de capturas con el equipo del usuario: 4 archivos, 0 apariciones del usuario. Base PASS (349/14274/0) en Debug y Release, bit-exacto 56/56 (Debug y Release), golden PASS, policy PASS |
 | 2026-10-14 | E7 (parte automática): validación Release y Debug, golden, bit-exacto 56/56, policy y 2 corridas de rt-profile en reposo (64/64 PASS). Corregido B-19: `warmUpEngine` ahora espera al hilo de control del motor antes de renderizar (test intermitente en Release; solo tests). Evidencia: `artifacts/rt-profile-release-e7-idle.json` y `-e7-idle-2.json` |
 | 2026-10-14 | B-20: el ~3.3% de `proc_cabinet` en E7 era un artefacto del harness, no una regresión. La convolución de JUCE quedaba desfasada (dos pares FFT por bloque, +32 µs) cuando el IR, cargado en segundo plano, se instalaba entre los bloques de 64 del warm-up de los setups; lo expuso B-11 (`03a59f3`). Bisect: `97b81d2` 0/35 corridas de cab altas, `03a59f3` 21/35. Corregido solo en el harness: warm-up con el bloque del escenario, flush con espera (también cierra la carrera de B-19 en el rt-profile), 250 ms con cab y reporte atómico. Opciones nuevas en `run-rt-profile-scenarios.ps1`: `-Only`, `-Repeat`, `-BlockCsvPath`, `-CabinetProbe`, `-LegacyWarmUp`, `-SkipBuild`. rt-profile en reposo, 5 corridas: 64/64 PASS, mediana 0.987× frente a T0 after, cabs con CV ≤ 2.8% (antes hasta 24%). Sin cambios en el audio ni en las baselines. Evidencia: `artifacts/rt-profile-b20-*` |
+| 2026-10-14 | Análisis de brechas técnicas para un producto de estudio (motor, entrada, salida, DAW y dispositivos; sin UI): `docs/reports/PRO-studio-engine-gap-analysis.md`. Brechas principales: amps genéricos (`tanh` sin memoria + shelves) y cabs sintéticos sin cargador de IR; sin métricas espectrales (aliasing, THD); coeficientes por muestra que cambian el sonido con la frecuencia (sag de ClassicAmp y HighGainAmp, confianza del Octave); solo 14 parámetros automatizables, sin MIDI, sin mono→estéreo, latencia que cambia con cada preset. Detectado: el transpose que describe CLAUDE.md no existe (`tuningOffset` no se usa). Sin cambios de código |
