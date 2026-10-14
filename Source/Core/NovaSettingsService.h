@@ -12,7 +12,6 @@ namespace Nova::SettingsService
         static constexpr const char* startupMode = "editor.startupMode";
         static constexpr const char* confirmBeforeClear = "editor.confirmBeforeClear";
         static constexpr const char* tunerReference = "editor.tunerReference";
-        static constexpr const char* showLatencyTips = "editor.showLatencyTips";
         static constexpr const char* libraryView = "editor.libraryView";
         static constexpr const char* favoritesFirst = "editor.libraryFavoritesFirst";
         static constexpr const char* switcherShortcut = "editor.switcherShortcut";
@@ -106,7 +105,6 @@ namespace Nova::SettingsService
         settings.values.set(Keys::startupMode, StartupModes::rememberLastContext);
         settings.values.set(Keys::confirmBeforeClear, "true");
         settings.values.set(Keys::tunerReference, "A = 440 Hz");
-        settings.values.set(Keys::showLatencyTips, "true");
         settings.values.set(Keys::libraryView, "All presets");
         settings.values.set(Keys::favoritesFirst, "false");
         settings.values.set(Keys::switcherShortcut, juce::String(juce::KeyPress::spaceKey));
@@ -179,7 +177,6 @@ namespace Nova::SettingsService
         sanitizeBool(Keys::openBrowserOnStartup);
         sanitizeBool(Keys::openPresetsOnStartup);
         sanitizeBool(Keys::confirmBeforeClear);
-        sanitizeBool(Keys::showLatencyTips);
         sanitizeBool(Keys::favoritesFirst);
 
         if (!isValidStartupMode(getString(settings, Keys::startupMode, {})))

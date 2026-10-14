@@ -12,6 +12,10 @@ public:
     explicit TunerOverlay(NOVAAudioProcessor& p);
     ~TunerOverlay() override;
 
+    // Reference pitch ("A = 440 Hz", "A = 442 Hz", "A = 432 Hz"). The editor persists the choice.
+    void setReference(const juce::String& reference);
+    std::function<void(const juce::String&)> onReferenceChanged;
+
     void timerCallback() override;
     void paint(juce::Graphics& g) override;
     void resized() override;
@@ -63,6 +67,7 @@ private:
     // -------------------------------------------------------------------------
     juce::TextButton closeButton;
     juce::ComboBox tuningSelector;
+    juce::ComboBox referenceSelector;
     juce::TextButton resetButton;
     juce::TextButton startPlayingButton;
 

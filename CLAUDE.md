@@ -111,8 +111,8 @@ Source/
 │   └── Cabinets/               # CabinetPedal, SyntheticIR, cabinet variants
 ├── GUI/
 │   ├── Widgets/                # ChainLane, DropZone, AssetBrowserOverlay, AssetItem, DraggableButton
-│   ├── Overlays/               # TunerOverlay
-│   └── Wizards/                # WizardBase, StartWizard, AudioSetupWizard, PresetFinderWizard
+│   ├── Overlays/               # TunerOverlay, AudioPanel (header audio chip + Audio panel)
+│   └── Wizards/                # WizardBase, StartWizard, PresetFinderWizard
 ├── Lib/                        # Vendored: RTNeural, Eigen, json, xsimd, models/
 └── Resources/Textures/         # Knob filmstrips, surface materials
 ```
@@ -167,7 +167,8 @@ The editor (`PluginEditor.h/cpp`) uses a multi-tier responsive layout with three
 - **Drag-and-drop formats**: `"TypeID:DisplayName"` (asset browser → chain), `"MOVE:LineA/LineB:PedalIndex"` (intra-chain move)
 - **Colors**: All defined in `Nova::Colors::*` in `Constants.h`. Each pedal has its own `accentHex`/`accentBrightHex` in `PedalCatalog`
 
-- **Wizards**: `GUI/Wizards/WizardBase.h` — multi-step overlay with progress dots, back/next/skip navigation. Subclasses (`StartWizard`, `AudioSetupWizard`, `PresetFinderWizard`) override `buildStepContent()` and `onStepChanged()`. Shown as full-screen modal overlays.
+- **Audio panel**: `GUI/Overlays/AudioPanel.h` — the only place for audio/device settings (Standalone). A header chip (`AudioStatusChip`) shows device, rate, buffer and total latency with a health colour and opens `AudioPanel`: latency, guitar input meter, input monitoring, the Latency Autopilot recommendation (Apply/Undo) and the essentials only (driver, device, guitar input channel, sample rate, buffer + "Find lowest stable"). Outputs are always the device's first pair. The JUCE Standalone "Options" menu is hidden; the tuner reference (A = 440/442/432) lives in `TunerOverlay`. Debug UI QA: `NOVA_UI_SNAPSHOT_DIR=<folder>` renders the editor and overlays to PNG and quits
+- **Wizards**: `GUI/Wizards/WizardBase.h` — multi-step overlay with progress dots, back/next/skip navigation. Subclasses (`StartWizard`, `PresetFinderWizard`) override `buildStepContent()` and `onStepChanged()`. Shown as full-screen modal overlays.
 
 **Premium editor reference**: `OverdriveEditor.h` — hero knob + control grid + response curve + texture overlays. Matching `OverdriveThumbnail.h` and `OverdriveDashboard.h` for asset browser and compact views.
 

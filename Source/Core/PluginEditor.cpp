@@ -28,7 +28,6 @@ namespace
         constexpr const char* startupModeKey = Nova::SettingsService::Keys::startupMode;
         constexpr const char* confirmBeforeClearKey = Nova::SettingsService::Keys::confirmBeforeClear;
         constexpr const char* tunerReferenceKey = Nova::SettingsService::Keys::tunerReference;
-        constexpr const char* showLatencyTipsKey = Nova::SettingsService::Keys::showLatencyTips;
         constexpr const char* switcherShortcutKey = Nova::SettingsService::Keys::switcherShortcut;
         constexpr const char* switcherModesKey = Nova::SettingsService::Keys::switcherModes;
 
@@ -900,268 +899,6 @@ namespace
         Tab selectedTab = Tab::Interface;
     };
 
-    class AudioSettingsPage final : public juce::Component,
-        private juce::Timer
-    {
-    public:
-        AudioSettingsPage(NOVAAudioProcessor& processor,
-            Nova::SettingsService::EditorSettings& settingsToEdit)
-            : audioProcessor(processor),
-              settings(settingsToEdit)
-        {
-            setLookAndFeel(&lookAndFeel);
-
-            configureTabButton(btnSessionTab, "Session", [this] { setTab(Tab::Session); });
-            configureTabButton(btnDefaultsTab, "Defaults", [this] { setTab(Tab::Defaults); });
-            configureTabButton(btnDeviceTab, "Device", [this] { setTab(Tab::Device); });
-
-            addAndMakeVisible(summaryLabel);
-            summaryLabel.setColour(juce::Label::textColourId, Nova::Colors::Text.withAlpha(0.88f));
-            summaryLabel.setFont(juce::Font(juce::FontOptions(13.0f)));
-            summaryLabel.setJustificationType(juce::Justification::topLeft);
-            summaryLabel.setMinimumHorizontalScale(0.75f);
-
-            addAndMakeVisible(hintLabel);
-            hintLabel.setColour(juce::Label::textColourId, Nova::Colors::TextDim);
-            hintLabel.setFont(juce::Font(juce::FontOptions(11.5f)));
-            hintLabel.setJustificationType(juce::Justification::topLeft);
-            hintLabel.setMinimumHorizontalScale(0.8f);
-            hintLabel.setText("NOVA keeps using the same JUCE audio device manager that already works in standalone.",
-                juce::dontSendNotification);
-
-            addAndMakeVisible(deviceHintLabel);
-            deviceHintLabel.setColour(juce::Label::textColourId, Nova::Colors::Text.withAlpha(0.88f));
-            deviceHintLabel.setFont(juce::Font(juce::FontOptions(13.0f)));
-            deviceHintLabel.setJustificationType(juce::Justification::topLeft);
-            deviceHintLabel.setMinimumHorizontalScale(0.78f);
-
-            tunerReferenceBox.addItem("A = 440 Hz", 1);
-            tunerReferenceBox.addItem("A = 442 Hz", 2);
-            tunerReferenceBox.addItem("A = 432 Hz", 3);
-            tunerReferenceBox.setText(EditorPrefs::getString(settings, EditorPrefs::tunerReferenceKey, "A = 440 Hz"),
-                juce::dontSendNotification);
-            tunerReferenceBox.onChange = [this]
-            {
-                Nova::SettingsService::setString(settings, EditorPrefs::tunerReferenceKey, tunerReferenceBox.getText());
-            };
-            addAndMakeVisible(tunerReferenceBox);
-
-            latencyTipsToggle.setButtonText("Warn about high-latency audio setup");
-            latencyTipsToggle.setToggleState(EditorPrefs::getBool(settings, EditorPrefs::showLatencyTipsKey, true), juce::dontSendNotification);
-            latencyTipsToggle.onClick = [this]
-            {
-                Nova::SettingsService::setBool(settings, EditorPrefs::showLatencyTipsKey, latencyTipsToggle.getToggleState());
-            };
-            addAndMakeVisible(latencyTipsToggle);
-            latencyTipsToggle.setTooltip("Warn when buffer size or device settings may hurt live playability.");
-
-#if JucePlugin_Build_Standalone
-            if (auto* holder = juce::StandalonePluginHolder::getInstance())
-            {
-                const int maxInputs = juce::jmax(2, audioProcessor.getMainBusNumInputChannels());
-                const int maxOutputs = juce::jmax(2, audioProcessor.getMainBusNumOutputChannels());
-
-                audioSelector = std::make_unique<juce::AudioDeviceSelectorComponent>(
-                    holder->deviceManager,
-                    0, maxInputs,
-                    0, maxOutputs,
-                    true,
-                    audioProcessor.producesMidi(),
-                    true,
-                    false);
-
-                audioSelector->setItemHeight(30);
-                audioSelector->setLookAndFeel(&lookAndFeel);
-                addAndMakeVisible(audioSelector.get());
-            }
-#endif
-
-            refreshSummary();
-            startTimerHz(2);
-            setTab(Tab::Session);
-        }
-
-        ~AudioSettingsPage() override
-        {
-            stopTimer();
-            if (audioSelector != nullptr)
-                audioSelector->setLookAndFeel(nullptr);
-            setLookAndFeel(nullptr);
-        }
-
-        void paint(juce::Graphics& g) override
-        {
-            juce::String title;
-            juce::String subtitle;
-
-            switch (selectedTab)
-            {
-                case Tab::Session:
-                    title = "Current Audio Session";
-                    subtitle = "A live view of the device configuration that NOVA is currently using.";
-                    break;
-                case Tab::Defaults:
-                    title = "Audio Defaults";
-                    subtitle = "Tuning reference and latency preferences for your setup.";
-                    break;
-                case Tab::Device:
-                    title = "Audio Device Manager";
-                    subtitle = "Direct access to the embedded JUCE device setup.";
-                    break;
-            }
-
-            paintSettingsContentSurface(g, contentBounds, title, subtitle);
-        }
-
-        void resized() override
-        {
-            auto area = getLocalBounds().reduced(10);
-            tabsBounds = area.removeFromTop(34);
-            area.removeFromTop(12);
-            contentBounds = area;
-
-            auto tabRow = tabsBounds;
-            const int gap = 8;
-            const int tabW = (tabRow.getWidth() - gap * 2) / 3;
-            btnSessionTab.setBounds(tabRow.removeFromLeft(tabW));
-            tabRow.removeFromLeft(gap);
-            btnDefaultsTab.setBounds(tabRow.removeFromLeft(tabW));
-            tabRow.removeFromLeft(gap);
-            btnDeviceTab.setBounds(tabRow);
-
-            auto content = contentBounds.reduced(22, 18);
-            content.removeFromTop(44);
-
-            if (selectedTab == Tab::Session)
-            {
-                summaryLabel.setBounds(content.removeFromTop(64));
-                content.removeFromTop(10);
-                hintLabel.setBounds(content.removeFromTop(34));
-            }
-            else if (selectedTab == Tab::Defaults)
-            {
-                tunerReferenceBox.setBounds(content.removeFromTop(34));
-                content.removeFromTop(12);
-                latencyTipsToggle.setBounds(content.removeFromTop(34));
-            }
-            else
-            {
-                deviceHintLabel.setBounds(content.removeFromTop(40));
-                content.removeFromTop(12);
-                if (audioSelector != nullptr)
-                    audioSelector->setBounds(content);
-            }
-        }
-
-    private:
-        enum class Tab
-        {
-            Session,
-            Defaults,
-            Device
-        };
-
-        void timerCallback() override
-        {
-            refreshSummary();
-        }
-
-        void configureTabButton(juce::TextButton& button,
-            const juce::String& text,
-            std::function<void()> onClick)
-        {
-            addAndMakeVisible(button);
-            styleSettingsTabButton(button, text);
-            button.onClick = std::move(onClick);
-        }
-
-        void setTab(Tab newTab)
-        {
-            selectedTab = newTab;
-
-            setSettingsTabButtonActive(btnSessionTab, selectedTab == Tab::Session);
-            setSettingsTabButtonActive(btnDefaultsTab, selectedTab == Tab::Defaults);
-            setSettingsTabButtonActive(btnDeviceTab, selectedTab == Tab::Device);
-
-            const bool sessionVisible = selectedTab == Tab::Session;
-            const bool defaultsVisible = selectedTab == Tab::Defaults;
-            const bool deviceVisible = selectedTab == Tab::Device;
-
-            summaryLabel.setVisible(sessionVisible);
-            hintLabel.setVisible(sessionVisible);
-
-            tunerReferenceBox.setVisible(defaultsVisible);
-            latencyTipsToggle.setVisible(defaultsVisible);
-
-            if (audioSelector != nullptr)
-                audioSelector->setVisible(deviceVisible);
-            deviceHintLabel.setVisible(deviceVisible);
-
-            resized();
-            repaint();
-        }
-
-        void refreshSummary()
-        {
-#if JucePlugin_Build_Standalone
-            if (auto* holder = juce::StandalonePluginHolder::getInstance())
-            {
-                juce::AudioDeviceManager::AudioDeviceSetup setup;
-                holder->deviceManager.getAudioDeviceSetup(setup);
-
-                if (auto* currentDevice = holder->deviceManager.getCurrentAudioDevice())
-                {
-                    const auto sampleRate = juce::String(currentDevice->getCurrentSampleRate(), 0);
-                    const auto bufferSize = juce::String(currentDevice->getCurrentBufferSizeSamples());
-                    const auto inputName = setup.inputDeviceName.isNotEmpty() ? setup.inputDeviceName : "Default Input";
-                    const auto outputName = setup.outputDeviceName.isNotEmpty() ? setup.outputDeviceName : "Default Output";
-                    const auto tunerReference = EditorPrefs::getString(settings, EditorPrefs::tunerReferenceKey, "A = 440 Hz");
-
-                    summaryLabel.setText(
-                        "Driver: " + currentDevice->getTypeName()
-                        + "    |    Sample Rate: " + sampleRate + " Hz"
-                        + "    |    Buffer: " + bufferSize + " samples\n"
-                        + "Input: " + inputName + "\n"
-                        + "Output: " + outputName + "\n"
-                        + "Tuner Reference: " + tunerReference,
-                        juce::dontSendNotification);
-                    deviceHintLabel.setText("Use this tab for direct interface, driver and buffer selection.",
-                        juce::dontSendNotification);
-                    return;
-                }
-
-                summaryLabel.setText("No active audio device is currently open.", juce::dontSendNotification);
-                deviceHintLabel.setText("No audio device is currently open.", juce::dontSendNotification);
-                return;
-            }
-#endif
-
-            summaryLabel.setText(
-                "Audio device setup is controlled by the host in plugin formats.\n"
-                "Open NOVA Standalone to manage interfaces, drivers and direct monitoring locally.",
-                juce::dontSendNotification);
-            deviceHintLabel.setText(
-                "This instance is hosted by a DAW. Use NOVA Standalone for direct device configuration.",
-                juce::dontSendNotification);
-        }
-
-        NOVAAudioProcessor& audioProcessor;
-        Nova::SettingsService::EditorSettings& settings;
-        SettingsLookAndFeel lookAndFeel;
-        juce::TextButton btnSessionTab;
-        juce::TextButton btnDefaultsTab;
-        juce::TextButton btnDeviceTab;
-        juce::Label summaryLabel;
-        juce::Label hintLabel;
-        juce::Label deviceHintLabel;
-        juce::ComboBox tunerReferenceBox;
-        juce::ToggleButton latencyTipsToggle;
-        std::unique_ptr<juce::AudioDeviceSelectorComponent> audioSelector;
-        juce::Rectangle<int> tabsBounds;
-        juce::Rectangle<int> contentBounds;
-        Tab selectedTab = Tab::Session;
-    };
-
     class LibrarySettingsPage final : public juce::Component
     {
     public:
@@ -1333,16 +1070,14 @@ namespace
             resetDefaultsButton.onClick = [this] { confirmRestoreDefaults(); };
 
             configureCategoryButton(btnGeneral, "GENERAL", [this] { setCategory(Category::General); });
-            configureCategoryButton(btnAudio, "AUDIO", [this] { setCategory(Category::Audio); });
             configureCategoryButton(btnLibrary, "LIBRARY", [this] { setCategory(Category::Library); });
 
             // --- Wizard launch buttons in the rail ---
-            configureWizardButton(btnWizardAudio, "Audio Setup", [this] { fireWizard(0); });
+            configureWizardButton(btnWizardAudio, "Audio", [this] { fireWizard(0); });
             configureWizardButton(btnWizardStart, "Start Wizard", [this] { fireWizard(1); });
             configureWizardButton(btnWizardPreset, "Preset Finder", [this] { fireWizard(2); });
 
             generalPage = std::make_unique<GeneralSettingsPage>(draftSettings);
-            audioPage = std::make_unique<AudioSettingsPage>(processor, draftSettings);
             libraryCallbacks.onStartupAssignmentChanged = [this]
             {
                 if (generalPage != nullptr)
@@ -1351,7 +1086,6 @@ namespace
             libraryPage = std::make_unique<LibrarySettingsPage>(draftSettings, std::move(libraryCallbacks));
 
             addAndMakeVisible(*generalPage);
-            addAndMakeVisible(*audioPage);
             addAndMakeVisible(*libraryPage);
 
             setCategory(Category::General);
@@ -1417,7 +1151,7 @@ namespace
 
             g.setColour(Nova::Colors::TextDim);
             g.setFont(juce::Font(juce::FontOptions(11.0f)));
-            g.drawFittedText("One home for local editor preferences, audio setup, presets and startup behavior.",
+            g.drawFittedText("Editor preferences, presets and startup behavior. Audio has its own panel: click the audio status in the header.",
                 titleArea, juce::Justification::centredLeft, 2);
 
             // "WIZARDS" label above wizard buttons in rail
@@ -1425,7 +1159,7 @@ namespace
             {
                 g.setColour(Nova::Colors::TextDim.withAlpha(0.6f));
                 g.setFont(juce::Font(juce::FontOptions(9.5f, juce::Font::bold)));
-                g.drawText("WIZARDS", btnWizardAudio.getX(), btnWizardAudio.getY() - 18,
+                g.drawText("QUICK ACCESS", btnWizardAudio.getX(), btnWizardAudio.getY() - 18,
                            btnWizardAudio.getWidth(), 14, juce::Justification::centredLeft);
 
                 g.setColour(Nova::Colors::Border.withAlpha(0.4f));
@@ -1457,6 +1191,7 @@ namespace
 
             headerBounds = contentAreaBounds.removeFromTop(headerHeight);
             contentAreaBounds.removeFromTop(16);
+            contentAreaBounds.removeFromBottom(46); // footer row: RESTORE DEFAULTS / APPLY / SAVE
             contentBounds = contentAreaBounds;
 
             closeButton.setBounds(panelBounds.getRight() - 100, panelBounds.getY() + 18, 82, 28);
@@ -1469,8 +1204,6 @@ namespace
             const int buttonH = 32;
             const int buttonGap = 8;
             btnGeneral.setBounds(nav.removeFromTop(buttonH));
-            nav.removeFromTop(buttonGap);
-            btnAudio.setBounds(nav.removeFromTop(buttonH));
             nav.removeFromTop(buttonGap);
             btnLibrary.setBounds(nav.removeFromTop(buttonH));
 
@@ -1489,7 +1222,6 @@ namespace
             }
 
             if (generalPage != nullptr) generalPage->setBounds(contentBounds);
-            if (audioPage != nullptr) audioPage->setBounds(contentBounds);
             if (libraryPage != nullptr) libraryPage->setBounds(contentBounds);
         }
 
@@ -1497,7 +1229,6 @@ namespace
         enum class Category
         {
             General,
-            Audio,
             Library
         };
 
@@ -1542,11 +1273,9 @@ namespace
             };
 
             setButtonState(btnGeneral, selectedCategory == Category::General);
-            setButtonState(btnAudio, selectedCategory == Category::Audio);
             setButtonState(btnLibrary, selectedCategory == Category::Library);
 
             if (generalPage != nullptr) generalPage->setVisible(selectedCategory == Category::General);
-            if (audioPage != nullptr) audioPage->setVisible(selectedCategory == Category::Audio);
             if (libraryPage != nullptr) libraryPage->setVisible(selectedCategory == Category::Library);
 
             repaint();
@@ -1615,20 +1344,18 @@ namespace
         juce::TextButton applyButton;
         juce::TextButton resetDefaultsButton;
         juce::TextButton btnGeneral;
-        juce::TextButton btnAudio;
         juce::TextButton btnLibrary;
         juce::TextButton btnWizardAudio;
         juce::TextButton btnWizardStart;
         juce::TextButton btnWizardPreset;
         std::unique_ptr<GeneralSettingsPage> generalPage;
-        std::unique_ptr<AudioSettingsPage> audioPage;
         std::unique_ptr<LibrarySettingsPage> libraryPage;
         Category selectedCategory = Category::General;
     };
 }
 
 // Wizard headers — included after EditorPrefs namespace so inline methods can access it
-#include "../GUI/Wizards/AudioSetupWizard.h"
+#include "../GUI/Overlays/AudioPanel.h"
 #include "../GUI/Wizards/StartWizard.h"
 #include "../GUI/Wizards/PresetFinderWizard.h"
 
@@ -2349,6 +2076,13 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
     btnSettings.setTooltip("Open NOVA settings");
     btnSettings.onClick = [this] { openSettingsOverlay(); };
 
+    // Audio status chip: device, latency and health at a glance; opens the Audio panel.
+    audioChip = std::make_unique<NovaAudioUi::AudioStatusChip>();
+    audioChip->onClick = [this] { openAudioPanel(); };
+    audioChip->setStatus(NovaAudioUi::captureStatus(audioProcessor));
+    audioChip->onWidthChanged = [this] { resized(); }; // after the first status: the editor isn't laid out yet
+    addAndMakeVisible(*audioChip);
+
     // -----------------------
     // BROWSER (inside left drawer)
     // -----------------------
@@ -2569,6 +2303,64 @@ NOVAAudioProcessorEditor::NOVAAudioProcessorEditor(NOVAAudioProcessor& p)
 #endif
 
     statsTimer = std::make_unique<StatsTimer>(*this);
+
+#if JUCE_DEBUG
+    // UI QA (debug only): NOVA_UI_SNAPSHOT_DIR=<folder> renders the editor and its main
+    // overlays to PNG files and quits. Captures only NOVA's own components.
+    if (const auto snapshotDir = juce::SystemStats::getEnvironmentVariable("NOVA_UI_SNAPSHOT_DIR", {}); snapshotDir.isNotEmpty())
+        scheduleUiSnapshots(juce::File(snapshotDir));
+#endif
+}
+
+void NOVAAudioProcessorEditor::scheduleUiSnapshots(const juce::File& folder)
+{
+    folder.createDirectory();
+    juce::Component::SafePointer<NOVAAudioProcessorEditor> safeThis(this);
+
+    const auto save = [safeThis, folder](const juce::String& name)
+    {
+        if (safeThis == nullptr)
+            return;
+        safeThis->resized();
+        const auto image = safeThis->createComponentSnapshot(safeThis->getLocalBounds(), true, 1.0f);
+        juce::FileOutputStream stream(folder.getChildFile(name + ".png"));
+        if (stream.openedOk())
+        {
+            stream.setPosition(0);
+            stream.truncate();
+            juce::PNGImageFormat().writeImageToStream(image, stream);
+        }
+    };
+
+    struct Step { int delayMs; std::function<void()> action; };
+    auto steps = std::make_shared<std::vector<Step>>(std::vector<Step> {
+        { 2500, [save] { save("01-editor"); } },
+        { 100,  [safeThis] { if (safeThis != nullptr) safeThis->openAudioPanel(); } },
+        { 1500, [save] { save("02-audio-panel"); } },
+        { 100,  [safeThis] { if (safeThis != nullptr) { safeThis->currentOverlay.reset(); safeThis->openSettingsOverlay(); } } },
+        { 800,  [save] { save("03-settings"); } },
+        { 100,  [safeThis] { if (safeThis != nullptr) { safeThis->currentOverlay.reset(); safeThis->toggleTuner(); } } },
+        { 1200, [save] { save("04-tuner"); } },
+        { 100,  [safeThis] { if (safeThis != nullptr) safeThis->toggleTuner(); } },
+        { 300,  [safeThis] { if (safeThis != nullptr) safeThis->setSize(1280, 760); } },
+        { 600,  [save] { save("05-editor-small"); } },
+        { 100,  [safeThis] { if (safeThis != nullptr) safeThis->openAudioPanel(); } },
+        { 1200, [save] { save("06-audio-panel-small"); } },
+        { 200,  [] { juce::JUCEApplicationBase::quit(); } }
+    });
+
+    auto runFrom = std::make_shared<std::function<void(size_t)>>();
+    *runFrom = [steps, runFrom](size_t index)
+    {
+        if (index >= steps->size())
+            return;
+        juce::Timer::callAfterDelay((*steps)[index].delayMs, [steps, runFrom, index]
+        {
+            (*steps)[index].action();
+            (*runFrom)(index + 1);
+        });
+    };
+    (*runFrom)(0);
 }
 
 NOVAAudioProcessorEditor::~NOVAAudioProcessorEditor()
@@ -3386,6 +3178,17 @@ void NOVAAudioProcessorEditor::resized()
 
     btnStartStop.setBounds(clusterX, rowY + (routeH - powerH) / 2, powerW, powerH);
 
+    // Audio chip: right of the centre cluster, left of Settings; it shortens its text
+    // to fit and hides only when there is no room at all (Settings > Audio still opens the panel).
+    if (audioChip != nullptr)
+    {
+        const int chipLeft = btnStartStop.getRight() + 16;
+        const int chipRight = btnSettings.getX() - 10;
+        const int chipW = audioChip->widthFor(chipRight - chipLeft);
+        audioChip->setVisible(chipW >= 96);
+        audioChip->setBounds(chipRight - juce::jmax(0, chipW), header.getCentreY() - 15, juce::jmax(0, chipW), 30);
+    }
+
     // Footer
     auto footer = area.removeFromBottom(footerH);
     auto footerContent = footer.reduced(18, 12);
@@ -3722,6 +3525,43 @@ void NOVAAudioProcessorEditor::openSettingsOverlay()
     currentOverlay = std::move(overlay);
 }
 
+void NOVAAudioProcessorEditor::openAudioPanel()
+{
+    auto closeFn = [this]()
+    {
+        juce::MessageManager::callAsync([this]()
+        {
+            currentOverlay.reset();
+            resized();
+        });
+    };
+
+#if JucePlugin_Build_Standalone
+    auto panel = std::make_unique<NovaAudioUi::AudioPanel>(audioProcessor, audioAutopilot.get(), closeFn);
+#else
+    auto panel = std::make_unique<NovaAudioUi::AudioPanel>(audioProcessor, closeFn);
+#endif
+
+    addAndMakeVisible(panel.get());
+    panel->setBounds(getLocalBounds());
+    panel->toFront(true);
+    panel->grabKeyboardFocus();
+    currentOverlay = std::move(panel);
+}
+
+void NOVAAudioProcessorEditor::parentHierarchyChanged()
+{
+#if JucePlugin_Build_Standalone
+    // The Standalone window's "Options" menu duplicated the Audio panel and offered
+    // state save/load that presets already cover: hide it so audio has one home.
+    if (juce::StandalonePluginHolder::getInstance() != nullptr)
+        if (auto* window = getTopLevelComponent(); window != nullptr && window != this)
+            for (auto* child : window->getChildren())
+                if (auto* button = dynamic_cast<juce::Button*>(child); button != nullptr && button->getButtonText() == "Options")
+                    button->setVisible(false);
+#endif
+}
+
 void NOVAAudioProcessorEditor::launchWizard(int wizardID)
 {
     auto closeFn = [this]()
@@ -3737,18 +3577,14 @@ void NOVAAudioProcessorEditor::launchWizard(int wizardID)
 
     switch (wizardID)
     {
-        case 0: // Audio Setup
-#if JucePlugin_Build_Standalone
-            wizard = std::make_unique<AudioSetupWizard>(audioProcessor, closeFn, audioAutopilot.get());
-#else
-            wizard = std::make_unique<AudioSetupWizard>(audioProcessor, closeFn);
-#endif
-            break;
+        case 0: // Audio (the single audio panel replaced the old Audio Setup wizard)
+            openAudioPanel();
+            return;
 
         case 1: // Start / Launcher
             wizard = std::make_unique<StartWizard>(
                 closeFn,
-                [this] { launchWizard(0); },  // link to Audio Setup
+                [this] { launchWizard(0); },  // link to the Audio panel
                 [this] { launchWizard(2); }); // link to Preset Finder
             break;
 
@@ -3803,6 +3639,11 @@ void NOVAAudioProcessorEditor::toggleTuner()
     if (newState)
     {
         tunerOverlay = std::make_unique<TunerOverlay>(audioProcessor);
+        tunerOverlay->setReference(EditorPrefs::getString(EditorPrefs::tunerReferenceKey, "A = 440 Hz"));
+        tunerOverlay->onReferenceChanged = [](const juce::String& reference)
+        {
+            EditorPrefs::setPersistentString(EditorPrefs::tunerReferenceKey, reference);
+        };
         addAndMakeVisible(tunerOverlay.get());
         tunerOverlay->setBounds(getLocalBounds());
         tunerOverlay->toFront(true);
@@ -3818,6 +3659,10 @@ void NOVAAudioProcessorEditor::updateStats()
     const double sampleRate = audioProcessor.getSampleRate();
     const double bufferSize = (double)audioProcessor.getBlockSize();
     const double cpuPercent = audioProcessor.getCpuUsage();
+
+    // The chip only repaints when its text or health changes; ~4 updates per second.
+    if (audioChip != nullptr && (audioChipTick++ % 4) == 0)
+        audioChip->setStatus(NovaAudioUi::captureStatus(audioProcessor));
 
     double bufferDurationMs = 0.0;
     double procTimeMs = 0.0;

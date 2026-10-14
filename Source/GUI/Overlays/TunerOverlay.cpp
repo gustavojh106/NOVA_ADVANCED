@@ -49,6 +49,25 @@ TunerOverlay::TunerOverlay(NOVAAudioProcessor& p)
             repaint();
         };
 
+    // Reference pitch (A = 440 / 442 / 432 Hz)
+    addAndMakeVisible(referenceSelector);
+    referenceSelector.setJustificationType(juce::Justification::centred);
+    referenceSelector.setColour(juce::ComboBox::backgroundColourId, juce::Colour::fromString("ff111827"));
+    referenceSelector.setColour(juce::ComboBox::outlineColourId, juce::Colours::white.withAlpha(0.2f));
+    referenceSelector.setTooltip("Reference pitch for A");
+    referenceSelector.addItem("A = 440 Hz", 1);
+    referenceSelector.addItem("A = 442 Hz", 2);
+    referenceSelector.addItem("A = 432 Hz", 3);
+    referenceSelector.setSelectedId(1, juce::dontSendNotification);
+    referenceSelector.onChange = [this]
+        {
+            const auto text = referenceSelector.getText();
+            processor.getAudioEngine().setTunerReferencePitch(text.contains("442") ? 442.0f : (text.contains("432") ? 432.0f : 440.0f));
+            if (onReferenceChanged)
+                onReferenceChanged(text);
+            repaint();
+        };
+
     // Reset / Start buttons (shown only when completed)
     addAndMakeVisible(resetButton);
     resetButton.setButtonText("TUNE AGAIN");
@@ -347,12 +366,20 @@ void TunerOverlay::paint(juce::Graphics& g)
 // -----------------------------------------------------------------------------
 // Layout / interaction
 // -----------------------------------------------------------------------------
+void TunerOverlay::setReference(const juce::String& reference)
+{
+    for (int i = 0; i < referenceSelector.getNumItems(); ++i)
+        if (referenceSelector.getItemText(i) == reference)
+            referenceSelector.setSelectedItemIndex(i, juce::dontSendNotification);
+}
+
 void TunerOverlay::resized()
 {
     auto area = getLocalBounds();
 
     closeButton.setBounds(area.getRight() - 50, area.getY() + 10, 40, 40);
-    tuningSelector.setBounds(area.getCentreX() - 100, area.getBottom() - 50, 200, 30);
+    tuningSelector.setBounds(area.getCentreX() - 205, area.getBottom() - 50, 200, 30);
+    referenceSelector.setBounds(area.getCentreX() + 5, area.getBottom() - 50, 150, 30);
 
     stringBarArea = juce::Rectangle<int>(
         area.getX() + 50,

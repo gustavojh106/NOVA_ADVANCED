@@ -93,7 +93,7 @@ public:
 
         if (launchAudioSetup)
         {
-            styleAccentButton(btnGoAudioSetup, "AUDIO SETUP WIZARD");
+            styleAccentButton(btnGoAudioSetup, "SET UP AUDIO");
             linksPage->addAndMakeVisible(btnGoAudioSetup);
             btnGoAudioSetup.onClick = [this]
             {

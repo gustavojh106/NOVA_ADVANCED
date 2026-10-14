@@ -786,7 +786,7 @@ private:
                 + (error.isNotEmpty() ? ": " + error.upToFirstOccurrenceOf("\n", false, false) : juce::String()));
 
             if (switchBackAttempts >= kMaxSwitchBackAttempts)
-                notify({ describeDevice(preferredDevice) + " is back but won't open. Choose it in Audio Setup.", {}, {} });
+                notify({ describeDevice(preferredDevice) + " is back but won't open. Choose it in the Audio panel.", {}, {} });
         }
 
         evaluateInputMuteIfRouteChanged();

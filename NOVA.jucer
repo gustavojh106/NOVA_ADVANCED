@@ -44,6 +44,7 @@
         <GROUP id="{000F98A3-3DE0-F09F-EF44-8FDBB1D9EC11}" name="Overlays">
           <FILE id="R7UNIp" name="TunerOverlay.cpp" compile="1" resource="0"
                 file="Source/GUI/Overlays/TunerOverlay.cpp"/>
+          <FILE id="AudPnl" name="AudioPanel.h" compile="0" resource="0" file="Source/GUI/Overlays/AudioPanel.h"/>
           <FILE id="fS0kkB" name="TunerOverlay.h" compile="0" resource="0" file="Source/GUI/Overlays/TunerOverlay.h"/>
         </GROUP>
       </GROUP>

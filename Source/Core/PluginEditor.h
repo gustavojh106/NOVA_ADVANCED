@@ -16,6 +16,7 @@ class ChainLane;
 class AssetBrowserOverlay;
 class PedalSlotComponent;
 namespace Nova { class StandaloneAudioAutopilot; class AutopilotNoticeBanner; }
+namespace NovaAudioUi { class AudioStatusChip; }
 
 // ==============================================================================
 // CLASE PRINCIPAL DEL EDITOR
@@ -35,6 +36,7 @@ public:
     void mouseMove(const juce::MouseEvent&) override;
     void mouseExit(const juce::MouseEvent&) override;
     bool keyPressed(const juce::KeyPress&) override;
+    void parentHierarchyChanged() override;
 
     // Métodos públicos para interacción con hijos (DropZones)
     void showOverlay(Nova::ZoneID zone, Nova::ChainID chain);
@@ -74,7 +76,9 @@ private:
     void loadSelectedPreset();
     void clearPresetAndSession();
     void openSettingsOverlay();
-    void launchWizard(int wizardID); // 0=AudioSetup, 1=Start, 2=PresetFinder
+    void openAudioPanel();
+    void scheduleUiSnapshots(const juce::File& folder); // debug UI QA (NOVA_UI_SNAPSHOT_DIR)
+    void launchWizard(int wizardID); // 0=Audio panel, 1=Start, 2=PresetFinder
     void setLeftPanelOpen(bool shouldOpen);
     void setRightPanelOpen(bool shouldOpen);
     void refreshDrawerButtons();
@@ -84,6 +88,8 @@ private:
 
     // --- 1. HEADER COMPONENTS ---
     juce::TextButton btnStartStop;
+    std::unique_ptr<NovaAudioUi::AudioStatusChip> audioChip; // header: device, latency, health
+    int audioChipTick = 0;
     juce::Label lblStats;
     juce::Label lblCpu;
     juce::Label lblProc;

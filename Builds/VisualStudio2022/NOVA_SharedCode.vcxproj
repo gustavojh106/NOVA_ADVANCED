@@ -3025,6 +3025,7 @@
     <ClInclude Include="..\..\Source\GUI\Widgets\ChainLane.h"/>
     <ClInclude Include="..\..\Source\GUI\Widgets\DraggableButton.h"/>
     <ClInclude Include="..\..\Source\GUI\Widgets\DropZone.h"/>
+    <ClInclude Include="..\..\Source\GUI\Overlays\AudioPanel.h"/>
     <ClInclude Include="..\..\Source\GUI\Overlays\TunerOverlay.h"/>
     <ClInclude Include="..\..\Source\Lib\modules\Eigen\Eigen\src\AccelerateSupport\AccelerateSupport.h"/>
     <ClInclude Include="..\..\Source\Lib\modules\Eigen\Eigen\src\AccelerateSupport\InternalHeaderCheck.h"/>
