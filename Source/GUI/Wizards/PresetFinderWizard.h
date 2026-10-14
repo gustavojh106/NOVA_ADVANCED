@@ -133,9 +133,9 @@ public:
             auto cx = guitarArea.getCentreX() - fieldW / 2;
             auto y = guitarArea.getY();
 
-            guitarTypeBox.setBounds(cx, y, fieldW, fieldH);
+            placeOnPage(guitarTypeBox, { cx, y, fieldW, fieldH });
             y += fieldH + gap;
-            gainPreferenceBox.setBounds(cx, y, fieldW, fieldH);
+            placeOnPage(gainPreferenceBox, { cx, y, fieldW, fieldH });
         }
 
         // Step 3: FX toggles + reverb box
@@ -147,15 +147,15 @@ public:
             const int fieldH = 36;
             auto cx = fxArea.getCentreX() - fieldW / 2;
             // Below the toggle grid
-            reverbAmountBox.setBounds(cx, fxArea.getY() + 80, fieldW, fieldH);
+            placeOnPage(reverbAmountBox, { cx, fxArea.getY() + 80, fieldW, fieldH });
         }
 
         // Step 4: Results
         {
             auto resArea = area;
             auto btnArea = resArea.removeFromBottom(50);
-            btnBuildChain.setBounds(btnArea.withSizeKeepingCentre(240, 40));
-            resultsViewport.setBounds(resArea);
+            placeOnPage(btnBuildChain, btnArea.withSizeKeepingCentre(240, 40));
+            placeOnPage(resultsViewport, resArea);
             resultsContainer.setBounds(0, 0, resArea.getWidth() - 16,
                                        juce::jmax(resArea.getHeight(), resultsContentHeight));
         }
@@ -224,7 +224,7 @@ private:
         box.setColour(juce::ComboBox::outlineColourId, Nova::Colors::Border.withAlpha(0.7f));
     }
 
-    void layoutToggleGrid(juce::ToggleButton* toggles, int count, juce::Rectangle<int> area) const
+    void layoutToggleGrid(juce::ToggleButton* toggles, int count, juce::Rectangle<int> area)
     {
         const int cols = 4;
         const int fieldW = juce::jmin(420, area.getWidth());
@@ -237,9 +237,9 @@ private:
         {
             const int col = i % cols;
             const int row = i / cols;
-            toggles[i].setBounds(cx + col * (toggleW + gap),
-                                 area.getY() + row * (toggleH + 6),
-                                 toggleW, toggleH);
+            placeOnPage(toggles[i], { cx + col * (toggleW + gap),
+                                      area.getY() + row * (toggleH + 6),
+                                      toggleW, toggleH });
         }
     }
 

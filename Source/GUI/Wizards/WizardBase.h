@@ -243,6 +243,16 @@ protected:
         btn.setColour(juce::TextButton::textColourOffId, Nova::Colors::Text.withAlpha(0.85f));
     }
 
+    // Page children live in page coordinates while subclass layouts (and paint) use
+    // wizard coordinates (getContentArea()), so translate by the page origin before applying.
+    void placeOnPage(juce::Component& component, juce::Rectangle<int> wizardBounds)
+    {
+        if (auto* page = component.getParentComponent(); page != nullptr && page != this)
+            component.setBounds(wizardBounds - page->getPosition());
+        else
+            component.setBounds(wizardBounds);
+    }
+
 private:
     void paintStepIndicator(juce::Graphics& g) const
     {

@@ -163,16 +163,16 @@ public:
             auto centeredX = loginArea.getCentreX() - fieldW / 2;
             auto y = loginArea.getY();
 
-            loginEmailEditor.setBounds(centeredX, y, fieldW, fieldH);
+            placeOnPage(loginEmailEditor, { centeredX, y, fieldW, fieldH });
             y += fieldH + gap;
-            loginPasswordEditor.setBounds(centeredX, y, fieldW, fieldH);
+            placeOnPage(loginPasswordEditor, { centeredX, y, fieldW, fieldH });
             y += fieldH + gap + 4;
 
             const int btnW = (fieldW - gap) / 2;
-            btnLogin.setBounds(centeredX, y, btnW, fieldH);
-            btnCreateAccount.setBounds(centeredX + btnW + gap, y, btnW, fieldH);
+            placeOnPage(btnLogin, { centeredX, y, btnW, fieldH });
+            placeOnPage(btnCreateAccount, { centeredX + btnW + gap, y, btnW, fieldH });
             y += fieldH + gap + 8;
-            loginStatusLabel.setBounds(centeredX, y, fieldW, 40);
+            placeOnPage(loginStatusLabel, { centeredX, y, fieldW, 40 });
         }
 
         // Step 2: profile
@@ -185,9 +185,9 @@ public:
             auto centeredX = profArea.getCentreX() - fieldW / 2;
             auto y = profArea.getY();
 
-            profileNameEditor.setBounds(centeredX, y, fieldW, fieldH);
+            placeOnPage(profileNameEditor, { centeredX, y, fieldW, fieldH });
             y += fieldH + gap;
-            skillLevelBox.setBounds(centeredX, y, fieldW, fieldH);
+            placeOnPage(skillLevelBox, { centeredX, y, fieldW, fieldH });
             y += fieldH + gap + 8;
 
             // Genre grid: 4 columns x 2 rows
@@ -197,9 +197,9 @@ public:
             {
                 const int col = i % 4;
                 const int row = i / 4;
-                genreToggles[i].setBounds(centeredX + col * (toggleW + gap),
-                                          y + row * (toggleH + 4),
-                                          toggleW, toggleH);
+                placeOnPage(genreToggles[i], { centeredX + col * (toggleW + gap),
+                                               y + row * (toggleH + 4),
+                                               toggleW, toggleH });
             }
         }
 
@@ -212,9 +212,9 @@ public:
             auto centeredX = linksArea.getCentreX() - btnW / 2;
             auto y = linksArea.getY() + 30;
 
-            btnGoAudioSetup.setBounds(centeredX, y, btnW, btnH);
+            placeOnPage(btnGoAudioSetup, { centeredX, y, btnW, btnH });
             y += btnH + gap;
-            btnGoPresetFinder.setBounds(centeredX, y, btnW, btnH);
+            placeOnPage(btnGoPresetFinder, { centeredX, y, btnW, btnH });
         }
     }
 
