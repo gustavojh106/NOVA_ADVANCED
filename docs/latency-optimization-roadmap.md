@@ -103,6 +103,32 @@ powershell -ExecutionPolicy Bypass -File scripts/run-bitexact-checksums.ps1 -Con
 powershell -ExecutionPolicy Bypass -File scripts/check-audio-thread-policy.ps1
 ```
 
+### Procedimiento de medición del rt-profile (desde B-20, 2026-10-14)
+
+1. **Máquina en reposo.** Que no corran MSBuild, cl, link ni otra instancia de NOVA, y anotar la carga con `(Get-CimInstance Win32_Processor).LoadPercentage`. Compilar con `$env:MSBUILDDISABLENODEREUSE = "1"` para que no queden nodos de MSBuild vivos (`mspdbsrv` y `vctip` inactivos no molestan).
+2. **Compilar una vez y medir con `-SkipBuild`:**
+
+   ```powershell
+   $env:MSBUILDDISABLENODEREUSE = "1"
+   powershell -ExecutionPolicy Bypass -File scripts/build-nova.ps1 -Configuration Release -Platform x64 -Target NOVA_StandalonePlugin -EnableReleaseDiagnostics
+   1..5 | ForEach-Object { powershell -ExecutionPolicy Bypass -File scripts/run-rt-profile-scenarios.ps1 -Configuration Release -Platform x64 -SkipBuild -ReportPath "artifacts/rt-profile-<tema>-$_.json" -BaselinePath docs/rt-profile/t0-rt-profile-release-after.json }
+   ```
+
+3. **Comparar la mediana de N ≥ 5 corridas** (procesos separados), no una sola. La ventana es de 0.45 s de audio (~10 ms reales), así que un episodio aislado de otro hilo o del manejo de energía del CPU puede subir un escenario +25–60%.
+4. **Qué hace el harness desde B-20** (el reporte lo indica en `"procedure": { "warmUp": "b20", ... }`):
+   - Los setups calientan con el tamaño de bloque del escenario (antes, siempre 64).
+   - Después de cada `addPedal` del setup y al terminar el setup: flush, 50 ms de espera y otro flush, para que el hilo de control del motor aplique lo que el try-lock dejó en cola (B-19).
+   - Con un cab en Line A, 250 ms más: el IR llega antes del warm-up y su crossfade de 50 ms queda dentro de los 32 bloques de warm-up.
+   - El reporte se escribe a `.tmp` y después se renombra.
+   - Una corrida completa tarda ~13 s (antes ~5 s).
+5. **Opciones de diagnóstico** de `run-rt-profile-scenarios.ps1`:
+   - `-Only "cabinet_nominal,proc_cabinet*"`: filtra escenarios (acepta `*`).
+   - `-Repeat N`: repite cada escenario N veces en el mismo proceso.
+   - `-BlockCsvPath artifacts/x.csv`: µs de cada bloque, de warm-up y medido.
+   - `-CabinetProbe`: agrega `diag_<cab>_phase0` / `_phase64` (el cab sin motor, con las particiones alineadas o desfasadas).
+   - `-LegacyWarmUp`: usa el procedimiento anterior, para comparar con reportes viejos.
+6. **Reportes anteriores a B-20** (E7, `t0-rt-profile-release-*`, …): los `proc_*` de cab medidos después de B-11 (`03a59f3`) pueden estar en el modo alto (~3.3%), y cualquier escenario pudo medir la cadena vacía. Usarlos con cuidado. Las baselines no se regeneraron.
+
 ### Reglas de implementación para T0 (salida bit-idéntica)
 
 - **Técnica canónica: memoización por valor exacto.** `if (x != lastX) { lastX = x; lastY = f(x); }`, con `lastX` inicializado en NaN para forzar el primer cálculo. Misma función y mismos argumentos dan el mismo resultado bit a bit: el proyecto compila con `/fp:precise` (no hay `/fp:fast` ni `/arch` en el `.vcxproj`).
@@ -385,7 +411,39 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | B-16 | El IR sintético se normalizaba por pico: a 96 kHz la misma respuesta se reparte en el doble de muestras, el pico baja a la mitad y el cab sonaba **~6 dB más fuerte** (a 44.1 kHz, ~0.6 dB más bajo) | Corregido con T1-02 |
 | B-17 | Autopilot: si la interfaz de la guitarra no tenía salida ni ASIO, el par "micrófono interno + parlantes internos" (bono de +100 por mismo aparato) le ganaba a "interfaz + audífonos USB": recomendaba el micrófono de la laptop, sin guitarra | Corregido en E4 (la entrada interna resta 100, la webcam 140) |
 | B-18 | El log de sesión se borraba al abrir NOVA: después de un crash, el log de la sesión que falló se perdía justo cuando hacía falta para reportarlo | Corregido en E6 (se guarda como `session-log-previous.txt` y va en el reporte) |
-| B-19 | El test "AudioEngine routing policy low-gain fallback…" falló 1 de 3 corridas en Release. `setEngineEnabled()` y `synchronizeProcessingState()` aplican los comandos con un try-lock; si el hilo de control del motor estaba aplicando parámetros (cada 20 ms), el comando quedaba en cola y el motor se encendía en un bloque al azar del render. En la app no es un bug: el comando se aplica en ≤ 20 ms. Afectaba a todos los tests que usan `warmUpEngine` | Corregido (2026-10-14, solo tests): `warmUpEngine` espera a que termine cualquier pasada del hilo de control (lock recursivo) y aplica lo pendiente. Release 4/4 PASS |
+| B-19 | El test "AudioEngine routing policy low-gain fallback…" falló 1 de 3 corridas en Release. `setEngineEnabled()` y `synchronizeProcessingState()` aplican los comandos con un try-lock; si el hilo de control del motor estaba aplicando parámetros (cada 20 ms), el comando quedaba en cola y el motor se encendía en un bloque al azar del render. En la app no es un bug: el comando se aplica en ≤ 20 ms. Afectaba a todos los tests que usan `warmUpEngine` | Corregido (2026-10-14, solo tests): `warmUpEngine` espera a que termine cualquier pasada del hilo de control (lock recursivo) y aplica lo pendiente. Release 4/4 PASS. En el harness del rt-profile, ver B-20 |
+| B-20 | rt-profile (E7): los `proc_*` de cab salían al azar en ~3.3% en vez de ~2.1%. **Artefacto del harness, no regresión** (detalle abajo). La convolución de JUCE parte la entrada en particiones de 128 muestras; el IR llega desde un hilo de fondo en un momento al azar, y los setups `proc_*` calentaban con bloques de 64. Si el IR se instalaba tras un número impar de bloques de 64, cada bloque de 128 cruzaba dos particiones: dos pares FFT, +32 µs por bloque (54 → 86 µs, 2.1% → 3.3%) durante toda la medición. Lo expuso B-11 (`03a59f3`): desde entonces los bloques de arranque alimentan el grafo nuevo. Bisect, 5 corridas por commit: `97b81d2` 0/35 corridas de cab altas, `03a59f3` 21/35. El harness tenía además la carrera de B-19 (~1 escenario por cada 7 corridas medía la cadena vacía) y un reporte que se podía leer a medio escribir | Corregido en el harness (2026-10-14; procedimiento en §4). Costo real de los cabs sin cambio desde T0: 2.1%, 56–58 µs por bloque de 128 |
+
+### B-20 — Detalle (2026-10-14)
+
+- **Mecanismo.**
+  - `juce::dsp::Convolution` (latencia cero) usa particiones de `nextPowerOfTwo(bloque preparado)` = 128 y hace un par FFT + IFFT por cada partición que toca un bloque.
+  - Tras `prepare()`, JUCE instala un motor con un impulso unitario de 1 muestra. `getCurrentIRSize()` vale 1, no 0, así que la rama que saltea la convolución (`CabinetPedal.h:148`) no se usa.
+  - El IR real lo arma un hilo por instancia que revisa la cola cada 10 ms. Al instalarse, el motor nuevo empieza en la posición 0 y hace un crossfade de 50 ms (19 bloques de 128) con el anterior.
+  - Los setups `proc_*` usaban `warmUpEngine(engine, 4)` con la constante del harness (bloques de 64, no 128). Si el IR se instalaba antes del 2.º o del 4.º de esos bloques, quedaba desfasado 64 muestras hasta el final del escenario.
+  - `cabinet_nominal` no hace warm-up en el setup y nunca salió alto.
+- **Pruebas.**
+  - **CSV por bloque:** el modo alto dura toda la ventana (85 µs en los tres tercios), no es un transitorio. En el warm-up se ve el crossfade: 19 bloques a ~120 µs (motor nuevo desfasado + motor viejo) y después 86 µs fijos.
+  - **Sonda directa** (cab sin motor, `-CabinetProbe`), igual en los tres cabs: alineado, 37.5 µs (1.41%); desfasado 64 muestras, 70 µs (2.63%).
+  - **Variantes del warm-up** (escenarios de cab, N=5):
+
+    | Variante | Resultado |
+    |---|---|
+    | Actual | bimodal, CV hasta 23% |
+    | Solo esperar el IR | sigue bimodal: el IR puede instalarse durante el setup |
+    | Solo bloques del escenario | sin modo alto, pero el crossfade a veces cae en la ventana (CV 11.8%) |
+    | Ambas | CV ≤ 2.8% |
+
+  - **Bisect** (worktrees en `%TEMP%`, Release, 5 corridas completas por commit): `97b81d2` 0/35, `03a59f3` 21/35. Antes de B-11 los bloques de arranque no tocaban el grafo, así que el cab nunca veía los bloques de 64.
+  - **H2 descartada.** Los tres cabs llaman a `loadImpulseResponse` solo en `prepareToPlay`; las perillas no recargan el IR. El Cabinet no tiene ninguna ruta extra (`containCabinetOutput` es anterior a T0).
+  - **H4 cuantificada.** Con el procedimiento nuevo: 0 de 285 escenario-corridas por encima de 1.25× su mediana, y CV no-cab ≤ 8.4% (antes hasta 31%).
+- **Otros dos problemas del harness, también corregidos:**
+  - **Carrera de B-19.** `setEngineEnabled()`/`addPedal()` + `synchronizeProcessingState()` (try-lock) podían quedar en cola hasta la siguiente pasada del hilo de control del motor, y el escenario medía la cadena vacía. Tres casos en esta sesión, con la firma CPU ≈ cadena vacía y pico de salida ≈ entrada: `sample_rate_96000` 1.34% (vs 17%), `proc_chorus` 0.65% (vs 1.95%) y `proc_boost` 0.66% (vs 3.1%).
+  - **Reporte a medio escribir.** `writeRtProfileReport` creaba el archivo antes de escribirlo y el script lo leía en ese momento: una corrida de 15 quedó en 0 bytes.
+- **En la app (no es regresión ni bug de la beta).**
+  - Con buffer fijo potencia de 2, cada callback es una partición: no pasa.
+  - Con hosts que parten bloques (DAW con automatización) o buffers no potencia de 2 (p. ej. 480 en WASAPI), la mayoría de los callbacks cuesta dos pares FFT. Es así desde que los cabs usan esta convolución. Deducido del código de JUCE, no medido.
+  - Opción después del congelamiento (T1): convolución con `Latency` fija o `NonUniform`, validando latencia y null test.
 
 ## 9. Límites físicos (no se pueden optimizar por software)
 
@@ -423,7 +481,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | E4 | Entrada y salida en dispositivos distintos (B-05): el panel de Audio lo detecta y lo explica | Código (panel de Audio) | **Hecho (2026-10-13):** `usesSeparateClocks()` + `adviseClocks()` (lógica pura con tests); indicador ámbar y aviso en el panel con qué hacer (audífonos en la interfaz + Apply de la recomendación, o elegir su salida); sin aviso para endpoints del mismo aparato, ASIO ni rutas sin entrada; traza en el log de sesión. Corregido B-17 (ranking). Reporte: `docs/reports/E4-separate-device-clocks.md`. Arreglo de fondo: T2-09. **Falta:** prueba manual E4-M1–M3 |
 | E5 | VST3 en 2–3 DAWs (procedimiento P13A) | Prueba manual | Pendiente |
 | E6 | Reporte de problemas: exportar el log de sesión y el diagnóstico desde la app | Código | **Hecho (2026-10-13):** Settings > HELP > "Export problem report": un zip en `Documents\NOVA\Problem Reports` con `report.txt` (lo que escribe el usuario, versión, sistema, audio, diagnóstico del motor), el log de esta sesión y de la anterior, y el rig actual; sin la carpeta del usuario en las rutas. Corregido B-18 (el log de la sesión anterior se borraba). Además, el aviso en la UI para presets o sesiones de una versión más nueva (pendiente de E2). Reporte: `docs/reports/E6-problem-report.md`. **Falta:** prueba manual E6-M1–M3 |
-| E7 | Cierre: prueba de B-11 en la app, rt-profile con la máquina en reposo, merge a `master` | Prueba + merge | **Parte automática hecha (2026-10-14):** base PASS en Release (4/4 corridas, 349/14274/0) y Debug, golden PASS, bit-exacto 56/56, policy PASS; corregido B-19 (test intermitente). rt-profile en reposo (2 corridas, carga de la máquina 12–15%): 64/64 PASS, 0 bloques > 100%, mediana 0.99× frente a `t0-rt-profile-release-after.json`. `proc_cabinet` queda en ~3.3% (antes 2.1%) en las dos corridas, pero Modern 4x12 y `cabinet_nominal` (misma convolución y largo de IR) no cambian y Vintage varía entre corridas: artefacto probable del primer escenario de cab (carga del IR en segundo plano), a revisar en el harness. **Falta:** prueba de B-11 en la app y merge a `master` |
+| E7 | Cierre: prueba de B-11 en la app, rt-profile con la máquina en reposo, merge a `master` | Prueba + merge | **Parte automática hecha (2026-10-14):** base PASS en Release (4/4 corridas, 349/14274/0) y Debug, golden PASS, bit-exacto 56/56, policy PASS; corregido B-19 (test intermitente). rt-profile en reposo: **limpio (2026-10-14, B-20).** El ~3.3% de `proc_cabinet` era un artefacto del harness, no una regresión del Cabinet (B-20, corregido en el harness). Con el procedimiento nuevo (§4), 5 corridas en reposo (carga 1–21%): 64/64 PASS en cada una, 0 bloques > 100%, mediana 0.987× frente a `t0-rt-profile-release-after.json`, cabs 2.11–2.19% (0.95–1.04× de T0 after, CV ≤ 2.8%). Evidencia: `artifacts/rt-profile-b20-final-{1..5}.json`. **Falta:** prueba de B-11 en la app y merge a `master` |
 | L1 | Acuerdo ASIO de Steinberg firmado por las dos partes (T0-03) | Legal (usuario, en paralelo) | Pendiente |
 | U1 | Configuración de audio fácil de encontrar y sin ruido (pedido del usuario) | UI | **Hecho (2026-10-13):** indicador de audio en el header + panel único (latencia, nivel de entrada, monitoreo, recomendación del Autopilot y 5 ajustes esenciales). Eliminados: página Audio de Settings (3 pestañas), wizard Audio Setup (6 pasos), menú "Options" de JUCE, toggle sin efecto `showLatencyTips`, canales de salida y MIDI. La referencia del afinador pasó al afinador |
 
@@ -466,3 +524,4 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | 2026-10-13 | E4: aviso de entrada y salida en dispositivos distintos (B-05). `AudioAutopilot::usesSeparateClocks()` y `adviseClocks()`; indicador ámbar, aviso en la línea de avisos del panel (prioridad sobre el de modo compartido, altura según el texto) y `autopilot.clock` en el log de sesión. Sin banner (decisión del usuario). Nuevo hallazgo B-17 (el Autopilot podía recomendar el micrófono interno en vez de la interfaz sin salida), corregido. 2 tests nuevos. Capturas con el equipo real del usuario (UR12 → BlackShark, Shared): indicador ámbar con 9.5 ms (antes verde) y aviso en 2 líneas a 1920×1080 y 1280×760. Base PASS (344/14216/0) en Debug y Release, bit-exacto 56/56 (Debug y Release), golden PASS, policy PASS |
 | 2026-10-13 | E6: reporte de problemas. Settings > HELP con "Export problem report" (pregunta opcional "What happened?", zip en `Documents\NOVA\Problem Reports`, abre el Explorador) y "Open logs folder". `Source/Core/ProblemReport.h` (nuevo, en `NOVA.jucer` + re-export): `report.txt`, logs de esta sesión y de la anterior, rig actual, rutas sin la carpeta del usuario. Nuevo hallazgo B-18 (el log se borraba al abrir NOVA), corregido con `session-log-previous.txt`. Aviso de una sola vez (diálogo) para presets, preset de inicio y sesiones de DAW de una versión más nueva. 5 tests nuevos. Exportación real en el hook de capturas con el equipo del usuario: 4 archivos, 0 apariciones del usuario. Base PASS (349/14274/0) en Debug y Release, bit-exacto 56/56 (Debug y Release), golden PASS, policy PASS |
 | 2026-10-14 | E7 (parte automática): validación Release y Debug, golden, bit-exacto 56/56, policy y 2 corridas de rt-profile en reposo (64/64 PASS). Corregido B-19: `warmUpEngine` ahora espera al hilo de control del motor antes de renderizar (test intermitente en Release; solo tests). Evidencia: `artifacts/rt-profile-release-e7-idle.json` y `-e7-idle-2.json` |
+| 2026-10-14 | B-20: el ~3.3% de `proc_cabinet` en E7 era un artefacto del harness, no una regresión. La convolución de JUCE quedaba desfasada (dos pares FFT por bloque, +32 µs) cuando el IR, cargado en segundo plano, se instalaba entre los bloques de 64 del warm-up de los setups; lo expuso B-11 (`03a59f3`). Bisect: `97b81d2` 0/35 corridas de cab altas, `03a59f3` 21/35. Corregido solo en el harness: warm-up con el bloque del escenario, flush con espera (también cierra la carrera de B-19 en el rt-profile), 250 ms con cab y reporte atómico. Opciones nuevas en `run-rt-profile-scenarios.ps1`: `-Only`, `-Repeat`, `-BlockCsvPath`, `-CabinetProbe`, `-LegacyWarmUp`, `-SkipBuild`. rt-profile en reposo, 5 corridas: 64/64 PASS, mediana 0.987× frente a T0 after, cabs con CV ≤ 2.8% (antes hasta 24%). Sin cambios en el audio ni en las baselines. Evidencia: `artifacts/rt-profile-b20-*` |
