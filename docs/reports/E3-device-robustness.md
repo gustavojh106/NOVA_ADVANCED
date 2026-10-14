@@ -37,8 +37,8 @@ El Autopilot recuerda el dispositivo elegido (driver, entrada, salida, frecuenci
 | Se desconecta el dispositivo elegido | Avisa: *"‹dispositivo› disconnected. NOVA switches back to it as soon as you reconnect it."* La entrada queda protegida por la política de mute |
 | Vuelve a aparecer | Lo reabre con la frecuencia y el buffer de antes, y avisa: *"‹dispositivo› reconnected. Your audio setup is back."* La política de mute decide de nuevo según la ruta |
 | Mientras espera, el usuario elige otro dispositivo | Ese pasa a ser el elegido; no vuelve al anterior |
-| Cambios deliberados (Audio Setup, Aplicar/Deshacer, calibración) | El dispositivo nuevo pasa a ser el elegido |
-| Aparece pero no abre (driver ocupado o todavía iniciando) | Hasta 3 intentos; después avisa que hay que elegirlo en Audio Setup. Sin bucles |
+| Cambios deliberados (panel de Audio, Aplicar/Deshacer, calibración) | El dispositivo nuevo pasa a ser el elegido |
+| Aparece pero no abre (driver ocupado o todavía iniciando) | Hasta 3 intentos; después avisa que hay que elegirlo en el panel de Audio. Sin bucles |
 
 - **Dónde:** la lógica de decisión es pura y tiene tests (`AudioAutopilot::updateReconnect`, `isRouteAvailable`; test "Reconnect: switch back to the chosen device…"). La integración con JUCE está en `StandaloneAudioAutopilot::updateReconnect` / `switchBackToPreferred`.
 - **Solo en el Standalone:** en el VST3 el DAW maneja el dispositivo.
@@ -64,7 +64,7 @@ Usa un preset con perillas movidas (no default): así se nota si algo se reinici
 
 | # | Prueba | Qué esperar |
 |---|---|---|
-| M1 | Con ASIO, tocando, cambia el buffer en Audio Setup: 32 → 64 → 128 → 256 → 512 | Un hueco corto y limpio en cada cambio; las perillas no cambian |
+| M1 | Con ASIO, tocando, cambia el buffer en el panel de Audio (indicador del header): 32 → 64 → 128 → 256 → 512 | Un hueco corto y limpio en cada cambio; las perillas no cambian |
 | M2 | Cambia la frecuencia de muestreo (44.1 → 48 → 96 kHz, si tu interfaz lo permite) | Igual que M1. El cab suena igual en todas (arreglo E1) |
 | M3 | Desconecta el cable USB de la interfaz mientras tocas (con WASAPI y también con ASIO) | NOVA no se cuelga. Con WASAPI pasa a otro dispositivo, con la entrada silenciada y el aviso "disconnected". Sin acople. Con ASIO puede quedar en silencio en el mismo driver |
 | M4 | Vuelve a conectar la interfaz **sin tocar nada** | NOVA vuelve sola a la interfaz en unos segundos, con el aviso "reconnected", y suena con los mismos ajustes (frecuencia, buffer, perillas). Si no vuelve, anota el driver |

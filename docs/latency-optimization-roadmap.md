@@ -422,6 +422,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | E6 | Reporte de problemas: exportar el log de sesión y el diagnóstico desde la app | Código | Pendiente |
 | E7 | Cierre: prueba de B-11 en la app, rt-profile con la máquina en reposo, merge a `master` | Prueba + merge | Pendiente |
 | L1 | Acuerdo ASIO de Steinberg firmado por las dos partes (T0-03) | Legal (usuario, en paralelo) | Pendiente |
+| U1 | Configuración de audio fácil de encontrar y sin ruido (pedido del usuario) | UI | **Hecho (2026-10-13):** indicador de audio en el header + panel único (latencia, nivel de entrada, monitoreo, recomendación del Autopilot y 5 ajustes esenciales). Eliminados: página Audio de Settings (3 pestañas), wizard Audio Setup (6 pasos), menú "Options" de JUCE, toggle sin efecto `showLatencyTips`, canales de salida y MIDI. La referencia del afinador pasó al afinador |
 
 **Criterio de congelamiento:** E1–E7 cerrados; base, golden y bit-exacto en PASS en Release; rt-profile limpio; matriz de hardware y DAWs sin crashes ni cortes con buffer ≥ 128. L1 es requisito para distribuir.
 
@@ -429,7 +430,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 
 **Dónde retomar (2026-10-12):** todo commiteado en la rama `perf/t0-latency-optimizations` (sin mergear a `master`): T0, T2-10 F1 + F2 (probadas por el usuario en la app, caja negra OK), T2-01 F0 y el arreglo de B-11.
 
-**Prioridad actual: checklist del motor para la beta (§11b).** E1 y E2 hechos; E3 automático hecho (falta la prueba manual M1–M9); sigue E4.
+**Prioridad actual: checklist del motor para la beta (§11b).** E1, E2 y U1 hechos; E3 automático hecho (falta la prueba manual M1–M9); sigue E4 (su aviso va dentro del panel de Audio).
 
 1. **Prueba rápida en la app del arreglo de B-11:** agregar y quitar pedales, cambiar de preset y usar Aplicar/Deshacer del Autopilot tocando. Debe oírse un hueco corto y limpio, sin DI crudo ni clicks.
 2. **Después del congelamiento — T2-01 F1 + F2 solo en el Standalone:** `AudioEngine::setLatencyMode` + `GraphBuilder` conectan los flags de F0; ajuste en el `PropertySet` del Standalone; interruptor "Live / Studio"; Studio por defecto. Después, el A/B del usuario.
@@ -458,3 +459,4 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | 2026-10-13 | E2 hecho: formato de presets congelado en el esquema 1. Valor real (`raw`) por parámetro, `migrateStateTree()`, `isFromNewerSchema()`, `savedByVersion`. Tests: round-trip de 189 parámetros de los 24 procesadores a través del archivo (0 diferencias), cambio de rango, y 25 presets de referencia v1 (832 comprobaciones, 0 diferencias). Base PASS (337/13953/0) en Debug y Release, bit-exacto 56/56, golden PASS (solo `state_size_bytes` del Overdrive, 318 → 429) |
 | 2026-10-13 | E3 (automático): bug corregido en `AudioEngine::prepare()`: al reabrir el dispositivo (buffer, frecuencia, interfaz, Autopilot, desconexión) las perillas volvían a su default. Suite `E3 device robustness`: re-prepare en 6 configuraciones, matriz de 40 frecuencias × buffers, bloques irregulares y unplug/replug, todo PASS. Base PASS (341/14150/0) en Debug y Release, bit-exacto 56/56, golden PASS. Procedimiento manual M1–M9 en `docs/reports/E3-device-robustness.md` |
 | 2026-10-13 | E3: vuelta automática al dispositivo elegido cuando se reconecta (`AudioAutopilot::updateReconnect` + `StandaloneAudioAutopilot`), con un máximo de 3 intentos y respetando un cambio manual mientras espera. Unit test de la lógica. Base PASS (342/14174/0) en Debug y Release, bit-exacto 56/56 |
+| 2026-10-13 | U1: panel único de Audio (`Source/GUI/Overlays/AudioPanel.h`) con indicador de estado en el header; se eliminan la página Audio de Settings, el wizard Audio Setup, el menú "Options" de JUCE y el ajuste muerto `showLatencyTips`; referencia del afinador dentro del afinador; corregidos los botones de Settings tapados por el contenido. Revisado con capturas (hook `NOVA_UI_SNAPSHOT_DIR`, solo Debug) en 1920×1080 y 1280×760. Base PASS (342/14174/0) en Debug y Release, bit-exacto 56/56, golden PASS |
