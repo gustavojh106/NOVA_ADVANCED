@@ -26,6 +26,10 @@
 // - Input mute: the JUCE Standalone starts with the input muted. When the active
 //   route is safe (AudioAutopilot::adviseInputMute) the input is unmuted with a
 //   notice; a route with feedback risk is muted again. A manual mute is respected.
+// - Reconnect (E3): when the chosen device is unplugged JUCE falls back to the
+//   default one (the input mute above guards that route). The chosen setup is
+//   remembered and reopened as soon as the device shows up again, unless the user
+//   picked another device meanwhile (AudioAutopilot::updateReconnect).
 //
 // The audio thread only feeds counters that already existed (block counter,
 // CpuMeter) plus the CpuMeter measurement window and the processor's output
@@ -378,6 +382,10 @@ private:
         activity = newActivity;
         statusMessage = message;
         ++revision;
+
+        // Apply / undo / calibration may have moved to another device on purpose.
+        if (! isBusy() && ! startupPending)
+            updateReconnect();
     }
 
     static juce::String joinSizes(const juce::Array<int>& sizes)
@@ -700,6 +708,90 @@ private:
         }
     }
 
+    // --- reconnect ----------------------------------------------------------------
+
+    static juce::String describeDevice(const AudioAutopilot::ActiveDevice& device)
+    {
+        return device.outputName.isNotEmpty() ? device.outputName : device.inputName;
+    }
+
+    void updateReconnect()
+    {
+        if (switchingBack)
+            return;
+
+        const auto inventory = captureInventory();
+        const auto& active = inventory.active;
+        const bool preferredAvailable = preferredDevice.typeName.isNotEmpty()
+            && AudioAutopilot::isRouteAvailable(inventory, preferredDevice.typeName,
+                                                preferredDevice.inputName, preferredDevice.outputName);
+
+        switch (AudioAutopilot::updateReconnect(reconnect, active, preferredAvailable))
+        {
+            case AudioAutopilot::ReconnectAction::AdoptCurrent:
+                preferredDevice = active;
+                preferredState = captureDeviceState();
+                switchBackAttempts = 0;
+                NovaDiagnostics::SessionLogger::logEvent("autopilot.reconnect", "chosen device=" + active.getRouteKey());
+                break;
+
+            case AudioAutopilot::ReconnectAction::PreferredLost:
+                switchBackAttempts = 0;
+                NovaDiagnostics::SessionLogger::logEvent("autopilot.reconnect",
+                    "lost device=" + reconnect.preferredRoute + " fallback=" + reconnect.fallbackRoute);
+                notify({ describeDevice(preferredDevice) + " disconnected. NOVA switches back to it as soon as you reconnect it.", {}, {} });
+                break;
+
+            case AudioAutopilot::ReconnectAction::SwitchBack:
+                switchBackToPreferred();
+                break;
+
+            case AudioAutopilot::ReconnectAction::None:
+                // On the chosen device: keep its latest rate and buffer for a later switch back.
+                if (active.isOpen && active.getRouteKey() == reconnect.preferredRoute)
+                {
+                    preferredDevice = active;
+                    preferredState = captureDeviceState();
+                }
+                break;
+        }
+    }
+
+    void switchBackToPreferred()
+    {
+        // A device that is listed but won't open (driver busy, still starting) must not
+        // loop: each failed attempt falls back and fires another device change.
+        if (preferredState == nullptr || switchBackAttempts >= kMaxSwitchBackAttempts)
+            return;
+
+        ++switchBackAttempts;
+        switchingBack = true;
+        const auto error = openFromXml(*preferredState, true);
+        switchingBack = false;
+        ++revision;
+
+        const auto active = captureActiveDevice();
+        if (error.isEmpty() && active.isOpen && active.getRouteKey() == reconnect.preferredRoute)
+        {
+            reconnect.waitingForPreferred = false;
+            reconnect.fallbackRoute = {};
+            switchBackAttempts = 0;
+            NovaDiagnostics::SessionLogger::logEvent("autopilot.reconnect", "switched back to " + active.getRouteKey());
+            notify({ describeDevice(active) + " reconnected. Your audio setup is back.", {}, {} });
+        }
+        else
+        {
+            NovaDiagnostics::SessionLogger::logEvent("autopilot.reconnect",
+                "switch back attempt " + juce::String(switchBackAttempts) + " failed"
+                + (error.isNotEmpty() ? ": " + error.upToFirstOccurrenceOf("\n", false, false) : juce::String()));
+
+            if (switchBackAttempts >= kMaxSwitchBackAttempts)
+                notify({ describeDevice(preferredDevice) + " is back but won't open. Choose it in Audio Setup.", {}, {} });
+        }
+
+        evaluateInputMuteIfRouteChanged();
+    }
+
     // --- callbacks ----------------------------------------------------------------
 
     void changeListenerCallback(juce::ChangeBroadcaster*) override
@@ -707,8 +799,12 @@ private:
         ++revision;
 
         // Mid-switch, mid-calibration and pre-startup changes are evaluated once those settle.
+        // The mute decision goes first: a fallback route may be a microphone.
         if (! isBusy() && ! startupPending)
+        {
             evaluateInputMuteIfRouteChanged();
+            updateReconnect();
+        }
     }
 
     void timerCallback() override
@@ -719,6 +815,7 @@ private:
             const auto active = captureActiveDevice();
             lastEvaluatedRoute = active.isOpen ? active.getRouteKey() : juce::String();
             evaluateInputMute(active, false);
+            updateReconnect();
         }
 
         if (activity == Activity::Verifying)
@@ -763,6 +860,14 @@ private:
     juce::String lastEvaluatedRoute;
     bool lastSeenMuted = true;
     bool automaticMuteChangeInFlight = false;
+
+    // Reconnect
+    static constexpr int kMaxSwitchBackAttempts = 3;
+    AudioAutopilot::ReconnectTracker reconnect;
+    AudioAutopilot::ActiveDevice preferredDevice;
+    std::unique_ptr<juce::XmlElement> preferredState;
+    int switchBackAttempts = 0;
+    bool switchingBack = false;
 
     bool startupPending = true;
     double createdAtMs = 0.0;

@@ -18052,6 +18052,74 @@ public:
             AP::StabilityMeasurement empty;
             expect(! AP::evaluateStability(empty).stable);
         }
+
+        beginTest("Reconnect: switch back to the chosen device when it is plugged in again (E3)");
+        {
+            const auto device = [](const char* type, const char* input, const char* output)
+            {
+                AP::ActiveDevice d;
+                d.isOpen = true;
+                d.typeName = type;
+                d.inputName = input;
+                d.outputName = output;
+                return d;
+            };
+
+            const auto interface = device("Windows Audio", "Line (USB Interface)", "Speakers (USB Interface)");
+            const auto laptop = device("Windows Audio", "Microphone (Realtek)", "Speakers (Realtek)");
+            const auto headset = device("Windows Audio", "", "Headphones (Bluetooth)");
+            AP::ActiveDevice closed;
+
+            // Availability comes from the driver type's device lists.
+            AP::Inventory inventory;
+            AP::DriverTypeEntry wasapi;
+            wasapi.typeName = "Windows Audio";
+            wasapi.inputNames = { "Line (USB Interface)", "Microphone (Realtek)" };
+            wasapi.outputNames = { "Speakers (USB Interface)", "Speakers (Realtek)" };
+            inventory.types.push_back(wasapi);
+            expect(AP::isRouteAvailable(inventory, interface.typeName, interface.inputName, interface.outputName));
+            expect(! AP::isRouteAvailable(inventory, "ASIO", interface.inputName, interface.outputName));
+            expect(! AP::isRouteAvailable(inventory, interface.typeName, interface.inputName, "Speakers (Gone)"));
+            expect(AP::isRouteAvailable(inventory, interface.typeName, "", interface.outputName), "No input is fine");
+
+            // First device seen becomes the chosen one.
+            AP::ReconnectTracker tracker;
+            expect(AP::updateReconnect(tracker, closed, false) == AP::ReconnectAction::None);
+            expect(AP::updateReconnect(tracker, interface, true) == AP::ReconnectAction::AdoptCurrent);
+            expectEquals(tracker.preferredRoute, interface.getRouteKey());
+            expect(AP::updateReconnect(tracker, interface, true) == AP::ReconnectAction::None);
+
+            // Unplugged: JUCE falls back to the laptop; wait for the interface.
+            expect(AP::updateReconnect(tracker, laptop, false) == AP::ReconnectAction::PreferredLost);
+            expect(tracker.waitingForPreferred);
+            expect(AP::updateReconnect(tracker, laptop, false) == AP::ReconnectAction::None);
+
+            // Plugged in again: switch back; once there, waiting ends.
+            expect(AP::updateReconnect(tracker, laptop, true) == AP::ReconnectAction::SwitchBack);
+            expect(AP::updateReconnect(tracker, interface, true) == AP::ReconnectAction::None);
+            expect(! tracker.waitingForPreferred);
+
+            // A deliberate change while the chosen device is present is adopted.
+            expect(AP::updateReconnect(tracker, laptop, true) == AP::ReconnectAction::AdoptCurrent);
+            expectEquals(tracker.preferredRoute, laptop.getRouteKey());
+
+            // While waiting, picking another device is a new choice: no switch back later.
+            AP::ReconnectTracker waiting;
+            AP::updateReconnect(waiting, interface, true);
+            expect(AP::updateReconnect(waiting, laptop, false) == AP::ReconnectAction::PreferredLost);
+            expect(AP::updateReconnect(waiting, headset, false) == AP::ReconnectAction::AdoptCurrent);
+            expectEquals(waiting.preferredRoute, headset.getRouteKey());
+            expect(! waiting.waitingForPreferred);
+
+            // Device closed for a moment while waiting (fallback reopening): keep waiting.
+            AP::ReconnectTracker reopening;
+            AP::updateReconnect(reopening, interface, true);
+            AP::updateReconnect(reopening, laptop, false);
+            expect(AP::updateReconnect(reopening, closed, false) == AP::ReconnectAction::None);
+            expect(reopening.waitingForPreferred);
+            expect(AP::updateReconnect(reopening, laptop, false) == AP::ReconnectAction::None);
+            expect(AP::updateReconnect(reopening, laptop, true) == AP::ReconnectAction::SwitchBack);
+        }
     }
 };
 

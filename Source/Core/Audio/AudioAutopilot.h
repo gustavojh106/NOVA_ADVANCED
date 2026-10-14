@@ -690,4 +690,103 @@ namespace Nova::AudioAutopilot
 
         return verdict;
     }
+
+    // -------------------------------------------------------------------------
+    // Reconnect (E3): when the chosen device is unplugged, JUCE falls back to the
+    // default device. Remember the chosen route and switch back to it as soon as
+    // it shows up again, unless the user picks another device in the meantime.
+    // -------------------------------------------------------------------------
+
+    // True when the driver type still lists the route's input and output devices.
+    inline bool isRouteAvailable(const Inventory& inventory, const juce::String& typeName,
+                                 const juce::String& inputName, const juce::String& outputName)
+    {
+        for (const auto& type : inventory.types)
+        {
+            if (type.typeName != typeName)
+                continue;
+
+            const bool inputOk = inputName.isEmpty() || type.inputNames.contains(inputName);
+            const bool outputOk = outputName.isEmpty() || type.outputNames.contains(outputName);
+            return inputOk && outputOk;
+        }
+
+        return false;
+    }
+
+    struct ReconnectTracker
+    {
+        juce::String preferredRoute;   // ActiveDevice::getRouteKey() of the device the user chose
+        juce::String fallbackRoute;    // where JUCE fell back while the chosen device was missing
+        bool waitingForPreferred = false;
+    };
+
+    enum class ReconnectAction
+    {
+        None,
+        AdoptCurrent,   // the current route becomes the chosen one (first run or a deliberate change)
+        PreferredLost,  // the chosen device disappeared; wait for it
+        SwitchBack      // the chosen device is back: reopen it
+    };
+
+    inline ReconnectAction updateReconnect(ReconnectTracker& tracker, const ActiveDevice& current, bool preferredAvailable)
+    {
+        const auto currentRoute = current.isOpen ? current.getRouteKey() : juce::String();
+
+        if (tracker.preferredRoute.isEmpty())
+        {
+            if (currentRoute.isEmpty())
+                return ReconnectAction::None;
+
+            tracker.preferredRoute = currentRoute;
+            return ReconnectAction::AdoptCurrent;
+        }
+
+        if (currentRoute == tracker.preferredRoute)
+        {
+            tracker.waitingForPreferred = false;
+            tracker.fallbackRoute = {};
+            return ReconnectAction::None;
+        }
+
+        if (tracker.waitingForPreferred)
+        {
+            if (preferredAvailable)
+                return ReconnectAction::SwitchBack;
+
+            if (currentRoute.isEmpty())
+                return ReconnectAction::None;
+
+            if (tracker.fallbackRoute.isEmpty())
+            {
+                tracker.fallbackRoute = currentRoute;
+                return ReconnectAction::None;
+            }
+
+            // The user moved away from the fallback while waiting: that is a new choice.
+            if (currentRoute != tracker.fallbackRoute)
+            {
+                tracker.preferredRoute = currentRoute;
+                tracker.fallbackRoute = {};
+                tracker.waitingForPreferred = false;
+                return ReconnectAction::AdoptCurrent;
+            }
+
+            return ReconnectAction::None;
+        }
+
+        if (! preferredAvailable)
+        {
+            tracker.waitingForPreferred = true;
+            tracker.fallbackRoute = currentRoute;
+            return ReconnectAction::PreferredLost;
+        }
+
+        // The chosen device is still there and another one is open: a deliberate change.
+        if (currentRoute.isEmpty())
+            return ReconnectAction::None;
+
+        tracker.preferredRoute = currentRoute;
+        return ReconnectAction::AdoptCurrent;
+    }
 }
