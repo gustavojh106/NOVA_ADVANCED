@@ -10,8 +10,9 @@
 // =============================================================================
 // Latency Autopilot (T2-10) - pure decision logic
 //
-// Ranks driver/device candidates for the lowest stable latency and decides
-// whether the Standalone input can be unmuted safely. Nothing here touches the
+// Ranks driver/device candidates for the lowest stable latency, decides
+// whether the Standalone input can be unmuted safely and flags routes that
+// record and play on two devices with separate clocks. Nothing here touches the
 // audio-device APIs: StandaloneAudioAutopilot.h builds the inventory from the
 // AudioDeviceManager and applies the result, and AudioAutopilotTests (in
 // AudioEngineTests.cpp) drives this file with synthetic inventories.
@@ -309,11 +310,14 @@ namespace Nova::AudioAutopilot
 
     namespace Detail
     {
+        // External line / instrument inputs first. The built-in penalty outweighs the
+        // same-device bonus: a laptop mic paired with the laptop speakers must not beat
+        // an interface without outputs paired with other headphones (no guitar there).
         inline int scoreInput(const EndpointTraits& input)
         {
-            if (input.webcam)  return -40;
-            if (input.builtIn) return 0;
-            return input.microphone ? 20 : 40; // external line / instrument inputs first
+            if (input.webcam)  return -140;
+            if (input.builtIn) return -100;
+            return input.microphone ? 20 : 40;
         }
 
         inline int scoreOutput(const EndpointTraits& output)
@@ -584,6 +588,121 @@ namespace Nova::AudioAutopilot
             return { MuteAdvice::Unmute, false, "External line/instrument input." };
 
         return { MuteAdvice::KeepMuted, false, "NOVA can't confirm this is an instrument input. Unmute it if you use headphones." };
+    }
+
+    // -------------------------------------------------------------------------
+    // Clock domains (E4, finding B-05): JUCE's WASAPI and DirectSound devices can
+    // record from one device and play through another, but nothing corrects the
+    // drift between their clocks, so a packet is dropped or padded now and then
+    // (a click). The real fix is a clock bridge (T2-09); until then the route is
+    // flagged and the user is told how to avoid it.
+    // -------------------------------------------------------------------------
+
+    // True when input and output are different devices, each with its own clock.
+    // Endpoints of one device ("Line (UR12)", "Speakers (UR12)") share its clock and
+    // ASIO always opens a single device. "Primary Sound Driver" follows Windows'
+    // default device, which can't be told apart here, so it is never flagged.
+    inline bool usesSeparateClocks(const juce::String& typeName, const juce::String& inputName, const juce::String& outputName)
+    {
+        if (inputName.isEmpty() || outputName.isEmpty())
+            return false;
+
+        switch (classifyDriverType(typeName))
+        {
+            case DriverFamily::WasapiShared:
+            case DriverFamily::WasapiExclusive:
+            case DriverFamily::WasapiLowLatency:
+            case DriverFamily::DirectSound:
+                break;
+            case DriverFamily::Asio:
+            case DriverFamily::Other:
+                return false;
+        }
+
+        const auto input = classifyEndpoint(inputName);
+        const auto output = classifyEndpoint(outputName);
+        return ! input.systemAlias && ! output.systemAlias && ! isSameDevice(input, output);
+    }
+
+    // The running route: only when it actually records and plays.
+    inline bool usesSeparateClocks(const ActiveDevice& route)
+    {
+        return route.isOpen && route.numInputChannels > 0 && route.numOutputChannels > 0
+            && usesSeparateClocks(route.typeName, route.inputName, route.outputName);
+    }
+
+    enum class ClockFix
+    {
+        None,                 // one clock, or nothing running to check
+        ApplyRecommendation,  // the Autopilot's recommendation records and plays through one device
+        PickSameDeviceOutput, // the input device also has an output: choose it
+        UseOneDevice          // the input device has no output here
+    };
+
+    struct ClockAdvice
+    {
+        bool separateClocks = false;
+        ClockFix fix = ClockFix::None;
+        juce::String inputDevice;   // "Steinberg UR12"
+        juce::String outputDevice;  // "BlackShark V3 X PS"
+        juce::String message;       // empty when there is nothing to fix
+    };
+
+    inline ClockAdvice adviseClocks(const Inventory& inventory, const Recommendation& recommendation)
+    {
+        ClockAdvice advice;
+        const auto& route = inventory.active;
+
+        if (! usesSeparateClocks(route))
+            return advice;
+
+        const auto input = classifyEndpoint(route.inputName);
+        const auto shorten = [] (const juce::String& name)
+        {
+            return name.length() <= 28 ? name : name.substring(0, 27).trimEnd() + juce::String(juce::CharPointer_UTF8("\xe2\x80\xa6"));
+        };
+
+        advice.separateClocks = true;
+        advice.inputDevice = shorten(input.device);
+        advice.outputDevice = shorten(classifyEndpoint(route.outputName).device);
+
+        const auto& candidate = recommendation.candidate;
+        const bool recommendationFixesIt = recommendation.kind == RecommendationKind::SwitchDevice
+            && ! usesSeparateClocks(candidate.typeName, candidate.inputName, candidate.outputName);
+
+        bool inputDeviceHasOutput = false;
+        for (const auto& type : inventory.types)
+        {
+            if (type.typeName != route.typeName)
+                continue;
+
+            for (const auto& outputName : type.outputNames)
+            {
+                const auto output = classifyEndpoint(outputName);
+                inputDeviceHasOutput = inputDeviceHasOutput || (! output.virtualDevice && isSameDevice(input, output));
+            }
+        }
+
+        advice.message = "Input and output are on different devices (" + advice.inputDevice + ", " + advice.outputDevice
+                       + "). Their clocks drift apart, so expect a click every so often. ";
+
+        if (recommendationFixesIt)
+        {
+            advice.fix = ClockFix::ApplyRecommendation;
+            advice.message << "Plug your headphones into the " << advice.inputDevice << " and press Apply above.";
+        }
+        else if (inputDeviceHasOutput)
+        {
+            advice.fix = ClockFix::PickSameDeviceOutput;
+            advice.message << "Plug your headphones into the " << advice.inputDevice << " and pick it as the Output device.";
+        }
+        else
+        {
+            advice.fix = ClockFix::UseOneDevice;
+            advice.message << "For click-free audio, record and play through one device, such as an interface with a headphone output.";
+        }
+
+        return advice;
     }
 
     // -------------------------------------------------------------------------

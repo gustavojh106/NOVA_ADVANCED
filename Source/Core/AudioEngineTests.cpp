@@ -17869,6 +17869,27 @@ public:
             expect(reasonsMention(AP::recommend(split).candidate, "different devices"));
         }
 
+        beginTest("AudioAutopilot never trades the guitar input for a built-in mic on the same device");
+        {
+            // A guitar interface without outputs and a USB headset: the laptop mic and speakers
+            // share a clock, but the guitar isn't there.
+            AP::Inventory inventory;
+            addWindowsTypes(inventory, { kRealtekMic, "Line (Guitar Link)" },
+                            { kRealtekSpeakers, "Speakers (BlackShark V3 X PS)" });
+            inventory.active = makeActive("Windows Audio", kRealtekMic, kRealtekSpeakers);
+
+            const auto recommendation = AP::recommend(inventory);
+            expectEquals(recommendation.candidate.inputName, juce::String("Line (Guitar Link)"));
+            expectEquals(recommendation.candidate.outputName, juce::String("Speakers (BlackShark V3 X PS)"));
+            expect(reasonsMention(recommendation.candidate, "different devices"));
+
+            for (const auto& candidate : AP::rankCandidates(inventory))
+                expect(candidate.inputName != kRealtekMic, "An external input beats the built-in mic in every driver type");
+
+            // With only the laptop, its mic is still the one choice.
+            expectEquals(AP::recommend(makeLaptop()).candidate.inputName, kRealtekMic);
+        }
+
         beginTest("AudioAutopilot recognises a running setup that is already optimal");
         {
             auto onAsio = makeInterfaceRig();
@@ -18119,6 +18140,99 @@ public:
             expect(reopening.waitingForPreferred);
             expect(AP::updateReconnect(reopening, laptop, false) == AP::ReconnectAction::None);
             expect(AP::updateReconnect(reopening, laptop, true) == AP::ReconnectAction::SwitchBack);
+        }
+
+        beginTest("E4 input and output on different devices are flagged and explained (B-05)");
+        {
+            const juce::String urLine { "Line (Steinberg UR12 )" };
+            const juce::String urSpeakers { "Speakers (Steinberg UR12 )" };
+            const juce::String headset { "Speakers (BlackShark V3 X PS)" };
+            const auto separate = [] (const juce::String& type, const juce::String& input, const juce::String& output)
+            {
+                return AP::usesSeparateClocks(makeActive(type, input, output));
+            };
+
+            // Endpoints of one device share its clock, whatever their names.
+            expect(! separate("Windows Audio", urLine, urSpeakers), "Line + Speakers of one interface");
+            expect(! separate("Windows Audio", "Line (2- Steinberg UR12)", "speakers (steinberg ur12)"),
+                   "Duplicate prefix, case and spacing");
+            expect(! separate("Windows Audio", kRealtekMic, kRealtekSpeakers));
+
+            // Two devices, in every driver that opens input and output separately.
+            for (auto* type : { "Windows Audio", "Windows Audio (Exclusive Mode)", "Windows Audio (Low Latency Mode)", "DirectSound" })
+                expect(separate(type, urLine, headset), juce::String(type) + " with two devices");
+            expect(separate("Windows Audio", kUrLine, kRealtekSpeakers));
+
+            // Names without "(device)": the whole name is the device.
+            expect(! separate("Windows Audio", "USB Audio CODEC", "USB Audio CODEC"));
+            expect(! separate("Windows Audio", "Steinberg UR12", urSpeakers));
+            expect(separate("Windows Audio", "Focusrite USB", "Realtek HD Audio"));
+
+            // ASIO opens one device; without input or a running device nothing can drift.
+            expect(! separate("ASIO", "Yamaha Steinberg USB ASIO", "Yamaha Steinberg USB ASIO"));
+            expect(! separate("ASIO", "ASIO4ALL v2", "ASIO4ALL v2"));
+            expect(! separate("Windows Audio", "", headset), "No input device");
+            auto noChannels = makeActive("Windows Audio", urLine, headset);
+            noChannels.numInputChannels = 0;
+            expect(! AP::usesSeparateClocks(noChannels), "Input device without active channels");
+            auto closed = makeActive("Windows Audio", urLine, headset);
+            closed.isOpen = false;
+            expect(! AP::usesSeparateClocks(closed), "Nothing running");
+
+            // DirectSound's "Primary Sound" aliases follow the Windows default: unknown, never flagged.
+            expect(! separate("DirectSound", "Primary Sound Capture Driver", headset));
+            expect(! separate("DirectSound", urLine, "Primary Sound Driver"));
+
+            // Advice on the user's rig: UR12 in, USB headset out, the interface's ASIO driver installed.
+            AP::Inventory rig;
+            addWindowsTypes(rig, { urLine, "Microphone (BlackShark V3 X PS)" }, { urSpeakers, headset });
+            addAsioType(rig, { "Yamaha Steinberg USB ASIO" });
+            rig.active = makeActive("Windows Audio", urLine, headset, 44100.0, 160);
+
+            const auto rigRecommendation = AP::recommend(rig);
+            expectEquals(rigRecommendation.candidate.outputName, juce::String("Yamaha Steinberg USB ASIO"));
+            const auto applyAdvice = AP::adviseClocks(rig, rigRecommendation);
+            expect(applyAdvice.separateClocks);
+            expect(applyAdvice.fix == AP::ClockFix::ApplyRecommendation);
+            expectEquals(applyAdvice.inputDevice, juce::String("Steinberg UR12"));
+            expectEquals(applyAdvice.outputDevice, juce::String("BlackShark V3 X PS"));
+            expect(applyAdvice.message.contains("Plug your headphones into the Steinberg UR12"), applyAdvice.message);
+            expect(applyAdvice.message.contains("Apply"), applyAdvice.message);
+
+            // Without a recommendation that fixes it: choose the interface's own output.
+            const auto pickAdvice = AP::adviseClocks(rig, AP::Recommendation {});
+            expect(pickAdvice.fix == AP::ClockFix::PickSameDeviceOutput);
+            expect(pickAdvice.message.contains("Output device"), pickAdvice.message);
+
+            // An input device without outputs: the best the Autopilot has is still split.
+            AP::Inventory noOutput;
+            addWindowsTypes(noOutput, { "Line (Guitar Link)" }, { headset });
+            noOutput.active = makeActive("Windows Audio", "Line (Guitar Link)", headset);
+            const auto splitRecommendation = AP::recommend(noOutput);
+            expect(AP::usesSeparateClocks(splitRecommendation.candidate.typeName, splitRecommendation.candidate.inputName,
+                                          splitRecommendation.candidate.outputName));
+            const auto oneDevice = AP::adviseClocks(noOutput, splitRecommendation);
+            expect(oneDevice.fix == AP::ClockFix::UseOneDevice);
+            expect(oneDevice.message.contains("one device"), oneDevice.message);
+
+            // One device, or ASIO: nothing to say.
+            auto together = rig;
+            together.active = makeActive("Windows Audio", urLine, urSpeakers);
+            const auto none = AP::adviseClocks(together, AP::recommend(together));
+            expect(! none.separateClocks && none.fix == AP::ClockFix::None && none.message.isEmpty());
+            auto onAsio = rig;
+            onAsio.active = makeActive("ASIO", "Yamaha Steinberg USB ASIO", "Yamaha Steinberg USB ASIO");
+            expect(AP::adviseClocks(onAsio, AP::recommend(onAsio)).message.isEmpty());
+
+            // Long device names are shortened so the warning fits the panel.
+            const juce::String intelMic(juce::CharPointer_UTF8(
+                "Microphone Array (Intel\xc2\xae Smart Sound Technology for Digital Microphones)"));
+            AP::Inventory laptopSplit;
+            addWindowsTypes(laptopSplit, { intelMic }, { headset });
+            laptopSplit.active = makeActive("Windows Audio", intelMic, headset);
+            const auto longName = AP::adviseClocks(laptopSplit, AP::recommend(laptopSplit));
+            expect(longName.separateClocks);
+            expect(longName.inputDevice.length() <= 28, longName.inputDevice);
         }
     }
 };

@@ -30,6 +30,8 @@
 //   default one (the input mute above guards that route). The chosen setup is
 //   remembered and reopened as soon as the device shows up again, unless the user
 //   picked another device meanwhile (AudioAutopilot::updateReconnect).
+// - Two clocks (E4): a route that records and plays on two devices is written to
+//   the session log; the Audio panel explains how to avoid the clicks.
 //
 // The audio thread only feeds counters that already existed (block counter,
 // CpuMeter) plus the CpuMeter measurement window and the processor's output
@@ -645,7 +647,15 @@ private:
             return;
 
         lastEvaluatedRoute = routeKey;
+        logSeparateClocks(active);
         evaluateInputMute(active, true);
+    }
+
+    // E4 (B-05): a route across two devices clicks now and then; leave a trace for problem reports.
+    static void logSeparateClocks(const AudioAutopilot::ActiveDevice& route)
+    {
+        if (AudioAutopilot::usesSeparateClocks(route))
+            NovaDiagnostics::SessionLogger::logEvent("autopilot.clock", "separate clocks route=" + route.getRouteKey());
     }
 
     void evaluateInputMute(const AudioAutopilot::ActiveDevice& route, bool routeChanged)
@@ -814,6 +824,7 @@ private:
             startupPending = false;
             const auto active = captureActiveDevice();
             lastEvaluatedRoute = active.isOpen ? active.getRouteKey() : juce::String();
+            logSeparateClocks(active);
             evaluateInputMute(active, false);
             updateReconnect();
         }

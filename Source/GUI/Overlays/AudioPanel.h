@@ -9,6 +9,8 @@
 // Autopilot recommendation (Apply / Undo), and only the settings a guitarist needs:
 // driver, device, guitar input, sample rate and buffer (with "Find lowest stable").
 // Output channels are always the device's first pair; MIDI is not used.
+// Input and output on two devices (two clocks, clicks: B-05) turn the chip amber
+// and the hint line explains the fix (AudioAutopilot::adviseClocks).
 //
 // Included by PluginEditor.cpp after the settings helpers it reuses
 // (SettingsLookAndFeel, styleSettingsActionButton). Message thread only.
@@ -37,6 +39,7 @@ namespace NovaAudioUi
         int bufferSize = 0;
         double latencyMs = 0.0;    // standalone: driver round trip + NOVA; plugin: NOVA only
         bool inputMuted = false;
+        bool separateClocks = false; // input and output on two devices: clicks now and then (B-05)
     };
 
     inline Status captureStatus(NOVAAudioProcessor& processor)
@@ -67,6 +70,15 @@ namespace NovaAudioUi
                     driverSamples = 2 * status.bufferSize;
                 if (status.sampleRate > 0.0)
                     status.latencyMs = 1000.0 * (driverSamples + juce::jmax(0, processor.getLatencySamples())) / status.sampleRate;
+
+                Nova::AudioAutopilot::ActiveDevice route;
+                route.isOpen = true;
+                route.typeName = status.typeName;
+                route.inputName = status.inputName;
+                route.outputName = status.outputName;
+                route.numInputChannels = device->getActiveInputChannels().countNumberOfSetBits();
+                route.numOutputChannels = device->getActiveOutputChannels().countNumberOfSetBits();
+                status.separateClocks = Nova::AudioAutopilot::usesSeparateClocks(route);
             }
 
             return status;
@@ -85,7 +97,7 @@ namespace NovaAudioUi
     {
         if (! status.deviceOpen)
             return Health::Problem;
-        if (status.standalone && (status.inputMuted || status.latencyMs >= 25.0))
+        if (status.standalone && (status.inputMuted || status.separateClocks || status.latencyMs >= 25.0))
             return Health::Warning;
         return Health::Good;
     }
@@ -418,7 +430,7 @@ namespace NovaAudioUi
             {
                 g.setColour(hintIsProblem ? kWarningColour : Nova::Colors::TextDim);
                 g.setFont(juce::Font(juce::FontOptions(12.0f)));
-                g.drawFittedText(hintText, hintBounds, juce::Justification::topLeft, 3);
+                g.drawFittedText(hintText, hintBounds, juce::Justification::topLeft, 4);
             }
         }
 
@@ -431,10 +443,11 @@ namespace NovaAudioUi
             const bool showStrip = holder != nullptr && stripText.isNotEmpty();
 
             const int panelW = juce::jlimit(520, 700, getWidth() - 80);
+            hintHeight = hintHeightFor(panelW - 48);
             int panelH = 24 + 48 + 16 + 96 + 16;
             if (showStrip) panelH += 52 + 14;
             panelH += numRows * rowH + juce::jmax(0, numRows - 1) * rowGap;
-            panelH += 6 + 36 + 22;
+            panelH += 6 + hintHeight + 22;
             panelH = juce::jmin(panelH, getHeight() - 40);
             panelBounds = juce::Rectangle<int>(0, 0, panelW, panelH).withCentre(getLocalBounds().getCentre());
 
@@ -527,7 +540,7 @@ namespace NovaAudioUi
             }
 
             area.removeFromTop(6);
-            hintBounds = area.removeFromTop(36);
+            hintBounds = area.removeFromTop(hintHeight);
         }
 
     private:
@@ -726,6 +739,7 @@ namespace NovaAudioUi
             stripText = newStrip;
             applyButton.setVisible(showApply);
             undoButton.setVisible(showUndo);
+            refreshHint(); // the two-clock warning points at this recommendation
 
             for (auto* control : std::initializer_list<juce::Component*> { &driverBox, &deviceBox, &inputDeviceBox, &outputDeviceBox,
                                                                            &guitarInputBox, &rateBox, &bufferBox, &driverPanelButton })
@@ -737,7 +751,28 @@ namespace NovaAudioUi
            #endif
         }
 
+        // Room for the hint at this width: two lines for the usual tips, more for a warning.
+        int hintHeightFor(int width) const
+        {
+            if (hintText.isEmpty() || width <= 0)
+                return kMinHintHeight;
+
+            juce::AttributedString text;
+            text.append(hintText, juce::Font(juce::FontOptions(12.0f)));
+            juce::TextLayout layout;
+            layout.createLayout(text, (float) width);
+            return juce::jmax(kMinHintHeight, (int) std::ceil(layout.getHeight()) + 4);
+        }
+
         void refreshHint()
+        {
+            updateHintText();
+
+            if (! panelBounds.isEmpty() && hintHeightFor(panelBounds.getWidth() - 48) != hintHeight)
+                resized();
+        }
+
+        void updateHintText()
         {
             hintIsProblem = false;
             hintText = {};
@@ -761,6 +796,20 @@ namespace NovaAudioUi
                 hintIsProblem = true;
                 return;
             }
+
+           #if JucePlugin_Build_Standalone
+            // Clicks matter more than latency: this comes before the shared-mode tip.
+            if (status.separateClocks && autopilot != nullptr)
+            {
+                if (const auto advice = Nova::AudioAutopilot::adviseClocks(autopilot->captureInventory(), recommendation);
+                    advice.separateClocks)
+                {
+                    hintText = advice.message;
+                    hintIsProblem = true;
+                    return;
+                }
+            }
+           #endif
 
             const auto family = Nova::AudioAutopilot::classifyDriverType(status.typeName);
             if (family == Nova::AudioAutopilot::DriverFamily::WasapiShared || family == Nova::AudioAutopilot::DriverFamily::DirectSound)
@@ -1021,9 +1070,10 @@ namespace NovaAudioUi
             if (++slowTicks >= 10)
             {
                 slowTicks = 0;
-                refreshHint();
                 if (holder != nullptr)
-                    refreshRecommendation();
+                    refreshRecommendation(); // refreshes the hint too
+                else
+                    refreshHint();
             }
 
             repaint(latencyTile.getUnion(inputTile).getUnion(monitorTile.isEmpty() ? inputTile : monitorTile));
@@ -1048,6 +1098,8 @@ namespace NovaAudioUi
         juce::String hintText;
         juce::String lastError;
         bool hintIsProblem = false;
+        static constexpr int kMinHintHeight = 36;
+        int hintHeight = kMinHintHeight;
 
         juce::Rectangle<int> panelBounds, titleBounds, latencyTile, inputTile, monitorTile;
         juce::Rectangle<int> stripBounds, stripTextBounds, hintBounds;
