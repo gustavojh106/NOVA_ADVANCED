@@ -8,6 +8,7 @@
 #include "Constants.h"
 
 #include <atomic>
+#include <optional>
 
 class NOVAAudioProcessor final : public juce::AudioProcessor,
     public juce::AudioProcessorParameter::Listener,
@@ -47,6 +48,16 @@ public:
     bool loadPresetFromFile(const juce::File& file);
     void clearSession();
     void clearSessionAndForgetStartupPreset();
+
+    // A preset or host session written by a newer NOVA was loaded (best effort). The
+    // editor takes it once and tells the user (E6). Any thread may set it; the editor
+    // reads it on the message thread.
+    struct NewerStateNotice
+    {
+        juce::String presetName;      // empty: the DAW session or the last session
+        juce::String savedByVersion;  // empty when the state doesn't say
+    };
+    std::optional<NewerStateNotice> takeNewerStateNotice();
 
     // == COMANDOS PÚBLICOS PARA EL EDITOR ==
     void requestAddPedal(const juce::String& type,
@@ -113,6 +124,10 @@ private:
     void processHostBypassDelay(juce::AudioBuffer<float>& buffer, bool renderDelayedDry) noexcept;
     void resetSessionState(bool forgetStartupPreset);
     bool restoreStartupPresetIfAvailable();
+    void noteNewerState(const juce::String& presetName, const juce::String& savedByVersion);
+
+    juce::CriticalSection newerStateLock;
+    std::optional<NewerStateNotice> pendingNewerState;
 
     struct RuntimeGlobalParamAtomics
     {

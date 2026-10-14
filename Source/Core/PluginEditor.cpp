@@ -3,6 +3,8 @@
 #include "NovaSettingsService.h"
 #include "PedalCatalog.h"
 #include "PluginStateModel.h"
+#include "ProblemReport.h"
+#include "SessionLogger.h"
 #include "../GUI/Widgets/ChainLane.h"
 #include "../GUI/Widgets/AssetBrowserOverlay.h"
 #include "../Effects/Pedals/Base/PedalUIFactory.h"
@@ -1032,11 +1034,144 @@ namespace
         juce::Rectangle<int> contentBounds;
     };
 
+    // Help: export a problem report (E6) and open the logs folder.
+    class HelpSettingsPage final : public juce::Component
+    {
+    public:
+        struct Callbacks
+        {
+            std::function<juce::String()> getBuildText;
+            // Builds and saves the report zip; `savedFile` is the zip written.
+            std::function<juce::Result(const juce::String& description, juce::File& savedFile)> exportReport;
+        };
+
+        explicit HelpSettingsPage(Callbacks pageCallbacks)
+            : callbacks(std::move(pageCallbacks))
+        {
+            setLookAndFeel(&lookAndFeel);
+
+            styleSettingsLabel(buildLabel, 13.0f, Nova::Colors::Text.withAlpha(0.88f));
+            buildLabel.setText(callbacks.getBuildText ? callbacks.getBuildText() : juce::String(), juce::dontSendNotification);
+            addAndMakeVisible(buildLabel);
+
+            styleSettingsLabel(explanationLabel, 12.5f, Nova::Colors::Text.withAlpha(0.78f));
+            explanationLabel.setText("Export problem report saves one .zip with what you say happened, your audio setup, "
+                                     "NOVA's diagnostics, the log of this session and of the previous one (after a crash, "
+                                     "the one that crashed) and the current rig. Your Windows user name is removed from file "
+                                     "paths. Nothing is sent automatically: attach the file to your message.",
+                                     juce::dontSendNotification);
+            addAndMakeVisible(explanationLabel);
+
+            styleSettingsActionButton(btnExport, "Export problem report");
+            btnExport.setTooltip("Save a problem report .zip in Documents > NOVA > Problem Reports.");
+            btnExport.onClick = [this] { askAndExport(); };
+            addAndMakeVisible(btnExport);
+
+            styleSettingsActionButton(btnLogs, "Open logs folder", true);
+            btnLogs.setTooltip("Open the folder with NOVA's session logs.");
+            btnLogs.onClick = []
+            {
+                const auto log = NovaDiagnostics::SessionLogger::getLogFile();
+                if (log.existsAsFile())
+                    log.revealToUser();
+                else
+                    NovaDiagnostics::SessionLogger::getLogsFolder().startAsProcess();
+            };
+            addAndMakeVisible(btnLogs);
+
+            styleSettingsLabel(statusLabel, 12.0f, Nova::Colors::TextDim);
+            addAndMakeVisible(statusLabel);
+        }
+
+        ~HelpSettingsPage() override
+        {
+            setLookAndFeel(nullptr);
+        }
+
+        void paint(juce::Graphics& g) override
+        {
+            paintSettingsContentSurface(g, contentBounds,
+                "Help",
+                "Something not working? Export a problem report and send it with your message.");
+        }
+
+        void resized() override
+        {
+            contentBounds = getLocalBounds().reduced(10);
+
+            auto content = contentBounds.reduced(22, 18);
+            content.removeFromTop(56);
+
+            buildLabel.setBounds(content.removeFromTop(24));
+            content.removeFromTop(8);
+            explanationLabel.setBounds(content.removeFromTop(64));
+            content.removeFromTop(14);
+
+            auto buttons = content.removeFromTop(34);
+            btnExport.setBounds(buttons.removeFromLeft(220));
+            buttons.removeFromLeft(10);
+            btnLogs.setBounds(buttons.removeFromLeft(170));
+            content.removeFromTop(12);
+            statusLabel.setBounds(content.removeFromTop(44));
+        }
+
+    private:
+        void askAndExport()
+        {
+            auto* alert = new juce::AlertWindow("Export problem report",
+                "What happened? A sentence helps (optional).",
+                juce::AlertWindow::NoIcon);
+            alert->addTextEditor("description", {});
+            alert->addButton("Export", 1, juce::KeyPress(juce::KeyPress::returnKey));
+            alert->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+
+            juce::Component::SafePointer<HelpSettingsPage> safeThis(this);
+            alert->enterModalState(true, juce::ModalCallbackFunction::create(
+                [safeThis, alert](int result)
+                {
+                    const auto description = alert->getTextEditorContents("description");
+                    if (safeThis != nullptr && result == 1)
+                        safeThis->exportReport(description);
+                }), true);
+        }
+
+        void exportReport(const juce::String& description)
+        {
+            if (! callbacks.exportReport)
+                return;
+
+            juce::File savedFile;
+            const auto result = callbacks.exportReport(description, savedFile);
+
+            if (result.failed())
+            {
+                statusLabel.setColour(juce::Label::textColourId, Nova::Colors::Error);
+                statusLabel.setText("Couldn't export the report: " + result.getErrorMessage(), juce::dontSendNotification);
+                return;
+            }
+
+            statusLabel.setColour(juce::Label::textColourId, Nova::Colors::Success);
+            statusLabel.setText("Saved " + savedFile.getFileName() + " in Documents > NOVA > Problem Reports. "
+                                "Attach it to your message.", juce::dontSendNotification);
+            savedFile.revealToUser();
+        }
+
+        Callbacks callbacks;
+        SettingsLookAndFeel lookAndFeel;
+        juce::Label buildLabel;
+        juce::Label explanationLabel;
+        juce::Label statusLabel;
+        juce::TextButton btnExport;
+        juce::TextButton btnLogs;
+        juce::Rectangle<int> contentBounds;
+    };
+
     class SettingsOverlay final : public juce::Component
     {
     public:
         SettingsOverlay(NOVAAudioProcessor& processor,
             LibrarySettingsPage::Callbacks libraryCallbacks,
+            HelpSettingsPage::Callbacks helpCallbacks,
             std::function<void()> onSettingsAppliedFn,
             std::function<void(int)> onLaunchWizardFn,
             std::function<void()> onCloseFn)
@@ -1071,6 +1206,7 @@ namespace
 
             configureCategoryButton(btnGeneral, "GENERAL", [this] { setCategory(Category::General); });
             configureCategoryButton(btnLibrary, "LIBRARY", [this] { setCategory(Category::Library); });
+            configureCategoryButton(btnHelp, "HELP", [this] { setCategory(Category::Help); });
 
             // --- Wizard launch buttons in the rail ---
             configureWizardButton(btnWizardAudio, "Audio", [this] { fireWizard(0); });
@@ -1085,8 +1221,11 @@ namespace
             };
             libraryPage = std::make_unique<LibrarySettingsPage>(draftSettings, std::move(libraryCallbacks));
 
+            helpPage = std::make_unique<HelpSettingsPage>(std::move(helpCallbacks));
+
             addAndMakeVisible(*generalPage);
             addAndMakeVisible(*libraryPage);
+            addAndMakeVisible(*helpPage);
 
             setCategory(Category::General);
         }
@@ -1206,6 +1345,8 @@ namespace
             btnGeneral.setBounds(nav.removeFromTop(buttonH));
             nav.removeFromTop(buttonGap);
             btnLibrary.setBounds(nav.removeFromTop(buttonH));
+            nav.removeFromTop(buttonGap);
+            btnHelp.setBounds(nav.removeFromTop(buttonH));
 
             // Wizard buttons at bottom of rail
             {
@@ -1223,13 +1364,15 @@ namespace
 
             if (generalPage != nullptr) generalPage->setBounds(contentBounds);
             if (libraryPage != nullptr) libraryPage->setBounds(contentBounds);
+            if (helpPage != nullptr) helpPage->setBounds(contentBounds);
         }
 
     private:
         enum class Category
         {
             General,
-            Library
+            Library,
+            Help
         };
 
         void configureCategoryButton(juce::TextButton& button,
@@ -1274,9 +1417,11 @@ namespace
 
             setButtonState(btnGeneral, selectedCategory == Category::General);
             setButtonState(btnLibrary, selectedCategory == Category::Library);
+            setButtonState(btnHelp, selectedCategory == Category::Help);
 
             if (generalPage != nullptr) generalPage->setVisible(selectedCategory == Category::General);
             if (libraryPage != nullptr) libraryPage->setVisible(selectedCategory == Category::Library);
+            if (helpPage != nullptr) helpPage->setVisible(selectedCategory == Category::Help);
 
             repaint();
         }
@@ -1345,11 +1490,13 @@ namespace
         juce::TextButton resetDefaultsButton;
         juce::TextButton btnGeneral;
         juce::TextButton btnLibrary;
+        juce::TextButton btnHelp;
         juce::TextButton btnWizardAudio;
         juce::TextButton btnWizardStart;
         juce::TextButton btnWizardPreset;
         std::unique_ptr<GeneralSettingsPage> generalPage;
         std::unique_ptr<LibrarySettingsPage> libraryPage;
+        std::unique_ptr<HelpSettingsPage> helpPage;
         Category selectedCategory = Category::General;
     };
 }
@@ -2332,6 +2479,17 @@ void NOVAAudioProcessorEditor::scheduleUiSnapshots(const juce::File& folder)
         }
     };
 
+    // Settings pages are private to the overlay: press their rail button like a user would.
+    const auto clickButton = [](juce::Component& root, const juce::String& text)
+    {
+        for (auto* child : root.getChildren())
+            if (auto* button = dynamic_cast<juce::Button*>(child); button != nullptr && button->getButtonText() == text && button->onClick)
+            {
+                button->onClick();
+                return;
+            }
+    };
+
     struct Step { int delayMs; std::function<void()> action; };
     auto steps = std::make_shared<std::vector<Step>>(std::vector<Step> {
         { 2500, [save] { save("01-editor"); } },
@@ -2339,6 +2497,15 @@ void NOVAAudioProcessorEditor::scheduleUiSnapshots(const juce::File& folder)
         { 1500, [save] { save("02-audio-panel"); } },
         { 100,  [safeThis] { if (safeThis != nullptr) { safeThis->currentOverlay.reset(); safeThis->openSettingsOverlay(); } } },
         { 800,  [save] { save("03-settings"); } },
+        { 100,  [safeThis, clickButton] { if (safeThis != nullptr && safeThis->currentOverlay != nullptr) clickButton(*safeThis->currentOverlay, "HELP"); } },
+        { 500,  [save] { save("03b-settings-help"); } },
+        { 100,  [safeThis, folder]
+            {
+                // The editor's export path with the real device, saved next to the PNGs.
+                juce::File saved;
+                if (safeThis != nullptr)
+                    safeThis->exportProblemReport("UI snapshot QA", folder, saved);
+            } },
         { 100,  [safeThis] { if (safeThis != nullptr) { safeThis->currentOverlay.reset(); safeThis->toggleTuner(); } } },
         { 1200, [save] { save("04-tuner"); } },
         { 100,  [safeThis] { if (safeThis != nullptr) safeThis->toggleTuner(); } },
@@ -2346,6 +2513,9 @@ void NOVAAudioProcessorEditor::scheduleUiSnapshots(const juce::File& folder)
         { 600,  [save] { save("05-editor-small"); } },
         { 100,  [safeThis] { if (safeThis != nullptr) safeThis->openAudioPanel(); } },
         { 1200, [save] { save("06-audio-panel-small"); } },
+        { 100,  [safeThis] { if (safeThis != nullptr) { safeThis->currentOverlay.reset(); safeThis->openSettingsOverlay(); } } },
+        { 300,  [safeThis, clickButton] { if (safeThis != nullptr && safeThis->currentOverlay != nullptr) clickButton(*safeThis->currentOverlay, "HELP"); } },
+        { 500,  [save] { save("07-settings-help-small"); } },
         { 200,  [] { juce::JUCEApplicationBase::quit(); } }
     });
 
@@ -3411,6 +3581,39 @@ void NOVAAudioProcessorEditor::applyEditorPreferences(bool applyStartupPanels)
     repaint();
 }
 
+juce::Result NOVAAudioProcessorEditor::exportProblemReport(const juce::String& description, const juce::File& folder,
+                                                          juce::File& savedFile)
+{
+    Nova::ProblemReport::Info info;
+    info.description = description;
+    info.presetName = currentPresetName == "No Preset" ? juce::String() : currentPresetName;
+   #if JucePlugin_Build_Standalone
+    info.audio = NovaAudioUi::describeForReport(audioProcessor, audioAutopilot.get());
+   #else
+    info.audio = NovaAudioUi::describeForReport(audioProcessor);
+   #endif
+
+    return Nova::ProblemReport::writeReport(audioProcessor, info, folder, savedFile);
+}
+
+// A preset or session saved by a newer NOVA loaded best effort (E2): say so once,
+// before the user saves over it and drops what this version doesn't know.
+void NOVAAudioProcessorEditor::showNewerStateNoticeIfAny()
+{
+    const auto notice = audioProcessor.takeNewerStateNotice();
+    if (! notice.has_value())
+        return;
+
+    const auto what = notice->presetName.isNotEmpty() ? "\"" + notice->presetName + "\"" : juce::String("This session");
+    const auto byWhom = notice->savedByVersion.isNotEmpty() ? "NOVA " + notice->savedByVersion : juce::String("a newer NOVA");
+
+    juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+        "Saved by a newer NOVA",
+        what + " was saved by " + byWhom + "; this is NOVA " + Nova::ProblemReport::getNovaVersion()
+            + ". It loaded as well as possible, but pedals or settings this version doesn't know are missing. "
+              "Saving over it here would drop them: update NOVA to use it fully.");
+}
+
 void NOVAAudioProcessorEditor::openSettingsOverlay()
 {
     auto overlay = std::make_unique<SettingsOverlay>(
@@ -3473,6 +3676,13 @@ void NOVAAudioProcessorEditor::openSettingsOverlay()
                         "Startup Preset",
                         "The startup preset was cleared, but NOVA could not persist the startup mode. Apply settings again after checking folder permissions.");
                 }
+            }
+        },
+        HelpSettingsPage::Callbacks{
+            [this]() { return Nova::ProblemReport::describeBuild(audioProcessor); },
+            [this](const juce::String& description, juce::File& savedFile)
+            {
+                return exportProblemReport(description, Nova::ProblemReport::getReportsFolder(), savedFile);
             }
         },
         [this]()
@@ -3663,6 +3873,9 @@ void NOVAAudioProcessorEditor::updateStats()
     // The chip only repaints when its text or health changes; ~4 updates per second.
     if (audioChip != nullptr && (audioChipTick++ % 4) == 0)
         audioChip->setStatus(NovaAudioUi::captureStatus(audioProcessor));
+
+    if ((audioChipTick % 16) == 0)
+        showNewerStateNoticeIfAny();
 
     double bufferDurationMs = 0.0;
     double procTimeMs = 0.0;

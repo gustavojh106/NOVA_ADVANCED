@@ -1022,6 +1022,7 @@
               file="Source/Core/PluginProcessor.cpp"/>
         <FILE id="Cbwfrs" name="PluginProcessor.h" compile="0" resource="0"
               file="Source/Core/PluginProcessor.h"/>
+        <FILE id="PrbRpt" name="ProblemReport.h" compile="0" resource="0" file="Source/Core/ProblemReport.h"/>
         <FILE id="fCL6r6" name="StyleSheet.h" compile="0" resource="0" file="Source/Core/StyleSheet.h"/>
         <FILE id="utNyn9" name="Visualizer.h" compile="0" resource="0" file="Source/Core/Visualizer.h"/>
       </GROUP>

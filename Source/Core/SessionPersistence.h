@@ -150,7 +150,19 @@ public:
         return target.replaceWithData(stream.getData(), stream.getDataSize());
     }
 
-    static bool loadPresetFromFile(const juce::File& file, SessionStore& store, AudioEngine& engine)
+    // Who wrote a loaded preset, read before the state is canonicalized (which stamps
+    // the current schema). Lets the UI warn about presets from a newer NOVA (E6).
+    struct PresetOrigin
+    {
+        juce::String name;            // preset file name, without the extension
+        int schemaVersion = 0;
+        juce::String savedByVersion;
+
+        bool isFromNewerSchema() const noexcept { return schemaVersion > Nova::Config::STATE_SCHEMA_VERSION; }
+    };
+
+    static bool loadPresetFromFile(const juce::File& file, SessionStore& store, AudioEngine& engine,
+                                   PresetOrigin* origin = nullptr)
     {
         if (!file.existsAsFile())
             return false;
@@ -197,6 +209,13 @@ public:
                 + "); loading best effort: " + file.getFileName());
         }
 
+        if (origin != nullptr)
+        {
+            origin->name = file.getFileNameWithoutExtension();
+            origin->schemaVersion = Nova::PluginStateModel::getStateSchemaVersion(loaded);
+            origin->savedByVersion = loaded.getProperty(Nova::IDs::SAVED_BY_VERSION).toString();
+        }
+
         if (!store.applyCommand(SessionStore::Command::makeRestoreState(loaded)).changed)
             return false;
 
@@ -204,7 +223,8 @@ public:
         return true;
     }
 
-    static bool restoreStartupPresetIfAvailable(SessionStore& store, AudioEngine& engine)
+    static bool restoreStartupPresetIfAvailable(SessionStore& store, AudioEngine& engine,
+                                                PresetOrigin* origin = nullptr)
     {
         auto pointerFile = Nova::SettingsService::getStartupPresetPointerFile();
         if (!pointerFile.existsAsFile())
@@ -214,7 +234,7 @@ public:
         if (!Nova::SettingsService::readStartupPresetPointer(pointerFile, presetFile, true))
             return false;
 
-        const bool restored = loadPresetFromFile(presetFile, store, engine);
+        const bool restored = loadPresetFromFile(presetFile, store, engine, origin);
         if (!restored && pointerFile.existsAsFile())
             Nova::SettingsService::clearStartupPresetPointer(pointerFile);
 

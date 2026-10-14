@@ -155,6 +155,81 @@ namespace NovaAudioUi
         return separator;
     }
 
+    // Problem report (E6): the audio setup as "Label: value" lines.
+   #if JucePlugin_Build_Standalone
+    inline juce::StringArray describeForReport(NOVAAudioProcessor& processor, Nova::StandaloneAudioAutopilot* autopilot)
+   #else
+    inline juce::StringArray describeForReport(NOVAAudioProcessor& processor)
+   #endif
+    {
+        const auto status = captureStatus(processor);
+        juce::StringArray lines;
+
+        if (! status.standalone)
+        {
+            lines.add("Mode: plugin (the DAW owns the audio device)");
+            lines.add("Sample rate: " + juce::String(status.sampleRate, 0) + " Hz");
+            lines.add("Block size: " + juce::String(status.bufferSize) + " samples");
+            lines.add("NOVA latency: " + juce::String(processor.getLatencySamples()) + " samples ("
+                      + juce::String(status.latencyMs, 2) + " ms)");
+            return lines;
+        }
+
+        lines.add("Mode: Standalone");
+        if (! status.deviceOpen)
+        {
+            lines.add("Device: none open");
+            return lines;
+        }
+
+        lines.add("Driver: " + Nova::AudioAutopilot::getFriendlyTypeName(status.typeName));
+        lines.add("Input device: " + (status.inputName.isNotEmpty() ? status.inputName : juce::String("(none)")));
+        lines.add("Output device: " + status.outputName);
+        lines.add("Sample rate: " + juce::String(status.sampleRate, 0) + " Hz");
+        lines.add("Buffer: " + juce::String(status.bufferSize) + " samples");
+        lines.add("Total latency: " + juce::String(status.latencyMs, 1) + " ms (NOVA "
+                  + juce::String(processor.getLatencySamples()) + " samples)");
+        lines.add("Input monitoring: " + juce::String(status.inputMuted ? "muted" : "on"));
+        lines.add("Input and output on different devices (B-05): " + juce::String(status.separateClocks ? "yes" : "no"));
+
+       #if JucePlugin_Build_Standalone
+        if (auto* holder = juce::StandalonePluginHolder::getInstance())
+        {
+            auto& deviceManager = holder->deviceManager;
+            if (auto* device = deviceManager.getCurrentAudioDevice())
+            {
+                lines.add("Active channels: in " + juce::String(device->getActiveInputChannels().countNumberOfSetBits())
+                          + ", out " + juce::String(device->getActiveOutputChannels().countNumberOfSetBits()));
+                lines.add("Driver latency: in " + juce::String(device->getInputLatencyInSamples())
+                          + ", out " + juce::String(device->getOutputLatencyInSamples()) + " samples");
+            }
+            lines.add("Dropouts reported by the driver: " + juce::String(deviceManager.getXRunCount()));
+            lines.add("Audio CPU load: " + juce::String(juce::roundToInt(deviceManager.getCpuUsage() * 100.0)) + "%");
+        }
+
+        if (autopilot != nullptr)
+        {
+            using Kind = Nova::AudioAutopilot::RecommendationKind;
+            const auto recommendation = autopilot->getRecommendation();
+            juce::String text;
+            switch (recommendation.kind)
+            {
+                case Kind::NoCandidate:      text = "none found"; break;
+                case Kind::AlreadyOptimal:   text = "current setup is already the best found"; break;
+                case Kind::ChangeSampleRate:
+                case Kind::SwitchDevice:     text = Nova::AudioAutopilot::describeCandidate(recommendation.candidate); break;
+            }
+            lines.add("Autopilot recommendation: " + text);
+
+            if (const auto advice = Nova::AudioAutopilot::adviseClocks(autopilot->captureInventory(), recommendation);
+                advice.separateClocks)
+                lines.add("Clock warning shown: " + advice.message);
+        }
+       #endif
+
+        return lines;
+    }
+
     // =========================================================================
     // Header chip
     // =========================================================================

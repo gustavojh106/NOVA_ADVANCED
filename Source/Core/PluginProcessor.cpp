@@ -801,10 +801,12 @@ void NOVAAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
         return;
     }
 
-    if (PluginState::isFromNewerSchema(loaded))
+    const bool fromNewerSchema = PluginState::isFromNewerSchema(loaded);
+    const auto savedByVersion = loaded.getProperty(Nova::IDs::SAVED_BY_VERSION).toString();
+    if (fromNewerSchema)
         NovaDiagnostics::SessionLogger::logEvent("state.restore.newerSchema",
             "Host state written by a newer NOVA (schema " + juce::String(PluginState::getStateSchemaVersion(loaded))
-            + ", saved by " + loaded.getProperty(Nova::IDs::SAVED_BY_VERSION, "unknown").toString()
+            + ", saved by " + (savedByVersion.isNotEmpty() ? savedByVersion : juce::String("unknown"))
             + "); loading best effort");
 
     if (!sessionCoordinator.restoreStateTree(loaded))
@@ -813,6 +815,9 @@ void NOVAAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
         clearSession();
         return;
     }
+
+    if (fromNewerSchema)
+        noteNewerState({}, savedByVersion);
 
     sessionCoordinator.rebuildEngineFromState(audioEngine);
     invalidateEnginePushCaches(true, true);
@@ -844,9 +849,13 @@ bool NOVAAudioProcessor::loadPresetFromFile(const juce::File& file)
 {
     NovaDiagnostics::SessionLogger::logEvent("preset.load",
         "Loading preset: " + file.getFullPathName());
-    const bool restored = sessionCoordinator.loadPresetFromFile(file, audioEngine);
+    SessionPersistence::PresetOrigin origin;
+    const bool restored = sessionCoordinator.loadPresetFromFile(file, audioEngine, &origin);
     if (!restored)
         return false;
+
+    if (origin.isFromNewerSchema())
+        noteNewerState(origin.name, origin.savedByVersion);
 
     invalidateEnginePushCaches(true, true);
     refreshEngineEnabledIfNeeded();
@@ -889,11 +898,29 @@ void NOVAAudioProcessor::resetSessionState(bool forgetStartupPreset)
         sessionCoordinator.forgetStartupPreset();
 }
 
+void NOVAAudioProcessor::noteNewerState(const juce::String& presetName, const juce::String& savedByVersion)
+{
+    const juce::ScopedLock sl(newerStateLock);
+    pendingNewerState = NewerStateNotice { presetName, savedByVersion };
+}
+
+std::optional<NOVAAudioProcessor::NewerStateNotice> NOVAAudioProcessor::takeNewerStateNotice()
+{
+    const juce::ScopedLock sl(newerStateLock);
+    auto notice = std::move(pendingNewerState);
+    pendingNewerState.reset();
+    return notice;
+}
+
 bool NOVAAudioProcessor::restoreStartupPresetIfAvailable()
 {
-    const bool restored = sessionCoordinator.restoreStartupPresetIfAvailable(audioEngine);
+    SessionPersistence::PresetOrigin origin;
+    const bool restored = sessionCoordinator.restoreStartupPresetIfAvailable(audioEngine, &origin);
     NovaDiagnostics::SessionLogger::logEvent("preset.startup",
         restored ? "Restored startup preset from pointer" : "No startup preset restored");
+
+    if (restored && origin.isFromNewerSchema())
+        noteNewerState(origin.name, origin.savedByVersion);
 
     if (restored)
     {

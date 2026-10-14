@@ -22,6 +22,8 @@
 #include "PluginProcessor.h"
 #include "PluginStateModel.h"
 #include "PedalRegistry.h"
+#include "ProblemReport.h"
+#include "SessionLogger.h"
 #include "SessionPersistence.h"
 #include "SessionStore.h"
 #include "DSP/Global/ChannelStrip.h"
@@ -19984,6 +19986,224 @@ private:
     }
 };
 
+// E6 (docs/reports/E6-problem-report.md): the problem report zip (text, path
+// anonymizing, log rotation, export with a real processor) and the notice for
+// presets and sessions saved by a newer NOVA.
+class E6ProblemReportTests final : public juce::UnitTest
+{
+public:
+    E6ProblemReportTests()
+        : juce::UnitTest("E6 problem report", "NOVA")
+    {
+    }
+
+    void runTest() override
+    {
+        runReportText();
+        runPathAnonymizer();
+        runLogRotation();
+        runZipExport();
+        runNewerStateNotice();
+    }
+
+private:
+    static juce::File makeTempFolder(const juce::String& folderName)
+    {
+        auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile(folderName, {}, false);
+        folder.createDirectory();
+        return folder;
+    }
+
+    void runReportText()
+    {
+        beginTest("E6 report text has every section, with fallbacks for missing data");
+        namespace Report = Nova::ProblemReport;
+
+        Report::Info info;
+        info.description = "  Clicks every few seconds  ";
+        info.novaVersion = "1.0.0";
+        info.buildConfig = "Release";
+        info.pluginFormat = "Standalone";
+        info.system = { "OS: Windows 11", "CPU: Test CPU" };
+        info.audio = { "Driver: Windows Audio (Shared)", "Buffer: 160 samples" };
+        info.engineDiagnostics = "engineOn=true";
+
+        const auto text = Report::buildReportText(info);
+        for (auto* expected : { "== What happened ==", "Clicks every few seconds", "== NOVA ==", "Version: 1.0.0 (Release)",
+                                "Format: Standalone", "Preset: (none)", "== System ==", "CPU: Test CPU", "== Audio ==",
+                                "Buffer: 160 samples", "== Engine ==", "engineOn=true", "session-log-previous.txt" })
+            expect(text.contains(expected), juce::String("Missing: ") + expected);
+        expect(! text.contains("Host:"), "No host line in the Standalone");
+
+        const auto empty = Report::buildReportText({});
+        expect(empty.contains("(not described)") && empty.contains("Version: unknown") && empty.contains("(not available)"),
+               "Missing data says so");
+
+        info.host = "Ableton Live 12";
+        expect(Report::buildReportText(info).contains("Host: Ableton Live 12"));
+
+        expectEquals(Report::makeFileName(juce::Time(2026, 9, 13, 21, 5, 9)),
+                     juce::String("NOVA-problem-report-20261013-210509.zip"));
+    }
+
+    void runPathAnonymizer()
+    {
+        beginTest("E6 report files replace the user's home folder in paths");
+        namespace Report = Nova::ProblemReport;
+
+        const juce::String home = "C:\\Users\\Ana Maria";
+        const auto text = Report::anonymizePaths("Log file: C:\\Users\\Ana Maria\\AppData\\Roaming\\NOVA\\Logs\\session-log.txt\n"
+                                                 "Preset: c:/users/ana maria/Documents/NOVA/x.nova-preset\n"
+                                                 "Played by Ana", home);
+        expect(! text.containsIgnoreCase("Ana Maria"), text);
+        expect(text.contains("%USERPROFILE%\\AppData\\Roaming\\NOVA"), text);
+        expect(text.contains("%USERPROFILE%/Documents/NOVA/x.nova-preset"), text);
+        expect(text.contains("Played by Ana"), "Only paths change");
+        expectEquals(Report::anonymizePaths("C:\\x", "C:\\"), juce::String("C:\\x"), "A root folder is left alone");
+        expectEquals(Report::anonymizePaths("abc", {}), juce::String("abc"));
+    }
+
+    void runLogRotation()
+    {
+        beginTest("E6 a new session keeps the previous session's log");
+        using NovaDiagnostics::SessionLogger;
+
+        const auto folder = makeTempFolder("nova-e6-logs");
+        const auto current = folder.getChildFile("session-log.txt");
+        const auto previous = folder.getChildFile("session-log-previous.txt");
+
+        expect(SessionLogger::rotateLogFile(current, previous), "Nothing to rotate is fine");
+        expect(! previous.exists());
+
+        current.replaceWithText("crashed session");
+        expect(SessionLogger::rotateLogFile(current, previous));
+        expect(! current.exists(), "The new session starts a fresh log");
+        expectEquals(previous.loadFileAsString(), juce::String("crashed session"));
+
+        current.replaceWithText("next session");
+        expect(SessionLogger::rotateLogFile(current, previous));
+        expectEquals(previous.loadFileAsString(), juce::String("next session"), "Only the last session is kept");
+
+        expect(SessionLogger::rotateLogFile(current, previous), "Without a current log the previous one stays");
+        expectEquals(previous.loadFileAsString(), juce::String("next session"));
+
+        expectEquals(SessionLogger::getPreviousLogFile().getFileName(), juce::String("session-log-previous.txt"));
+        expect(SessionLogger::getPreviousLogFile().getParentDirectory() == SessionLogger::getLogsFolder());
+        folder.deleteRecursively();
+    }
+
+    void runZipExport()
+    {
+        beginTest("E6 the report zip holds the summary, the logs and a loadable rig");
+        namespace Report = Nova::ProblemReport;
+        StartupPresetPointerGuard startupPointerGuard;
+
+        NOVAAudioProcessor processor;
+        processor.setPlayConfigDetails(2, 2, 48000.0, 128);
+        processor.prepareToPlay(48000.0, 128);
+        processor.requestAddPedal("Overdrive", Nova::ChainID::LineA, Nova::ZoneID::Pre, 0);
+
+        Report::Info info;
+        info.description = "Test export";
+        info.audio = { "Mode: test" };
+
+        const auto folder = makeTempFolder("nova-e6-report");
+        juce::File saved;
+        const auto result = Report::writeReport(processor, info, folder, saved);
+        expect(result.wasOk(), result.getErrorMessage());
+        expect(saved.existsAsFile() && saved.getParentDirectory() == folder, saved.getFullPathName());
+        expect(saved.getFileName().startsWith("NOVA-problem-report-") && saved.hasFileExtension("zip"));
+
+        juce::ZipFile zip(saved);
+        const auto read = [&zip](const juce::String& entryName)
+        {
+            juce::MemoryBlock data;
+            const int index = zip.getIndexOfFileName(entryName);
+            if (index >= 0)
+                if (std::unique_ptr<juce::InputStream> stream { zip.createStreamForEntry(index) })
+                    stream->readIntoMemoryBlock(data);
+            return data;
+        };
+
+        const auto report = read("report.txt").toString();
+        for (auto* expected : { "Test export", "Mode: test", "== Engine ==", "engineOn=", "OS: ", "JUCE: " })
+            expect(report.contains(expected), juce::String("report.txt is missing: ") + expected);
+
+        const auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory).getFullPathName();
+        const auto log = read("session-log.txt").toString();
+        expect(log.contains("report.export"), "The running session's log is included, flushed up to the export");
+        expect(! log.containsIgnoreCase(home), "No home folder path in the exported log");
+
+        const auto rig = read("current-rig.nova-preset");
+        const auto rigFile = folder.getChildFile("rig.nova-preset");
+        rigFile.replaceWithData(rig.getData(), rig.getSize());
+        NOVAAudioProcessor reloaded;
+        reloaded.prepareToPlay(48000.0, 128);
+        expect(reloaded.loadPresetFromFile(rigFile), "The rig in the report loads as a preset");
+        const auto lineA = Nova::PluginStateModel::getLineTree(reloaded.pluginState, Nova::ChainID::LineA);
+        expect(lineA.getNumChildren() == 1 && lineA.getChild(0).getProperty(Nova::IDs::PEDAL_TYPE).toString() == "Overdrive",
+               "The reloaded rig has the Overdrive");
+        expect(! reloaded.takeNewerStateNotice().has_value(), "A rig from this version needs no notice");
+
+        processor.releaseResources();
+        reloaded.releaseResources();
+        folder.deleteRecursively();
+    }
+
+    void runNewerStateNotice()
+    {
+        beginTest("E6 a preset or session from a newer NOVA leaves one notice for the editor");
+        StartupPresetPointerGuard startupPointerGuard;
+
+        NOVAAudioProcessor processor;
+        processor.prepareToPlay(48000.0, 128);
+        expect(! processor.takeNewerStateNotice().has_value(), "Nothing loaded yet");
+
+        const auto folder = makeTempFolder("nova-e6-newer");
+        auto state = makeP7DState();
+        appendP7DPedal(state, Nova::ChainID::LineA, "Boost", Nova::ZoneID::Pre, "e6-current", true);
+        const auto currentFile = folder.getChildFile("Current.nova-preset");
+        writeP7DValueTreeFile(currentFile, state);
+        expect(processor.loadPresetFromFile(currentFile));
+        expect(! processor.takeNewerStateNotice().has_value(), "A preset from this version says nothing");
+
+        auto newer = makeP7DState();
+        appendP7DPedal(newer, Nova::ChainID::LineA, "Boost", Nova::ZoneID::Pre, "e6-newer", true);
+        newer.setProperty(Nova::IDs::STATE_SCHEMA_VERSION, Nova::Config::STATE_SCHEMA_VERSION + 1, nullptr);
+        newer.setProperty(Nova::IDs::SAVED_BY_VERSION, "9.9.0", nullptr);
+        const auto newerFile = folder.getChildFile("From The Future.nova-preset");
+        writeP7DValueTreeFile(newerFile, newer);
+
+        expect(processor.loadPresetFromFile(newerFile), "A newer preset still loads best effort");
+        const auto notice = processor.takeNewerStateNotice();
+        expect(notice.has_value(), "Loading a newer preset leaves a notice");
+        if (notice.has_value())
+        {
+            expectEquals(notice->presetName, juce::String("From The Future"));
+            expectEquals(notice->savedByVersion, juce::String("9.9.0"));
+        }
+        expect(! processor.takeNewerStateNotice().has_value(), "The notice is shown once");
+
+        // A DAW session (host state) from a newer NOVA that doesn't say which version.
+        auto hostState = makeP7DState();
+        appendP7DPedal(hostState, Nova::ChainID::LineA, "Boost", Nova::ZoneID::Pre, "e6-host", true);
+        hostState.setProperty(Nova::IDs::STATE_SCHEMA_VERSION, Nova::Config::STATE_SCHEMA_VERSION + 1, nullptr);
+        juce::MemoryBlock block;
+        {
+            juce::MemoryOutputStream stream(block, false);
+            hostState.writeToStream(stream);
+        }
+        processor.setStateInformation(block.getData(), (int) block.getSize());
+        const auto hostNotice = processor.takeNewerStateNotice();
+        expect(hostNotice.has_value(), "A newer host session leaves a notice");
+        if (hostNotice.has_value())
+            expect(hostNotice->presetName.isEmpty() && hostNotice->savedByVersion.isEmpty());
+
+        processor.releaseResources();
+        folder.deleteRecursively();
+    }
+};
+
 static AudioEngineValidationTests audioEngineValidationTests;
 static P1PedalSafetyTests p1PedalSafetyTests;
 static P13ESharedPedalContractTests p13eSharedPedalContractTests;
@@ -20004,6 +20224,7 @@ static AudioAutopilotTests audioAutopilotTests;
 static T201LiveModeF0Tests t201LiveModeF0Tests;
 static E2PresetFormatFreezeTests e2PresetFormatFreezeTests;
 static E3DeviceRobustnessTests e3DeviceRobustnessTests;
+static E6ProblemReportTests e6ProblemReportTests;
 
 void touchAudioEngineValidationTests()
 {
@@ -20026,7 +20247,8 @@ void touchAudioEngineValidationTests()
         audioAutopilotTests,
         t201LiveModeF0Tests,
         e2PresetFormatFreezeTests,
-        e3DeviceRobustnessTests);
+        e3DeviceRobustnessTests,
+        e6ProblemReportTests);
 }
 }
 

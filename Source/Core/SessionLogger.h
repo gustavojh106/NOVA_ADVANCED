@@ -56,6 +56,34 @@ public:
         return instance().logFile;
     }
 
+    // The previous session's log, kept when a new session starts: after a crash it is
+    // the one that explains what happened (E6 problem report).
+    static juce::File getPreviousLogFile()
+    {
+        return getSessionLogPath().getSiblingFile("session-log-previous.txt");
+    }
+
+    static juce::File getLogsFolder()
+    {
+        return getSessionLogPath().getParentDirectory();
+    }
+
+    // Moves `current` over `previous`. Without a current log the previous one is kept.
+    static bool rotateLogFile(const juce::File& current, const juce::File& previous)
+    {
+        if (!current.existsAsFile())
+            return true;
+
+        previous.deleteFile();
+        return current.moveFileTo(previous) || current.deleteFile();
+    }
+
+    // Writes everything queued so far (message thread, e.g. before the log is exported).
+    static void flush()
+    {
+        instance().flushPendingEntries();
+    }
+
     static QueueStatsSnapshot getQueueStats()
     {
         auto& logger = instance();
@@ -178,8 +206,7 @@ private:
         const juce::ScopedLock sl(writeLock);
 
         logFile = getSessionLogPath();
-        if (logFile.existsAsFile())
-            logFile.deleteFile();
+        rotateLogFile(logFile, getPreviousLogFile());
 
         outputStream = logFile.createOutputStream();
 

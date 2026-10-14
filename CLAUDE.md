@@ -130,6 +130,7 @@ These files have non-obvious roles or are central coordination points — most o
 | `Source/Core/PluginStateModel.h` | Pure-function ValueTree ops: zone ordering, sanitization, schema versioning |
 | `Source/Core/SessionStore.h` | Command-pattern state mutations, host parameter bindings, `RuntimeGlobalParams` snapshots |
 | `Source/Core/SessionPersistence.h` | Preset file I/O with Base64-encoded pedal states, engine rebuild from state |
+| `Source/Core/ProblemReport.h` | Problem report zip (Settings > Help): report text, home-folder path anonymizing, this and the previous session's log (`SessionLogger` keeps `session-log-previous.txt`), current rig |
 | `Source/Core/PedalCatalog.h` | Static catalog of all 25 effects: metadata, zone rules, accent colors |
 | `Source/Core/PedalRegistry.h` | Factory map: type string → processor constructor (add `#include` + entry here for new effects) |
 | `Source/Effects/Pedals/Base/ProcessorBase.h` | Base class for all effects: bypass crossfade, latency reporting |
@@ -167,7 +168,7 @@ The editor (`PluginEditor.h/cpp`) uses a multi-tier responsive layout with three
 - **Drag-and-drop formats**: `"TypeID:DisplayName"` (asset browser → chain), `"MOVE:LineA/LineB:PedalIndex"` (intra-chain move)
 - **Colors**: All defined in `Nova::Colors::*` in `Constants.h`. Each pedal has its own `accentHex`/`accentBrightHex` in `PedalCatalog`
 
-- **Audio panel**: `GUI/Overlays/AudioPanel.h` — the only place for audio/device settings (Standalone). A header chip (`AudioStatusChip`) shows device, rate, buffer and total latency with a health colour and opens `AudioPanel`: latency, guitar input meter, input monitoring, the Latency Autopilot recommendation (Apply/Undo) and the essentials only (driver, device, guitar input channel, sample rate, buffer + "Find lowest stable"). Outputs are always the device's first pair. The JUCE Standalone "Options" menu is hidden; the tuner reference (A = 440/442/432) lives in `TunerOverlay`. Debug UI QA: `NOVA_UI_SNAPSHOT_DIR=<folder>` renders the editor and overlays to PNG and quits
+- **Audio panel**: `GUI/Overlays/AudioPanel.h` — the only place for audio/device settings (Standalone). A header chip (`AudioStatusChip`) shows device, rate, buffer and total latency with a health colour and opens `AudioPanel`: latency, guitar input meter, input monitoring, the Latency Autopilot recommendation (Apply/Undo) and the essentials only (driver, device, guitar input channel, sample rate, buffer + "Find lowest stable"). Outputs are always the device's first pair. The JUCE Standalone "Options" menu is hidden; the tuner reference (A = 440/442/432) lives in `TunerOverlay`. Debug UI QA: `NOVA_UI_SNAPSHOT_DIR=<folder>` renders the editor and overlays (Settings > Help included) to PNG, exports a problem report zip there and quits
 - **Wizards**: `GUI/Wizards/WizardBase.h` — multi-step overlay with progress dots, back/next/skip navigation. Subclasses (`StartWizard`, `PresetFinderWizard`) override `buildStepContent()` and `onStepChanged()`. Shown as full-screen modal overlays.
 
 **Premium editor reference**: `OverdriveEditor.h` — hero knob + control grid + response curve + texture overlays. Matching `OverdriveThumbnail.h` and `OverdriveDashboard.h` for asset browser and compact views.

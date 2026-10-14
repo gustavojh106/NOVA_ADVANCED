@@ -78,18 +78,20 @@ public:
         return SessionPersistence::savePresetToFile(file, store, engine);
     }
 
-    bool loadPresetFromFile(const juce::File& file, AudioEngine& engine)
+    bool loadPresetFromFile(const juce::File& file, AudioEngine& engine,
+                            SessionPersistence::PresetOrigin* origin = nullptr)
     {
         cancelPendingUpdate();
         pendingStateMirror.store(false, std::memory_order_release);
-        return SessionPersistence::loadPresetFromFile(file, store, engine);
+        return SessionPersistence::loadPresetFromFile(file, store, engine, origin);
     }
 
-    bool restoreStartupPresetIfAvailable(AudioEngine& engine)
+    bool restoreStartupPresetIfAvailable(AudioEngine& engine,
+                                         SessionPersistence::PresetOrigin* origin = nullptr)
     {
         cancelPendingUpdate();
         pendingStateMirror.store(false, std::memory_order_release);
-        return SessionPersistence::restoreStartupPresetIfAvailable(store, engine);
+        return SessionPersistence::restoreStartupPresetIfAvailable(store, engine, origin);
     }
 
     void forgetStartupPreset()

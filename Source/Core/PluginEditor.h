@@ -76,6 +76,9 @@ private:
     void loadSelectedPreset();
     void clearPresetAndSession();
     void openSettingsOverlay();
+    juce::Result exportProblemReport(const juce::String& description, const juce::File& folder,
+                                     juce::File& savedFile); // Settings > Help (E6)
+    void showNewerStateNoticeIfAny(); // a preset or session from a newer NOVA loaded (E6)
     void openAudioPanel();
     void scheduleUiSnapshots(const juce::File& folder); // debug UI QA (NOVA_UI_SNAPSHOT_DIR)
     void launchWizard(int wizardID); // 0=Audio panel, 1=Start, 2=PresetFinder
