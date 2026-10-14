@@ -88,6 +88,7 @@ public:
     static void runRtProfileAndWriteReport()
     {
         const auto results = runRtProfileScenarios();
+        writeRtProfileBlockCsv(results);
         writeRtProfileReport(results);
     }
 
@@ -134,7 +135,88 @@ private:
         float limiterMaxReductionDb = 0.0f;
         float inputPeak = 0.0f;
         float outputPeak = 0.0f;
+        int repeat = 0;
+        // Filled only when NOVA_RT_PROFILE_BLOCK_CSV is set.
+        std::vector<double> warmUpBlockMs;
+        std::vector<double> blockMs;
     };
+
+    // Diagnostic switches for the rt-profile run, read once from the environment.
+    //   NOVA_RT_PROFILE_ONLY         comma-separated scenario names, '*' wildcards allowed (default: all)
+    //   NOVA_RT_PROFILE_REPEAT       run every selected scenario N times back to back (default 1)
+    //   NOVA_RT_PROFILE_BLOCK_CSV    write the time of every warm-up and measured block to this CSV
+    //   NOVA_RT_PROFILE_CAB_PROBE    1 = add diag_* scenarios that time each cabinet directly, with its
+    //                                convolution partitions aligned and misaligned with the host blocks
+    //   NOVA_RT_PROFILE_LEGACY_WARMUP 1 = warm-up used before B-20 (setups render 64-sample blocks,
+    //                                no settle waits), to reproduce older reports
+    struct RtProfileOptions
+    {
+        juce::StringArray only;
+        int repeat = 1;
+        juce::File blockCsv;
+        bool cabinetProbe = false;
+        bool legacyWarmUp = false;
+    };
+
+    // B-20: synchronizeProcessingState() flushes with a try-lock. While the engine control thread
+    // is mid-pass (it runs every 20 ms) the flush is skipped and the commands wait for its next
+    // pass, so a scenario could measure the empty graph (B-19 in the tests). Two control-thread
+    // periods are enough for that pass to run.
+    static constexpr int kRtProfileEngineSettleMs = 50;
+    // B-20: extra wait when Line A has a cabinet, so juce::dsp::Convolution's background loader
+    // (it polls every 10 ms) has delivered the IR before the warm-up.
+    static constexpr int kRtProfileCabinetSettleMs = 250;
+
+    // Applies the queued engine commands before a scenario renders anything.
+    static void settleRtProfileEngine(AudioEngine& engine, int waitMs = kRtProfileEngineSettleMs)
+    {
+        engine.synchronizeProcessingState();
+        if (getRtProfileOptions().legacyWarmUp)
+            return;
+
+        juce::Thread::sleep(waitMs);
+        engine.synchronizeProcessingState();
+    }
+
+    static juce::File resolveDiagnosticPath(const juce::String& path)
+    {
+        if (juce::File::isAbsolutePath(path))
+            return juce::File(path);
+
+        return juce::File::getCurrentWorkingDirectory().getChildFile(path);
+    }
+
+    static const RtProfileOptions& getRtProfileOptions()
+    {
+        static const RtProfileOptions options = []
+        {
+            RtProfileOptions o;
+            o.only.addTokens(juce::SystemStats::getEnvironmentVariable("NOVA_RT_PROFILE_ONLY", {}), ",", {});
+            o.only.trim();
+            o.only.removeEmptyStrings();
+            o.repeat = juce::jlimit(1, 100, juce::SystemStats::getEnvironmentVariable("NOVA_RT_PROFILE_REPEAT", "1").getIntValue());
+            if (const auto csv = juce::SystemStats::getEnvironmentVariable("NOVA_RT_PROFILE_BLOCK_CSV", {}); csv.isNotEmpty())
+                o.blockCsv = resolveDiagnosticPath(csv);
+            o.cabinetProbe = juce::SystemStats::getEnvironmentVariable("NOVA_RT_PROFILE_CAB_PROBE", {}) == "1";
+            o.legacyWarmUp = juce::SystemStats::getEnvironmentVariable("NOVA_RT_PROFILE_LEGACY_WARMUP", {}) == "1";
+            return o;
+        }();
+
+        return options;
+    }
+
+    static bool isRtProfileScenarioSelected(const juce::String& name)
+    {
+        const auto& only = getRtProfileOptions().only;
+        if (only.isEmpty())
+            return true;
+
+        for (const auto& pattern : only)
+            if (name.matchesWildcard(pattern, true))
+                return true;
+
+        return false;
+    }
 
     static constexpr double sampleRate = 48000.0;
     static constexpr int blockSize = 64;
@@ -467,8 +549,13 @@ private:
 
     static void warmUpEngine(AudioEngine& engine, int blocks = 12)
     {
+        warmUpEngine(engine, blocks, blockSize);
+    }
+
+    static void warmUpEngine(AudioEngine& engine, int blocks, int warmUpBlockSize)
+    {
         juce::MidiBuffer midi;
-        juce::AudioBuffer<float> scratch(2, blockSize);
+        juce::AudioBuffer<float> scratch(2, warmUpBlockSize);
 
         for (int i = 0; i < blocks; ++i)
         {
@@ -564,7 +651,25 @@ private:
         return total;
     }
 
-    using RtProfileSetupFn = std::function<void(AudioEngine&)>;
+    static bool lineAHasConvolutionCabinet(AudioEngine& engine)
+    {
+        for (int index = 0; index < 8; ++index)
+        {
+            auto* processor = engine.getProcessorForPedal(Nova::ChainID::LineA, index);
+            if (processor == nullptr)
+                break;
+
+            if (dynamic_cast<CabinetPedal*>(processor) != nullptr
+                || dynamic_cast<Vintage2x12Cabinet*>(processor) != nullptr
+                || dynamic_cast<Modern4x12Cabinet*>(processor) != nullptr)
+                return true;
+        }
+
+        return false;
+    }
+
+    // The int is the block size the setup should use for any warm-up it renders.
+    using RtProfileSetupFn = std::function<void(AudioEngine&, int)>;
     using RtProfileFillFn = std::function<void(juce::AudioBuffer<float>&, int, double)>;
     // Called before each timed block, outside the measured region.
     using RtProfileBlockHookFn = std::function<void(AudioEngine&, int)>;
@@ -593,20 +698,41 @@ private:
         engine.updateGlobalParams(params);
         engine.setEngineEnabled(true);
 
-        setup(engine);
-        engine.synchronizeProcessingState();
+        // B-20: setups warm up with the scenario block size. juce::dsp::Convolution (zero
+        // latency) splits its input into partitions of the prepared block size; if its IR is
+        // installed after an odd number of half-size blocks, every later block straddles two
+        // partitions and costs two FFT pairs (cabinets measured ~1.6x for the whole run).
+        const auto& options = getRtProfileOptions();
+        setup(engine, options.legacyWarmUp ? blockSize : scenarioBlockSize);
+        settleRtProfileEngine(engine);
+
+        // The IR is loaded on a background thread and crossfaded in over 50 ms (19 blocks of
+        // 128) once it arrives. Waiting here installs it at the start of the 32 warm-up blocks,
+        // so the crossfade never reaches the measured window.
+        if (!options.legacyWarmUp && lineAHasConvolutionCabinet(engine))
+            settleRtProfileEngine(engine, kRtProfileCabinetSettleMs);
 
         juce::AudioBuffer<float> buffer(2, scenarioBlockSize);
         juce::MidiBuffer midi;
+
+        const int blocks = juce::jmax(96, (int)((sr * 0.45) / (double)scenarioBlockSize));
+        const bool traceBlocks = options.blockCsv.getFullPathName().isNotEmpty();
+        if (traceBlocks)
+        {
+            result.warmUpBlockMs.reserve(32);
+            result.blockMs.reserve((size_t)blocks);
+        }
 
         for (int block = 0; block < 32; ++block)
         {
             buffer.clear();
             fill(buffer, block, sr);
+            const double warmUpStartMs = traceBlocks ? juce::Time::getMillisecondCounterHiRes() : 0.0;
             engine.process(buffer, midi);
+            if (traceBlocks)
+                result.warmUpBlockMs.push_back(juce::Time::getMillisecondCounterHiRes() - warmUpStartMs);
         }
 
-        const int blocks = juce::jmax(96, (int)((sr * 0.45) / (double)scenarioBlockSize));
         const double blockBudgetMs = ((double)scenarioBlockSize / sr) * 1000.0;
         double totalMs = 0.0;
 
@@ -621,6 +747,9 @@ private:
             const double startMs = juce::Time::getMillisecondCounterHiRes();
             engine.process(buffer, midi);
             const double elapsedMs = juce::Time::getMillisecondCounterHiRes() - startMs;
+
+            if (traceBlocks)
+                result.blockMs.push_back(elapsedMs);
 
             const double budgetRatio = blockBudgetMs > 0.0 ? elapsedMs / blockBudgetMs : 0.0;
             totalMs += elapsedMs;
@@ -700,6 +829,108 @@ private:
 
         result.warnings = warnings.joinIntoString("; ");
         result.status = failed ? "FAIL" : warnings.isEmpty() ? "PASS" : "WARN";
+        return result;
+    }
+
+    // Runs a scenario NOVA_RT_PROFILE_REPEAT times if NOVA_RT_PROFILE_ONLY selects it.
+    static void addRtProfileScenario(std::vector<RtProfileResult>& results,
+        const juce::String& name,
+        double sr,
+        int scenarioBlockSize,
+        const RtProfileSetupFn& setup,
+        const RtProfileFillFn& fill,
+        bool warnOnLimiterActivity = true,
+        const RtProfileBlockHookFn& blockHook = {})
+    {
+        if (!isRtProfileScenarioSelected(name))
+            return;
+
+        for (int repeat = 0; repeat < getRtProfileOptions().repeat; ++repeat)
+        {
+            auto result = runRtProfileScenario(name, sr, scenarioBlockSize, setup, fill, warnOnLimiterActivity, blockHook);
+            result.repeat = repeat;
+            results.push_back(std::move(result));
+        }
+    }
+
+    // Diagnostic (NOVA_RT_PROFILE_CAB_PROBE): times one cabinet processor directly, without
+    // the engine, after its IR is installed and the 50 ms load crossfade has finished.
+    // juce::dsp::Convolution (zero latency) splits its input into 128-sample partitions at
+    // this block size and runs one forward + inverse FFT per partition it touches. With
+    // phaseSamples > 0 one short block is processed first, so every later 128-sample block
+    // straddles two partitions.
+    static RtProfileResult runCabinetPartitionProbe(const juce::String& type, int phaseSamples)
+    {
+        constexpr double sr = 48000.0;
+        constexpr int probeBlockSize = 128;
+
+        RtProfileResult result;
+        result.name = "diag_" + type.toLowerCase().replaceCharacter(' ', '_') + "_phase" + juce::String(phaseSamples);
+        result.sampleRate = sr;
+        result.blockSize = probeBlockSize;
+
+        auto processor = PedalRegistry::createPedal(type);
+        if (processor == nullptr)
+        {
+            result.status = "FAIL";
+            result.warnings = "missing processor";
+            return result;
+        }
+
+        processor->setPlayConfigDetails(2, 2, sr, probeBlockSize);
+        processor->prepareToPlay(sr, probeBlockSize);
+        juce::Thread::sleep(400);
+
+        juce::AudioBuffer<float> buffer(2, probeBlockSize);
+        juce::MidiBuffer midi;
+
+        for (int block = 0; block < 32; ++block)
+        {
+            buffer.clear();
+            fillProfileGuitarBlock(buffer, block, sr, 0.22f);
+            processor->processBlock(buffer, midi);
+        }
+
+        if (phaseSamples > 0)
+        {
+            juce::AudioBuffer<float> shortBlock(buffer.getArrayOfWritePointers(), 2, juce::jmin(phaseSamples, probeBlockSize));
+            processor->processBlock(shortBlock, midi);
+        }
+
+        const int blocks = juce::jmax(96, (int)((sr * 0.45) / (double)probeBlockSize));
+        const double blockBudgetMs = ((double)probeBlockSize / sr) * 1000.0;
+        const bool traceBlocks = getRtProfileOptions().blockCsv.getFullPathName().isNotEmpty();
+        if (traceBlocks)
+            result.blockMs.reserve((size_t)blocks);
+
+        double totalMs = 0.0;
+        for (int block = 0; block < blocks; ++block)
+        {
+            buffer.clear();
+            fillProfileGuitarBlock(buffer, block + 32, sr, 0.22f);
+
+            const double startMs = juce::Time::getMillisecondCounterHiRes();
+            processor->processBlock(buffer, midi);
+            const double elapsedMs = juce::Time::getMillisecondCounterHiRes() - startMs;
+
+            if (traceBlocks)
+                result.blockMs.push_back(elapsedMs);
+
+            totalMs += elapsedMs;
+            result.peakProcessMs = juce::jmax(result.peakProcessMs, elapsedMs);
+            for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+                result.outputPeak = juce::jmax(result.outputPeak, buffer.getMagnitude(ch, 0, probeBlockSize));
+        }
+
+        processor->releaseResources();
+
+        result.processedBlocks = blocks;
+        result.avgProcessMs = totalMs / (double)blocks;
+        result.cpuAvgPercent = (result.avgProcessMs / blockBudgetMs) * 100.0;
+        result.cpuPeakPercent = (result.peakProcessMs / blockBudgetMs) * 100.0;
+        result.maxBudgetRatio = result.peakProcessMs / blockBudgetMs;
+        result.fallbackBlockCount = readFallbackBlockCount(processor.get());
+        result.warnings = "diagnostic probe: processor only, no engine";
         return result;
     }
 
@@ -1239,23 +1470,23 @@ private:
             fillQuietNoiseBlock(buffer, block, 0.16f);
         };
 
-        const auto defaultSetup = [](AudioEngine&) {};
-        const auto dualSetup = [](AudioEngine& engine)
+        const auto defaultSetup = [](AudioEngine&, int) {};
+        const auto dualSetup = [](AudioEngine& engine, int)
         {
             AudioEngine::RuntimeGlobalParams params;
             params.switchMode = (int)Nova::SwitcherMode::Dual_Parallel;
             params.outputMixRaw = 100.0f;
             engine.updateGlobalParams(params);
         };
-        const auto overdriveSetup = [](AudioEngine& engine)
+        const auto overdriveSetup = [](AudioEngine& engine, int warmUpBlockSize)
         {
             engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "profile-overdrive");
-            engine.synchronizeProcessingState();
-            warmUpEngine(engine, 4);
+            settleRtProfileEngine(engine);
+            warmUpEngine(engine, 4, warmUpBlockSize);
             if (auto* overdrive = dynamic_cast<OverdrivePedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)))
                 configureFlagshipOverdrive(*overdrive);
         };
-        const auto fullNominalSetup = [](AudioEngine& engine)
+        const auto fullNominalSetup = [](AudioEngine& engine, int warmUpBlockSize)
         {
             AudioEngine::RuntimeGlobalParams params;
             params.switchMode = (int)Nova::SwitcherMode::LineA_Only;
@@ -1267,8 +1498,8 @@ private:
             engine.addPedal("Overdrive", Nova::ChainID::LineA, 0, Nova::ZoneID::Pre, "profile-overdrive");
             engine.addPedal("Clean Amp", Nova::ChainID::LineA, 1, Nova::ZoneID::Amp, "profile-clean-amp");
             engine.addPedal("Reverb", Nova::ChainID::LineA, 2, Nova::ZoneID::FX, "profile-reverb");
-            engine.synchronizeProcessingState();
-            warmUpEngine(engine, 8);
+            settleRtProfileEngine(engine);
+            warmUpEngine(engine, 8, warmUpBlockSize);
 
             if (auto* overdrive = dynamic_cast<OverdrivePedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)))
                 configureFlagshipOverdrive(*overdrive);
@@ -1280,19 +1511,19 @@ private:
                 reverb->decayParam->setValueNotifyingHost(reverb->decayParam->convertTo0to1(0.72f));
             }
         };
-        const auto highGainSetup = [](AudioEngine& engine)
+        const auto highGainSetup = [](AudioEngine& engine, int)
         {
             engine.addPedal("High Gain Amp", Nova::ChainID::LineA, 0, Nova::ZoneID::Amp, "profile-high-gain");
         };
-        const auto cabinetSetup = [](AudioEngine& engine)
+        const auto cabinetSetup = [](AudioEngine& engine, int)
         {
             engine.addPedal("Cabinet", Nova::ChainID::LineA, 0, Nova::ZoneID::Cabinet, "profile-cabinet");
         };
-        const auto delaySetup = [](AudioEngine& engine)
+        const auto delaySetup = [](AudioEngine& engine, int warmUpBlockSize)
         {
             engine.addPedal("Delay", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "profile-delay");
-            engine.synchronizeProcessingState();
-            warmUpEngine(engine, 4);
+            settleRtProfileEngine(engine);
+            warmUpEngine(engine, 4, warmUpBlockSize);
             if (auto* delay = dynamic_cast<DelayPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)))
             {
                 configureFlagshipDelayAnalog(*delay);
@@ -1300,19 +1531,19 @@ private:
                 delay->feedbackParam->setValueNotifyingHost(delay->feedbackParam->convertTo0to1(0.58f));
             }
         };
-        const auto reverbCloudSetup = [](AudioEngine& engine)
+        const auto reverbCloudSetup = [](AudioEngine& engine, int warmUpBlockSize)
         {
             engine.addPedal("Reverb", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "profile-reverb-cloud");
-            engine.synchronizeProcessingState();
-            warmUpEngine(engine, 4);
+            settleRtProfileEngine(engine);
+            warmUpEngine(engine, 4, warmUpBlockSize);
             if (auto* reverb = dynamic_cast<ReverbPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)))
                 configureFlagshipCloud(*reverb);
         };
-        const auto reverbReverseSwellSetup = [](AudioEngine& engine)
+        const auto reverbReverseSwellSetup = [](AudioEngine& engine, int warmUpBlockSize)
         {
             engine.addPedal("Reverb", Nova::ChainID::LineA, 0, Nova::ZoneID::FX, "profile-reverb-reverse-swell");
-            engine.synchronizeProcessingState();
-            warmUpEngine(engine, 4);
+            settleRtProfileEngine(engine);
+            warmUpEngine(engine, 4, warmUpBlockSize);
             if (auto* reverb = dynamic_cast<ReverbPedal*>(engine.getProcessorForPedal(Nova::ChainID::LineA, 0)))
             {
                 configureFlagshipCloud(*reverb);
@@ -1321,22 +1552,22 @@ private:
             }
         };
 
-        results.push_back(runRtProfileScenario("clean_empty_chain", 48000.0, 128, defaultSetup, emptyFill));
-        results.push_back(runRtProfileScenario("clean_line_a", 48000.0, 128, defaultSetup, guitarFill));
-        results.push_back(runRtProfileScenario("dual_parallel_clean", 48000.0, 128, dualSetup, quietNoiseFill));
-        results.push_back(runRtProfileScenario("overdrive_v2_nominal", 48000.0, 128, overdriveSetup, guitarFill));
-        results.push_back(runRtProfileScenario("overdrive_cleanamp_reverb_chain_nominal", 48000.0, 128, fullNominalSetup, guitarFill, false));
-        results.push_back(runRtProfileScenario("high_gain_amp_nominal", 48000.0, 128, highGainSetup, guitarFill, false));
-        results.push_back(runRtProfileScenario("cabinet_nominal", 48000.0, 128, cabinetSetup, guitarFill));
-        results.push_back(runRtProfileScenario("delay_feedback_nominal", 48000.0, 128, delaySetup, guitarFill, false));
-        results.push_back(runRtProfileScenario("reverb_cloud_tail", 48000.0, 128, reverbCloudSetup, guitarFill, false));
-        results.push_back(runRtProfileScenario("reverb_reverse_swell", 48000.0, 128, reverbReverseSwellSetup, guitarFill, false));
-        results.push_back(runRtProfileScenario("stress_block_32", 48000.0, 32, fullNominalSetup, guitarFill, false));
-        results.push_back(runRtProfileScenario("stress_block_64", 48000.0, 64, fullNominalSetup, guitarFill, false));
-        results.push_back(runRtProfileScenario("stress_block_512", 48000.0, 512, fullNominalSetup, guitarFill, false));
-        results.push_back(runRtProfileScenario("sample_rate_44100", 44100.0, 128, fullNominalSetup, guitarFill, false));
-        results.push_back(runRtProfileScenario("sample_rate_48000", 48000.0, 128, fullNominalSetup, guitarFill, false));
-        results.push_back(runRtProfileScenario("sample_rate_96000", 96000.0, 128, fullNominalSetup, guitarFill, false));
+        addRtProfileScenario(results, "clean_empty_chain", 48000.0, 128, defaultSetup, emptyFill);
+        addRtProfileScenario(results, "clean_line_a", 48000.0, 128, defaultSetup, guitarFill);
+        addRtProfileScenario(results, "dual_parallel_clean", 48000.0, 128, dualSetup, quietNoiseFill);
+        addRtProfileScenario(results, "overdrive_v2_nominal", 48000.0, 128, overdriveSetup, guitarFill);
+        addRtProfileScenario(results, "overdrive_cleanamp_reverb_chain_nominal", 48000.0, 128, fullNominalSetup, guitarFill, false);
+        addRtProfileScenario(results, "high_gain_amp_nominal", 48000.0, 128, highGainSetup, guitarFill, false);
+        addRtProfileScenario(results, "cabinet_nominal", 48000.0, 128, cabinetSetup, guitarFill);
+        addRtProfileScenario(results, "delay_feedback_nominal", 48000.0, 128, delaySetup, guitarFill, false);
+        addRtProfileScenario(results, "reverb_cloud_tail", 48000.0, 128, reverbCloudSetup, guitarFill, false);
+        addRtProfileScenario(results, "reverb_reverse_swell", 48000.0, 128, reverbReverseSwellSetup, guitarFill, false);
+        addRtProfileScenario(results, "stress_block_32", 48000.0, 32, fullNominalSetup, guitarFill, false);
+        addRtProfileScenario(results, "stress_block_64", 48000.0, 64, fullNominalSetup, guitarFill, false);
+        addRtProfileScenario(results, "stress_block_512", 48000.0, 512, fullNominalSetup, guitarFill, false);
+        addRtProfileScenario(results, "sample_rate_44100", 44100.0, 128, fullNominalSetup, guitarFill, false);
+        addRtProfileScenario(results, "sample_rate_48000", 48000.0, 128, fullNominalSetup, guitarFill, false);
+        addRtProfileScenario(results, "sample_rate_96000", 96000.0, 128, fullNominalSetup, guitarFill, false);
 
         // Per-processor cost at default settings ("proc_*") and while every continuous
         // parameter keeps ramping ("proc_*_knobs", the worst case while the user turns knobs).
@@ -1363,18 +1594,63 @@ private:
                 : Nova::ZoneID::Pre;
             const auto scenarioName = "proc_" + type.toLowerCase().replaceCharacter(' ', '_');
 
-            const auto processorSetup = [type, zone](AudioEngine& engine)
+            const auto processorSetup = [type, zone](AudioEngine& engine, int warmUpBlockSize)
             {
                 engine.addPedal(type, Nova::ChainID::LineA, 0, zone, "profile-" + type);
-                engine.synchronizeProcessingState();
-                warmUpEngine(engine, 4);
+                settleRtProfileEngine(engine);
+                warmUpEngine(engine, 4, warmUpBlockSize);
             };
 
-            results.push_back(runRtProfileScenario(scenarioName, 48000.0, 128, processorSetup, guitarFill, false));
-            results.push_back(runRtProfileScenario(scenarioName + "_knobs", 48000.0, 128, processorSetup, guitarFill, false, knobSweepHook));
+            addRtProfileScenario(results, scenarioName, 48000.0, 128, processorSetup, guitarFill, false);
+            addRtProfileScenario(results, scenarioName + "_knobs", 48000.0, 128, processorSetup, guitarFill, false, knobSweepHook);
+        }
+
+        if (getRtProfileOptions().cabinetProbe)
+        {
+            for (const auto& entry : Nova::PedalCatalog::entries())
+            {
+                if (entry.kind != Nova::PedalCatalog::Kind::Cabinet)
+                    continue;
+
+                for (const int phaseSamples : { 0, 64 })
+                {
+                    const juce::String type(entry.typeID);
+                    const auto name = "diag_" + type.toLowerCase().replaceCharacter(' ', '_') + "_phase" + juce::String(phaseSamples);
+                    if (!isRtProfileScenarioSelected(name))
+                        continue;
+
+                    for (int repeat = 0; repeat < getRtProfileOptions().repeat; ++repeat)
+                    {
+                        auto result = runCabinetPartitionProbe(type, phaseSamples);
+                        result.repeat = repeat;
+                        results.push_back(std::move(result));
+                    }
+                }
+            }
         }
 
         return results;
+    }
+
+    static void writeRtProfileBlockCsv(const std::vector<RtProfileResult>& results)
+    {
+        const auto csvFile = getRtProfileOptions().blockCsv;
+        if (csvFile.getFullPathName().isEmpty())
+            return;
+
+        csvFile.getParentDirectory().createDirectory();
+
+        juce::String text;
+        text << "scenario,repeat,stage,block,us" << juce::newLine;
+        for (const auto& r : results)
+        {
+            for (size_t i = 0; i < r.warmUpBlockMs.size(); ++i)
+                text << r.name << "," << r.repeat << ",warm," << (int)i << "," << juce::String(r.warmUpBlockMs[i] * 1000.0, 2) << juce::newLine;
+            for (size_t i = 0; i < r.blockMs.size(); ++i)
+                text << r.name << "," << r.repeat << ",measure," << (int)i << "," << juce::String(r.blockMs[i] * 1000.0, 2) << juce::newLine;
+        }
+
+        csvFile.replaceWithText(text);
     }
 
     struct BitExactResult
@@ -5036,10 +5312,6 @@ private:
         if (reportFile.existsAsFile())
             reportFile.deleteFile();
 
-        auto stream = reportFile.createOutputStream();
-        if (stream == nullptr)
-            return;
-
         int passCount = 0;
         int warnCount = 0;
         int failCount = 0;
@@ -5054,6 +5326,12 @@ private:
         text << "{" << juce::newLine;
         text << "  \"generatedAt\": " << jsonQuote(juce::Time::getCurrentTime().toISO8601(true)) << "," << juce::newLine;
         text << "  \"kind\": \"p4b_rt_profile_baseline\"," << juce::newLine;
+        const auto& options = getRtProfileOptions();
+        text << "  \"procedure\": { \"warmUp\": " << jsonQuote(options.legacyWarmUp ? "legacy" : "b20")
+             << ", \"engineSettleMs\": " << (options.legacyWarmUp ? 0 : kRtProfileEngineSettleMs)
+             << ", \"cabinetSettleMs\": " << (options.legacyWarmUp ? 0 : kRtProfileCabinetSettleMs)
+             << ", \"repeat\": " << options.repeat
+             << ", \"only\": " << jsonQuote(options.only.joinIntoString(",")) << " }," << juce::newLine;
         text << "  \"summary\": {" << juce::newLine;
         text << "    \"total\": " << (int)results.size() << "," << juce::newLine;
         text << "    \"pass\": " << passCount << "," << juce::newLine;
@@ -5067,6 +5345,7 @@ private:
             const auto& r = results[i];
             text << "    {" << juce::newLine;
             text << "      \"name\": " << jsonQuote(r.name) << "," << juce::newLine;
+            text << "      \"repeat\": " << r.repeat << "," << juce::newLine;
             text << "      \"status\": " << jsonQuote(r.status) << "," << juce::newLine;
             text << "      \"sampleRate\": " << juce::String(r.sampleRate, 2) << "," << juce::newLine;
             text << "      \"blockSize\": " << r.blockSize << "," << juce::newLine;
@@ -5096,8 +5375,11 @@ private:
         text << "  ]" << juce::newLine;
         text << "}" << juce::newLine;
 
-        stream->writeText(text, false, false, "\n");
-        stream->flush();
+        // Write to a temp file first: run-rt-profile-scenarios.ps1 reads the report as soon
+        // as it exists and then stops the process.
+        auto tempFile = reportFile.getSiblingFile(reportFile.getFileName() + ".tmp");
+        if (!tempFile.replaceWithText(text, false, false, "\n") || !tempFile.moveFileTo(reportFile))
+            return;
 
         SessionLogger::logEvent("rt.profile",
             "RT profile report written to " + reportFile.getFullPathName()
