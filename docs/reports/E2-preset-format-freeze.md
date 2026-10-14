@@ -28,7 +28,7 @@ Los presets (`.nova-preset`) y las sesiones de DAW usan el mismo árbol: un `juc
 |---|---|
 | **Valor real (`raw`) junto al normalizado** en el serializador genérico y en el Wah | Si en el futuro cambia el rango de una perilla, el preset conserva el valor real (los mismos dB, ms o Hz) en vez de reinterpretar el número 0..1. Mientras el rango no cambie, se usa el normalizado exacto: los presets cargan igual que hoy, bit a bit |
 | **Punto de migración** `PluginStateModel::migrateStateTree()` | Corre antes de estampar la versión actual. Hoy no hace nada (esquema 1); ahí van los pasos de versiones futuras |
-| **Detección de presets de una versión más nueva** (`isFromNewerSchema`) | Carga lo que puede y deja una entrada `preset.load.newerSchema` / `state.restore.newerSchema` en el log. Falta mostrarlo en la UI (pendiente, junto con E6) |
+| **Detección de presets de una versión más nueva** (`isFromNewerSchema`) | Carga lo que puede y deja una entrada `preset.load.newerSchema` / `state.restore.newerSchema` en el log. Desde E6, además, un diálogo avisa al usuario (`docs/reports/E6-problem-report.md` §4) |
 | **`savedByVersion`** en cada preset y sesión | Saber qué versión escribió un preset cuando un tester reporta un problema |
 | Log corregido | `PluginProcessor::loadPresetFromFile` registraba la versión *después* de sobreescribirla (siempre decía 1) |
 
@@ -66,4 +66,4 @@ Antes ya existían los tests P7D (topología, routing, bypass y canonicalizació
 
 ## 5. Pendiente fuera de E2
 
-- Mostrar en la UI un aviso cuando un preset viene de una versión más nueva de NOVA (hoy solo queda en el log). Se puede resolver junto con E6 (reporte de problemas).
+- ~~Mostrar en la UI un aviso cuando un preset viene de una versión más nueva de NOVA~~. **Hecho en E6 (2026-10-13):** diálogo una sola vez, también para el preset de inicio y las sesiones de DAW.
