@@ -71,6 +71,17 @@ struct AudioEngineTestAccess
         engine.handleAsyncUpdate();
     }
 
+    // setEngineEnabled() and synchronizeProcessingState() flush with a try-lock. When the
+    // engine control thread is mid-flush (it applies runtime params every 20 ms), the test
+    // thread's flush is skipped and the command waits for the next control-thread pass, so
+    // the engine turns on at a random block of the render. Holding the (recursive) flush
+    // lock waits for that pass and then flushes deterministically.
+    static void flushPendingGraphCommandsBlocking(AudioEngine& engine)
+    {
+        const juce::ScopedLock waitForControlThread(engine.controlPlane.flushLock);
+        engine.flushPendingGraphCommands();
+    }
+
     static void forceRetiredGraphCleanup(AudioEngine& engine)
     {
         engine.audioPlane.audioBlockCounter.store(
@@ -2710,6 +2721,8 @@ void expectStereoSamplesMatch(juce::UnitTest& test,
 
 void warmUpEngine(AudioEngine& engine, int blockSize, int blocks = 10)
 {
+    AudioEngineTestAccess::flushPendingGraphCommandsBlocking(engine);
+
     juce::MidiBuffer midi;
     juce::AudioBuffer<float> scratch(2, blockSize);
 
