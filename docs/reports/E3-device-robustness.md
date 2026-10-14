@@ -69,10 +69,10 @@ Usa un preset con perillas movidas (no default): así se nota si algo se reinici
 | M3 | Desconecta el cable USB de la interfaz mientras tocas (con WASAPI y también con ASIO) | NOVA no se cuelga. Con WASAPI pasa a otro dispositivo, con la entrada silenciada y el aviso "disconnected". Sin acople. Con ASIO puede quedar en silencio en el mismo driver |
 | M4 | Vuelve a conectar la interfaz **sin tocar nada** | NOVA vuelve sola a la interfaz en unos segundos, con el aviso "reconnected", y suena con los mismos ajustes (frecuencia, buffer, perillas). Si no vuelve, anota el driver |
 | M4b | Desconecta, elige a mano otro dispositivo y reconecta la interfaz | NOVA se queda en el dispositivo que elegiste (no vuelve a la interfaz) |
-| M5 | Usa WASAPI (Windows Audio) en lugar de ASIO; prueba shared y, si aparece, Low Latency o exclusive | Suena sin cortes con buffer ≥ 128; el wizard muestra la latencia real |
+| M5 | Usa WASAPI (Windows Audio) en lugar de ASIO; prueba shared y, si aparece, Low Latency o exclusive | Suena sin cortes con buffer ≥ 128; el panel de Audio muestra la latencia real. Con entrada y salida en dispositivos distintos, ver E4 (`docs/reports/E4-separate-device-clocks.md`) |
 | M6 | Sin interfaz: entrada y salida de la laptop o de una tarjeta integrada | La entrada empieza silenciada (riesgo de acople) y el aviso lo explica |
 | M7 | Salida por audífonos Bluetooth, con la entrada en la interfaz | Funciona, con la latencia alta propia de Bluetooth. Si el audio de los audífonos baja a calidad "telefónica", Windows abrió su micrófono (modo manos libres): anótalo, porque habría que evitar ese dispositivo como entrada |
-| M8 | Aplicar y Deshacer del Autopilot, y CALIBRATE BUFFER, con perillas movidas | Las perillas no cambian (antes se reiniciaban) |
+| M8 | Apply y Undo del Autopilot, y "Find lowest stable", con perillas movidas | Las perillas no cambian (antes se reiniciaban) |
 | M9 | Suspende la laptop con NOVA abierto y vuelve | NOVA sigue funcionando o se recupera al reabrir el dispositivo; sin crash |
 
 Si algo falla, anota el paso, el driver, la frecuencia y el buffer, y guarda `%APPDATA%/NOVA/Logs/session-log.txt`.

@@ -371,7 +371,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | B-02 | La línea muteada consume CPU y le suma su latencia a la línea activa | T2-02 |
 | B-03 | ASIO está desactivado; el wizard siempre muestra "ASIO: Not detected" | T0-03 |
 | B-04 | El wizard calcula la latencia como `buffer / sampleRate` (la subestima) | T0-04 |
-| B-05 | El WASAPI de JUCE con dispositivos distintos no corrige la deriva de reloj → clicks periódicos | T2-09 |
+| B-05 | El WASAPI de JUCE con dispositivos distintos no corrige la deriva de reloj → clicks periódicos | Detección y aviso: E4 (hecho). Arreglo: T2-09 |
 | B-06 | CLAUDE.md dice oversampling 4x; el código usa 8x | T0-15 |
 | B-07 | Los `.vcxproj` versionados tenían rutas de módulos JUCE viejas (6 niveles `..`, apuntaban a una carpeta inexistente) y les faltaban 28 headers que sí estaban en `NOVA.jucer`. El build funcionaba porque esos archivos están `ExcludedFromBuild` o son headers | Corregido por el re-export de T0-03 |
 | B-08 | El Octave costaba 43.5% de CPU (pico 70%) por su detector de pitch: con buffers chicos podía causar cortes por sí solo | T0-16 (−72%); más margen en T1-13 |
@@ -383,6 +383,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | B-14 | `LookaheadDelay::process()` del Noise Gate trata un retardo de 0 como un retardo de buffer completo. No afecta a Studio (72 muestras) ni a Live G1 (12) | Solo si algún día se elige G3 (T2-01) |
 | B-15 | El test "AudioEngine mixed-zone insertion…" fallaba de forma intermitente en Release (también en `HEAD`): no esperaba la carga en segundo plano del IR del Cabinet | Corregido en T2-01 F0 (espera de 500 ms) |
 | B-16 | El IR sintético se normalizaba por pico: a 96 kHz la misma respuesta se reparte en el doble de muestras, el pico baja a la mitad y el cab sonaba **~6 dB más fuerte** (a 44.1 kHz, ~0.6 dB más bajo) | Corregido con T1-02 |
+| B-17 | Autopilot: si la interfaz de la guitarra no tenía salida ni ASIO, el par "micrófono interno + parlantes internos" (bono de +100 por mismo aparato) le ganaba a "interfaz + audífonos USB": recomendaba el micrófono de la laptop, sin guitarra | Corregido en E4 (la entrada interna resta 100, la webcam 140) |
 
 ## 9. Límites físicos (no se pueden optimizar por software)
 
@@ -417,7 +418,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | E1 | El cab suena igual a 44.1, 48 y 96 kHz (T1-02 + B-16) | Código | **Hecho (2026-10-12)** |
 | E2 | Formato de presets congelado: revisar `STATE_SCHEMA_VERSION`, la migración de versiones viejas y el round-trip guardar → cargar | Revisión + tests | **Hecho (2026-10-13).** Esquema 1 congelado: valor real por parámetro, punto de migración, detección de presets más nuevos, 25 presets de referencia v1 en el repo y reglas en `docs/reports/E2-preset-format-freeze.md`. Pendiente menor: aviso en la UI para presets más nuevos (con E6) |
 | E3 | Robustez de dispositivo: desconexión y reconexión en caliente, 44.1/48/96 kHz, buffers de 32 a 1024, ASIO, WASAPI y equipos sin ASIO | Tests + prueba manual | **Parte automática hecha (2026-10-13):** bug corregido (al reabrir el dispositivo las perillas volvían a su default: 40/40 parámetros perdidos → 0); matriz de 40 frecuencias × buffers, bloques irregulares y desconexión en tests. Además, vuelta automática a la interfaz al reconectarla (pedido del usuario). **Falta:** prueba manual M1–M9 de `docs/reports/E3-device-robustness.md` |
-| E4 | Entrada y salida en dispositivos distintos (B-05): el wizard lo detecta y lo explica | Código (wizard) | Pendiente |
+| E4 | Entrada y salida en dispositivos distintos (B-05): el panel de Audio lo detecta y lo explica | Código (panel de Audio) | **Hecho (2026-10-13):** `usesSeparateClocks()` + `adviseClocks()` (lógica pura con tests); indicador ámbar y aviso en el panel con qué hacer (audífonos en la interfaz + Apply de la recomendación, o elegir su salida); sin aviso para endpoints del mismo aparato, ASIO ni rutas sin entrada; traza en el log de sesión. Corregido B-17 (ranking). Reporte: `docs/reports/E4-separate-device-clocks.md`. Arreglo de fondo: T2-09. **Falta:** prueba manual E4-M1–M3 |
 | E5 | VST3 en 2–3 DAWs (procedimiento P13A) | Prueba manual | Pendiente |
 | E6 | Reporte de problemas: exportar el log de sesión y el diagnóstico desde la app | Código | Pendiente |
 | E7 | Cierre: prueba de B-11 en la app, rt-profile con la máquina en reposo, merge a `master` | Prueba + merge | Pendiente |
@@ -430,7 +431,7 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 
 **Dónde retomar (2026-10-12):** todo commiteado en la rama `perf/t0-latency-optimizations` (sin mergear a `master`): T0, T2-10 F1 + F2 (probadas por el usuario en la app, caja negra OK), T2-01 F0 y el arreglo de B-11.
 
-**Prioridad actual: checklist del motor para la beta (§11b).** E1, E2 y U1 hechos; E3 automático hecho (falta la prueba manual M1–M9); sigue E4 (su aviso va dentro del panel de Audio).
+**Prioridad actual: checklist del motor para la beta (§11b).** E1, E2, U1 y E4 hechos; E3 automático hecho. Pruebas manuales pendientes del usuario: E3 M1–M9 y E4-M1–M3. Siguen E5 (VST3 en 2–3 DAWs, manual), E6 (exportar el reporte de problemas + aviso de presets más nuevos) y E7 (cierre).
 
 1. **Prueba rápida en la app del arreglo de B-11:** agregar y quitar pedales, cambiar de preset y usar Aplicar/Deshacer del Autopilot tocando. Debe oírse un hueco corto y limpio, sin DI crudo ni clicks.
 2. **Después del congelamiento — T2-01 F1 + F2 solo en el Standalone:** `AudioEngine::setLatencyMode` + `GraphBuilder` conectan los flags de F0; ajuste en el `PropertySet` del Standalone; interruptor "Live / Studio"; Studio por defecto. Después, el A/B del usuario.
@@ -460,3 +461,4 @@ Orden sugerido de investigación (por ms ganados y valor): **T2-10 (prioridad de
 | 2026-10-13 | E3 (automático): bug corregido en `AudioEngine::prepare()`: al reabrir el dispositivo (buffer, frecuencia, interfaz, Autopilot, desconexión) las perillas volvían a su default. Suite `E3 device robustness`: re-prepare en 6 configuraciones, matriz de 40 frecuencias × buffers, bloques irregulares y unplug/replug, todo PASS. Base PASS (341/14150/0) en Debug y Release, bit-exacto 56/56, golden PASS. Procedimiento manual M1–M9 en `docs/reports/E3-device-robustness.md` |
 | 2026-10-13 | E3: vuelta automática al dispositivo elegido cuando se reconecta (`AudioAutopilot::updateReconnect` + `StandaloneAudioAutopilot`), con un máximo de 3 intentos y respetando un cambio manual mientras espera. Unit test de la lógica. Base PASS (342/14174/0) en Debug y Release, bit-exacto 56/56 |
 | 2026-10-13 | U1: panel único de Audio (`Source/GUI/Overlays/AudioPanel.h`) con indicador de estado en el header; se eliminan la página Audio de Settings, el wizard Audio Setup, el menú "Options" de JUCE y el ajuste muerto `showLatencyTips`; referencia del afinador dentro del afinador; corregidos los botones de Settings tapados por el contenido. Revisado con capturas (hook `NOVA_UI_SNAPSHOT_DIR`, solo Debug) en 1920×1080 y 1280×760. Base PASS (342/14174/0) en Debug y Release, bit-exacto 56/56, golden PASS |
+| 2026-10-13 | E4: aviso de entrada y salida en dispositivos distintos (B-05). `AudioAutopilot::usesSeparateClocks()` y `adviseClocks()`; indicador ámbar, aviso en la línea de avisos del panel (prioridad sobre el de modo compartido, altura según el texto) y `autopilot.clock` en el log de sesión. Sin banner (decisión del usuario). Nuevo hallazgo B-17 (el Autopilot podía recomendar el micrófono interno en vez de la interfaz sin salida), corregido. 2 tests nuevos. Capturas con el equipo real del usuario (UR12 → BlackShark, Shared): indicador ámbar con 9.5 ms (antes verde) y aviso en 2 líneas a 1920×1080 y 1280×760. Base PASS (344/14216/0) en Debug y Release, bit-exacto 56/56 (Debug y Release), golden PASS, policy PASS |
