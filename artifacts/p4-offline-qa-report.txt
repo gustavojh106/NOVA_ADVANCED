@@ -1,5 +1,5 @@
 NOVA Offline QA Report
-Generated: 2026-10-13 23:23:18
+Generated: 2026-10-14 13:36:24
 Scenarios: 74
 
 [PASS] impulse_transparency_line_a
@@ -367,7 +367,7 @@ iterations=2250.00000000
 
 [PASS] reverb_tail_quality
 notes=Cloud tail stayed finite, sustained and decayed cleanly
-render_ms=144.15600000
+render_ms=166.59520000
 peak=0.90457606
 rms=0.00173052
 late_rms_0p8_1p3s=0.00018310
@@ -534,7 +534,7 @@ blocks=2400.00000000
 
 [PASS] graph_diagnostic_report
 notes=Diagnostic report reflects graph topology
-report_length_chars=1148.00000000
+report_length_chars=1147.00000000
 contains_delay=1.00000000
 contains_reverb=1.00000000
 contains_ids=1.00000000
